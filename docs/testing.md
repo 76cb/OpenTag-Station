@@ -168,10 +168,19 @@ Run the release checks with:
 ```bash
 git diff --check
 python3 tools/check_web_assets.py
+python3 tools/web_flasher.py validate-source --page web-flasher/index.html --manifest web-flasher/manifest.json
 .venv/bin/pio test --environment native
 .venv/bin/pio run --environment wt32-sc01-plus
 python3 tools/analyze_stack_usage.py
+.venv/bin/pio run --environment wt32-sc01-plus --target web-flasher
+python3 tools/web_flasher.py validate-bundle --bundle-dir .pio/build/wt32-sc01-plus/web-flasher --maximum-size 16777216
 ```
+
+The web-flasher checks verify the ESP Web Tools page and manifest paths, the
+single merged image at offset zero, ESP32-S3 chip family, source Git SHA,
+evaluated PlatformIO upload inputs, and the 16 MiB size bound. They generate no
+release or tag and do not prove a physical USB flash; follow
+[web-flasher.md](web-flasher.md) for that pending hardware/browser validation.
 
 The final count/build measurements and all-UNVERIFIED hardware/soak matrix are
 maintained in [release-validation.md](release-validation.md).

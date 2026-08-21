@@ -180,9 +180,16 @@ the ESP32 platform are pinned in `platformio.ini`. Release builders should set
 `SOURCE_DATE_EPOCH`; otherwise the build date is derived from the Git commit
 date, not the wall clock.
 
-## First flash
+## First install
 
-Connect the WT32-SC01 Plus over USB, identify its serial port, and run:
+For first installation or USB recovery, use the HTTPS
+[browser firmware installer](docs/web-flasher.md) from desktop Chrome or Edge.
+It flashes a generated ESP Web Tools factory image without requiring
+PlatformIO on the user's computer. Normal future updates should use the
+station's authenticated local A/B OTA Update panel.
+
+For development or direct serial installation, connect the WT32-SC01 Plus over
+USB, identify its serial port, and run:
 
 ```bash
 .venv/bin/pio run --environment wt32-sc01-plus --target upload --upload-port PORT
@@ -229,9 +236,11 @@ restore the previous slot.
 Image SHA-256 provides integrity, not publisher authenticity: Phase 10 does not
 implement signed firmware. The local web server is HTTP rather than HTTPS, so
 updates must be performed only on a trusted isolated LAN. There is no URL-based
-OTA path. USB/PlatformIO and bootloader serial flashing remain the recovery
-paths when the local service cannot start. Configuration and calibration remain
-outside both application slots. See [OTA architecture](docs/ota.md).
+OTA path. The HTTPS [browser flasher](docs/web-flasher.md), direct PlatformIO
+upload, and the bootloader serial protocol remain USB recovery paths when the
+local service cannot start. A factory/erase operation can clear configuration
+and calibration even though routine local OTA leaves them outside both
+application slots. See [OTA architecture](docs/ota.md).
 
 ## Known limitations
 
