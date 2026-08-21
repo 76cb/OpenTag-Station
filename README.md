@@ -40,7 +40,7 @@ host-tested, firmware-compiled software through Phase 11 release hardening:
 - configurable ESP32 RFAL SPI/GPIO/IRQ/timer/mutex primitives plus a testable
   ST25R3916B bring-up/recovery sequence that keeps the RF field and frontend
   powered down after a failed step;
-- a bounded NAU7802 driver on the second I2C controller, a dedicated retrying
+- a bounded NAU7802 driver on a dedicated external-bus I2C controller, a dedicated retrying
   scale task, moving-average/stability/creep/overload processing, tare and
   signed reference calibration, and CRC-protected schema-versioned NVS
   persistence, with the actual YZC-133 5 kg variant as the default persistent

@@ -5,6 +5,14 @@ Versioning once releases begin.
 
 ## Unreleased
 
+### Fixed
+
+- Explicitly mount and first-use-format the custom `littlefs` partition by label;
+  post-provisioning mount failures remain fail-safe and never auto-format data.
+- Isolate the NAU7802 on `Wire` from the touchscreen on `Wire1`, and add a
+  one-shot bounded GPIO10/11 startup scan with diagnostic-only reversed-wire
+  detection that always restores the production pin assignment.
+
 ### Added
 
 - An ESP Web Tools HTTPS installer for WT32-SC01 Plus first installation and

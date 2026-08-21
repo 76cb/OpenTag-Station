@@ -17,6 +17,9 @@ constexpr char application_preferences_namespace[] = "opentag";
 constexpr char control_preferences_namespace[] = "opentagCtl";
 constexpr char factory_reset_pending_key[] = "resetPending";
 constexpr char filesystem_provisioned_key[] = "fsProvisioned";
+constexpr char filesystem_base_path[] = "/littlefs";
+constexpr char filesystem_partition_label[] = "littlefs";
+constexpr std::uint8_t filesystem_max_open_files = 10U;
 constexpr std::uint32_t scale_calibration_magic = 0x5343414CU;  // SCAL
 constexpr char configuration_path[] = "/configuration.json";
 constexpr char configuration_staging_path[] = "/configuration.new";
@@ -108,7 +111,11 @@ bool StorageService::initialize(std::uint32_t now_ms) {
     reset_in_progress_.store(true, std::memory_order_release);
   }
 
-  status_.filesystem_ready = LittleFS.begin(false);
+  status_.filesystem_ready = LittleFS.begin(
+      false,
+      filesystem_base_path,
+      filesystem_max_open_files,
+      filesystem_partition_label);
   const bool filesystem_was_provisioned =
       reset_pending ||
       (control_nvs_ready &&
@@ -119,7 +126,11 @@ bool StorageService::initialize(std::uint32_t now_ms) {
       !filesystem_was_provisioned) {
     // A factory-blank partition needs one initial format. Once provisioned, a
     // mount failure is surfaced instead of silently destroying recoverable data.
-    status_.filesystem_ready = LittleFS.begin(true);
+    status_.filesystem_ready = LittleFS.begin(
+        true,
+        filesystem_base_path,
+        filesystem_max_open_files,
+        filesystem_partition_label);
   }
 
   if (reset_pending) {

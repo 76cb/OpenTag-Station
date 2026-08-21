@@ -67,7 +67,7 @@ class Application {
   diagnostics::SystemDiagnostics diagnostics_{display_, storage_};
   config::ConfigurationService configuration_{storage_, storage_};
   hardware::scale::Nau7802Device scale_adc_{
-      Wire1,
+      Wire,
       {boards::Wt32Sc01PlusRevA::scale_sda,
        boards::Wt32Sc01PlusRevA::scale_scl}};
   services::ScaleService scale_{scale_adc_, configuration_};

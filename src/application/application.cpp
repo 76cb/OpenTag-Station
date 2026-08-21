@@ -11,6 +11,34 @@
 namespace opentag::application {
 namespace {
 
+void print_scale_i2c_scan(
+    std::int8_t sda,
+    std::int8_t scl,
+    const hardware::scale::I2cScanResult& scan) {
+  Serial.printf(
+      "Scale I2C scan GPIO%d SDA / GPIO%d SCL:",
+      static_cast<int>(sda),
+      static_cast<int>(scl));
+  if (!scan.bus_started) {
+    Serial.println(" bus initialization failed; no devices found");
+    return;
+  }
+  if (!scan.found_any()) {
+    Serial.println(" no devices found");
+    return;
+  }
+  Serial.print(" found");
+  for (std::uint8_t index = 0U; index < scan.reported_count; ++index) {
+    Serial.printf(" 0x%02X", static_cast<unsigned>(scan.addresses[index]));
+  }
+  if (scan.truncated()) {
+    Serial.printf(
+        " +%u more",
+        static_cast<unsigned>(scan.device_count - scan.reported_count));
+  }
+  Serial.println();
+}
+
 constexpr std::uint32_t boot_health_retry_interval_ms = 1000U;
 
 bool candidate_validation_pending(opentag::ota::UpdateState state) {
@@ -374,6 +402,67 @@ void Application::scale_task_entry(void* context) {
   constexpr std::uint32_t operation_timeout_ms = 1000U;
   constexpr std::uint32_t retry_interval_ms = 5000U;
   application->diagnostics_.set_scale_task_running(true);
+
+  const auto bus_diagnostic = application->scale_adc_.diagnose_bus();
+  print_scale_i2c_scan(
+      boards::Wt32Sc01PlusRevA::scale_sda,
+      boards::Wt32Sc01PlusRevA::scale_scl,
+      bus_diagnostic.expected);
+  if (bus_diagnostic.reversed_scanned) {
+    print_scale_i2c_scan(
+        boards::Wt32Sc01PlusRevA::scale_scl,
+        boards::Wt32Sc01PlusRevA::scale_sda,
+        bus_diagnostic.reversed);
+  }
+
+  const auto diagnostic_time_ms = millis();
+  switch (bus_diagnostic.outcome()) {
+    case hardware::scale::ScaleI2cOutcome::present_on_expected_bus:
+      Serial.println("NAU7802: PRESENT at 0x2A");
+      application->logs_.append(
+          diagnostic_time_ms,
+          logging::LogSeverity::info,
+          logging::LogComponent::scale,
+          "NAU7802 present at 0x2A on SDA GPIO10 / SCL GPIO11");
+      break;
+    case hardware::scale::ScaleI2cOutcome::present_on_reversed_bus:
+      Serial.println("NAU7802: FOUND WITH SDA/SCL REVERSED");
+      Serial.println("Expected: SDA=GPIO10 SCL=GPIO11");
+      Serial.println("Detected: SDA=GPIO11 SCL=GPIO10");
+      Serial.println("Check/swap SDA and SCL wiring");
+      application->logs_.append(
+          diagnostic_time_ms,
+          logging::LogSeverity::warning,
+          logging::LogComponent::scale,
+          "NAU7802 found only with SDA/SCL reversed; restore GPIO10 SDA / GPIO11 SCL wiring");
+      break;
+    case hardware::scale::ScaleI2cOutcome::target_missing_with_other_devices:
+      Serial.println("NAU7802 0x2A not present");
+      application->logs_.append(
+          diagnostic_time_ms,
+          logging::LogSeverity::warning,
+          logging::LogComponent::scale,
+          "Scale I2C scan found other device(s), but NAU7802 0x2A was absent");
+      break;
+    case hardware::scale::ScaleI2cOutcome::no_devices:
+      Serial.println("NAU7802: NOT DETECTED");
+      Serial.println("No I2C devices found on GPIO10/11 in either orientation");
+      Serial.println("Check NAU7802 power, harness, connector orientation, SDA/SCL wiring, or module");
+      application->logs_.append(
+          diagnostic_time_ms,
+          logging::LogSeverity::warning,
+          logging::LogComponent::scale,
+          "No I2C devices found on scale GPIO10/11 in either orientation");
+      break;
+  }
+  if (!bus_diagnostic.expected_bus_restored) {
+    Serial.println("Scale I2C: ERROR restoring SDA=GPIO10 SCL=GPIO11");
+    application->logs_.append(
+        diagnostic_time_ms,
+        logging::LogSeverity::error,
+        logging::LogComponent::scale,
+        "Scale I2C could not restore production GPIO10 SDA / GPIO11 SCL");
+  }
 
   auto last_initialize_attempt_ms = millis();
   auto initialized = application->scale_.initialize(

@@ -4,6 +4,7 @@
 
 #include <Wire.h>
 
+#include "hardware/scale/i2c_diagnostics.hpp"
 #include "services/scale_service.hpp"
 
 namespace opentag::hardware::scale {
@@ -36,6 +37,7 @@ class Nau7802Device final : public services::IScaleAdc {
       I2cPins pins,
       Nau7802Config config = {});
 
+  [[nodiscard]] ScaleI2cDiagnosticResult diagnose_bus();
   [[nodiscard]] core::Result<void> initialize(std::uint32_t timeout_ms) override;
   [[nodiscard]] core::Result<void> internal_calibrate(std::uint32_t timeout_ms) override;
   [[nodiscard]] core::Result<bool> sample_ready() override;
@@ -59,10 +61,12 @@ class Nau7802Device final : public services::IScaleAdc {
       std::uint8_t address,
       std::uint8_t clear_mask,
       std::uint8_t set_mask);
+  [[nodiscard]] I2cScanResult scan_bus(I2cPins pins);
 
   TwoWire& wire_;
   I2cPins pins_;
   Nau7802Config config_;
+  bool expected_bus_ready_{false};
   bool initialized_{false};
 };
 

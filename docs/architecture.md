@@ -61,7 +61,7 @@ queues have overflow diagnostics. No worker may wait forever; every NFC, DNS,
 HTTP, and OTA operation gets a deadline.
 
 Phase 1 activates the UI owner as a pinned FreeRTOS task; it is the only context
-allowed to call LVGL. Phase 5 activates a separate scale task on the second I2C
+allowed to call LVGL. Phase 5 activates a separate scale task on the dedicated external I2C
 controller; NAU7802 startup/calibration is bounded, missing hardware is retried,
 and snapshots cross into UI diagnostics through atomics. Phase 6 activates the
 network task and a bounded configuration worker. UI callbacks enqueue settings

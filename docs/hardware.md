@@ -39,8 +39,8 @@ available with one PSRAM buffer if the second allocation fails, or a 480 ×
 diagnostics screen reports the actual allocation path.
 
 NVS stores boot count, boot-pending health, and a saturated crash streak. A
-factory-blank LittleFS partition is formatted once and marked provisioned in
-NVS; later mount failures are reported without automatic reformatting. The
+factory-blank LittleFS partition is mounted by its explicit `littlefs` partition
+label, formatted once if needed, and marked provisioned in NVS; later mount failures are reported without automatic reformatting. The
 firmware detects the coredump partition and displays reset reason, uptime, heap,
 minimum heap, and PSRAM totals. These behaviors are compiled, not yet physically
 verified.
@@ -102,8 +102,9 @@ reports NFC disabled.
 
 ## Scale assumptions
 
-The driver uses the NAU7802 at 3.0 V LDO, gain 128, and 10 samples/second on the
-second ESP32 I2C controller so it cannot reconfigure the touch bus. Startup,
+The driver uses the NAU7802 at 3.0 V LDO, gain 128, and 10 samples/second on
+`Wire` (ESP32 I2C controller 0). The touch controller remains on `Wire1` (I2C
+controller 1), preventing either owner from reconfiguring the other bus. Startup,
 revision detection, raw reads, internal calibration, and disconnect recovery are
 implemented with bounded waits.
 
