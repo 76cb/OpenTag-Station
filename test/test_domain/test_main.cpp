@@ -2,6 +2,7 @@
 
 #include "application/state_machine.hpp"
 #include "application/task_contracts.hpp"
+#include "boards/wt32_sc01_plus_rev_a.hpp"
 #include "domain/printer.hpp"
 #include "domain/weight.hpp"
 #include "events/application_event.hpp"
@@ -137,6 +138,18 @@ void test_unresolved_nfc_wiring_stays_disabled() {
   TEST_ASSERT_FALSE(opentag::hardware::nfc::st25r3916b_wiring_complete);
 }
 
+void test_wt32_display_pipeline_contract_is_explicit() {
+  using Board = opentag::boards::Wt32Sc01PlusRevA;
+  TEST_ASSERT_EQUAL_UINT16(320U, Board::display_native_width);
+  TEST_ASSERT_EQUAL_UINT16(480U, Board::display_native_height);
+  TEST_ASSERT_EQUAL_UINT16(480U, Board::display_width);
+  TEST_ASSERT_EQUAL_UINT16(320U, Board::display_height);
+  TEST_ASSERT_EQUAL_UINT8(1U, Board::display_rotation);
+  TEST_ASSERT_TRUE(Board::display_invert);
+  TEST_ASSERT_FALSE(Board::display_rgb_order);
+  TEST_ASSERT_TRUE(Board::display_swap_bytes);
+}
+
 void test_application_state_machine_rejects_skipped_workflow_steps() {
   ApplicationStateMachine machine;
   TEST_ASSERT_TRUE(machine.transition(ApplicationState::idle).ok());
@@ -196,6 +209,7 @@ int main(int, char**) {
   RUN_TEST(test_capabilities_are_explicit);
   RUN_TEST(test_event_queue_is_bounded_and_fifo);
   RUN_TEST(test_unresolved_nfc_wiring_stays_disabled);
+  RUN_TEST(test_wt32_display_pipeline_contract_is_explicit);
   RUN_TEST(test_application_state_machine_rejects_skipped_workflow_steps);
   RUN_TEST(test_stationary_tag_triggers_exactly_once_until_removed);
   RUN_TEST(test_every_runtime_owner_has_bounded_queue_and_deadline);

@@ -15,6 +15,29 @@
 namespace opentag::ui {
 namespace {
 
+static_assert(LV_COLOR_DEPTH == 16, "WT32 display requires RGB565");
+static_assert(
+    LV_COLOR_16_SWAP == 0,
+    "LovyanGFX owns the LVGL RGB565 byte swap at the display boundary");
+
+constexpr std::uint32_t screen_background = 0x111827;
+constexpr std::uint32_t primary_text = 0xF8FAFC;
+constexpr std::uint32_t secondary_text = 0xCBD5E1;
+constexpr std::uint32_t accent_text = 0x93C5FD;
+constexpr std::uint32_t warning_text = 0xFDE68A;
+
+void style_screen(lv_obj_t* screen) {
+  lv_obj_set_style_bg_color(screen, lv_color_hex(screen_background), 0);
+  lv_obj_set_style_text_color(screen, lv_color_hex(primary_text), 0);
+  lv_obj_set_style_pad_all(screen, 0, 0);
+  lv_obj_clear_flag(screen, LV_OBJ_FLAG_SCROLLABLE);
+}
+
+void style_title(lv_obj_t* title) {
+  lv_obj_set_style_text_font(title, &lv_font_montserrat_20, 0);
+  lv_obj_set_style_text_color(title, lv_color_hex(accent_text), 0);
+}
+
 void format_milli(char* output, std::size_t size, std::int32_t value) {
   const auto wide = static_cast<std::int64_t>(value);
   const auto absolute = wide < 0 ? -wide : wide;
@@ -85,7 +108,14 @@ bool UiService::initialize() {
   display_driver_.flush_cb = flush_callback;
   display_driver_.draw_buf = &draw_buffer_;
   display_driver_.user_data = this;
-  lv_disp_drv_register(&display_driver_);
+  auto* lv_display = lv_disp_drv_register(&display_driver_);
+  auto* theme = lv_theme_default_init(
+      lv_display,
+      lv_color_hex(0x2563EB),
+      lv_color_hex(0x475569),
+      true,
+      &lv_font_montserrat_16);
+  lv_disp_set_theme(lv_display, theme);
 
   lv_indev_drv_init(&input_driver_);
   input_driver_.type = LV_INDEV_TYPE_POINTER;
@@ -140,6 +170,7 @@ void UiService::touch_callback(lv_indev_drv_t* driver, lv_indev_data_t* data) {
       return;
     }
     self->note_interaction(now_ms);
+    self->update_display_self_test_touch(point);
     data->point.x = static_cast<lv_coord_t>(point.x);
     data->point.y = static_cast<lv_coord_t>(point.y);
     data->state = LV_INDEV_STATE_PRESSED;
@@ -181,8 +212,12 @@ void UiService::build_current_screen() {
   workflow_weight_label_ = nullptr;
   workflow_identity_label_ = nullptr;
   workflow_status_label_ = nullptr;
+  display_test_touch_marker_ = nullptr;
+  display_test_touch_label_ = nullptr;
   workflow_toolhead_buttons_.fill(nullptr);
-  if (showing_setup_) {
+  if (showing_display_self_test_) {
+    build_display_self_test_screen();
+  } else if (showing_setup_) {
     build_setup_screen();
     refresh_setup();
   } else if (showing_diagnostics_) {
@@ -193,61 +228,185 @@ void UiService::build_current_screen() {
   }
 }
 
+void UiService::build_display_self_test_screen() {
+  auto* screen = lv_scr_act();
+  lv_obj_set_style_bg_color(screen, lv_color_black(), 0);
+  lv_obj_set_style_text_color(screen, lv_color_white(), 0);
+  lv_obj_set_style_border_color(screen, lv_color_white(), 0);
+  lv_obj_set_style_border_width(screen, 3, 0);
+  lv_obj_set_style_pad_all(screen, 0, 0);
+  lv_obj_clear_flag(screen, LV_OBJ_FLAG_SCROLLABLE);
+
+  const auto make_label = [screen](
+                              const char* text,
+                              lv_align_t alignment,
+                              std::int16_t x,
+                              std::int16_t y) {
+    auto* label = lv_label_create(screen);
+    lv_label_set_text(label, text);
+    lv_obj_set_style_text_font(label, &lv_font_montserrat_14, 0);
+    lv_obj_align(label, alignment, x, y);
+    return label;
+  };
+
+  auto* title = make_label(
+      "DISPLAY SELF-TEST", LV_ALIGN_TOP_MID, 0, 6);
+  lv_obj_set_style_text_font(title, &lv_font_montserrat_16, 0);
+  make_label("TOP", LV_ALIGN_TOP_LEFT, 7, 7);
+  make_label("BOTTOM", LV_ALIGN_BOTTOM_LEFT, 7, -7);
+  make_label("LEFT", LV_ALIGN_LEFT_MID, 7, 34);
+  make_label("RIGHT", LV_ALIGN_RIGHT_MID, -7, 34);
+
+  static constexpr std::array<const char*, 8> names{
+      "RED", "GREEN", "BLUE", "WHITE",
+      "BLACK", "YELLOW", "CYAN", "MAGENTA"};
+  static constexpr std::array<std::uint32_t, 8> colors{
+      0xFF0000, 0x00FF00, 0x0000FF, 0xFFFFFF,
+      0x000000, 0xFFFF00, 0x00FFFF, 0xFF00FF};
+  static constexpr std::array<bool, 8> dark_labels{
+      false, true, false, true, false, true, true, false};
+  for (std::size_t index = 0; index < colors.size(); ++index) {
+    auto* swatch = lv_obj_create(screen);
+    lv_obj_set_size(swatch, 106, 48);
+    lv_obj_set_pos(
+        swatch,
+        17 + static_cast<lv_coord_t>(index % 4U) * 112,
+        38 + static_cast<lv_coord_t>(index / 4U) * 54);
+    lv_obj_set_style_radius(swatch, 0, 0);
+    lv_obj_set_style_pad_all(swatch, 0, 0);
+    lv_obj_set_style_bg_color(swatch, lv_color_hex(colors[index]), 0);
+    lv_obj_set_style_bg_opa(swatch, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_color(swatch, lv_color_white(), 0);
+    lv_obj_set_style_border_width(swatch, 1, 0);
+    lv_obj_clear_flag(swatch, LV_OBJ_FLAG_SCROLLABLE);
+    auto* label = lv_label_create(swatch);
+    lv_label_set_text(label, names[index]);
+    lv_obj_set_style_text_font(label, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(
+        label,
+        dark_labels[index] ? lv_color_black() : lv_color_white(),
+        0);
+    lv_obj_center(label);
+  }
+
+  static constexpr std::array<std::uint32_t, 8> grayscale{
+      0x000000, 0x242424, 0x494949, 0x6D6D6D,
+      0x929292, 0xB6B6B6, 0xDBDBDB, 0xFFFFFF};
+  for (std::size_t index = 0; index < grayscale.size(); ++index) {
+    auto* segment = lv_obj_create(screen);
+    lv_obj_set_size(segment, 55, 26);
+    lv_obj_set_pos(
+        segment, 20 + static_cast<lv_coord_t>(index) * 55, 150);
+    lv_obj_set_style_radius(segment, 0, 0);
+    lv_obj_set_style_border_width(segment, 0, 0);
+    lv_obj_set_style_pad_all(segment, 0, 0);
+    lv_obj_set_style_bg_color(segment, lv_color_hex(grayscale[index]), 0);
+    lv_obj_set_style_bg_opa(segment, LV_OPA_COVER, 0);
+  }
+
+  auto* horizontal = lv_obj_create(screen);
+  lv_obj_set_size(horizontal, 42, 2);
+  lv_obj_set_pos(horizontal, 219, 159);
+  lv_obj_set_style_border_width(horizontal, 0, 0);
+  lv_obj_set_style_bg_color(horizontal, lv_color_white(), 0);
+  lv_obj_set_style_bg_opa(horizontal, LV_OPA_COVER, 0);
+  auto* vertical = lv_obj_create(screen);
+  lv_obj_set_size(vertical, 2, 42);
+  lv_obj_set_pos(vertical, 239, 139);
+  lv_obj_set_style_border_width(vertical, 0, 0);
+  lv_obj_set_style_bg_color(vertical, lv_color_white(), 0);
+  lv_obj_set_style_bg_opa(vertical, LV_OPA_COVER, 0);
+  make_label("CENTER 240,160", LV_ALIGN_TOP_MID, 0, 181);
+
+  display_test_touch_marker_ = lv_obj_create(screen);
+  lv_obj_set_size(display_test_touch_marker_, 20, 20);
+  lv_obj_set_style_radius(display_test_touch_marker_, LV_RADIUS_CIRCLE, 0);
+  lv_obj_set_style_bg_opa(display_test_touch_marker_, LV_OPA_TRANSP, 0);
+  lv_obj_set_style_border_color(
+      display_test_touch_marker_, lv_color_hex(0xF97316), 0);
+  lv_obj_set_style_border_width(display_test_touch_marker_, 3, 0);
+  lv_obj_add_flag(display_test_touch_marker_, LV_OBJ_FLAG_HIDDEN);
+
+  display_test_touch_label_ = make_label(
+      "Touch panel to plot a point", LV_ALIGN_BOTTOM_MID, 0, -7);
+  lv_obj_set_style_text_color(
+      display_test_touch_label_, lv_color_hex(0xFDE68A), 0);
+}
+
+void UiService::update_display_self_test_touch(
+    const hardware::display::TouchPoint& point) {
+  if (!showing_display_self_test_ ||
+      display_test_touch_marker_ == nullptr ||
+      display_test_touch_label_ == nullptr ||
+      !point.pressed) {
+    return;
+  }
+  const auto x = std::clamp<std::int32_t>(
+      point.x - 10, 3, Board::display_width - 23);
+  const auto y = std::clamp<std::int32_t>(
+      point.y - 10, 3, Board::display_height - 23);
+  lv_obj_set_pos(display_test_touch_marker_, x, y);
+  lv_obj_clear_flag(display_test_touch_marker_, LV_OBJ_FLAG_HIDDEN);
+  lv_label_set_text_fmt(
+      display_test_touch_label_, "TOUCH  x=%ld  y=%ld",
+      static_cast<long>(point.x), static_cast<long>(point.y));
+}
+
 void UiService::build_workflow_screen() {
   auto* screen = lv_scr_act();
-  lv_obj_set_style_bg_color(screen, lv_color_hex(0x101820), 0);
-  lv_obj_set_style_text_color(screen, lv_color_hex(0xE8F1F5), 0);
+  style_screen(screen);
 
   auto* title = lv_label_create(screen);
   lv_label_set_text(title, "OpenTag Station");
-  lv_obj_set_style_text_color(title, lv_color_hex(0x4FD1C5), 0);
-  lv_obj_align(title, LV_ALIGN_TOP_LEFT, 16, 10);
+  style_title(title);
+  lv_obj_align(title, LV_ALIGN_TOP_LEFT, 14, 8);
 
   const auto make_nav = [this, screen](
                             const char* text,
                             std::int16_t x,
                             lv_event_cb_t callback) {
     auto* button = lv_btn_create(screen);
-    lv_obj_set_size(button, 86, 32);
-    lv_obj_align(button, LV_ALIGN_TOP_RIGHT, x, 6);
+    lv_obj_set_size(button, 94, 40);
+    lv_obj_align(button, LV_ALIGN_TOP_RIGHT, x, 4);
     lv_obj_add_event_cb(button, callback, LV_EVENT_CLICKED, this);
     auto* label = lv_label_create(button);
     lv_label_set_text(label, text);
     lv_obj_center(label);
   };
-  make_nav("Setup", -12, setup_toggle_callback);
-  make_nav("Details", -104, diagnostics_toggle_callback);
+  make_nav("Setup", -10, setup_toggle_callback);
+  make_nav("Details", -110, diagnostics_toggle_callback);
 
   workflow_material_label_ = lv_label_create(screen);
-  lv_obj_set_width(workflow_material_label_, 285);
+  lv_obj_set_width(workflow_material_label_, 280);
+  lv_obj_set_style_text_font(
+      workflow_material_label_, &lv_font_montserrat_20, 0);
   lv_obj_set_style_text_color(
-      workflow_material_label_, lv_color_hex(0xFFFFFF), 0);
-  lv_obj_align(workflow_material_label_, LV_ALIGN_TOP_LEFT, 16, 50);
+      workflow_material_label_, lv_color_hex(primary_text), 0);
+  lv_obj_align(workflow_material_label_, LV_ALIGN_TOP_LEFT, 14, 56);
 
   workflow_weight_label_ = lv_label_create(screen);
-  lv_obj_set_width(workflow_weight_label_, 150);
+  lv_obj_set_width(workflow_weight_label_, 158);
+  lv_obj_set_style_text_font(
+      workflow_weight_label_, &lv_font_montserrat_20, 0);
   lv_obj_set_style_text_align(
       workflow_weight_label_, LV_TEXT_ALIGN_RIGHT, 0);
   lv_obj_set_style_text_color(
-      workflow_weight_label_, lv_color_hex(0x4FD1C5), 0);
-  lv_obj_align(workflow_weight_label_, LV_ALIGN_TOP_RIGHT, -16, 50);
+      workflow_weight_label_, lv_color_hex(accent_text), 0);
+  lv_obj_align(workflow_weight_label_, LV_ALIGN_TOP_RIGHT, -14, 56);
 
   workflow_identity_label_ = lv_label_create(screen);
-  lv_obj_set_width(workflow_identity_label_, 448);
+  lv_obj_set_width(workflow_identity_label_, 452);
   lv_obj_set_style_text_color(
-      workflow_identity_label_, lv_color_hex(0xAFC5CF), 0);
-  lv_obj_align(workflow_identity_label_, LV_ALIGN_TOP_LEFT, 16, 96);
+      workflow_identity_label_, lv_color_hex(secondary_text), 0);
+  lv_obj_align(workflow_identity_label_, LV_ALIGN_TOP_LEFT, 14, 108);
 
   static constexpr std::array<std::int16_t, 5> x_positions{
-      18, 126, 234, 72, 180};
-  static constexpr std::array<std::int16_t, 5> y_positions{
-      132, 132, 132, 194, 194};
+      12, 104, 196, 288, 380};
   for (std::size_t index = 0U; index < workflow_toolhead_buttons_.size(); ++index) {
     auto* button = lv_btn_create(screen);
     workflow_toolhead_buttons_[index] = button;
-    lv_obj_set_size(button, 96, 52);
-    lv_obj_align(
-        button, LV_ALIGN_TOP_LEFT, x_positions[index], y_positions[index]);
+    lv_obj_set_size(button, 88, 62);
+    lv_obj_align(button, LV_ALIGN_TOP_LEFT, x_positions[index], 142);
     lv_obj_add_event_cb(button, toolhead_callback, LV_EVENT_CLICKED, this);
     auto* label = lv_label_create(button);
     const auto normalized = domain::Toolhead::from_zero_based_backend(
@@ -258,21 +417,20 @@ void UiService::build_workflow_screen() {
   }
 
   workflow_status_label_ = lv_label_create(screen);
-  lv_obj_set_width(workflow_status_label_, 170);
+  lv_obj_set_width(workflow_status_label_, 456);
   lv_obj_set_style_text_color(
-      workflow_status_label_, lv_color_hex(0xF6C85F), 0);
-  lv_obj_align(workflow_status_label_, LV_ALIGN_TOP_RIGHT, -12, 132);
+      workflow_status_label_, lv_color_hex(warning_text), 0);
+  lv_obj_align(workflow_status_label_, LV_ALIGN_TOP_LEFT, 12, 220);
 }
 
 void UiService::build_diagnostics_screen() {
   auto* screen = lv_scr_act();
-  lv_obj_set_style_bg_color(screen, lv_color_hex(0x101820), 0);
-  lv_obj_set_style_text_color(screen, lv_color_hex(0xE8F1F5), 0);
+  style_screen(screen);
 
   auto* title = lv_label_create(screen);
-  lv_label_set_text(title, "OpenTag Station  |  Hardware diagnostics");
-  lv_obj_set_style_text_color(title, lv_color_hex(0x4FD1C5), 0);
-  lv_obj_align(title, LV_ALIGN_TOP_LEFT, 18, 12);
+  lv_label_set_text(title, "Hardware diagnostics");
+  style_title(title);
+  lv_obj_align(title, LV_ALIGN_TOP_LEFT, 14, 9);
 
   auto* version = lv_label_create(screen);
   lv_label_set_text_fmt(
@@ -280,21 +438,26 @@ void UiService::build_diagnostics_screen() {
       "v%s  %s",
       diagnostics::build_info.project_version,
       diagnostics::build_info.git_sha);
-  lv_obj_align(version, LV_ALIGN_TOP_RIGHT, -18, 12);
+  lv_obj_set_style_text_font(version, &lv_font_montserrat_14, 0);
+  lv_obj_align(version, LV_ALIGN_TOP_RIGHT, -14, 12);
 
   system_label_ = lv_label_create(screen);
+  lv_obj_set_style_text_font(system_label_, &lv_font_montserrat_14, 0);
   lv_obj_set_width(system_label_, 220);
   lv_obj_align(system_label_, LV_ALIGN_TOP_LEFT, 18, 55);
 
   memory_label_ = lv_label_create(screen);
+  lv_obj_set_style_text_font(memory_label_, &lv_font_montserrat_14, 0);
   lv_obj_set_width(memory_label_, 220);
   lv_obj_align(memory_label_, LV_ALIGN_TOP_RIGHT, -18, 55);
 
   storage_label_ = lv_label_create(screen);
+  lv_obj_set_style_text_font(storage_label_, &lv_font_montserrat_14, 0);
   lv_obj_set_width(storage_label_, 220);
   lv_obj_align(storage_label_, LV_ALIGN_TOP_LEFT, 18, 148);
 
   touch_label_ = lv_label_create(screen);
+  lv_obj_set_style_text_font(touch_label_, &lv_font_montserrat_14, 0);
   lv_obj_set_width(touch_label_, 220);
   lv_obj_align(touch_label_, LV_ALIGN_TOP_RIGHT, -18, 148);
 
@@ -344,8 +507,8 @@ lv_obj_t* UiService::create_setup_textarea(
     std::size_t maximum_length,
     bool password) {
   auto* input = lv_textarea_create(lv_scr_act());
-  lv_obj_set_size(input, 280, 38);
-  lv_obj_align(input, LV_ALIGN_TOP_LEFT, 18, y);
+  lv_obj_set_size(input, 286, 44);
+  lv_obj_align(input, LV_ALIGN_TOP_LEFT, 16, y);
   lv_textarea_set_one_line(input, true);
   lv_textarea_set_placeholder_text(input, placeholder);
   lv_textarea_set_max_length(input, maximum_length);
@@ -357,30 +520,33 @@ lv_obj_t* UiService::create_setup_textarea(
 
 void UiService::build_setup_screen() {
   auto* screen = lv_scr_act();
-  lv_obj_set_style_bg_color(screen, lv_color_hex(0x101820), 0);
-  lv_obj_set_style_text_color(screen, lv_color_hex(0xE8F1F5), 0);
+  style_screen(screen);
 
   auto* title = lv_label_create(screen);
-  lv_label_set_text(title, "OpenTag Station  |  First-run setup");
-  lv_obj_set_style_text_color(title, lv_color_hex(0x4FD1C5), 0);
-  lv_obj_align(title, LV_ALIGN_TOP_LEFT, 18, 10);
+  lv_label_set_text(title, "First-run setup");
+  style_title(title);
+  lv_obj_align(title, LV_ALIGN_TOP_LEFT, 14, 8);
 
   setup_progress_label_ = lv_label_create(screen);
-  lv_obj_align(setup_progress_label_, LV_ALIGN_TOP_RIGHT, -18, 10);
+  lv_obj_align(setup_progress_label_, LV_ALIGN_TOP_RIGHT, -14, 10);
   setup_body_label_ = lv_label_create(screen);
-  lv_obj_set_width(setup_body_label_, 444);
-  lv_obj_align(setup_body_label_, LV_ALIGN_TOP_LEFT, 18, 43);
+  lv_obj_set_width(setup_body_label_, 452);
+  lv_obj_align(setup_body_label_, LV_ALIGN_TOP_LEFT, 14, 44);
   setup_status_label_ = lv_label_create(screen);
-  lv_obj_set_width(setup_status_label_, 444);
-  lv_obj_align(setup_status_label_, LV_ALIGN_TOP_LEFT, 18, 220);
-  lv_obj_set_style_text_color(setup_status_label_, lv_color_hex(0xF6C85F), 0);
+  lv_obj_set_width(setup_status_label_, 452);
+  lv_obj_align(setup_status_label_, LV_ALIGN_TOP_LEFT, 14, 202);
+  lv_obj_set_style_text_color(
+      setup_status_label_, lv_color_hex(warning_text), 0);
 
   const auto configured = configuration_.snapshot();
   const auto step = first_run_setup_.current();
   if (step == services::SetupStep::wifi) {
+    lv_obj_set_width(setup_status_label_, 286);
+  }
+  if (step == services::SetupStep::wifi) {
     setup_network_dropdown_ = lv_dropdown_create(screen);
-    lv_obj_set_size(setup_network_dropdown_, 150, 38);
-    lv_obj_align(setup_network_dropdown_, LV_ALIGN_TOP_RIGHT, -18, 90);
+    lv_obj_set_size(setup_network_dropdown_, 156, 44);
+    lv_obj_align(setup_network_dropdown_, LV_ALIGN_TOP_RIGHT, -14, 94);
     const auto networks = network_.scan_results();
     std::string options = networks.empty() ? "Scan results" : "";
     for (const auto& network : networks) {
@@ -391,37 +557,37 @@ void UiService::build_setup_screen() {
     lv_obj_add_event_cb(
         setup_network_dropdown_, setup_network_callback, LV_EVENT_VALUE_CHANGED, this);
     setup_input_one_ = create_setup_textarea(
-        90, "Wi-Fi network name", configured.wifi.ssid, 32U, false);
+        94, "Wi-Fi network name", configured.wifi.ssid, 32U, false);
     setup_input_two_ = create_setup_textarea(
-        136, "Wi-Fi password", configured.wifi.password, 64U, true);
+        146, "Wi-Fi password", configured.wifi.password, 64U, true);
   } else if (step == services::SetupStep::spoolman) {
     setup_input_one_ = create_setup_textarea(
-        90, "Spoolman URL", configured.spoolman.url, 256U, false);
+        94, "Spoolman URL", configured.spoolman.url, 256U, false);
     setup_input_two_ = create_setup_textarea(
-        136,
+        146,
         "Authentication token (optional)",
         configured.spoolman.authentication_token,
         512U,
         true);
   } else if (step == services::SetupStep::filabridge) {
     setup_input_one_ = create_setup_textarea(
-        90, "FilaBridge URL", configured.filabridge.url, 256U, false);
+        94, "FilaBridge URL", configured.filabridge.url, 256U, false);
     setup_input_two_ = create_setup_textarea(
-        136,
+        146,
         "Authentication token (optional)",
         configured.filabridge.authentication_token,
         512U,
         true);
   } else if (step == services::SetupStep::printer_selection) {
     setup_input_one_ = create_setup_textarea(
-        90,
+        94,
         "Stable printer ID",
         configured.filabridge.selected_printer_id,
         128U,
         false);
   } else if (step == services::SetupStep::ready) {
     setup_input_one_ = create_setup_textarea(
-        90,
+        94,
         "Local API token (16-128 characters)",
         configured.web.access_token,
         128U,
@@ -436,28 +602,28 @@ void UiService::build_setup_screen() {
                                std::int16_t x,
                                lv_event_cb_t callback) {
     auto* button = lv_btn_create(screen);
-    lv_obj_set_size(button, 100, 42);
-    lv_obj_align(button, LV_ALIGN_BOTTOM_LEFT, x, -12);
+    lv_obj_set_size(button, 110, 46);
+    lv_obj_align(button, LV_ALIGN_BOTTOM_LEFT, x, -10);
     lv_obj_add_event_cb(button, callback, LV_EVENT_CLICKED, this);
     auto* label = lv_label_create(button);
     lv_label_set_text(label, text);
     lv_obj_center(label);
     return button;
   };
-  make_button("Back", 18, setup_back_callback);
-  make_button("Main", 190, setup_toggle_callback);
+  make_button("Back", 14, setup_back_callback);
+  make_button("Main", 185, setup_toggle_callback);
   make_button(
       step == services::SetupStep::ready ? "Finish" : "Next",
-      362,
+      356,
       setup_next_callback);
   if (setup_input_one_ != nullptr) {
     auto* save_button = lv_btn_create(screen);
-    lv_obj_set_size(save_button, 150, 38);
+    lv_obj_set_size(save_button, 156, 42);
     lv_obj_align(
         save_button,
         LV_ALIGN_TOP_RIGHT,
-        -18,
-        step == services::SetupStep::wifi ? 180 : 90);
+        -14,
+        step == services::SetupStep::wifi ? 198 : 94);
     lv_obj_add_event_cb(
         save_button, setup_save_callback, LV_EVENT_CLICKED, this);
     auto* save_label = lv_label_create(save_button);
@@ -466,8 +632,8 @@ void UiService::build_setup_screen() {
   }
   if (step == services::SetupStep::wifi) {
     auto* scan_button = lv_btn_create(screen);
-    lv_obj_set_size(scan_button, 150, 38);
-    lv_obj_align(scan_button, LV_ALIGN_TOP_RIGHT, -18, 136);
+    lv_obj_set_size(scan_button, 156, 42);
+    lv_obj_align(scan_button, LV_ALIGN_TOP_RIGHT, -14, 146);
     lv_obj_add_event_cb(
         scan_button, setup_scan_callback, LV_EVENT_CLICKED, this);
     auto* scan_label = lv_label_create(scan_button);
@@ -767,28 +933,28 @@ void UiService::refresh_setup() {
   const char* body = "Review this step, save when applicable, or continue incomplete.";
   switch (step) {
     case services::SetupStep::welcome:
-      body = "WELCOME\nConfigure this station in order. Every step remains accessible, and offline services never require a reset.";
+      body = "WELCOME\nConfigure each station service in order.";
       break;
     case services::SetupStep::wifi:
-      body = "WI-FI\nSelect a scan result or enter the network manually. Credentials stay in the local configuration document.";
+      body = "WI-FI\nChoose a scan result or enter the network manually.";
       break;
     case services::SetupStep::spoolman:
-      body = "SPOOLMAN\nEnter the base HTTP(S) URL. HTTPS remains disabled until a CA certificate is imported.";
+      body = "SPOOLMAN\nEnter and save the service base URL.";
       break;
     case services::SetupStep::filabridge:
-      body = "FILABRIDGE\nEnter the sargonas/filabridge service URL. Temporary backend outages do not block setup.";
+      body = "FILABRIDGE\nEnter and save the service base URL.";
       break;
     case services::SetupStep::printer_selection:
-      body = "PRINTER SELECTION\nEnter the stable printer ID shown by live FilaBridge discovery.";
+      body = "PRINTER\nEnter the stable ID from FilaBridge discovery.";
       break;
     case services::SetupStep::scale_calibration:
-      body = "SCALE CALIBRATION\nTare and known-weight calibration are implemented. Physical calibration awaits the connected load cell.";
+      body = "SCALE CALIBRATION\nUse browser Scale controls: tare empty, then use a known mass.";
       break;
     case services::SetupStep::nfc_status:
-      body = "NFC STATUS\nST25R3916B software is guarded. Exact module wiring and RFAL licensing are still required before RF can be enabled.";
+      body = "NFC STATUS\nDisabled until the reader is physically integrated.";
       break;
     case services::SetupStep::ready:
-      body = "READY\nSet and save a 16-128 character local API token. Browser mutations remain disabled until it is configured.";
+      body = "READY\nSet and save a 16-128 character local API token.";
       break;
   }
   lv_label_set_text(setup_body_label_, body);
@@ -837,6 +1003,9 @@ void UiService::refresh_setup() {
 }
 
 void UiService::refresh_current(std::uint32_t now_ms) {
+  if (showing_display_self_test_) {
+    return;
+  }
   if (showing_setup_) {
     refresh_setup();
   } else if (showing_diagnostics_) {

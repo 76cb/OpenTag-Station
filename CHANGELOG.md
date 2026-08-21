@@ -7,6 +7,9 @@ Versioning once releases begin.
 
 ### Fixed
 
+- Correct the LVGL-to-LovyanGFX RGB565 byte-order boundary on WT32-SC01 Plus,
+  increase on-device text hierarchy and contrast, remove the workflow toolhead
+  overlap, and add an opt-in color/geometry/touch display self-test build.
 - Explicitly mount and first-use-format the custom `littlefs` partition by label;
   post-provisioning mount failures remain fail-safe and never auto-format data.
 - Isolate the NAU7802 on `Wire` from the touchscreen on `Wire1`, and add a

@@ -38,8 +38,8 @@ Wt32DisplayDevice::Wt32DisplayDevice() {
     cfg.dummy_read_pixel = 8;
     cfg.dummy_read_bits = 1;
     cfg.readable = false;
-    cfg.invert = true;
-    cfg.rgb_order = false;
+    cfg.invert = Board::display_invert;
+    cfg.rgb_order = Board::display_rgb_order;
     cfg.dlen_16bit = false;
     cfg.bus_shared = false;
     panel_.config(cfg);
@@ -83,6 +83,7 @@ bool Wt32Display::initialize() {
   }
   device_.setRotation(Board::display_rotation);
   device_.setColorDepth(16);
+  device_.setSwapBytes(Board::display_swap_bytes);
   device_.setBrightness(static_cast<std::uint8_t>(brightness_percent_ * 255U / 100U));
   device_.fillScreen(TFT_BLACK);
   sleeping_ = false;
