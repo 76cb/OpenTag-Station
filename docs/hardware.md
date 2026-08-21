@@ -33,6 +33,24 @@ range-checked and debounced before reaching LVGL. Backlight PWM runs on the
 verified GPIO/channel and supports brightness, idle dimming, explicit sleep,
 and touch wake.
 
+The RGB565 boundary is explicit: LVGL uses `LV_COLOR_16_SWAP=0`, while
+LovyanGFX uses `setSwapBytes(true)` before sending pixels to the parallel
+ST7796 bus. Panel inversion remains enabled, the LovyanGFX RGB-order flag
+remains disabled, and rotation 1 remains the 480 x 320 landscape mapping.
+
+For physical panel bring-up, build and flash the opt-in diagnostic environment:
+
+```console
+.venv/bin/pio run --environment wt32-sc01-plus-display-test
+```
+
+That environment replaces the normal UI with labeled red, green, blue, white,
+black, yellow, cyan, and magenta swatches, an eight-step grayscale ramp, a
+full-panel border, true center marker, edge labels, and live touch coordinates.
+The normal `wt32-sc01-plus` environment remains unchanged as the application
+and web-flasher build. Correct physical color, inversion, orientation, edge
+alignment, and touch mapping remain **UNVERIFIED** until checked on the panel.
+
 LVGL requests two 480 × 40-line RGB565 buffers from PSRAM. Rendering remains
 available with one PSRAM buffer if the second allocation fails, or a 480 ×
 20-line internal-memory buffer if PSRAM allocation fails entirely. The hardware

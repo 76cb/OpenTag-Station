@@ -18,6 +18,14 @@
 
 namespace opentag::ui {
 
+#ifndef OPENTAG_DISPLAY_SELF_TEST
+#define OPENTAG_DISPLAY_SELF_TEST 0
+#endif
+
+static_assert(
+    OPENTAG_DISPLAY_SELF_TEST == 0 || OPENTAG_DISPLAY_SELF_TEST == 1,
+    "OPENTAG_DISPLAY_SELF_TEST must be 0 or 1");
+
 class UiService {
  public:
   UiService(
@@ -72,6 +80,9 @@ class UiService {
   void build_workflow_screen();
   void build_diagnostics_screen();
   void build_setup_screen();
+  void build_display_self_test_screen();
+  void update_display_self_test_touch(
+      const hardware::display::TouchPoint& point);
   void build_current_screen();
   void refresh_current(std::uint32_t now_ms);
   void refresh_workflow();
@@ -101,6 +112,7 @@ class UiService {
   bool dimmed_{false};
   bool showing_setup_{false};
   bool showing_diagnostics_{false};
+  bool showing_display_self_test_{OPENTAG_DISPLAY_SELF_TEST == 1};
   std::uint8_t normal_brightness_percent_{80U};
   std::uint32_t dim_after_ms_{dim_after_ms};
   std::uint32_t sleep_after_ms_{sleep_after_ms};
@@ -127,6 +139,8 @@ class UiService {
   lv_obj_t* workflow_weight_label_{nullptr};
   lv_obj_t* workflow_identity_label_{nullptr};
   lv_obj_t* workflow_status_label_{nullptr};
+  lv_obj_t* display_test_touch_marker_{nullptr};
+  lv_obj_t* display_test_touch_label_{nullptr};
   std::array<lv_obj_t*, 5> workflow_toolhead_buttons_{};
   std::string workflow_feedback_;
   std::string pending_printer_id_;

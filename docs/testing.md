@@ -221,6 +221,14 @@ Two lanes are maintained:
 
 ### Board/display/touch
 
+First flash `wt32-sc01-plus-display-test`. Verify every labeled color swatch,
+the dark-to-light grayscale order, full border, true center marker, and
+TOP/BOTTOM/LEFT/RIGHT labels. Touch all four corners and confirm the orange
+marker and reported coordinates. Then return to the normal
+`wt32-sc01-plus` build and verify the setup, workflow, and diagnostics
+screens are readable with no clipped controls. These observations remain
+**UNVERIFIED** until performed on physical hardware.
+
 Flash the Phase 1 image and verify:
 
 1. the 480 × 320 diagnostics screen renders with correct color and orientation;
