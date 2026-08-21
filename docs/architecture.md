@@ -15,9 +15,9 @@ Touchscreen UI        Web UI / local API
                        |
         Domain services and normalized models
           /             |               \
- Spoolman adapter  FilaBridge adapter  update provider
-          |             |               |
-      HTTP/JSON     HTTP/JSON/WS       OTA platform
+ Spoolman adapter  FilaBridge adapter   UpdateManager
+          |             |                    |
+      HTTP/JSON     HTTP/JSON/WS       OTA owner/platform
 
  NFC manager  -> OpenPrintTag codec
       |
@@ -48,11 +48,11 @@ FreeRTOS tasks will own slow or blocking work:
 | Scale | ADC sampling, filtering, stability | inventory writes |
 | Network | Wi-Fi, DNS, HTTP transport | UI transitions |
 | Backend | adapters, cache, assignment verification | LVGL calls |
-| Update | Phase 10 manifest/download/OTA validation | backend availability policy |
+| Update | inactive-slot writes, digest/image validation, activation, candidate health | web sockets, UI, backend availability policy |
 
 Tasks exchange bounded events/commands. Payload ownership is explicit and
 queues have overflow diagnostics. No worker may wait forever; every NFC, DNS,
-HTTP, and future OTA operation gets a deadline.
+HTTP, and OTA operation gets a deadline.
 
 Phase 1 activates the UI owner as a pinned FreeRTOS task; it is the only context
 allowed to call LVGL. Phase 5 activates a separate scale task on the second I2C
@@ -66,20 +66,26 @@ resolution commands, assignment commands, and exact readback verification. UI
 callbacks only enqueue commands and render the coordinator's locked snapshot.
 Phase 9 routes accepted asynchronous work through bounded configuration, scale,
 backend, or device-control owners and records queued/running/terminal state in
-a central operation registry. NFC and OTA ownership contracts remain defined
-but their workers are not started until the corresponding subsystem exists.
+a central operation registry. Phase 10 starts a dedicated OTA owner. The web
+task reads into one fixed 4 KiB buffer and synchronously hands each chunk to
+that owner; only the owner calls flash, SHA-256, partition, activation, and
+rollback APIs. A generation-token lifecycle gate excludes OTA and candidate
+validation from generic reboot and factory reset without blocking unrelated
+scale, configuration, or backend work.
 
-## Phase 9 local web boundary
+## Local web/API boundary
 
-The embedded browser client and transport-neutral router expose 23
+The embedded browser client and transport-neutral router expose 26
 metadata-declared routes under `/api/v1`. Read routes cover station/device
 health, scale, NFC status/tag data, spool state, printers/toolheads,
-configuration, diagnostics, logs, operation status, and the update boundary.
+configuration, diagnostics, logs, operation status, and update state.
 Mutations cover tare/calibration, NFC read, assignment/unassignment, backend
-tests, configuration patches, reboot, and factory reset. The router always
-returns a versioned `{api_version, ok, data|error}` JSON envelope and applies
-bounded path, header, body, nesting, content-type, field, type, and identifier
-validation before reaching the application context.
+tests, configuration patches, update upload/reboot/cancel, device reboot, and
+factory reset. The firmware upload route is metadata-declared but bypasses the
+small JSON buffer and streams binary data through the OTA owner. All other
+routes return a versioned `{api_version, ok, data|error}` JSON envelope and
+apply bounded path, header, body, nesting, content-type, field, type, and
+identifier validation before reaching the application context.
 
 Ordinary mutations return an operation ID instead of claiming synchronous
 completion. The browser checks only that operation at roughly one-second
@@ -101,11 +107,76 @@ bearer token is set on the physical touchscreen. The browser prompts for it when
 a mutation needs authentication, keeps it only in JavaScript memory for the
 current tab, never places it in storage or a URL, and clears it after HTTP 401.
 
-The RFAL/wiring-gated firmware reports NFC explicitly unavailable. Reboot and
-factory reset require authenticated, idempotent, explicitly confirmed commands
-and execute through the device-control owner. `/api/v1/update` is a read-only
-Phase 10 placeholder; Phase 9 contains no OTA upload, inactive-slot write, A/B
-selection, or rollback implementation.
+The RFAL/wiring-gated firmware still reports NFC explicitly unavailable. NFC
+availability is not an OTA candidate-health requirement.
+
+## OTA ownership and durable lifecycle
+
+`UpdateManager` is portable state policy. It has no ESP-IDF, HTTP, FreeRTOS,
+NVS, or reboot dependency; it receives partition, digest, and record-store
+interfaces. Its public states are `idle`, `upload_receiving`, `writing`,
+`validating`, `ready_to_reboot`, `reboot_pending`, `candidate_boot`,
+`validating_candidate`, `confirmed`, `rollback_pending`, `rolled_back`, and
+`failed`. The retained `ready_to_activate` enum is only a record-reconciliation
+compatibility state and is normalized to the unactivated `ready_to_reboot`
+boundary. A fresh upload never selects the boot partition.
+
+`OtaWorker` is the only embedded flash/activation owner. It has a fixed-depth
+command pool and copies at most one 4096-byte chunk into an owned slot before
+calling `UpdateManager`. The HTTP task therefore applies backpressure without
+ever retaining the complete image. Upload input has a five-second no-progress
+deadline, a 180-second absolute deadline, and a hard 5 MiB/application-slot
+limit. Disconnects, short bodies, invalid chunks, or command failures abort the
+ESP-IDF handle; the running slot remains untouched.
+
+Every update has an operation ID and an isolated, checksum-protected NVS record.
+The record store reserves a durable monotonic generation before opening flash,
+persists bounded progress checkpoints and the validated boundary, then records
+activation intent before `esp_ota_set_boot_partition`. Reboot and cancel carry
+the exact operation, generation, and SHA-256 so stale clients cannot affect a
+newer candidate. Boot reconciliation fails interrupted uploads, recognizes a
+known invalid candidate as rolled back, recognizes an already valid running
+candidate as confirmed, and requests rollback if a pending running image lacks
+a consistent validated activation record.
+
+The ESP32 adapter derives `running`, `boot`, and `inactive` partitions from the
+pinned ESP-IDF APIs. The client cannot supply a partition, address, or path.
+Final staging requires exact byte count, constant-time rolling SHA-256 equality,
+successful `esp_ota_end`, successful `esp_image_verify`, a matching ESP image
+length/magic, ESP32-S3 chip ID, appended image hash, and a valid fixed OpenTag
+manifest for project `OpenTag Station` and hardware
+`wt32-sc01-plus-rev-a`. Version, Git SHA, build date, and IDF version are exposed
+as candidate metadata; Phase 10 does not impose SemVer ordering or a downgrade
+policy.
+
+For the first update after a serial flash with erased otadata, the adapter seeds
+the already-running slot as the known-good rollback image before it selects the
+inactive candidate. A durable activation-intent record also identifies the
+narrow power-cut window where that running slot is `NEW`/`PENDING_VERIFY`; boot
+reconciliation confirms only the pre-existing running image, preserves the
+validated inactive candidate, and retries selection under the same operation
+and generation. If OTA-owner startup cannot reconcile boot state, network and
+device-control mutations remain unavailable.
+
+After explicit reboot activation, the rollback-enabled pinned bootloader starts
+the candidate as pending. One `BootHealthPolicy` supplies both ordinary boot
+tracking and OTA confirmation. It waits 30 seconds and requires storage,
+configuration initialized or safely degraded, application/display readiness,
+and the local UI, configuration, backend-owner, scale, network, device-control,
+web, and OTA tasks. It does not require Spoolman or FilaBridge to be reachable,
+and it does not require NFC hardware. A healthy candidate clears the existing
+boot/crash marker and calls `esp_ota_mark_app_valid_cancel_rollback`; fatal or
+missing local prerequisites request `esp_ota_mark_app_invalid_rollback_and_reboot`.
+Factory-reset recovery is a distinct health result and is never reclassified as
+an OTA failure.
+
+Generic reboot, factory reset, OTA update, and candidate validation acquire one
+generation-token `DeviceLifecycleGate`. Only the current lease can release it,
+so a stale completion cannot unlock a newer destructive operation. OTA does not
+hold the LVGL or backend task, change configuration/calibration data, or touch
+LittleFS. The local API is authenticated and idempotent, but the image is not
+cryptographically signed and the local HTTP transport is not TLS-protected;
+deployments must use a trusted isolated LAN.
 
 The NFC protocol, configurable ESP32 RFAL primitives, and frontend orchestration
 are now implemented behind bounded interfaces. The vendor RFAL binding is
@@ -146,7 +217,10 @@ verified assignment so backend failure never erases local tag/scale facts.
 - `TagProvisioner`: plans writes, preserves unknown CBOR, writes only affected
   blocks, re-reads, decodes, and verifies.
 - `MaterialCompatibilityService`: advisory rules separate from mapping policy.
-- `UpdateManager`: validates a provider-neutral manifest and delegates safe OTA.
+- `UpdateManager`: owns portable OTA transitions, immutable operation/generation
+  preconditions, rolling-digest/byte-count decisions, durable reconciliation,
+  inactive-slot safety, explicit activation, candidate confirmation, and
+  rollback policy behind mockable platform ports.
 
 ## Source-of-truth and cache policy
 
@@ -195,7 +269,9 @@ adapter. No backend-specific path or JSON key is allowed outside its adapter.
 │   │   ├── formats/openprinttag/
 │   │   └── protocols/nfcv/
 │   ├── ota/
-│   ├── platform/rfal/
+│   ├── platform/
+│   │   ├── ota/
+│   │   └── rfal/
 │   ├── services/
 │   ├── ui/
 │   ├── web/
@@ -212,9 +288,14 @@ architecture theatre is avoided, but new code must land in the boundary above.
 
 Network bodies, JSON documents, browser assets, tag dumps, caches, and log rings
 receive fixed maximum sizes. The OpenPrintTag section maximum is 512 bytes; tag
-buffers will be sized from verified memory geometry and capped. Long-lived
-services avoid repeated dynamic allocation. PSRAM is useful for display buffers
-and bounded diagnostic export, not for hiding unbounded growth.
+buffers are sized from verified memory geometry and capped. Firmware bodies are
+never placed in the 16 KiB JSON request buffer: the web transport owns one
+fixed 4096-byte receive buffer and each of the OTA owner's four command slots
+owns one fixed 4096-byte handoff buffer (16 KiB across that pool). The queue and
+slot count are compile-time bounded and the caller waits for ownership before
+reusing a chunk. Long-lived services
+avoid repeated dynamic allocation. PSRAM is useful for display buffers and
+bounded diagnostic export, not for hiding unbounded growth.
 
 ## Development milestones and acceptance criteria
 
@@ -230,7 +311,7 @@ and bounded diagnostic export, not for hiding unbounded growth.
 | 7 | Spoolman | Version/capability probes and pinned contract tests pass; identity resolution is deterministic; remaining-weight writes are stable, explicit, merge-safe, and verified. |
 | 8 | FilaBridge + main workflow | Pinned contract tests pass for printer/toolheads/mappings/map/unmap; numbering normalizes once; place → identify → weigh → resolve → T1–T5 → assign → verify degrades safely. |
 | 9 | Web UI/API | Portable 23-route router, parser, patch, and bounded-ledger logic is host-tested; embedded assets, production context, HTTP/WebSocket transport, owner queues, bearer authentication, reset control, and the update placeholder are firmware-compiled. Physical-browser, target-LAN, and hardware validation remain outstanding. |
-| 10 | OTA | Not started: valid A→B and B→A updates must preserve config/calibration; manifest hardware/size/SHA checks must reject bad images; an early crash must roll back. |
+| 10 | OTA | Portable state/record/health/exclusion policy is host-tested and the fixed-buffer owner, streaming API/UI, ESP-IDF inactive-slot adapter, image/manifest validation, activation, confirmation, and rollback integration are firmware-compiled. Physical A→B/B→A, failure rollback, power cuts, restart, and browser recovery remain gated. |
 | 11 | Release hardening | Pinned compatibility, parser, migration, fault, performance, memory, HIL, and rollback suites pass; recovery artifacts and release documentation are published. |
 
 Every milestone must leave both the firmware environment and native tests

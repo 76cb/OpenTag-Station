@@ -22,6 +22,7 @@ inline constexpr std::size_t maximum_response_body_bytes = 32768U;
 inline constexpr std::size_t maximum_request_path_bytes = 256U;
 inline constexpr std::size_t maximum_request_headers = 16U;
 inline constexpr std::size_t maximum_request_header_bytes = 1024U;
+inline constexpr std::size_t maximum_firmware_image_bytes = 0x500000U;
 
 enum class Method : std::uint8_t {
   get,
@@ -35,6 +36,10 @@ enum class Method : std::uint8_t {
 };
 
 [[nodiscard]] const char* to_string(Method method);
+[[nodiscard]] bool valid_sha256_hex(std::string_view value);
+[[nodiscard]] bool parse_canonical_generation(
+    std::string_view value,
+    std::uint64_t& generation);
 
 struct Header {
   std::string name;
@@ -54,14 +59,23 @@ struct Response {
   std::string body;
 };
 
+// Shared mapping for buffered API owners and the dedicated binary transport.
+[[nodiscard]] Response response_for_context_error(const core::Error& error);
+
+enum class BodyTransport : std::uint8_t {
+  buffered_json,
+  streaming_binary,
+};
+
 struct RouteMetadata {
   Method method;
   const char* path_pattern;
   std::size_t maximum_body_bytes;
   bool mutation;
+  BodyTransport body_transport{BodyTransport::buffered_json};
 };
 
-inline constexpr std::array<RouteMetadata, 23U> routes = {{
+inline constexpr std::array<RouteMetadata, 26U> routes = {{
     {Method::get, "/api/v1/status", 0U, false},
     {Method::get, "/api/v1/device", 0U, false},
     {Method::get, "/api/v1/health", 0U, false},
@@ -82,6 +96,13 @@ inline constexpr std::array<RouteMetadata, 23U> routes = {{
     {Method::get, "/api/v1/logs", 0U, false},
     {Method::post, "/api/v1/backends/test", 256U, true},
     {Method::get, "/api/v1/update", 0U, false},
+    {Method::post,
+     "/api/v1/update/upload",
+     maximum_firmware_image_bytes,
+     true,
+     BodyTransport::streaming_binary},
+    {Method::post, "/api/v1/update/reboot", 512U, true},
+    {Method::post, "/api/v1/update/cancel", 512U, true},
     {Method::post, "/api/v1/device/reboot", 256U, true},
     {Method::post, "/api/v1/device/factory-reset", 256U, true},
     {Method::get, "/api/v1/operations/{id}", 0U, false},
@@ -100,7 +121,10 @@ enum class Resource : std::uint8_t {
   redacted_configuration,
   diagnostics,
   logs,
-  update_boundary,
+  update,
+  // Compatibility name retained while the Phase 9 application context is
+  // replaced by the Phase 10 update-service snapshot.
+  update_boundary = update,
 };
 
 struct EmptyMutation {};
@@ -204,6 +228,13 @@ struct DeviceControlMutation {
   std::string confirmation;
 };
 
+struct UpdateControlMutation {
+  std::uint64_t upload_operation_id{0U};
+  std::uint64_t expected_generation{0U};
+  std::string expected_sha256;
+  std::string confirmation;
+};
+
 enum class MutationKind : std::uint8_t {
   scale_tare,
   scale_calibration,
@@ -212,6 +243,8 @@ enum class MutationKind : std::uint8_t {
   toolhead_unassignment,
   configuration_patch,
   backend_test,
+  update_reboot,
+  update_cancel,
   reboot,
   factory_reset,
 };
@@ -222,7 +255,8 @@ using MutationPayload = std::variant<
     ToolheadAssignmentMutation,
     ToolheadUnassignmentMutation,
     ConfigurationPatchMutation,
-    DeviceControlMutation>;
+    DeviceControlMutation,
+    UpdateControlMutation>;
 
 struct Mutation {
   MutationKind kind{MutationKind::scale_tare};

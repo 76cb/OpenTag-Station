@@ -3,6 +3,8 @@
 #include <Arduino.h>
 #include <esp_system.h>
 
+#include <string>
+
 namespace opentag::application {
 
 bool DeviceControlWorker::start() {
@@ -36,8 +38,13 @@ CommandReceipt DeviceControlWorker::submit(Action action, std::uint32_t now_ms) 
   const std::lock_guard<std::mutex> lock(active_mutex_);
   const auto kind = action == Action::reboot ? OperationKind::reboot
                                               : OperationKind::factory_reset;
+  const auto owner = action == Action::reboot
+                         ? DeviceLifecycleOwner::reboot
+                         : DeviceLifecycleOwner::factory_reset;
   if (active_operation_id_ != 0U) {
-    if (active_action_ == action) return {true, active_operation_id_};
+    if (active_action_ == action && lifecycle_.owns(active_lease_)) {
+      return {true, active_operation_id_};
+    }
     const auto rejected_id = operations_.begin(
         kind, now_ms, "Device control request rejected");
     operations_.fail(
@@ -45,6 +52,21 @@ CommandReceipt DeviceControlWorker::submit(Action action, std::uint32_t now_ms) 
         now_ms,
         {core::ErrorCategory::conflict,
          "A different device control action is already in progress",
+         false});
+    return {false, rejected_id};
+  }
+
+  const auto lease = lifecycle_.try_acquire(owner);
+  if (!lease) {
+    const auto rejected_id = operations_.begin(
+        kind, now_ms, "Device control request rejected");
+    const auto active = lifecycle_.snapshot();
+    operations_.fail(
+        rejected_id,
+        now_ms,
+        {core::ErrorCategory::conflict,
+         std::string("Device lifecycle is owned by ") +
+             to_string(active.owner),
          false});
     return {false, rejected_id};
   }
@@ -57,10 +79,13 @@ CommandReceipt DeviceControlWorker::submit(Action action, std::uint32_t now_ms) 
   Command command{action, operation_id};
   active_operation_id_ = operation_id;
   active_action_ = action;
+  active_lease_ = lease;
   pending_.store(1U, std::memory_order_relaxed);
   if (queue_ == nullptr || xQueueSend(queue_, &command, 0U) != pdTRUE) {
     active_operation_id_ = 0U;
+    active_lease_ = {};
     pending_.store(0U, std::memory_order_relaxed);
+    (void)lifecycle_.release(lease);
     operations_.fail(
         operation_id,
         now_ms,
@@ -98,10 +123,13 @@ void DeviceControlWorker::run() {
               "Factory reset recovery pending; reboot scheduled");
         } else {
           const std::lock_guard<std::mutex> lock(active_mutex_);
+          const auto lease = active_lease_;
           operations_.fail(
               command.operation_id, millis(), erased.error());
           active_operation_id_ = 0U;
+          active_lease_ = {};
           pending_.store(0U, std::memory_order_relaxed);
+          (void)lifecycle_.release(lease);
           continue;
         }
       } else {

@@ -4,7 +4,10 @@
 #include <ArduinoJson.h>
 
 #include <algorithm>
+#include <array>
+#include <cctype>
 #include <string>
+#include <string_view>
 #include <utility>
 
 #include "boards/wt32_sc01_plus_rev_a.hpp"
@@ -19,6 +22,14 @@ core::Error unavailable(
     const char* message,
     bool retryable = false) {
   return {category, message, retryable};
+}
+
+core::Error update_error(const char* message, bool retryable = false) {
+  return {core::ErrorCategory::firmware_update, message, retryable};
+}
+
+core::Error conflict_error(const char* message) {
+  return {core::ErrorCategory::conflict, message, false};
 }
 
 constexpr std::size_t constant_time_token_bytes = 512U;
@@ -359,6 +370,285 @@ void write_configuration(
       value.reconciliation.warning_tolerance_grams;
 }
 
+std::string sha256_text(const opentag::ota::Sha256Digest& digest) {
+  static constexpr char hexadecimal[] = "0123456789abcdef";
+  std::string result(opentag::ota::sha256_digest_bytes * 2U, '0');
+  for (std::size_t index = 0U; index < digest.size(); ++index) {
+    result[index * 2U] = hexadecimal[digest[index] >> 4U];
+    result[index * 2U + 1U] = hexadecimal[digest[index] & 0x0FU];
+  }
+  return result;
+}
+
+bool decode_sha256(
+    std::string_view encoded,
+    opentag::ota::Sha256Digest& digest) {
+  if (!api::valid_sha256_hex(encoded)) return false;
+  const auto nibble = [](char value) -> std::uint8_t {
+    return value <= '9'
+        ? static_cast<std::uint8_t>(value - '0')
+        : static_cast<std::uint8_t>(value - 'a' + 10);
+  };
+  for (std::size_t index = 0U; index < digest.size(); ++index) {
+    digest[index] = static_cast<std::uint8_t>(
+        (nibble(encoded[index * 2U]) << 4U) |
+        nibble(encoded[index * 2U + 1U]));
+  }
+  return true;
+}
+
+bool same_sha256(
+    const opentag::ota::Sha256Digest& left,
+    const opentag::ota::Sha256Digest& right) {
+  volatile std::uint32_t difference = 0U;
+  for (std::size_t index = 0U; index < left.size(); ++index) {
+    difference |= static_cast<std::uint32_t>(left[index] ^ right[index]);
+  }
+  return difference == 0U;
+}
+
+void write_partition(
+    JsonObject object,
+    const opentag::ota::PartitionDescriptor& partition) {
+  object["label"] = partition.label.view();
+  object["size"] = partition.size;
+  object["subtype"] = partition.subtype;
+  object["present"] = partition.present();
+}
+
+void write_firmware(
+    JsonObject object,
+    const opentag::ota::FirmwareDescriptor& firmware) {
+  object["project"] = firmware.project_name.view();
+  object["version"] = firmware.version.view();
+  object["git_sha"] = firmware.git_sha.view();
+  object["build_date"] = firmware.build_date.view();
+  object["board_id"] = firmware.board_id.view();
+  object["idf_version"] = firmware.idf_version.view();
+}
+
+const char* update_message(const opentag::ota::UpdateSnapshot& update) {
+  switch (update.state) {
+    case opentag::ota::UpdateState::idle:
+      return "No firmware update is staged";
+    case opentag::ota::UpdateState::upload_receiving:
+    case opentag::ota::UpdateState::writing:
+      return "Firmware is streaming to the inactive application slot";
+    case opentag::ota::UpdateState::validating:
+      return "Firmware transfer completed and validation is running";
+    case opentag::ota::UpdateState::ready_to_activate:
+    case opentag::ota::UpdateState::ready_to_reboot:
+      if (update.activated) {
+        return "Validated candidate is selected and waiting for reboot";
+      }
+      return update.activation_intent
+          ? "Running-slot rollback metadata recovery is pending before candidate selection"
+          : "Candidate is validated in the inactive slot but is not selected for boot";
+    case opentag::ota::UpdateState::reboot_pending:
+      return "Validated candidate reboot is pending";
+    case opentag::ota::UpdateState::candidate_boot:
+    case opentag::ota::UpdateState::validating_candidate:
+      return "Candidate firmware is running inside its health-confirmation window";
+    case opentag::ota::UpdateState::confirmed:
+      return "Candidate firmware was confirmed healthy";
+    case opentag::ota::UpdateState::rollback_pending:
+      return "Candidate rollback is pending";
+    case opentag::ota::UpdateState::rolled_back:
+      return "Candidate firmware was rolled back";
+    case opentag::ota::UpdateState::failed:
+      return "Firmware update failed";
+  }
+  return "Firmware update state is unknown";
+}
+
+bool upload_available(opentag::ota::UpdateState state) {
+  return state == opentag::ota::UpdateState::idle ||
+      state == opentag::ota::UpdateState::failed ||
+      state == opentag::ota::UpdateState::confirmed ||
+      state == opentag::ota::UpdateState::rolled_back;
+}
+
+bool upload_in_progress(opentag::ota::UpdateState state) {
+  return state == opentag::ota::UpdateState::upload_receiving ||
+      state == opentag::ota::UpdateState::writing ||
+      state == opentag::ota::UpdateState::validating;
+}
+
+bool validated_unselected_candidate(
+    const opentag::ota::UpdateSnapshot& update) {
+  return update.state == opentag::ota::UpdateState::ready_to_reboot &&
+      update.validation_passed && update.calculated_sha_available &&
+      same_sha256(update.expected_sha256, update.calculated_sha256) &&
+      !update.activated && !update.activation_intent;
+}
+
+bool activation_retry_candidate(
+    const opentag::ota::UpdateSnapshot& update) {
+  const bool running_seed_pending =
+      update.running_image_state ==
+          opentag::ota::PartitionImageState::new_image ||
+      update.running_image_state ==
+          opentag::ota::PartitionImageState::pending_verify ||
+      update.running_image_state ==
+          opentag::ota::PartitionImageState::valid ||
+      update.running_image_state ==
+          opentag::ota::PartitionImageState::undefined;
+  return update.state == opentag::ota::UpdateState::ready_to_reboot &&
+      update.validation_passed && update.calculated_sha_available &&
+      same_sha256(update.expected_sha256, update.calculated_sha256) &&
+      !update.activated && update.activation_intent &&
+      running_seed_pending && update.target.present() &&
+      opentag::ota::same_partition(update.boot, update.running) &&
+      opentag::ota::same_partition(update.inactive, update.target) &&
+      !opentag::ota::same_partition(update.running, update.target);
+}
+
+bool safely_selected_candidate(
+    const opentag::ota::UpdateSnapshot& update) {
+  return update.state == opentag::ota::UpdateState::ready_to_reboot &&
+      update.validation_passed && update.calculated_sha_available &&
+      same_sha256(update.expected_sha256, update.calculated_sha256) &&
+      update.activated && update.activation_intent &&
+      update.target.present() &&
+      opentag::ota::same_partition(update.boot, update.target) &&
+      !opentag::ota::same_partition(update.running, update.target);
+}
+
+void write_update(
+    JsonDocument& document,
+    const opentag::ota::UpdateSnapshot& update,
+    bool owner_ready) {
+  document["revision"] = update.revision;
+  document["generation"] = update.generation;
+  document["operation_id"] = update.operation_id;
+  document["upload_operation_id"] = update.operation_id;
+  document["state"] = opentag::ota::to_string(update.state);
+  document["message"] = update_message(update);
+  document["image_size"] = update.image_size;
+  document["received_bytes"] = update.bytes_received;
+  document["started_at_ms"] = update.started_at_ms;
+  document["updated_at_ms"] = update.updated_at_ms;
+  document["candidate_started_at_ms"] = update.candidate_started_at_ms;
+  document["expected_sha256"] = sha256_text(update.expected_sha256);
+  if (update.calculated_sha_available) {
+    document["calculated_sha256"] = sha256_text(update.calculated_sha256);
+  }
+
+  write_firmware(document["current"].to<JsonObject>(), update.current);
+  auto candidate = document["candidate"].to<JsonObject>();
+  write_firmware(candidate, update.candidate);
+  candidate["operation_id"] = update.operation_id;
+  candidate["upload_operation_id"] = update.operation_id;
+  candidate["image_size"] = update.image_size;
+  candidate["expected_sha256"] = sha256_text(update.expected_sha256);
+  if (update.calculated_sha_available) {
+    candidate["calculated_sha256"] = sha256_text(update.calculated_sha256);
+  }
+
+  auto partitions = document["partitions"].to<JsonObject>();
+  write_partition(partitions["running"].to<JsonObject>(), update.running);
+  write_partition(partitions["boot"].to<JsonObject>(), update.boot);
+  write_partition(partitions["inactive"].to<JsonObject>(), update.inactive);
+  write_partition(partitions["target"].to<JsonObject>(), update.target);
+  if (update.last_invalid.has_value()) {
+    write_partition(
+        partitions["last_invalid"].to<JsonObject>(), *update.last_invalid);
+  }
+
+  auto progress = document["progress"].to<JsonObject>();
+  progress["received_bytes"] = update.bytes_received;
+  progress["image_size"] = update.image_size;
+  progress["percent"] = update.image_size == 0U
+      ? 0.0
+      : std::min(
+            100.0,
+            static_cast<double>(update.bytes_received) * 100.0 /
+                static_cast<double>(update.image_size));
+
+  auto validation = document["validation"].to<JsonObject>();
+  validation["passed"] = update.validation_passed;
+  validation["calculated_sha_available"] = update.calculated_sha_available;
+  validation["result"] = update.validation_passed
+      ? "passed"
+      : update.state == opentag::ota::UpdateState::failed
+          ? "failed"
+          : "not_complete";
+
+  auto activation = document["activation"].to<JsonObject>();
+  activation["intent"] = update.activation_intent;
+  activation["activated"] = update.activated;
+  activation["boot_target_selected"] = update.activated;
+
+  auto rollback = document["rollback"].to<JsonObject>();
+  rollback["supported"] = update.rollback_available;
+  rollback["running_image_state"] =
+      opentag::ota::to_string(update.running_image_state);
+  rollback["state"] = update.state == opentag::ota::UpdateState::rolled_back
+      ? "rolled_back"
+      : update.state == opentag::ota::UpdateState::rollback_pending
+          ? "pending"
+          : "not_started";
+
+  const bool validated_not_selected =
+      validated_unselected_candidate(update);
+  const bool activation_retry = activation_retry_candidate(update);
+  const bool safely_selected = safely_selected_candidate(update);
+  const bool inactive_topology_available = update.inactive.present();
+  auto capabilities = document["capabilities"].to<JsonObject>();
+  capabilities["owner_ready"] = owner_ready;
+  capabilities["maximum_image_bytes"] = inactive_topology_available
+      ? std::min(
+            static_cast<std::uint32_t>(api::maximum_firmware_image_bytes),
+            update.inactive.size)
+      : 0U;
+  capabilities["upload_available"] = owner_ready &&
+      inactive_topology_available && upload_available(update.state);
+  capabilities["cancel_available"] = owner_ready &&
+      (upload_in_progress(update.state) || validated_not_selected);
+  capabilities["reboot_available"] = owner_ready &&
+      (validated_not_selected || activation_retry || safely_selected);
+
+  if (!update.last_error.empty()) {
+    auto error = document["last_error"].to<JsonObject>();
+    error["category"] = "firmware_update";
+    error["message"] = update.last_error.view();
+  }
+}
+
+bool valid_idempotency_key(std::string_view value) {
+  return !value.empty() &&
+      value.size() <= IdempotencyLedger::maximum_key_bytes &&
+      std::all_of(value.begin(), value.end(), [](char character) {
+        const auto byte = static_cast<unsigned char>(character);
+        return std::isalnum(byte) != 0 || character == '-' ||
+            character == '_' || character == '.' || character == ':';
+      });
+}
+
+std::uint64_t streaming_upload_digest(const StreamingUploadRequest& request) {
+  constexpr std::uint64_t offset_basis = 14695981039346656037ULL;
+  constexpr std::uint64_t prime = 1099511628211ULL;
+  std::uint64_t digest = offset_basis;
+  const auto absorb = [&](std::uint8_t byte) {
+    digest ^= static_cast<std::uint64_t>(byte);
+    digest *= prime;
+  };
+  constexpr std::string_view domain = "POST:/api/v1/update/upload:v1";
+  for (const auto character : domain) {
+    absorb(static_cast<std::uint8_t>(character));
+  }
+  for (std::size_t shift = 0U; shift < sizeof(request.expected_generation); ++shift) {
+    absorb(static_cast<std::uint8_t>(
+        request.expected_generation >> (shift * 8U)));
+  }
+  for (std::size_t shift = 0U; shift < sizeof(request.expected_length); ++shift) {
+    absorb(static_cast<std::uint8_t>(
+        request.expected_length >> (shift * 8U)));
+  }
+  for (const auto byte : request.expected_sha256) absorb(byte);
+  return digest;
+}
+
 }  // namespace
 
 bool ApplicationApiContext::authorize_mutation(
@@ -497,6 +787,8 @@ core::Result<std::string> ApplicationApiContext::snapshot_json(
       queues["backend"] = backends.pending;
       queues["scale"] = scale_commands_.pending();
       queues["device_control"] = device_control_.pending();
+      queues["ota"] = ota_worker_.pending();
+      document["ota_owner_ready"] = ota_worker_.ready();
       document["operation_registry_revision"] = operations_.revision();
       document["nfc_available"] = false;
       document["nfc_reason"] =
@@ -522,11 +814,8 @@ core::Result<std::string> ApplicationApiContext::snapshot_json(
       }
       break;
     }
-    case api::Resource::update_boundary:
-      document["supported"] = false;
-      document["state"] = "not_available_in_phase_9";
-      document["message"] =
-          "OTA installation, A/B switching, and rollback begin in Phase 10";
+    case api::Resource::update:
+      write_update(document, ota_worker_.snapshot(), ota_worker_.ready());
       break;
   }
   return serialized(document);
@@ -654,6 +943,59 @@ core::Result<api::OperationReceipt> ApplicationApiContext::submit_fresh(
       return receipt_result(
           device_control_.submit_factory_reset(now_ms),
           "Device control queue is unavailable");
+    case api::MutationKind::update_reboot:
+    case api::MutationKind::update_cancel: {
+      const auto& payload =
+          std::get<api::UpdateControlMutation>(mutation.payload);
+      opentag::ota::Sha256Digest supplied_sha256{};
+      if (!decode_sha256(payload.expected_sha256, supplied_sha256)) {
+        return core::Result<api::OperationReceipt>::failure(update_error(
+            "OTA control requires a 64-character lowercase SHA-256 digest"));
+      }
+      const auto update = ota_worker_.snapshot();
+      if (payload.upload_operation_id != update.operation_id ||
+          payload.expected_generation != update.generation ||
+          !same_sha256(supplied_sha256, update.expected_sha256)) {
+        return core::Result<api::OperationReceipt>::failure(conflict_error(
+            "OTA operation, generation, or image digest changed before control was submitted"));
+      }
+      const bool validated_not_selected =
+          validated_unselected_candidate(update);
+      const bool activation_retry = activation_retry_candidate(update);
+      const bool safely_selected = safely_selected_candidate(update);
+      const bool reboot_candidate =
+          validated_not_selected || activation_retry || safely_selected;
+      const bool cancellable_upload =
+          update.state == opentag::ota::UpdateState::upload_receiving ||
+          update.state == opentag::ota::UpdateState::writing;
+      if ((mutation.kind == api::MutationKind::update_reboot &&
+           !reboot_candidate) ||
+          (mutation.kind == api::MutationKind::update_cancel &&
+           !validated_not_selected && !cancellable_upload)) {
+        return core::Result<api::OperationReceipt>::failure(conflict_error(
+            mutation.kind == api::MutationKind::update_reboot
+                ? "OTA candidate is not validated and ready for reboot"
+                : "OTA upload or validated inactive candidate is not cancellable"));
+      }
+      const opentag::ota::OperationPrecondition precondition{
+          update.operation_id,
+          update.generation,
+      };
+      const auto receipt = mutation.kind == api::MutationKind::update_reboot
+          ? ota_worker_.submit_reboot(precondition, now_ms)
+          : ota_worker_.submit_cancel(precondition, now_ms);
+      if (receipt.accepted && receipt.operation_id != 0U) {
+        return core::Result<api::OperationReceipt>::success(
+            {receipt.operation_id});
+      }
+      const auto operation = operations_.get(receipt.operation_id);
+      if (operation.has_value() && operation->error.has_value()) {
+        return core::Result<api::OperationReceipt>::failure(
+            *operation->error);
+      }
+      return core::Result<api::OperationReceipt>::failure(update_error(
+          "OTA control queue is unavailable", true));
+    }
   }
   return core::Result<api::OperationReceipt>::failure(unavailable(
       core::ErrorCategory::configuration,
@@ -694,6 +1036,153 @@ core::Result<api::OperationReceipt> ApplicationApiContext::submit(
       std::string("Accepted API operation #") +
           std::to_string(submitted.value().operation_id));
   return submitted;
+}
+
+core::Result<StreamingUploadSession>
+ApplicationApiContext::begin_streaming_upload(
+    const StreamingUploadRequest& request) {
+  if (!valid_idempotency_key(request.idempotency_key) ||
+      request.expected_length == 0U ||
+      request.expected_length > api::maximum_firmware_image_bytes) {
+    return core::Result<StreamingUploadSession>::failure(update_error(
+        "Firmware upload metadata is invalid or exceeds the 5 MiB limit"));
+  }
+
+  const auto now_ms = millis();
+  const auto digest = streaming_upload_digest(request);
+  const std::lock_guard<std::mutex> lock(idempotency_mutex_);
+  const auto existing = idempotency_.lookup(
+      request.idempotency_key, digest, now_ms);
+  if (existing.status == IdempotencyLookupStatus::same) {
+    const auto current = ota_worker_.snapshot();
+    return core::Result<StreamingUploadSession>::success({
+        {existing.operation_id, current.generation},
+        existing.operation_id,
+        true,
+        current.operation_id == existing.operation_id
+            ? std::optional<opentag::ota::UpdateSnapshot>{current}
+            : std::nullopt,
+    });
+  }
+  if (existing.status == IdempotencyLookupStatus::conflict) {
+    return core::Result<StreamingUploadSession>::failure(conflict_error(
+        "Idempotency-Key was already used with different firmware metadata"));
+  }
+
+  const auto operation_id = operations_.begin(
+      application::OperationKind::firmware_upload,
+      now_ms,
+      "Firmware upload accepted");
+  opentag::ota::BeginUploadRequest begin;
+  begin.operation_id = operation_id;
+  begin.expected_generation = request.expected_generation;
+  begin.expected_length = request.expected_length;
+  begin.expected_sha256 = request.expected_sha256;
+  const auto started = ota_worker_.begin_upload(begin, now_ms);
+  if (!started.ok()) {
+    const auto cleanup_now_ms = millis();
+    const auto current = ota_worker_.snapshot();
+    if (current.operation_id == operation_id &&
+        current.generation != 0U &&
+        (current.state == opentag::ota::UpdateState::upload_receiving ||
+         current.state == opentag::ota::UpdateState::writing)) {
+      const opentag::ota::OperationPrecondition precondition{
+          current.operation_id,
+          current.generation,
+      };
+      (void)ota_worker_.abort_upload(precondition, cleanup_now_ms);
+    }
+    operations_.fail(operation_id, cleanup_now_ms, started.error());
+    return core::Result<StreamingUploadSession>::failure(started.error());
+  }
+  const opentag::ota::OperationPrecondition precondition{
+      started.value().operation_id,
+      started.value().generation,
+  };
+  if (!idempotency_.insert(
+          request.idempotency_key,
+          digest,
+          operation_id,
+          now_ms)) {
+    const auto error = update_error(
+        "Idempotency-Key exceeded the bounded ledger limit");
+    (void)ota_worker_.abort_upload(precondition, now_ms);
+    operations_.fail(operation_id, now_ms, error);
+    return core::Result<StreamingUploadSession>::failure(error);
+  }
+  operations_.mark_running(
+      operation_id,
+      now_ms,
+      "Firmware is streaming to the inactive application slot");
+  logs_.append(
+      now_ms,
+      logging::LogSeverity::info,
+      logging::LogComponent::web,
+      std::string("Accepted firmware upload operation #") +
+          std::to_string(operation_id));
+  return core::Result<StreamingUploadSession>::success({
+      precondition,
+      operation_id,
+      false,
+      std::nullopt,
+  });
+}
+
+core::Result<opentag::ota::UpdateSnapshot>
+ApplicationApiContext::write_streaming_upload(
+    const StreamingUploadSession& session,
+    core::ByteView chunk) {
+  if (session.duplicate || session.operation_id == 0U ||
+      chunk.data == nullptr || chunk.empty() ||
+      chunk.size > opentag::ota::maximum_upload_chunk_bytes) {
+    return core::Result<opentag::ota::UpdateSnapshot>::failure(update_error(
+        "Firmware upload session or chunk is invalid"));
+  }
+  return ota_worker_.write_chunk(session.precondition, chunk, millis());
+}
+
+core::Result<opentag::ota::UpdateSnapshot>
+ApplicationApiContext::finish_streaming_upload(
+    const StreamingUploadSession& session) {
+  if (session.duplicate || session.operation_id == 0U) {
+    return core::Result<opentag::ota::UpdateSnapshot>::failure(update_error(
+        "Duplicate firmware upload sessions cannot finish a new write"));
+  }
+  const auto now_ms = millis();
+  const auto finished = ota_worker_.finish_and_activate(
+      session.precondition, now_ms);
+  if (!finished.ok()) {
+    operations_.fail(session.operation_id, now_ms, finished.error());
+    return finished;
+  }
+  const auto& update = finished.value();
+  if (update.state != opentag::ota::UpdateState::ready_to_reboot ||
+      !update.validation_passed || update.activated) {
+    const auto error = update_error(
+        "Validated firmware did not reach the safe inactive-slot reboot boundary");
+    operations_.fail(session.operation_id, now_ms, error);
+    return core::Result<opentag::ota::UpdateSnapshot>::failure(error);
+  }
+  operations_.succeed(
+      session.operation_id,
+      now_ms,
+      "Firmware validated in the inactive slot; reboot confirmation required");
+  return finished;
+}
+
+void ApplicationApiContext::abort_streaming_upload(
+    const StreamingUploadSession& session,
+    const core::Error& reason) {
+  if (session.duplicate || session.operation_id == 0U) return;
+  const auto now_ms = millis();
+  (void)ota_worker_.abort_upload(session.precondition, now_ms);
+  operations_.fail(session.operation_id, now_ms, reason);
+  logs_.append(
+      now_ms,
+      logging::LogSeverity::warning,
+      logging::LogComponent::web,
+      std::string("Aborted firmware upload operation #") +
+          std::to_string(session.operation_id));
 }
 
 }  // namespace opentag::web

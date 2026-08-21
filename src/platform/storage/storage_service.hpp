@@ -26,8 +26,15 @@ class StorageService final :
     public services::IScaleCalibrationStore {
  public:
   bool initialize(std::uint32_t now_ms);
-  void poll(std::uint32_t now_ms);
-  [[nodiscard]] const StorageStatus& status() const { return status_; }
+  [[nodiscard]] bool health_window_due(std::uint32_t now_ms) const;
+  [[nodiscard]] core::Result<void> confirm_healthy_boot();
+  [[nodiscard]] bool boot_confirmation_pending() const {
+    return boot_pending_.load(std::memory_order_acquire);
+  }
+  [[nodiscard]] StorageStatus status() const {
+    const std::lock_guard<std::mutex> lock(status_mutex_);
+    return status_;
+  }
   [[nodiscard]] core::Result<void> factory_reset_device_data();
   [[nodiscard]] bool factory_reset_recovery_pending() const {
     return reset_in_progress_.load(std::memory_order_acquire);
@@ -48,15 +55,14 @@ class StorageService final :
  private:
   static constexpr std::uint32_t healthy_boot_after_ms = 30000U;
 
-  void mark_boot_healthy();
-
   Preferences preferences_;
   Preferences control_preferences_;
   std::mutex preferences_mutex_;
+  mutable std::mutex status_mutex_;
   StorageStatus status_;
   std::atomic_bool reset_in_progress_{false};
   std::uint32_t boot_started_ms_{0};
-  bool boot_pending_{false};
+  std::atomic_bool boot_pending_{false};
 };
 
 }  // namespace opentag::platform::storage

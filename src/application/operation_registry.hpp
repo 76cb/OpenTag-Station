@@ -20,6 +20,9 @@ enum class OperationKind : std::uint8_t {
   toolhead_assignment,
   toolhead_unassignment,
   nfc_read,
+  firmware_upload,
+  firmware_reboot,
+  firmware_cancel,
   reboot,
   factory_reset,
 };
@@ -59,6 +62,7 @@ class OperationRegistry final {
       OperationKind kind,
       std::uint32_t now_ms,
       std::string message = {});
+  void reserve_ids_above(std::uint64_t highest_used);
   void mark_running(
       std::uint64_t id,
       std::uint32_t now_ms,

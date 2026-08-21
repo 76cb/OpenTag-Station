@@ -121,7 +121,13 @@ Response context_error(const core::Error& error) {
     case core::ErrorCategory::storage:
       return error_response(507, "persistence_failed", error.message, error.retryable);
     case core::ErrorCategory::firmware_update:
-      return error_response(501, "update_unavailable", error.message, false);
+      return error.retryable
+          ? error_response(503, "update_unavailable", error.message, true)
+          : error_response(
+                422,
+                "firmware_validation_failed",
+                error.message,
+                false);
   }
   return error_response(500, "internal_error", "The request could not be completed");
 }
@@ -135,6 +141,8 @@ const char* mutation_name(MutationKind kind) {
     case MutationKind::toolhead_unassignment: return "toolhead_unassignment";
     case MutationKind::configuration_patch: return "configuration";
     case MutationKind::backend_test: return "backend_probe";
+    case MutationKind::update_reboot: return "update_reboot";
+    case MutationKind::update_cancel: return "update_cancel";
     case MutationKind::reboot: return "reboot";
     case MutationKind::factory_reset: return "factory_reset";
   }
@@ -355,6 +363,16 @@ bool valid_idempotency_key(const std::string& value) {
         return std::isalnum(byte) != 0 || character == '-' || character == '_' ||
             character == '.' || character == ':';
       });
+}
+
+bool read_required_positive_uint64(
+    JsonObjectConst object,
+    const char* key,
+    std::uint64_t& destination) {
+  const auto value = object[key];
+  if (value.is<bool>() || !value.is<std::uint64_t>()) return false;
+  destination = value.as<std::uint64_t>();
+  return destination > 0U;
 }
 
 core::Result<std::string> validate_mutation_headers(const Request& request) {
@@ -904,6 +922,43 @@ core::Result<Mutation> parse_mutation(
     return core::Result<Mutation>::success(std::move(mutation));
   }
 
+  if (request.path == "/api/v1/update/reboot" ||
+      request.path == "/api/v1/update/cancel") {
+    if (!keys_allowed(
+            object,
+            {"upload_operation_id", "expected_generation",
+             "expected_sha256", "confirmation"}) ||
+        object.size() != 4U ||
+        !object["expected_sha256"].is<const char*>() ||
+        !object["confirmation"].is<const char*>()) {
+      return core::Result<Mutation>::failure(invalid_request(
+          "update control fields or types are invalid"));
+    }
+
+    UpdateControlMutation payload;
+    if (!read_required_positive_uint64(
+            object, "upload_operation_id", payload.upload_operation_id) ||
+        !read_required_positive_uint64(
+            object, "expected_generation", payload.expected_generation)) {
+      return core::Result<Mutation>::failure(invalid_request(
+          "update control operation and generation must be positive integers"));
+    }
+    payload.expected_sha256 = object["expected_sha256"].as<const char*>();
+    payload.confirmation = object["confirmation"].as<const char*>();
+    const bool reboot = request.path == "/api/v1/update/reboot";
+    const char* expected_confirmation =
+        reboot ? "REBOOT INTO UPDATE" : "CANCEL UPDATE";
+    if (!valid_sha256_hex(payload.expected_sha256) ||
+        payload.confirmation != expected_confirmation) {
+      return core::Result<Mutation>::failure(invalid_request(
+          "update control digest or confirmation is invalid"));
+    }
+    mutation.kind = reboot ? MutationKind::update_reboot
+                           : MutationKind::update_cancel;
+    mutation.payload = std::move(payload);
+    return core::Result<Mutation>::success(std::move(mutation));
+  }
+
   if (request.path == "/api/v1/device/reboot" ||
       request.path == "/api/v1/device/factory-reset") {
     if (!keys_allowed(object, {"confirmation"}) || object.size() != 1U ||
@@ -993,11 +1048,44 @@ std::optional<Resource> resource_for_path(const std::string& path) {
   if (path == "/api/v1/config") return Resource::redacted_configuration;
   if (path == "/api/v1/diagnostics") return Resource::diagnostics;
   if (path == "/api/v1/logs") return Resource::logs;
-  if (path == "/api/v1/update") return Resource::update_boundary;
+  if (path == "/api/v1/update") return Resource::update;
   return std::nullopt;
 }
 
 }  // namespace
+
+Response response_for_context_error(const core::Error& error) {
+  return context_error(error);
+}
+
+bool valid_sha256_hex(std::string_view value) {
+  return value.size() == 64U &&
+      std::all_of(value.begin(), value.end(), [](char character) {
+        return (character >= '0' && character <= '9') ||
+            (character >= 'a' && character <= 'f');
+      });
+}
+
+bool parse_canonical_generation(
+    std::string_view value,
+    std::uint64_t& generation) {
+  if (value.empty() || value.size() > 20U ||
+      (value.size() > 1U && value.front() == '0')) {
+    return false;
+  }
+  std::uint64_t decoded = 0U;
+  for (const auto character : value) {
+    if (character < '0' || character > '9') return false;
+    const auto digit = static_cast<std::uint64_t>(character - '0');
+    if (decoded >
+        (std::numeric_limits<std::uint64_t>::max() - digit) / 10U) {
+      return false;
+    }
+    decoded = decoded * 10U + digit;
+  }
+  generation = decoded;
+  return true;
+}
 
 const char* to_string(Method method) {
   switch (method) {
@@ -1014,6 +1102,17 @@ const char* to_string(Method method) {
 }
 
 Response Router::handle(const Request& request) {
+  // Firmware upload is declared in the route catalog so method discovery and
+  // transport bounds remain centralized, but binary images must never enter
+  // this buffered JSON router. LocalWebServer owns the exact streaming route.
+  if (request.method == Method::post &&
+      request.path == "/api/v1/update/upload") {
+    return error_response(
+        500,
+        "streaming_transport_required",
+        "Firmware images must use the dedicated streaming upload transport");
+  }
+
   const auto shape = validate_request_shape(request);
   if (!shape.ok()) {
     const bool too_large = request.body.size() > maximum_request_body_bytes;

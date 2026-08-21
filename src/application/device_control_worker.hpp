@@ -8,6 +8,7 @@
 #include <freertos/queue.h>
 #include <freertos/task.h>
 
+#include "application/device_lifecycle_gate.hpp"
 #include "application/operation_registry.hpp"
 #include "platform/storage/storage_service.hpp"
 
@@ -17,8 +18,9 @@ class DeviceControlWorker final {
  public:
   DeviceControlWorker(
       platform::storage::StorageService& storage,
-      OperationRegistry& operations)
-      : storage_(storage), operations_(operations) {}
+      OperationRegistry& operations,
+      DeviceLifecycleGate& lifecycle)
+      : storage_(storage), operations_(operations), lifecycle_(lifecycle) {}
 
   [[nodiscard]] bool start();
   [[nodiscard]] CommandReceipt submit_reboot(std::uint32_t now_ms);
@@ -40,12 +42,14 @@ class DeviceControlWorker final {
 
   platform::storage::StorageService& storage_;
   OperationRegistry& operations_;
+  DeviceLifecycleGate& lifecycle_;
   QueueHandle_t queue_{nullptr};
   TaskHandle_t task_{nullptr};
   std::atomic_size_t pending_{0U};
   std::mutex active_mutex_;
   std::uint64_t active_operation_id_{0U};
   Action active_action_{Action::reboot};
+  DeviceLifecycleLease active_lease_;
 };
 
 }  // namespace opentag::application

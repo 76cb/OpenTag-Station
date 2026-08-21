@@ -9,6 +9,40 @@
 #include "hardware/nfc/st25r3916b/wiring_guard.hpp"
 
 namespace opentag::application {
+namespace {
+
+constexpr std::uint32_t boot_health_retry_interval_ms = 1000U;
+
+bool candidate_validation_pending(opentag::ota::UpdateState state) {
+  return state == opentag::ota::UpdateState::candidate_boot ||
+      state == opentag::ota::UpdateState::validating_candidate;
+}
+
+bool pending_bootloader_confirmation(
+    opentag::ota::PartitionImageState state) {
+  return state == opentag::ota::PartitionImageState::pending_verify ||
+      state == opentag::ota::PartitionImageState::new_image;
+}
+
+bool rollback_seed_recovery_pending(
+    const opentag::ota::UpdateSnapshot& update) {
+  const bool recoverable_running =
+      pending_bootloader_confirmation(update.running_image_state) ||
+      update.running_image_state ==
+          opentag::ota::PartitionImageState::valid;
+  return update.state == opentag::ota::UpdateState::ready_to_reboot &&
+      update.validation_passed && update.calculated_sha_available &&
+      update.expected_sha256 == update.calculated_sha256 &&
+      update.image_size != 0U && update.bytes_received == update.image_size &&
+      update.activation_intent && !update.activated &&
+      update.target.present() &&
+      opentag::ota::same_partition(update.boot, update.running) &&
+      opentag::ota::same_partition(update.inactive, update.target) &&
+      !opentag::ota::same_partition(update.running, update.target) &&
+      recoverable_running;
+}
+
+}  // namespace
 
 void Application::setup() {
   Serial.begin(115200);
@@ -16,7 +50,7 @@ void Application::setup() {
 
   const auto& build = diagnostics::build_info;
   Serial.println();
-  Serial.println("OpenTag Station Phase 9 local web UI and versioned API");
+  Serial.println("OpenTag Station Phase 10 safe OTA and rollback");
   Serial.printf("version=%s git=%s build=%s\n", build.project_version, build.git_sha, build.build_date);
   Serial.printf(
       "board=%s platform=%s framework=%s config_schema=%d\n",
@@ -34,43 +68,74 @@ void Application::setup() {
   }
 
   const auto now_ms = millis();
+  boot_health_policy_ = BootHealthPolicy(now_ms);
   logs_.append(
       now_ms,
       logging::LogSeverity::info,
       logging::LogComponent::application,
-      "OpenTag Station Phase 9 boot started");
-  const bool storage_ready = storage_.initialize(now_ms);
-  const bool configuration_ready = configuration_.initialize().ok();
+      "OpenTag Station Phase 10 boot started");
+  storage_ready_ = storage_.initialize(now_ms);
+
+  // Reconcile the bootloader and acquire candidate-validation ownership before
+  // any reset owner or network mutation can compete for the lifecycle gate.
+  ota_records_ready_ = ota_records_.initialize().ok();
+  // The owner must still inspect bootloader state when metadata storage is
+  // unavailable so a pending candidate can take the fail-closed rollback path.
+  ota_task_started_ = ota_worker_.start(now_ms);
+
+  const auto configuration_result = configuration_.initialize();
+  const auto configuration_status = configuration_.status();
+  configuration_ready_ = configuration_result.ok() ||
+      (configuration_status.initialized &&
+       !configuration_status.persistence_available);
   const auto configured = configuration_.snapshot();
-  const bool scale_profile_ready =
+  scale_profile_ready_ =
       scale_.configure_hardware(configured.scale_hardware).ok();
   spoolman_.configure(configured.spoolman);
   filabridge_.configure(configured.filabridge);
   spool_resolver_.configure(configured.spoolman);
-  const bool display_ready = display_.initialize();
-  if (display_ready) display_.set_brightness(configured.device.brightness_percent);
+  display_ready_ = display_.initialize();
+  if (display_ready_) {
+    display_.set_brightness(configured.device.brightness_percent);
+  }
   const auto idle_result = state_machine_.transition(ApplicationState::idle);
-  const bool configuration_task_started = configuration_worker_.start();
-  const bool backend_task_started = backend_worker_.start();
-  const bool scale_commands_ready = scale_commands_.initialize();
-  const bool device_control_started = device_control_.start();
-  const bool scale_task_started = start_scale_task();
-  const bool ui_task_started = display_ready && configuration_task_started &&
-      backend_task_started &&
-      start_ui_task();
-  // Start the network/web owner last so an HTTP mutation can never observe an
-  // application whose bounded command owners have not yet been initialized.
-  const bool network_task_started = start_network_task();
-  if (!idle_result.ok() || !ui_task_started || !scale_task_started ||
-      !network_task_started || !configuration_task_started ||
-      !backend_task_started || !scale_profile_ready || !scale_commands_ready ||
-      !device_control_started) {
-    if (idle_result.ok()) {
-      state_machine_.transition(ApplicationState::error);
+  application_idle_ready_ = idle_result.ok();
+  configuration_task_started_ = configuration_worker_.start();
+  backend_task_started_ = backend_worker_.start();
+  scale_commands_ready_ = scale_commands_.initialize();
+  // A timed-out or failed OTA-owner start leaves bootloader reconciliation
+  // unknown. Keep every destructive control and network mutation unavailable
+  // rather than exposing a window where another lifecycle owner can win.
+  device_control_started_ = ota_task_started_ && device_control_.start();
+  if (device_control_started_ &&
+      storage_.factory_reset_recovery_pending()) {
+    const auto update = ota_worker_.snapshot();
+    if (!candidate_validation_pending(update.state)) {
+      // The persisted marker is the authority for this internal recovery;
+      // browser authentication is neither available nor required at boot.
+      (void)device_control_.submit_factory_reset(millis());
     }
   }
 
-  const auto status = diagnostics_.snapshot(now_ms);
+  scale_task_started_ = start_scale_task();
+  ui_task_started_ = display_ready_ && configuration_task_started_ &&
+      backend_task_started_ &&
+      start_ui_task();
+  // Start the network/web owner last so an HTTP mutation can never observe an
+  // application whose bounded command owners have not yet been initialized.
+  network_task_started_ = ota_task_started_ && start_network_task();
+  startup_fatal_error_ = !storage_ready_ || !ota_records_ready_ ||
+      !ota_task_started_ || !configuration_ready_ ||
+      !application_idle_ready_ || !ui_task_started_ ||
+      !scale_task_started_ || !network_task_started_ ||
+      !configuration_task_started_ || !backend_task_started_ ||
+      !scale_profile_ready_ || !scale_commands_ready_ ||
+      !device_control_started_;
+  if (startup_fatal_error_ && application_idle_ready_) {
+    (void)state_machine_.transition(ApplicationState::error);
+  }
+
+  const auto status = diagnostics_.snapshot(millis());
   Serial.printf(
       "reset=%s boot=%lu crash_streak=%u state=%s\n",
       status.reset_reason,
@@ -79,31 +144,152 @@ void Application::setup() {
       to_string(state_machine_.state()));
   Serial.printf(
       "display=%s touch=%s nvs=%s littlefs=%s coredump=%s ui_task=%s\n",
-      display_ready ? "ready" : "ERROR",
+      display_ready_ ? "ready" : "ERROR",
       display_.touch_configured() ? "configured" : "ERROR",
       status.nvs_ready ? "ready" : "ERROR",
       status.filesystem_ready ? "ready" : "ERROR",
       status.coredump_partition_present ? "present" : "missing",
-      ui_task_started ? "started" : "ERROR");
+      ui_task_started_ ? "started" : "ERROR");
   Serial.printf(
       "heap=%lu min_heap=%lu psram=%lu free_psram=%lu storage=%s config=%s "
-      "scale_task=%s network_task=%s config_task=%s backend_task=%s control_task=%s\n",
+      "ota_store=%s ota_task=%s scale_task=%s network_task=%s config_task=%s "
+      "backend_task=%s control_task=%s\n",
       static_cast<unsigned long>(status.free_heap_bytes),
       static_cast<unsigned long>(status.minimum_free_heap_bytes),
       static_cast<unsigned long>(status.psram_total_bytes),
       static_cast<unsigned long>(status.psram_free_bytes),
-      storage_ready ? "ready" : "degraded",
-      configuration_ready ? "ready" : "degraded",
-      scale_task_started ? "started" : "ERROR",
-      network_task_started ? "started" : "ERROR",
-      configuration_task_started ? "started" : "ERROR",
-      backend_task_started ? "started" : "ERROR",
-      device_control_started ? "started" : "ERROR");
+      storage_ready_ ? "ready" : "degraded",
+      !configuration_status.initialized
+          ? "ERROR"
+          : configuration_status.persistence_available
+              ? "ready"
+              : "safe-degraded",
+      ota_records_ready_ ? "ready" : "ERROR",
+      ota_task_started_ ? "started" : "ERROR",
+      scale_task_started_ ? "started" : "ERROR",
+      network_task_started_ ? "started" : "ERROR",
+      configuration_task_started_ ? "started" : "ERROR",
+      backend_task_started_ ? "started" : "ERROR",
+      device_control_started_ ? "started" : "ERROR");
+}
+
+BootHealthSignals Application::boot_health_signals(
+    std::uint32_t now_ms) const {
+  const auto diagnostics = diagnostics_.snapshot(now_ms);
+  const auto configuration = configuration_.status();
+  const auto application_state = state_machine_.state();
+
+  BootHealthSignals signals;
+  signals.storage_ready =
+      diagnostics.nvs_ready && diagnostics.filesystem_ready;
+  signals.configuration_initialized =
+      configuration.initialized && configuration.persistence_available;
+  signals.configuration_safely_degraded =
+      configuration.initialized && !configuration.persistence_available;
+  signals.application_ready =
+      application_state != ApplicationState::booting &&
+      application_state != ApplicationState::error;
+  signals.display_ready = diagnostics.display_ready;
+  signals.ui_task_running = diagnostics.ui_task_running;
+  signals.configuration_task_running = configuration_task_started_;
+  signals.backend_task_running = backend_task_started_;
+  signals.scale_commands_ready = scale_commands_ready_;
+  signals.scale_task_running = diagnostics.scale_task_running;
+  signals.network_task_running = diagnostics.network_task_running;
+  signals.device_control_task_running = device_control_started_;
+  signals.web_server_running =
+      web_server_running_.load(std::memory_order_acquire);
+  signals.ota_task_running = ota_worker_.ready();
+  signals.factory_reset_recovery_pending =
+      storage_.factory_reset_recovery_pending();
+  // The policy checks durable reset recovery first. Keep application error
+  // visible, but never reinterpret a deliberate reset-recovery marker as an
+  // OTA candidate failure.
+  signals.fatal_initialization_error =
+      !signals.factory_reset_recovery_pending &&
+      (startup_fatal_error_ || application_state == ApplicationState::error);
+  return signals;
+}
+
+void Application::process_boot_health(std::uint32_t now_ms) {
+  const auto evaluation = boot_health_policy_.evaluate(
+      now_ms, boot_health_signals(now_ms));
+  auto decision = opentag::ota::CandidateHealthDecision::stabilizing;
+  switch (evaluation.state) {
+    case BootHealthState::stabilizing:
+      decision = opentag::ota::CandidateHealthDecision::stabilizing;
+      break;
+    case BootHealthState::healthy:
+      decision = opentag::ota::CandidateHealthDecision::healthy;
+      break;
+    case BootHealthState::unhealthy:
+      decision = opentag::ota::CandidateHealthDecision::unhealthy;
+      break;
+    case BootHealthState::factory_reset_recovery:
+      decision =
+          opentag::ota::CandidateHealthDecision::factory_reset_recovery;
+      break;
+  }
+
+  const auto update = ota_worker_.snapshot();
+  const bool candidate_pending = candidate_validation_pending(update.state);
+  const bool rollback_seed_pending =
+      rollback_seed_recovery_pending(update);
+  bool action_still_pending = false;
+  switch (decision) {
+    case opentag::ota::CandidateHealthDecision::stabilizing:
+      action_still_pending =
+          update.state == opentag::ota::UpdateState::candidate_boot ||
+          rollback_seed_pending;
+      break;
+    case opentag::ota::CandidateHealthDecision::healthy:
+      action_still_pending = candidate_pending ||
+          storage_.boot_confirmation_pending() || rollback_seed_pending;
+      break;
+    case opentag::ota::CandidateHealthDecision::unhealthy:
+      action_still_pending = candidate_pending || rollback_seed_pending;
+      break;
+    case opentag::ota::CandidateHealthDecision::factory_reset_recovery:
+      // Recovery remains pending until a reset owner restarts the device. The
+      // one-second retry below coalesces with an accepted device-control
+      // operation instead of allocating a new operation on every loop.
+      action_still_pending = true;
+      break;
+  }
+
+  const bool decision_changed = !boot_health_decision_initialized_ ||
+      decision != last_boot_health_decision_;
+  const bool retry_due = static_cast<std::uint32_t>(
+      now_ms - last_boot_health_attempt_ms_) >=
+      boot_health_retry_interval_ms;
+  if (boot_health_decision_initialized_ && !retry_due) {
+    return;
+  }
+  if (!decision_changed && boot_health_submit_accepted_ &&
+      !action_still_pending) {
+    return;
+  }
+
+  boot_health_decision_initialized_ = true;
+  last_boot_health_decision_ = decision;
+  last_boot_health_attempt_ms_ = now_ms;
+  if (decision ==
+          opentag::ota::CandidateHealthDecision::factory_reset_recovery &&
+      !candidate_pending) {
+    // The durable reset marker is the authority for this internal handoff.
+    // Candidate boots stay with OtaWorker so its candidate-validation lease
+    // cannot be displaced or released by the ordinary reset owner.
+    boot_health_submit_accepted_ =
+        device_control_.submit_factory_reset(now_ms).accepted;
+  } else {
+    boot_health_submit_accepted_ =
+        ota_worker_.submit_boot_health(decision, now_ms);
+  }
 }
 
 void Application::loop() {
   const auto now_ms = millis();
-  storage_.poll(now_ms);
+  process_boot_health(now_ms);
   if (static_cast<std::uint32_t>(now_ms - last_serial_diagnostics_ms_) >= 30000U) {
     const auto status = diagnostics_.snapshot(now_ms);
     Serial.printf(
@@ -251,6 +437,9 @@ void Application::network_task_entry(void* context) {
   application->diagnostics_.set_network_status(application->network_.status());
   auto last_web_start_attempt_ms = now_ms;
   const auto web_started = application->web_server_.start();
+  application->web_server_running_.store(
+      web_started == ESP_OK,
+      std::memory_order_release);
   application->logs_.append(
       now_ms,
       web_started == ESP_OK ? logging::LogSeverity::info
@@ -262,11 +451,19 @@ void Application::network_task_entry(void* context) {
     now_ms = millis();
     application->network_.poll(now_ms);
     application->diagnostics_.set_network_status(application->network_.status());
-    if (!application->web_server_.running() &&
+    auto web_running = application->web_server_.running();
+    application->web_server_running_.store(
+        web_running,
+        std::memory_order_release);
+    if (!web_running &&
         static_cast<std::uint32_t>(now_ms - last_web_start_attempt_ms) >=
             30000U) {
       last_web_start_attempt_ms = now_ms;
       const auto retry = application->web_server_.start();
+      application->web_server_running_.store(
+          retry == ESP_OK,
+          std::memory_order_release);
+      web_running = retry == ESP_OK;
       application->logs_.append(
           now_ms,
           retry == ESP_OK ? logging::LogSeverity::info
@@ -275,7 +472,7 @@ void Application::network_task_entry(void* context) {
           retry == ESP_OK ? "Local web server retry succeeded"
                           : "Local web server retry failed");
     }
-    if (application->web_server_.running()) {
+    if (web_running) {
       application->web_server_.publish(now_ms);
     }
     vTaskDelay(pdMS_TO_TICKS(100U));

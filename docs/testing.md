@@ -2,8 +2,9 @@
 
 ## Current checks
 
-The native suite currently validates 163 host-only cases across eighteen
-suites:
+The validated Phase 9 baseline contains 163 host-only cases across eighteen
+suites. The final Phase 10 run contains 223/223 passing host-only cases across
+twenty suites. This is the runner result after the final safety fixes:
 
 - zero-based backend to one-based human toolhead translation;
 - stable-weight gating and discrepancy confirmation;
@@ -75,8 +76,26 @@ suites:
 - allowlisted configuration GET serialization and PATCH merge semantics,
   including omitted-secret preservation, explicit-empty clearing, profile
   alias conflicts, atomic validation, and calibration invalidation.
+- OTA state transitions, inactive-only targeting through fakes, size/chunk/
+  truncation/hash/image-identity failure cleanup, unactivated staging, stale
+  generation/operation rejection, cancel/activation boundaries, bounded error
+  serialization, progress persistence, record corruption, power-cut
+  reconciliation, candidate confirmation, rollback, and audit-save cut points;
+- one-owner lifecycle exclusion under concurrent acquisition, stale lease
+  rejection, wrap-safe 30-second candidate timing, every required local-health
+  signal, safe configuration degradation, backend/NFC independence, fatal
+  startup handling, and distinct factory-reset recovery; and
+- update-route metadata, binary-route rejection by the JSON router, bearer/
+  source/content/idempotency policy, exact reboot/cancel schemas, stale digest/
+  generation protection, structured update snapshots, operation receipts, and
+  replay behavior.
 
-The per-suite inventory is:
+The table below is the stable Phase 9 baseline inventory. Phase 10 adds 42
+`test_ota_core` cases and eleven `test_ota_safety` cases, extends
+`test_web_api` from 21 to 27, and extends `test_operations` from three to four.
+Those additions produce the final 223 cases across twenty suites.
+
+The Phase 9 baseline inventory is:
 
 | Native suite | Cases |
 | --- | ---: |
@@ -99,6 +118,14 @@ The per-suite inventory is:
 | `test_web_api` | 21 |
 | `test_web_configuration` | 8 |
 
+Phase 10-specific suites:
+
+- `test_ota_core`: manager/record/platform-fake transitions and failure
+  reconciliation;
+- `test_ota_safety`: lifecycle exclusion and unified boot-health policy;
+- existing `test_web_api` and `test_operations`: update authentication,
+  preconditions, serialization, idempotency, and operation behavior.
+
 Run:
 
 ```bash
@@ -109,35 +136,42 @@ Run:
 The firmware build proves compilation and link integration of the display,
 touch, LVGL, storage, diagnostics, OpenPrintTag, NFC-V, ST25R3916B service,
 NAU7802/scale task, configuration/setup, Wi-Fi owner, HTTP(S) transport, both
-backend adapters, identity resolver, backend/configuration/scale/device-control
-workers, safe assignment transaction, workflow coordinator, operation
-registry, bounded logging/idempotency, embedded web assets, ESP-IDF
-HTTP/WebSocket
-server, and Prusa XL touchscreen paths.
+backend adapters, identity resolver, backend/configuration/scale/device-control/
+OTA workers, safe assignment transaction, workflow coordinator, operation
+registry, bounded logging/idempotency, embedded web/update assets, ESP-IDF
+HTTP/WebSocket and fixed-buffer upload server, mbedTLS SHA-256, NVS OTA record
+store, application manifest, and the pinned ESP-IDF partition/image/activation/
+confirmation/rollback APIs.
 
 These are three different validation levels:
 
-- Native tests execute portable logic on the host. They do not execute ESP32
-  FreeRTOS scheduling, Arduino Preferences, LittleFS, the ESP-IDF HTTP daemon,
-  sockets, Wi-Fi, LVGL input, or a browser.
+- Native tests execute portable logic on the host. OTA fakes prove policy and
+  cut-point decisions, not ESP32 flash or boot behavior. Native tests do not
+  execute FreeRTOS scheduling, Arduino Preferences, LittleFS, the ESP-IDF HTTP
+  daemon, sockets, Wi-Fi, LVGL input, a browser, or the bootloader.
 - The firmware build compiles and links those embedded boundaries for the
-  WT32-SC01 Plus. It does not flash or execute the image and therefore cannot
-  prove task timing, flash transactions, restart behavior, LAN behavior,
+  WT32-SC01 Plus. It proves the pinned APIs and image fit together, but it does
+  not flash or execute the image and cannot prove queue timing, flash
+  transactions, boot partition changes, reset/rollback behavior, LAN behavior,
   WebSocket client lifetime, or physical sensor/display correctness.
 - Hardware/browser verification flashes a real station and exercises the
-  actual touchscreen, storage, network stack, concurrent clients, and supported
-  browsers. It remains required even when both host tests and firmware compile
-  pass.
+  actual touchscreen, flash, bootloader, storage, network stack, concurrent
+  clients, and supported browsers. It remains required even when host tests and
+  both final firmware builds pass.
 
 ## Host unit tests
 
 Any logic not requiring physical hardware belongs here: OpenPrintTag
 TLV/NDEF/CBOR codec and fixtures, UUID derivation, identity resolution,
-reconciliation, JSON parsers, capability detection, migrations, manifest and
-SemVer parsing, tag-write planning, toolhead normalization, configuration
+reconciliation, JSON parsers, capability detection, migrations, tag-write
+planning, toolhead normalization, configuration
 patch merging/CAS, operation and idempotency ledgers, bounded log redaction,
 coherent diagnostic snapshots, API routing, authorization decisions, and
-request/response shape validation.
+request/response shape validation. OTA adds platform/digest/record fakes for
+state transitions, inactive-slot selection, complete byte/digest checks,
+validation/activation separation, durable generation and record integrity,
+power-cut reconciliation, confirmation/rollback decisions, unified boot health,
+and destructive-operation exclusion.
 
 Fuzz/property tests target bounded parsers with malformed lengths, nesting,
 unknown CBOR types/keys, non-canonical ordering, and truncated data.
@@ -198,10 +232,51 @@ recovery without reboot.
 
 ### OTA
 
-Verify valid A→B and B→A updates, wrong hardware, oversize, truncated download,
-wrong digest, power loss during download, early candidate crash, crash loop,
-configuration migration rollback, calibration persistence, and backend-offline
-validation.
+Use two visibly distinct, correctly manifested WT32 images and record serial,
+`GET /api/v1/update`, boot partition, reset reason, boot/crash counters, and
+configuration/calibration state at every cut point:
+
+1. Start with a serial-flashed known-good A and erased/uninitialized OTA data.
+   Confirm the first activation seeds A as `VALID` before selecting B, leaves
+   rollback available, and reports B as the inactive slot. Repeat from an
+   already initialized A to cover the normal `VALID` path.
+2. Upload A → B and verify fixed-size progress, exact digest, staged metadata,
+   `validation_passed=true`, `activated=false`, and unchanged boot partition at
+   `ready_to_reboot`.
+3. Confirm reboot explicitly, observe B as `PENDING_VERIFY`, wait the full
+   30-second local-health window, and observe B become `VALID`/`confirmed`.
+4. Repeat B → A to prove both slots can be inactive and that configuration,
+   scale calibration, LittleFS data, and reset markers remain intact.
+5. Reject zero/oversize/short bodies, bad digest, malformed ESP image, missing
+   appended hash, wrong chip, wrong OpenTag project, and wrong hardware without
+   changing the selected boot partition.
+6. Remove power during upload at multiple offsets. The previous image must boot
+   and reconciliation must report a failed interrupted upload.
+7. Remove power after validation but before activation. The image must remain
+   unactivated and cancelable.
+8. Remove power after activation intent and after boot-slot selection. Restart
+   must reconcile only the recorded candidate; it must not activate stale data.
+9. Reset during candidate validation and intentionally crash/watchdog the
+   candidate before confirmation. Verify automatic bootloader B → A rollback
+   and a `rolled_back`/last-invalid result.
+10. Repeat candidate failure/reset to prove no crash loop can silently confirm.
+11. Keep Spoolman and FilaBridge offline and leave NFC unavailable; an otherwise
+    healthy candidate must still confirm.
+12. Race factory reset, generic reboot, upload, cancel, and update reboot. Only
+    one lifecycle owner may proceed, with no mixed reset/OTA record.
+13. Keep the browser open through activation/reboot and verify reconnect resumes
+    candidate, confirmation, or rollback status rather than declaring upload
+    completion as final success.
+14. Inspect logs and wire traffic to confirm Authorization, bearer token, and
+    firmware bytes are not logged. Perform this only on an isolated LAN because
+    the local HTTP upload itself is plaintext.
+15. During a maximum-size upload and manifest scan, record the OTA and HTTP
+    task stack high-water marks from an instrumented build. Confirm the bounded
+    24 KiB OTA-owner and 20 KiB HTTP-server stacks retain documented safety
+    margins and no FreeRTOS stack overflow hook or watchdog fires.
+
+Do not mark rollback hardware-validated until an intentionally failed candidate
+has visibly returned to the previous known-good partition.
 
 ### Local web/API
 
@@ -238,6 +313,15 @@ Flash a real board on an isolated test LAN and verify:
 9. Generate enough logs and operations to force bounded rollover, then confirm
    cursor/drop/history-gap reporting and ingestion-time redaction remain
    correct on the real endpoint.
+10. Exercise update upload with absent/wrong/correct token, missing/malformed
+    headers, stale generation/digest, repeated and conflicting idempotency keys,
+    concurrent uploads, slow receive, disconnect, and short/oversized bodies.
+    Separately characterize duplicate headers: pinned ESP-IDF exposes only the
+    first matching value to the handler, so Phase 10 cannot truthfully claim a
+    duplicate-count rejection at this boundary.
+11. Verify the Update panel distinguishes upload, validation, inactive install,
+    reboot acceptance, candidate boot, confirmation, rollback, and failure;
+    aborting an XHR must clean up the owner and reconnect must restore status.
 
 ## V0.1 end-to-end acceptance
 

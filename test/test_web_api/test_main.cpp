@@ -5,7 +5,9 @@
 #include <array>
 #include <cstdint>
 #include <cstring>
+#include <fstream>
 #include <optional>
+#include <sstream>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -19,6 +21,7 @@ using opentag::core::Error;
 using opentag::core::ErrorCategory;
 using opentag::core::Result;
 using opentag::web::api::ConfigurationPatchMutation;
+using opentag::web::api::BodyTransport;
 using opentag::web::api::Header;
 using opentag::web::api::IApiContext;
 using opentag::web::api::Method;
@@ -32,6 +35,7 @@ using opentag::web::api::Router;
 using opentag::web::api::ScaleCalibrationMutation;
 using opentag::web::api::ToolheadAssignmentMutation;
 using opentag::web::api::ToolheadUnassignmentMutation;
+using opentag::web::api::UpdateControlMutation;
 
 class FakeContext final : public IApiContext {
  public:
@@ -157,6 +161,41 @@ bool route_exists(Method method, const char* path_pattern) {
   return false;
 }
 
+const opentag::web::api::RouteMetadata* route_metadata(
+    Method method,
+    const char* path_pattern) {
+  for (const auto& route : opentag::web::api::routes) {
+    if (route.method == method &&
+        std::strcmp(route.path_pattern, path_pattern) == 0) {
+      return &route;
+    }
+  }
+  return nullptr;
+}
+std::string read_project_source(std::string_view relative_path) {
+  const auto load = [](const std::string& path) {
+    std::ifstream input(path);
+    if (!input) return std::string{};
+    std::ostringstream contents;
+    contents << input.rdbuf();
+    return contents.str();
+  };
+
+  const auto direct = load(std::string(relative_path));
+  if (!direct.empty()) return direct;
+
+  const std::string compiled_file = __FILE__;
+  constexpr std::string_view marker = "test/test_web_api/test_main.cpp";
+  const auto marker_at = compiled_file.rfind(marker);
+  if (marker_at == std::string::npos) return {};
+  return load(compiled_file.substr(0U, marker_at) + std::string(relative_path));
+}
+
+
+constexpr const char* valid_update_sha256 =
+    "0123456789abcdef0123456789abcdef"
+    "0123456789abcdef0123456789abcdef";
+
 constexpr const char* valid_assignment = R"({
   "printer_id":"printer-a",
   "expected_spool_id":123,
@@ -183,8 +222,8 @@ void setUp() {}
 void tearDown() {}
 
 void test_route_table_contains_the_complete_versioned_surface() {
-  TEST_ASSERT_EQUAL_UINT(23U, opentag::web::api::routes.size());
-  const std::array<std::pair<Method, const char*>, 23U> expected = {{
+  TEST_ASSERT_EQUAL_UINT(26U, opentag::web::api::routes.size());
+  const std::array<std::pair<Method, const char*>, 26U> expected = {{
       {Method::get, "/api/v1/status"},
       {Method::get, "/api/v1/device"},
       {Method::get, "/api/v1/health"},
@@ -205,6 +244,9 @@ void test_route_table_contains_the_complete_versioned_surface() {
       {Method::get, "/api/v1/logs"},
       {Method::post, "/api/v1/backends/test"},
       {Method::get, "/api/v1/update"},
+      {Method::post, "/api/v1/update/upload"},
+      {Method::post, "/api/v1/update/reboot"},
+      {Method::post, "/api/v1/update/cancel"},
       {Method::post, "/api/v1/device/reboot"},
       {Method::post, "/api/v1/device/factory-reset"},
       {Method::get, "/api/v1/operations/{id}"},
@@ -231,7 +273,7 @@ void test_snapshot_routes_return_versioned_bounded_envelopes() {
       {"/api/v1/config", Resource::redacted_configuration},
       {"/api/v1/diagnostics", Resource::diagnostics},
       {"/api/v1/logs", Resource::logs},
-      {"/api/v1/update", Resource::update_boundary},
+      {"/api/v1/update", Resource::update},
   }};
 
   for (const auto& snapshot : snapshots) {
@@ -249,6 +291,55 @@ void test_snapshot_routes_return_versioned_bounded_envelopes() {
     TEST_ASSERT_EQUAL_STRING("nosniff", response_header(response, "X-Content-Type-Options"));
   }
   TEST_ASSERT_EQUAL_UINT(snapshots.size(), context.snapshot_calls);
+}
+
+void test_firmware_upload_is_declared_but_rejected_by_buffered_router() {
+  FakeContext context;
+  Router router(context);
+  const auto* route = route_metadata(
+      Method::post, "/api/v1/update/upload");
+  TEST_ASSERT_NOT_NULL(route);
+  TEST_ASSERT_TRUE(route->mutation);
+  TEST_ASSERT_EQUAL_UINT(
+      opentag::web::api::maximum_firmware_image_bytes,
+      route->maximum_body_bytes);
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(BodyTransport::streaming_binary),
+      static_cast<int>(route->body_transport));
+
+  const auto response = router.handle(mutation_request(
+      Method::post, "/api/v1/update/upload", "not-a-buffered-image"));
+  assert_versioned_error(response, 500, "streaming_transport_required");
+  TEST_ASSERT_EQUAL_UINT(0U, context.authorization_calls);
+  TEST_ASSERT_EQUAL_UINT(0U, context.submit_calls);
+}
+
+void test_upload_generation_accepts_canonical_zero_and_rejects_aliases() {
+  std::uint64_t generation = 99U;
+  TEST_ASSERT_TRUE(opentag::web::api::parse_canonical_generation(
+      "0", generation));
+  TEST_ASSERT_EQUAL_UINT64(0U, generation);
+  TEST_ASSERT_TRUE(opentag::web::api::parse_canonical_generation(
+      "1", generation));
+  TEST_ASSERT_EQUAL_UINT64(1U, generation);
+  TEST_ASSERT_TRUE(opentag::web::api::parse_canonical_generation(
+      "18446744073709551615", generation));
+  TEST_ASSERT_EQUAL_UINT64(UINT64_MAX, generation);
+
+  const std::array<const char*, 8U> invalid = {{
+      "",
+      "00",
+      "01",
+      "+1",
+      "-1",
+      " 1",
+      "1 ",
+      "18446744073709551616",
+  }};
+  for (const auto* value : invalid) {
+    TEST_ASSERT_FALSE(opentag::web::api::parse_canonical_generation(
+        value, generation));
+  }
 }
 
 void test_route_misses_versions_and_methods_have_stable_errors() {
@@ -767,6 +858,23 @@ void test_context_failures_map_to_structured_service_errors() {
   response = router.handle(mutation_request(
       Method::post, "/api/v1/scale/tare", "{}"));
   assert_versioned_error(response, 409, "state_conflict");
+
+  context.submit_error.reset();
+  context.snapshot_error = Error{
+      ErrorCategory::firmware_update,
+      "OTA owner is unavailable",
+      true,
+  };
+  response = router.handle(get_request("/api/v1/update"));
+  assert_versioned_error(response, 503, "update_unavailable");
+
+  context.snapshot_error = Error{
+      ErrorCategory::firmware_update,
+      "Firmware manifest is incompatible",
+      false,
+  };
+  response = router.handle(get_request("/api/v1/update"));
+  assert_versioned_error(response, 422, "firmware_validation_failed");
 }
 
 void test_payload_digest_is_stable_and_covers_route_kind_and_exact_body() {
@@ -833,10 +941,163 @@ void test_reboot_and_factory_reset_require_exact_confirmations() {
       "invalid_request");
 }
 
+void test_update_reboot_and_cancel_require_exact_stale_state_preconditions() {
+  FakeContext context;
+  Router router(context);
+  const std::string prefix =
+      std::string(R"({"upload_operation_id":91,"expected_generation":7,"expected_sha256":")") +
+      valid_update_sha256 + R"(","confirmation":")";
+
+  auto response = router.handle(mutation_request(
+      Method::post,
+      "/api/v1/update/reboot",
+      prefix + R"(REBOOT INTO UPDATE"})"));
+  TEST_ASSERT_EQUAL_INT(202, response.status);
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(MutationKind::update_reboot),
+      static_cast<int>(context.last_mutation->kind));
+  auto payload =
+      std::get<UpdateControlMutation>(context.last_mutation->payload);
+  TEST_ASSERT_EQUAL_UINT64(91U, payload.upload_operation_id);
+  TEST_ASSERT_EQUAL_UINT64(7U, payload.expected_generation);
+  TEST_ASSERT_EQUAL_STRING(valid_update_sha256, payload.expected_sha256.c_str());
+  TEST_ASSERT_EQUAL_STRING("REBOOT INTO UPDATE", payload.confirmation.c_str());
+
+  response = router.handle(mutation_request(
+      Method::post,
+      "/api/v1/update/cancel",
+      prefix + R"(CANCEL UPDATE"})"));
+  TEST_ASSERT_EQUAL_INT(202, response.status);
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(MutationKind::update_cancel),
+      static_cast<int>(context.last_mutation->kind));
+
+  const std::array<std::string, 7U> invalid_bodies = {{
+      std::string(R"({"upload_operation_id":0,"expected_generation":7,"expected_sha256":")") +
+          valid_update_sha256 + R"(","confirmation":"REBOOT INTO UPDATE"})",
+      std::string(R"({"upload_operation_id":91,"expected_generation":0,"expected_sha256":")") +
+          valid_update_sha256 + R"(","confirmation":"REBOOT INTO UPDATE"})",
+      std::string(R"({"upload_operation_id":"91","expected_generation":7,"expected_sha256":")") +
+          valid_update_sha256 + R"(","confirmation":"REBOOT INTO UPDATE"})",
+      R"({"upload_operation_id":91,"expected_generation":7,"expected_sha256":"abc","confirmation":"REBOOT INTO UPDATE"})",
+      R"({"upload_operation_id":91,"expected_generation":7,"expected_sha256":"0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF","confirmation":"REBOOT INTO UPDATE"})",
+      std::string(R"({"upload_operation_id":91,"expected_generation":7,"expected_sha256":")") +
+          valid_update_sha256 + R"(","confirmation":"yes"})",
+      std::string(R"({"upload_operation_id":91,"expected_generation":7,"expected_sha256":")") +
+          valid_update_sha256 + R"(","confirmation":"REBOOT INTO UPDATE","extra":true})",
+  }};
+  for (const auto& body : invalid_bodies) {
+    assert_versioned_error(
+        router.handle(mutation_request(
+            Method::post, "/api/v1/update/reboot", body)),
+        400,
+        "invalid_request");
+  }
+}
+
+void test_public_update_partition_serializer_never_exposes_flash_address() {
+  const auto source = read_project_source("src/web/application_api_context.cpp");
+  TEST_ASSERT_FALSE(source.empty());
+
+  const auto begin = source.find("void write_partition(");
+  const auto end = source.find("void write_firmware(", begin);
+  TEST_ASSERT_TRUE(begin != std::string::npos);
+  TEST_ASSERT_TRUE(end != std::string::npos);
+  const auto serializer = source.substr(begin, end - begin);
+  TEST_ASSERT_TRUE(serializer.find("object[\"address\"]") == std::string::npos);
+  TEST_ASSERT_TRUE(serializer.find("object[\"label\"]") != std::string::npos);
+  TEST_ASSERT_TRUE(serializer.find("object[\"size\"]") != std::string::npos);
+  TEST_ASSERT_TRUE(serializer.find("object[\"subtype\"]") != std::string::npos);
+  TEST_ASSERT_TRUE(serializer.find("object[\"present\"]") != std::string::npos);
+}
+
+void test_update_owner_capabilities_and_safe_reboot_retry_are_fail_closed() {
+  const auto source = read_project_source("src/web/application_api_context.cpp");
+  TEST_ASSERT_FALSE(source.empty());
+
+  const auto begin = source.find("bool validated_unselected_candidate(");
+  const auto end = source.find("void write_update(", begin);
+  TEST_ASSERT_TRUE(begin != std::string::npos);
+  TEST_ASSERT_TRUE(end != std::string::npos);
+  const auto predicate = source.substr(begin, end - begin);
+  TEST_ASSERT_TRUE(predicate.find("!update.activation_intent") != std::string::npos);
+  TEST_ASSERT_TRUE(predicate.find("bool activation_retry_candidate(") != std::string::npos);
+  TEST_ASSERT_TRUE(predicate.find("PartitionImageState::new_image") != std::string::npos);
+  TEST_ASSERT_TRUE(predicate.find("PartitionImageState::pending_verify") != std::string::npos);
+  TEST_ASSERT_TRUE(predicate.find("PartitionImageState::valid") != std::string::npos);
+  TEST_ASSERT_TRUE(predicate.find("PartitionImageState::undefined") != std::string::npos);
+  TEST_ASSERT_TRUE(predicate.find("update.activation_intent") != std::string::npos);
+  TEST_ASSERT_TRUE(predicate.find("update.target.present()") != std::string::npos);
+  TEST_ASSERT_TRUE(predicate.find("same_partition(update.boot, update.running)") != std::string::npos);
+  TEST_ASSERT_TRUE(predicate.find("same_partition(update.inactive, update.target)") != std::string::npos);
+  TEST_ASSERT_TRUE(predicate.find("same_partition(update.boot, update.target)") != std::string::npos);
+  TEST_ASSERT_TRUE(predicate.find("same_partition(update.running, update.target)") != std::string::npos);
+
+  TEST_ASSERT_TRUE(source.find("capabilities[\"owner_ready\"]") != std::string::npos);
+  TEST_ASSERT_TRUE(source.find("capabilities[\"maximum_image_bytes\"]") != std::string::npos);
+  TEST_ASSERT_TRUE(source.find("capabilities[\"upload_available\"] = owner_ready &&") != std::string::npos);
+  TEST_ASSERT_TRUE(source.find("capabilities[\"cancel_available\"] = owner_ready &&") != std::string::npos);
+  TEST_ASSERT_TRUE(source.find("capabilities[\"reboot_available\"] = owner_ready &&") != std::string::npos);
+  TEST_ASSERT_TRUE(source.find("queues[\"ota\"]") != std::string::npos);
+  TEST_ASSERT_TRUE(source.find("document[\"ota_owner_ready\"]") != std::string::npos);
+  TEST_ASSERT_TRUE(source.find("abort_upload(precondition, cleanup_now_ms)") != std::string::npos);
+
+  const auto worker = read_project_source("src/application/ota_worker.cpp");
+  TEST_ASSERT_FALSE(worker.empty());
+  const auto recovery_branch = worker.find(
+      "if (rollback_seed_recovery_state(initialized_state))");
+  const auto candidate_branch = worker.find(
+      "else if (pending_bootloader_confirmation(", recovery_branch);
+  TEST_ASSERT_TRUE(recovery_branch != std::string::npos);
+  TEST_ASSERT_TRUE(candidate_branch != std::string::npos);
+  TEST_ASSERT_TRUE(recovery_branch < candidate_branch);
+  TEST_ASSERT_TRUE(worker.find(
+      "manager_.cancel(*abandoned_begin, millis())") != std::string::npos);
+
+  const auto application = read_project_source("src/application/application.cpp");
+  TEST_ASSERT_FALSE(application.empty());
+  TEST_ASSERT_TRUE(application.find(
+      "device_control_started_ = ota_task_started_ &&") != std::string::npos);
+  TEST_ASSERT_TRUE(application.find(
+      "network_task_started_ = ota_task_started_ &&") != std::string::npos);
+}
+
+void test_update_ui_treats_explicit_server_capability_false_as_authoritative() {
+  const auto source = read_project_source("src/web/web_assets.cpp");
+  TEST_ASSERT_FALSE(source.empty());
+
+  const auto begin = source.find("function updateCapability(");
+  const auto end = source.find("function renderUpdate(", begin);
+  TEST_ASSERT_TRUE(begin != std::string::npos);
+  TEST_ASSERT_TRUE(end != std::string::npos);
+  const auto buttons = source.substr(begin, end - begin);
+  TEST_ASSERT_TRUE(buttons.find("Object.prototype.hasOwnProperty.call") != std::string::npos);
+  TEST_ASSERT_TRUE(buttons.find("updateCapability(capabilities, 'upload_available'") != std::string::npos);
+  TEST_ASSERT_TRUE(buttons.find("updateCapability(capabilities, 'cancel_available'") != std::string::npos);
+  TEST_ASSERT_TRUE(buttons.find("updateCapability(capabilities, 'reboot_available'") != std::string::npos);
+  TEST_ASSERT_TRUE(buttons.find("capabilities.upload_available === true ||") == std::string::npos);
+  TEST_ASSERT_TRUE(buttons.find("capabilities.cancel_available === true ||") == std::string::npos);
+  TEST_ASSERT_TRUE(buttons.find("capabilities.reboot_available === true ||") == std::string::npos);
+  TEST_ASSERT_TRUE(source.find("first(payload.message, payload.detail)") != std::string::npos);
+  TEST_ASSERT_TRUE(source.find(
+      "it is not selected for boot until you confirm reboot") == std::string::npos);
+  TEST_ASSERT_TRUE(source.find(
+      "if (await submitRestartButton(button, '/update/reboot', body, 'Update reboot'))") !=
+      std::string::npos);
+  TEST_ASSERT_TRUE(source.find(
+      "setText('update-state', 'Reboot accepted; waiting for candidate');") !=
+      std::string::npos);
+  TEST_ASSERT_TRUE(source.find("return true;") != std::string::npos);
+  TEST_ASSERT_TRUE(source.find("return false;") != std::string::npos);
+}
+
 int main(int, char**) {
   UNITY_BEGIN();
   RUN_TEST(test_route_table_contains_the_complete_versioned_surface);
   RUN_TEST(test_snapshot_routes_return_versioned_bounded_envelopes);
+  RUN_TEST(test_firmware_upload_is_declared_but_rejected_by_buffered_router);
+  RUN_TEST(
+      test_upload_generation_accepts_canonical_zero_and_rejects_aliases);
   RUN_TEST(test_route_misses_versions_and_methods_have_stable_errors);
   RUN_TEST(test_request_shape_and_body_bounds_are_enforced_before_dispatch);
   RUN_TEST(test_mutation_authorization_is_fail_closed_and_precedes_parsing);
@@ -856,5 +1117,12 @@ int main(int, char**) {
   RUN_TEST(test_payload_digest_is_stable_and_covers_route_kind_and_exact_body);
   RUN_TEST(test_zero_receipts_are_not_reported_as_accepted);
   RUN_TEST(test_reboot_and_factory_reset_require_exact_confirmations);
+  RUN_TEST(
+      test_update_reboot_and_cancel_require_exact_stale_state_preconditions);
+  RUN_TEST(test_public_update_partition_serializer_never_exposes_flash_address);
+  RUN_TEST(
+      test_update_owner_capabilities_and_safe_reboot_retry_are_fail_closed);
+  RUN_TEST(
+      test_update_ui_treats_explicit_server_capability_false_as_authoritative);
   return UNITY_END();
 }

@@ -38,6 +38,7 @@ const char index_html[] = R"HTML(<!doctype html>
     <a href="#printers">Toolheads</a>
     <a href="#configuration">Configuration</a>
     <a href="#diagnostics">Diagnostics</a>
+    <a href="#maintenance">Updates</a>
   </nav>
 
   <main id="content">
@@ -184,7 +185,13 @@ const char index_html[] = R"HTML(<!doctype html>
     <section id="maintenance" class="section" aria-labelledby="maintenance-title">
       <div class="section-heading"><div><p class="eyebrow">MAINTENANCE</p><h2 id="maintenance-title">Updates and device controls</h2></div></div>
       <div class="card-grid two-column">
-        <article class="card"><h3>Firmware updates</h3><p id="update-state" class="large-state">Phase 10 boundary</p><p id="update-detail" class="muted">OTA installation and rollback are intentionally unavailable in Phase 9.</p></article>
+        <article class="card update-card"><div class="card-title-row"><h3>Firmware update</h3><span id="update-badge" class="badge neutral">Loading</span></div><p id="update-state" class="large-state">Checking update state</p><p id="update-detail" class="muted">A validated image is written only to the inactive application slot.</p>
+          <dl class="facts compact"><div><dt>Current build</dt><dd><span id="update-current-version">—</span> <span id="update-current-sha" class="mono small"></span></dd></div><div><dt>Slots</dt><dd><span id="update-active-slot">—</span> → <span id="update-inactive-slot">—</span></dd></div><div><dt>Candidate</dt><dd id="update-candidate">None</dd></div><div><dt>Validation</dt><dd id="update-validation">Not started</dd></div><div><dt>Rollback</dt><dd id="update-rollback">—</dd></div></dl>
+          <label for="firmware-file">WT32-SC01 Plus firmware image (.bin)</label><input id="firmware-file" type="file" accept="application/octet-stream,.bin"><p id="firmware-file-detail" class="hint">Select an image to calculate its SHA-256 in this browser before upload.</p><p id="firmware-sha256" class="mono small">SHA-256 —</p>
+          <label for="update-progress">Transfer progress</label><progress id="update-progress" max="100" value="0">0%</progress><p id="update-progress-detail" class="hint">No transfer in progress.</p>
+          <div class="action-row"><button id="upload-firmware" class="button primary" type="button" disabled>Upload and validate</button><button id="cancel-update" class="button" type="button" disabled>Cancel update</button><button id="reboot-update" class="button warning" type="button" disabled>Reboot into candidate</button></div>
+          <ol id="update-stages" class="update-stages"><li data-stage="upload">Upload not started</li><li data-stage="validate">Image not validated</li><li data-stage="install">Inactive slot not installed</li><li data-stage="boot">Candidate not booted</li><li data-stage="confirm">Candidate not confirmed</li></ol><p id="update-error" class="hint" role="alert"></p>
+        </article>
         <article class="card danger-card"><h3>Device controls</h3><p class="muted">Commands require the current local API token and are queued only after explicit confirmation. The token stays in memory for this tab only.</p><div class="action-row"><button id="reboot-device" class="button warning" type="button">Reboot device</button></div><label for="factory-confirm">Type <strong>FACTORY RESET</strong> to enable reset</label><input id="factory-confirm" type="text" autocomplete="off"><button id="factory-reset" class="button danger" type="button" disabled>Factory reset</button></article>
       </div>
     </section>
@@ -285,6 +292,10 @@ main { width: min(1180px, 100%); margin: 0 auto; padding: 0 clamp(1rem, 4vw, 2re
 .button:disabled { opacity: .42; cursor: not-allowed; }
 .file-button { width: fit-content; }
 .action-row { flex-wrap: wrap; margin-top: 1rem; }
+.update-card progress { width: 100%; height: 1rem; accent-color: var(--accent); }
+.update-stages { padding-left: 1.4rem; color: var(--muted); font-size: .86rem; }
+.update-stages .complete { color: var(--good); }
+.update-stages .active { color: var(--warn); font-weight: 700; }
 
 .stacked-form, fieldset { display: grid; gap: .65rem; }
 label, legend { font-weight: 680; }
@@ -354,6 +365,8 @@ const char application_javascript[] = R"JS((function () {
   const LIVE_REFRESH_MIN_MS = 1000;
   const OPERATION_WAIT_MS = 45000;
   const MAX_IMPORT_BYTES = 16384;
+  const MAX_FIRMWARE_IMAGE_BYTES = 0x500000;
+  const UPDATE_UPLOAD_TIMEOUT_MS = 180000;
   const state = {
     apiToken: '',
     config: null,
@@ -363,6 +376,11 @@ const char application_javascript[] = R"JS((function () {
     printerRevision: null,
     printers: [],
     toolheads: [],
+    update: null,
+    firmwareFile: null,
+    firmwareSha256: '',
+    firmwareHashRequest: 0,
+    uploadXhr: null,
     socket: null,
     reconnectMs: 1000,
     reconnectTimer: 0,
@@ -431,6 +449,82 @@ const char application_javascript[] = R"JS((function () {
     if (window.crypto && typeof window.crypto.randomUUID === 'function') return window.crypto.randomUUID();
     const random = window.crypto && typeof window.crypto.getRandomValues === 'function' ? window.crypto.getRandomValues(new Uint32Array(2)) : [Date.now(), Math.floor(Math.random() * 0xffffffff)];
     return 'web-' + Date.now().toString(36) + '-' + Number(random[0]).toString(36) + Number(random[1]).toString(36);
+  }
+
+  const rotateRight = function (value, count) {
+    return (value >>> count) | (value << (32 - count));
+  };
+
+  function sha256Bytes(bytes) {
+    const constants = [
+      0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5,
+      0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
+      0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3,
+      0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+      0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc,
+      0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+      0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7,
+      0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
+      0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13,
+      0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
+      0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3,
+      0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+      0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5,
+      0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+      0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208,
+      0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2
+    ];
+    const hash = [
+      0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a,
+      0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19
+    ];
+    const paddedSize = Math.ceil((bytes.length + 9) / 64) * 64;
+    const message = new Uint8Array(paddedSize);
+    message.set(bytes);
+    message[bytes.length] = 0x80;
+    const bitLength = bytes.length * 8;
+    const view = new DataView(message.buffer);
+    view.setUint32(paddedSize - 8, Math.floor(bitLength / 0x100000000), false);
+    view.setUint32(paddedSize - 4, bitLength >>> 0, false);
+    const words = new Uint32Array(64);
+    for (let offset = 0; offset < paddedSize; offset += 64) {
+      for (let index = 0; index < 16; index += 1) words[index] = view.getUint32(offset + index * 4, false);
+      for (let index = 16; index < 64; index += 1) {
+        const left = words[index - 15];
+        const right = words[index - 2];
+        const sigma0 = rotateRight(left, 7) ^ rotateRight(left, 18) ^ (left >>> 3);
+        const sigma1 = rotateRight(right, 17) ^ rotateRight(right, 19) ^ (right >>> 10);
+        words[index] = (words[index - 16] + sigma0 + words[index - 7] + sigma1) >>> 0;
+      }
+      let a = hash[0]; let b = hash[1]; let c = hash[2]; let d = hash[3];
+      let e = hash[4]; let f = hash[5]; let g = hash[6]; let h = hash[7];
+      for (let index = 0; index < 64; index += 1) {
+        const sum1 = rotateRight(e, 6) ^ rotateRight(e, 11) ^ rotateRight(e, 25);
+        const choose = (e & f) ^ (~e & g);
+        const temporary1 = (h + sum1 + choose + constants[index] + words[index]) >>> 0;
+        const sum0 = rotateRight(a, 2) ^ rotateRight(a, 13) ^ rotateRight(a, 22);
+        const majority = (a & b) ^ (a & c) ^ (b & c);
+        const temporary2 = (sum0 + majority) >>> 0;
+        h = g; g = f; f = e; e = (d + temporary1) >>> 0;
+        d = c; c = b; b = a; a = (temporary1 + temporary2) >>> 0;
+      }
+      hash[0] = (hash[0] + a) >>> 0; hash[1] = (hash[1] + b) >>> 0;
+      hash[2] = (hash[2] + c) >>> 0; hash[3] = (hash[3] + d) >>> 0;
+      hash[4] = (hash[4] + e) >>> 0; hash[5] = (hash[5] + f) >>> 0;
+      hash[6] = (hash[6] + g) >>> 0; hash[7] = (hash[7] + h) >>> 0;
+    }
+    return hash.map(function (word) { return word.toString(16).padStart(8, '0'); }).join('');
+  }
+
+  async function firmwareSha256(file) {
+    const bytes = await file.arrayBuffer();
+    if (window.crypto && window.crypto.subtle) {
+      const digest = await window.crypto.subtle.digest('SHA-256', bytes);
+      return Array.from(new Uint8Array(digest)).map(function (byte) {
+        return byte.toString(16).padStart(2, '0');
+      }).join('');
+    }
+    return sha256Bytes(new Uint8Array(bytes));
   }
 
   function apiToken() {
@@ -946,9 +1040,240 @@ const char application_javascript[] = R"JS((function () {
       list.appendChild(item);
     });
   }
+  function partitionLabel(value) {
+    if (typeof value === 'string') return value;
+    const partition = asObject(value);
+    return String(first(partition.label, partition.name, partition.subtype, '—'));
+  }
+
+  function updatePreconditions() {
+    const update = asObject(state.update);
+    const candidate = asObject(update.candidate);
+    const uploadOperationId = Number(first(
+        update.upload_operation_id, candidate.upload_operation_id,
+        update.operation_id, candidate.operation_id));
+    const expectedGeneration = Number(update.generation);
+    const expectedSha256 = String(first(
+        candidate.expected_sha256, candidate.calculated_sha256,
+        update.expected_sha256, update.calculated_sha256, ''));
+    if (!Number.isSafeInteger(uploadOperationId) || uploadOperationId <= 0 ||
+        !Number.isSafeInteger(expectedGeneration) || expectedGeneration <= 0 ||
+        !/^[0-9a-f]{64}$/.test(expectedSha256)) {
+      throw new Error('Reload update status before controlling the candidate.');
+    }
+    return {
+      upload_operation_id: uploadOperationId,
+      expected_generation: expectedGeneration,
+      expected_sha256: expectedSha256
+    };
+  }
+
+  function setUpdateStage(name, text, className) {
+    const node = document.querySelector('#update-stages [data-stage="' + name + '"]');
+    if (!node) return;
+    node.textContent = text;
+    node.className = className || '';
+  }
+
+  function renderUpdateStages(status) {
+    const afterUpload = ['validating', 'ready_to_activate', 'ready_to_reboot', 'reboot_pending', 'candidate_boot', 'validating_candidate', 'confirmed', 'rollback_pending', 'rolled_back'].indexOf(status) >= 0;
+    const installed = ['ready_to_activate', 'ready_to_reboot', 'reboot_pending', 'candidate_boot', 'validating_candidate', 'confirmed', 'rollback_pending', 'rolled_back'].indexOf(status) >= 0;
+    const booted = ['candidate_boot', 'validating_candidate', 'confirmed', 'rollback_pending', 'rolled_back'].indexOf(status) >= 0;
+    setUpdateStage('upload', afterUpload ? 'Upload completed' : 'Upload not completed', ['upload_receiving', 'writing'].indexOf(status) >= 0 ? 'active' : afterUpload ? 'complete' : '');
+    setUpdateStage('validate', installed ? 'Image validated' : 'Image not validated', status === 'validating' ? 'active' : installed ? 'complete' : '');
+    setUpdateStage('install', installed ? 'Installed to inactive slot' : 'Inactive slot not installed', installed ? 'complete' : '');
+    setUpdateStage('boot', booted ? (status === 'rolled_back' ? 'Candidate boot rolled back' : 'Candidate booted') : 'Candidate not booted', status === 'reboot_pending' ? 'active' : booted && status !== 'rolled_back' ? 'complete' : '');
+    setUpdateStage('confirm', status === 'confirmed' ? 'Candidate confirmed' : status === 'rolled_back' ? 'Candidate was not confirmed' : 'Candidate not confirmed', ['candidate_boot', 'validating_candidate', 'rollback_pending'].indexOf(status) >= 0 ? 'active' : status === 'confirmed' ? 'complete' : '');
+  }
+
+  function updateCapability(capabilities, name, fallback) {
+    return Object.prototype.hasOwnProperty.call(capabilities, name)
+        ? capabilities[name] === true
+        : fallback;
+  }
+
+  function updateButtons() {
+    const update = asObject(state.update);
+    const capabilities = asObject(update.capabilities);
+    const status = String(first(update.state, 'unknown')).toLowerCase();
+    const maximum = Number(first(capabilities.maximum_image_bytes, MAX_FIRMWARE_IMAGE_BYTES));
+    const fileReady = state.firmwareFile && state.firmwareSha256 &&
+        state.firmwareFile.size > 0 && state.firmwareFile.size <= maximum;
+    const legacyUpload =
+        ['idle', 'failed', 'confirmed', 'rolled_back', 'cancelled'].indexOf(status) >= 0;
+    const legacyControl =
+        status === 'ready_to_activate' || status === 'ready_to_reboot';
+    const mayUpload = updateCapability(capabilities, 'upload_available', legacyUpload);
+    const mayCancel = updateCapability(capabilities, 'cancel_available', legacyControl);
+    const mayReboot = updateCapability(capabilities, 'reboot_available', legacyControl);
+    byId('upload-firmware').disabled = !fileReady || !mayUpload || !!state.uploadXhr;
+    byId('cancel-update').disabled = !state.uploadXhr && !mayCancel;
+    byId('reboot-update').disabled = !!state.uploadXhr || !mayReboot;
+  }
+
   function renderUpdate(payload) {
-    setText('update-state', normalizeState(first(payload.state, payload.status, payload.supported === false ? 'Not available in Phase 9' : null)), 'Phase 10 boundary');
-    setText('update-detail', first(payload.message, payload.detail), 'OTA installation and rollback are intentionally unavailable in Phase 9.');
+    state.update = payload;
+    const status = String(first(payload.state, payload.status, 'unknown')).toLowerCase();
+    const current = asObject(first(payload.current, payload.running_firmware, {}));
+    const candidate = asObject(payload.candidate);
+    const partitions = asObject(payload.partitions);
+    const progress = asObject(payload.progress);
+    const validation = asObject(payload.validation);
+    const rollback = asObject(payload.rollback);
+    const failure = asObject(payload.last_error);
+    const statusKind = status === 'confirmed' ||
+        status === 'ready_to_activate' || status === 'ready_to_reboot'
+        ? 'good' : status === 'failed' || status === 'rollback_pending'
+          ? 'bad' : status === 'idle' || status === 'rolled_back'
+            ? 'neutral' : 'warning';
+    setBadge('update-badge', normalizeState(status), statusKind);
+    setText('update-state', normalizeState(status), 'Unknown');
+    setText('update-detail', first(payload.message, payload.detail),
+        'Select a firmware image to validate and install it to the inactive slot.');
+    setText('update-current-version', first(current.version, payload.current_version), '—');
+    setText('update-current-sha', first(current.git_sha, payload.current_git_sha), '');
+    setText('update-active-slot', partitionLabel(first(partitions.running, payload.running_partition)), '—');
+    setText('update-inactive-slot', partitionLabel(first(partitions.inactive, payload.inactive_partition)), '—');
+    setText('update-candidate', candidate.version
+        ? candidate.version + (candidate.git_sha ? ' (' + candidate.git_sha + ')' : '')
+        : 'None');
+    setText('update-validation', first(validation.result, validation.state, payload.validation_result), 'Not started');
+    setText('update-rollback', first(rollback.last_result, rollback.state,
+        rollback.supported === true ? 'Available' : rollback.supported === false ? 'Unavailable' : null), '—');
+    setText('update-error', first(failure.message, typeof payload.last_error === 'string' ? payload.last_error : null), '');
+    const received = Number(first(progress.received_bytes, payload.received_bytes, 0));
+    const total = Number(first(progress.image_size, candidate.image_size, payload.image_size, 0));
+    const percent = Number(first(progress.percent,
+        total > 0 ? Math.min(100, received * 100 / total) : 0));
+    const bar = byId('update-progress');
+    bar.value = Number.isFinite(percent) ? Math.max(0, Math.min(100, percent)) : 0;
+    bar.textContent = Math.round(bar.value) + '%';
+    if (!state.uploadXhr) {
+      setText('update-progress-detail', total > 0
+          ? formatBytes(received) + ' / ' + formatBytes(total) + ' written'
+          : 'No transfer in progress.');
+    }
+    renderUpdateStages(status);
+    updateButtons();
+  }
+
+  async function selectFirmwareFile(file) {
+    const request = ++state.firmwareHashRequest;
+    state.firmwareFile = file || null;
+    state.firmwareSha256 = '';
+    setText('firmware-sha256', 'SHA-256 —');
+    if (!file) {
+      setText('firmware-file-detail', 'Select an image to calculate its SHA-256 in this browser before upload.');
+      updateButtons();
+      return;
+    }
+    const capabilities = asObject(asObject(state.update).capabilities);
+    const maximum = Number(first(capabilities.maximum_image_bytes, MAX_FIRMWARE_IMAGE_BYTES));
+    if (file.size <= 0 || file.size > maximum) {
+      setText('firmware-file-detail', 'The image must be between 1 byte and ' + formatBytes(maximum) + '.');
+      updateButtons();
+      return;
+    }
+    setText('firmware-file-detail', file.name + ' · ' + formatBytes(file.size) + ' · calculating SHA-256…');
+    updateButtons();
+    try {
+      const digest = await firmwareSha256(file);
+      if (request !== state.firmwareHashRequest || file !== state.firmwareFile) return;
+      state.firmwareSha256 = digest;
+      setText('firmware-file-detail', file.name + ' · ' + formatBytes(file.size) + ' · ready to upload');
+      setText('firmware-sha256', 'SHA-256 ' + digest);
+    } catch (error) {
+      if (request !== state.firmwareHashRequest) return;
+      setText('firmware-file-detail', 'The browser could not calculate the image digest.');
+      showToast(error.message || String(error), true);
+    }
+    updateButtons();
+  }
+
+  function uploadFirmwareRequest(file, digest, generation, token) {
+    return new Promise(function (resolve, reject) {
+      const xhr = new XMLHttpRequest();
+      state.uploadXhr = xhr;
+      xhr.open('POST', API + '/update/upload');
+      xhr.timeout = UPDATE_UPLOAD_TIMEOUT_MS;
+      xhr.setRequestHeader('Accept', 'application/json');
+      xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+      xhr.setRequestHeader('X-OpenTag-Request', 'web');
+      xhr.setRequestHeader('Idempotency-Key', requestId());
+      xhr.setRequestHeader('Authorization', 'Bearer ' + token);
+      xhr.setRequestHeader('X-OpenTag-Image-SHA256', digest);
+      xhr.setRequestHeader('X-OpenTag-Expected-Generation', String(generation));
+      xhr.upload.addEventListener('progress', function (event) {
+        const percent = file.size > 0 ? Math.min(100, event.loaded * 100 / file.size) : 0;
+        byId('update-progress').value = percent;
+        setText('update-progress-detail', formatBytes(event.loaded) + ' / ' + formatBytes(file.size) + ' sent; device validation is still pending.');
+      });
+      xhr.addEventListener('load', function () {
+        if (xhr.status === 401) state.apiToken = '';
+        let envelope;
+        try { envelope = JSON.parse(xhr.responseText); }
+        catch (error) { reject(new Error('The station returned an invalid upload response.')); return; }
+        const failure = asObject(asObject(envelope).error);
+        if (xhr.status < 200 || xhr.status >= 300 || envelope.api_version !== 'v1' || envelope.ok !== true) {
+          reject(new Error(String(first(failure.message, 'Upload failed with HTTP ' + xhr.status))));
+          return;
+        }
+        resolve(asObject(envelope.data));
+      });
+      xhr.addEventListener('error', function () { reject(new Error('The firmware upload connection failed.')); });
+      xhr.addEventListener('timeout', function () { reject(new Error('The firmware upload exceeded its bounded deadline.')); });
+      xhr.addEventListener('abort', function () { reject(new Error('The firmware upload was cancelled; the device will abort the incomplete image.')); });
+      xhr.send(file);
+      updateButtons();
+    });
+  }
+
+  async function uploadSelectedFirmware(button) {
+    const file = state.firmwareFile;
+    const digest = state.firmwareSha256;
+    const generation = Number(asObject(state.update).generation);
+    if (!file || !/^[0-9a-f]{64}$/.test(digest) ||
+        !Number.isSafeInteger(generation) || generation < 0) {
+      showToast('Select and hash an image, then reload update status before uploading.', true);
+      return;
+    }
+    if (!window.confirm('Upload this image to the inactive slot? Upload completion does not activate or confirm the firmware.')) return;
+    button.disabled = true;
+    try {
+      await uploadFirmwareRequest(file, digest, generation, apiToken());
+      showToast('Upload completed. Reading device validation and inactive-slot status…');
+      await load('/update', renderUpdate, false);
+    } catch (error) {
+      showToast(error.message || String(error), true);
+      await load('/update', renderUpdate, true);
+    } finally {
+      state.uploadXhr = null;
+      updateButtons();
+    }
+  }
+
+  async function cancelUpdate(button) {
+    if (state.uploadXhr) {
+      if (window.confirm('Stop this upload? The incomplete inactive-slot write will be aborted.')) state.uploadXhr.abort();
+      return;
+    }
+    if (!window.confirm('Cancel the validated candidate and keep the current firmware?')) return;
+    button.disabled = true;
+    try {
+      const body = Object.assign(updatePreconditions(), { confirmation: 'CANCEL UPDATE' });
+      const operation = await submitMutation('/update/cancel', { method: 'POST', body: body });
+      showToast(operationMessage(operation, 'Candidate update cancelled.'));
+      await load('/update', renderUpdate, false);
+    } catch (error) { showToast(error.message || String(error), true); }
+    finally { updateButtons(); }
+  }
+
+  async function rebootIntoUpdate(button) {
+    if (!window.confirm('Activate the validated inactive image and reboot now? The candidate must pass its health window before it is confirmed.')) return;
+    const body = Object.assign(updatePreconditions(), { confirmation: 'REBOOT INTO UPDATE' });
+    if (await submitRestartButton(button, '/update/reboot', body, 'Update reboot')) {
+      setText('update-state', 'Reboot accepted; waiting for candidate');
+    }
   }
 
   async function refreshLive(quiet) {
@@ -985,6 +1310,9 @@ const char application_javascript[] = R"JS((function () {
     socket.addEventListener('open', function () {
       state.reconnectMs = 1000;
       setText('live-status', 'Live updates connected'); byId('live-indicator').className = 'status-dot online';
+      load('/update', renderUpdate, true);
+      load('/device', renderDevice, true);
+      load('/health', renderHealth, true);
     });
     socket.addEventListener('message', function (event) {
       try {
@@ -992,6 +1320,10 @@ const char application_javascript[] = R"JS((function () {
         const type = String(first(message.type, message.event, 'snapshot'));
         const payload = asObject(first(message.data, message.payload, message.snapshot, message));
         if (type === 'scale') renderScale(payload);
+        else if (type === 'update') renderUpdate(payload);
+        else if (type === 'invalidate' && payload.resource === 'update') {
+          load('/update', renderUpdate, true);
+        }
         else if (type === 'health') renderHealth(payload);
         else if (type === 'logs') load('/logs', renderLogs, true);
         else if (type === 'configuration') load('/config', renderConfig, true);
@@ -1031,7 +1363,11 @@ const char application_javascript[] = R"JS((function () {
       showToast(action + ' accepted as operation #' + accepted.id + '. The station will disconnect and the page will reconnect.');
       setText('live-status', action + ' accepted; waiting for the station to restart…');
       byId('live-indicator').className = 'status-dot pending';
-    } catch (error) { showToast(error.message, true); }
+      return true;
+    } catch (error) {
+      showToast(error.message, true);
+      return false;
+    }
     finally { button.disabled = prior; }
   }
 
@@ -1083,6 +1419,19 @@ const char application_javascript[] = R"JS((function () {
     });
     byId('refresh-diagnostics').addEventListener('click', function () { load('/diagnostics', renderDiagnostics, false); });
     byId('refresh-logs').addEventListener('click', function () { load('/logs', renderLogs, false); });
+    byId('firmware-file').addEventListener('change', function (event) {
+      const file = event.currentTarget.files && event.currentTarget.files[0];
+      selectFirmwareFile(file || null);
+    });
+    byId('upload-firmware').addEventListener('click', function (event) {
+      uploadSelectedFirmware(event.currentTarget);
+    });
+    byId('cancel-update').addEventListener('click', function (event) {
+      cancelUpdate(event.currentTarget);
+    });
+    byId('reboot-update').addEventListener('click', function (event) {
+      rebootIntoUpdate(event.currentTarget);
+    });
     byId('reboot-device').addEventListener('click', function (event) { if (window.confirm('Reboot OpenTag Station now?')) submitRestartButton(event.currentTarget, '/device/reboot', { confirmation: 'REBOOT' }, 'Reboot'); });
     byId('factory-confirm').addEventListener('input', function (event) { byId('factory-reset').disabled = event.currentTarget.value !== 'FACTORY RESET'; });
     byId('factory-reset').addEventListener('click', async function (event) {
@@ -1098,7 +1447,11 @@ const char application_javascript[] = R"JS((function () {
     window.setInterval(function () { setText('footer-clock', new Date().toLocaleString()); }, 60000);
     refreshAll(true);
     connectEvents();
-    window.addEventListener('beforeunload', function () { if (state.socket) state.socket.close(); window.clearTimeout(state.reconnectTimer); });
+    window.addEventListener('beforeunload', function () {
+      if (state.uploadXhr) state.uploadXhr.abort();
+      if (state.socket) state.socket.close();
+      window.clearTimeout(state.reconnectTimer);
+    });
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start, { once: true }); else start();

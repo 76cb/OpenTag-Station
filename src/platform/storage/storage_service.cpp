@@ -94,6 +94,7 @@ core::Result<void> remove_configuration_documents() {
 
 bool StorageService::initialize(std::uint32_t now_ms) {
   boot_started_ms_ = now_ms;
+  boot_pending_.store(false, std::memory_order_release);
   const bool application_nvs_ready =
       preferences_.begin(application_preferences_namespace, false);
   const bool control_nvs_ready =
@@ -148,7 +149,7 @@ bool StorageService::initialize(std::uint32_t now_ms) {
     preferences_.putULong("bootCount", status_.boot_count);
     preferences_.putUChar("crashStreak", status_.crash_streak);
     preferences_.putBool("bootPending", true);
-    boot_pending_ = true;
+    boot_pending_.store(true, std::memory_order_release);
   }
 
   if (status_.filesystem_ready) {
@@ -163,23 +164,51 @@ bool StorageService::initialize(std::uint32_t now_ms) {
   return status_.nvs_ready && status_.filesystem_ready;
 }
 
-void StorageService::poll(std::uint32_t now_ms) {
-  if (boot_pending_ &&
-      static_cast<std::uint32_t>(now_ms - boot_started_ms_) >= healthy_boot_after_ms) {
-    mark_boot_healthy();
-  }
+bool StorageService::health_window_due(std::uint32_t now_ms) const {
+  return boot_pending_.load(std::memory_order_acquire) &&
+      static_cast<std::uint32_t>(now_ms - boot_started_ms_) >=
+          healthy_boot_after_ms;
 }
 
-void StorageService::mark_boot_healthy() {
-  if (!status_.nvs_ready || !boot_pending_ ||
-      reset_in_progress_.load(std::memory_order_acquire)) {
-    return;
+core::Result<void> StorageService::confirm_healthy_boot() {
+  if (!status().nvs_ready) {
+    return core::Result<void>::failure(
+        storage_error("NVS is unavailable for boot confirmation"));
   }
+  if (reset_in_progress_.load(std::memory_order_acquire)) {
+    return core::Result<void>::failure(
+        storage_error("factory reset blocks boot confirmation"));
+  }
+  if (!boot_pending_.load(std::memory_order_acquire)) {
+    return core::Result<void>::success();
+  }
+
   const std::lock_guard<std::mutex> lock(preferences_mutex_);
-  if (reset_in_progress_.load(std::memory_order_acquire)) return;
-  preferences_.putBool("bootPending", false);
-  preferences_.putUChar("crashStreak", 0U);
-  boot_pending_ = false;
+  if (reset_in_progress_.load(std::memory_order_acquire)) {
+    return core::Result<void>::failure(
+        storage_error("factory reset blocks boot confirmation"));
+  }
+  if (!boot_pending_.load(std::memory_order_acquire)) {
+    return core::Result<void>::success();
+  }
+
+  // Persist the diagnostic streak first and the authoritative pending marker
+  // last. A power loss between the writes therefore remains fail-closed: the
+  // next boot still sees an unconfirmed predecessor.
+  if (preferences_.putUChar("crashStreak", 0U) != sizeof(std::uint8_t)) {
+    return core::Result<void>::failure(
+        storage_error("boot crash streak could not be cleared"));
+  }
+  if (preferences_.putBool("bootPending", false) != sizeof(bool)) {
+    return core::Result<void>::failure(
+        storage_error("healthy boot confirmation could not be persisted"));
+  }
+  {
+    const std::lock_guard<std::mutex> status_lock(status_mutex_);
+    status_.crash_streak = 0U;
+  }
+  boot_pending_.store(false, std::memory_order_release);
+  return core::Result<void>::success();
 }
 
 core::Result<std::optional<services::ScaleCalibration>>

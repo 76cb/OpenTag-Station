@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <cstring>
 #include <string>
 #include <string_view>
@@ -21,9 +22,12 @@ namespace {
 
 constexpr std::size_t maximum_collected_header_value_bytes = 512U;
 constexpr std::uint32_t maximum_request_receive_ms = 5000U;
+constexpr std::uint32_t maximum_upload_receive_ms = 180000U;
 constexpr std::size_t maximum_event_json_nesting = 8U;
 constexpr char invalid_scale_event[] =
     R"({"type":"invalidate","data":{"resource":"scale"}})";
+constexpr char invalid_update_event[] =
+    R"({"type":"invalidate","data":{"resource":"update"}})";
 
 using UriHandler = esp_err_t (*)(httpd_req_t* request);
 
@@ -92,13 +96,16 @@ esp_err_t send_json_error(
     httpd_req_t* request,
     std::int32_t status,
     const char* code,
-    const char* message) {
+    const char* message,
+    bool retryable = false) {
   std::string body =
       R"({"api_version":"v1","ok":false,"error":{"code":")";
   body += code;
   body += R"(","message":")";
   body += message;
-  body += R"(","retryable":false}})";
+  body += R"(","retryable":)";
+  body += retryable ? "true" : "false";
+  body += "}}";
   auto result = httpd_resp_set_status(request, status_line(status));
   if (result != ESP_OK) return result;
   result = httpd_resp_set_type(request, "application/json; charset=utf-8");
@@ -159,6 +166,92 @@ esp_err_t collect_header(
   return ESP_OK;
 }
 
+bool read_required_header(
+    httpd_req_t* request,
+    const char* name,
+    std::string& value,
+    std::size_t& collected_bytes) {
+  const auto length = httpd_req_get_hdr_value_len(request, name);
+  if (length == 0U || length > maximum_collected_header_value_bytes) {
+    return false;
+  }
+  if (collected_bytes > api::maximum_request_header_bytes - length ||
+      collected_bytes + length >
+          api::maximum_request_header_bytes - std::strlen(name) - 4U) {
+    return false;
+  }
+  std::array<char, maximum_collected_header_value_bytes + 1U> buffer{};
+  if (httpd_req_get_hdr_value_str(
+          request, name, buffer.data(), length + 1U) != ESP_OK) {
+    return false;
+  }
+  value.assign(buffer.data(), length);
+  collected_bytes += std::strlen(name) + length + 4U;
+  return true;
+}
+
+bool valid_idempotency_key(std::string_view value) {
+  return !value.empty() &&
+      value.size() <= IdempotencyLedger::maximum_key_bytes &&
+      std::all_of(value.begin(), value.end(), [](char character) {
+        const auto byte = static_cast<unsigned char>(character);
+        return std::isalnum(byte) != 0 || character == '-' ||
+            character == '_' || character == '.' || character == ':';
+      });
+}
+
+bool decode_sha256(
+    std::string_view encoded,
+    opentag::ota::Sha256Digest& digest) {
+  if (!api::valid_sha256_hex(encoded)) return false;
+  const auto nibble = [](char value) -> std::uint8_t {
+    return value <= '9'
+        ? static_cast<std::uint8_t>(value - '0')
+        : static_cast<std::uint8_t>(value - 'a' + 10);
+  };
+  for (std::size_t index = 0U; index < digest.size(); ++index) {
+    digest[index] = static_cast<std::uint8_t>(
+        (nibble(encoded[index * 2U]) << 4U) |
+        nibble(encoded[index * 2U + 1U]));
+  }
+  return true;
+}
+
+std::string lower_ascii(std::string value) {
+  std::transform(value.begin(), value.end(), value.begin(), [](char character) {
+    return static_cast<char>(
+        std::tolower(static_cast<unsigned char>(character)));
+  });
+  return value;
+}
+
+api::Response upload_receipt(
+    const StreamingUploadSession& session,
+    const opentag::ota::UpdateSnapshot* update = nullptr) {
+  JsonDocument document;
+  document["api_version"] = api::version;
+  document["ok"] = true;
+  auto data = document["data"].to<JsonObject>();
+  data["operation_id"] = session.operation_id;
+  data["upload_operation_id"] = session.operation_id;
+  data["kind"] = "firmware_upload";
+  data["state"] = session.duplicate ? "duplicate" : "succeeded";
+  if (update != nullptr) {
+    data["update_revision"] = update->revision;
+    data["generation"] = update->generation;
+    data["update_state"] = opentag::ota::to_string(update->state);
+    data["validated"] = update->validation_passed;
+    data["activated"] = update->activated;
+  }
+  std::string body;
+  serializeJson(document, body);
+  return {
+      session.duplicate ? 202 : 200,
+      {{"Content-Type", "application/json; charset=utf-8"}},
+      std::move(body),
+  };
+}
+
 api::Method api_method(int method) {
   switch (method) {
     case HTTP_GET: return api::Method::get;
@@ -183,7 +276,10 @@ bool due(
 
 }  // namespace
 
-LocalWebServer::LocalWebServer(api::Router& router) noexcept : router_(router) {}
+LocalWebServer::LocalWebServer(
+    api::Router& router,
+    ApplicationApiContext& api_context) noexcept
+    : router_(router), api_context_(api_context) {}
 
 LocalWebServer::~LocalWebServer() {
   if (server_ != nullptr) (void)stop();
@@ -194,7 +290,7 @@ esp_err_t LocalWebServer::start() {
   stopping_.store(false, std::memory_order_release);
 
   httpd_config_t configuration = HTTPD_DEFAULT_CONFIG();
-  configuration.stack_size = 6144U;
+  configuration.stack_size = http_task_stack_bytes;
   configuration.max_open_sockets =
       static_cast<std::uint16_t>(maximum_open_sockets);
   configuration.max_uri_handlers = 12U;
@@ -211,7 +307,7 @@ esp_err_t LocalWebServer::start() {
     return result;
   }
 
-  const std::array<httpd_uri_t, 11U> handlers = {{
+  const std::array<httpd_uri_t, 12U> handlers = {{
       make_uri("/", HTTP_GET, &LocalWebServer::static_asset_handler, this),
       make_uri(
           "/assets/app.css",
@@ -229,6 +325,11 @@ esp_err_t LocalWebServer::start() {
           &LocalWebServer::websocket_handler,
           this,
           true),
+      make_uri(
+          "/api/v1/update/upload",
+          HTTP_POST,
+          &LocalWebServer::update_upload_handler,
+          this),
       make_uri("/api/*", HTTP_GET, &LocalWebServer::api_handler, this),
       make_uri("/api/*", HTTP_POST, &LocalWebServer::api_handler, this),
       make_uri("/api/*", HTTP_PATCH, &LocalWebServer::api_handler, this),
@@ -248,8 +349,11 @@ esp_err_t LocalWebServer::start() {
 
   scale_published_ = false;
   heartbeat_published_ = false;
+  update_published_ = false;
   last_scale_publish_ms_ = 0U;
+  last_update_publish_ms_ = 0U;
   last_heartbeat_ms_ = 0U;
+  last_update_revision_ = 0U;
   return ESP_OK;
 }
 
@@ -268,6 +372,7 @@ esp_err_t LocalWebServer::stop() {
   server_ = nullptr;
   scale_published_ = false;
   heartbeat_published_ = false;
+  update_published_ = false;
   websocket_send_.remaining.store(0U, std::memory_order_relaxed);
   websocket_send_.busy.store(false, std::memory_order_release);
   return ESP_OK;
@@ -286,6 +391,14 @@ esp_err_t LocalWebServer::api_handler(httpd_req_t* request) {
     return ESP_ERR_INVALID_ARG;
   }
   return static_cast<LocalWebServer*>(request->user_ctx)->handle_api(request);
+}
+
+esp_err_t LocalWebServer::update_upload_handler(httpd_req_t* request) {
+  if (request == nullptr || request->user_ctx == nullptr) {
+    return ESP_ERR_INVALID_ARG;
+  }
+  return static_cast<LocalWebServer*>(request->user_ctx)
+      ->handle_update_upload(request);
 }
 
 esp_err_t LocalWebServer::websocket_handler(httpd_req_t* request) {
@@ -337,6 +450,260 @@ esp_err_t LocalWebServer::handle_static_asset(httpd_req_t* request) {
   result = set_security_headers(request);
   if (result != ESP_OK) return result;
   return httpd_resp_send(request, body, static_cast<ssize_t>(size));
+}
+
+esp_err_t LocalWebServer::handle_update_upload(httpd_req_t* request) {
+  const auto reject_unread = [request](
+      std::int32_t status,
+      const char* code,
+      const char* message,
+      std::size_t consumed = 0U,
+      bool retryable = false) {
+    const auto sent = send_json_error(
+        request, status, code, message, retryable);
+    return finish_response_without_purging(request, consumed, sent);
+  };
+
+  if (request->method != HTTP_POST ||
+      std::string_view(request->uri) != "/api/v1/update/upload") {
+    return reject_unread(
+        404,
+        "route_not_found",
+        "No streaming firmware route matches this request");
+  }
+  if (request->content_len == 0U) {
+    return reject_unread(
+        400,
+        "invalid_firmware_length",
+        "Firmware upload requires a nonzero Content-Length");
+  }
+  if (request->content_len > api::maximum_firmware_image_bytes) {
+    return reject_unread(
+        413,
+        "firmware_too_large",
+        "Firmware upload exceeds the 5 MiB application-slot limit");
+  }
+
+  std::size_t collected_header_bytes = 0U;
+  std::string authorization;
+  if (!read_required_header(
+          request,
+          "Authorization",
+          authorization,
+          collected_header_bytes)) {
+    (void)httpd_resp_set_hdr(request, "WWW-Authenticate", "Bearer");
+    return reject_unread(
+        401,
+        "authentication_required",
+        "A valid bearer token is required for firmware upload");
+  }
+  constexpr std::string_view bearer_prefix = "Bearer ";
+  const std::string_view authorization_view(authorization);
+  if (authorization_view.size() <= bearer_prefix.size() ||
+      authorization_view.substr(0U, bearer_prefix.size()) != bearer_prefix ||
+      !api_context_.authorize_mutation(
+          authorization_view.substr(bearer_prefix.size()))) {
+    (void)httpd_resp_set_hdr(request, "WWW-Authenticate", "Bearer");
+    return reject_unread(
+        401,
+        "authentication_required",
+        "A valid bearer token is required for firmware upload");
+  }
+
+  std::string source;
+  std::string idempotency_key;
+  std::string content_type;
+  std::string expected_sha256;
+  std::string expected_generation;
+  if (!read_required_header(
+          request,
+          "X-OpenTag-Request",
+          source,
+          collected_header_bytes) ||
+      source != "web" ||
+      !read_required_header(
+          request,
+          "Idempotency-Key",
+          idempotency_key,
+          collected_header_bytes) ||
+      !valid_idempotency_key(idempotency_key) ||
+      !read_required_header(
+          request,
+          "Content-Type",
+          content_type,
+          collected_header_bytes) ||
+      !read_required_header(
+          request,
+          "X-OpenTag-Image-SHA256",
+          expected_sha256,
+          collected_header_bytes) ||
+      !read_required_header(
+          request,
+          "X-OpenTag-Expected-Generation",
+          expected_generation,
+          collected_header_bytes)) {
+    return reject_unread(
+        400,
+        "invalid_upload_headers",
+        "Firmware upload headers are missing, malformed, or too large");
+  }
+  if (lower_ascii(content_type) != "application/octet-stream") {
+    return reject_unread(
+        415,
+        "unsupported_media_type",
+        "Firmware upload requires application/octet-stream");
+  }
+
+  StreamingUploadRequest upload_request;
+  upload_request.idempotency_key = std::move(idempotency_key);
+  upload_request.expected_length =
+      static_cast<std::uint32_t>(request->content_len);
+  if (!api::parse_canonical_generation(
+          expected_generation,
+          upload_request.expected_generation) ||
+      !decode_sha256(expected_sha256, upload_request.expected_sha256)) {
+    return reject_unread(
+        400,
+        "invalid_upload_precondition",
+        "Expected generation must be canonical nonnegative decimal and SHA-256 must be 64 lowercase hexadecimal characters");
+  }
+
+  const auto started = api_context_.begin_streaming_upload(upload_request);
+  if (!started.ok()) {
+    const auto response = api::response_for_context_error(started.error());
+    return finish_response_without_purging(
+        request,
+        0U,
+        send_router_response(request, response));
+  }
+  const auto session = started.value();
+  if (session.duplicate) {
+    const auto response = upload_receipt(
+        session,
+        session.replay_snapshot.has_value()
+            ? &*session.replay_snapshot
+            : nullptr);
+    return finish_response_without_purging(
+        request,
+        0U,
+        send_router_response(request, response));
+  }
+
+  const auto receive_started_us = esp_timer_get_time();
+  auto last_progress_us = receive_started_us;
+  std::size_t received = 0U;
+  while (received < request->content_len) {
+    const auto now_us = esp_timer_get_time();
+    if (now_us - receive_started_us >
+        static_cast<std::int64_t>(maximum_upload_receive_ms) * 1000LL) {
+      const core::Error error{
+          core::ErrorCategory::firmware_update,
+          "Firmware upload exceeded the 180 second absolute deadline",
+          true,
+      };
+      api_context_.abort_streaming_upload(session, error);
+      return reject_unread(
+          408,
+          "upload_timeout",
+          error.message.c_str(),
+          received,
+          true);
+    }
+    if (now_us - last_progress_us >
+        static_cast<std::int64_t>(maximum_request_receive_ms) * 1000LL) {
+      const core::Error error{
+          core::ErrorCategory::firmware_update,
+          "Firmware upload made no receive progress for five seconds",
+          true,
+      };
+      api_context_.abort_streaming_upload(session, error);
+      return reject_unread(
+          408,
+          "upload_timeout",
+          error.message.c_str(),
+          received,
+          true);
+    }
+
+    const auto remaining = request->content_len - received;
+    const auto requested = std::min(remaining, upload_buffer_.size());
+    const auto count = httpd_req_recv(
+        request,
+        reinterpret_cast<char*>(upload_buffer_.data()),
+        requested);
+    if (count == HTTPD_SOCK_ERR_TIMEOUT) continue;
+    if (count <= 0) {
+      const core::Error error{
+          core::ErrorCategory::firmware_update,
+          "Firmware upload disconnected before its declared length",
+          true,
+      };
+      api_context_.abort_streaming_upload(session, error);
+      return reject_unread(
+          400,
+          "incomplete_firmware_upload",
+          error.message.c_str(),
+          received);
+    }
+
+    const auto chunk_size = static_cast<std::size_t>(count);
+    received += chunk_size;
+    last_progress_us = esp_timer_get_time();
+    const auto written = api_context_.write_streaming_upload(
+        session,
+        {upload_buffer_.data(), chunk_size});
+    if (!written.ok()) {
+      api_context_.abort_streaming_upload(session, written.error());
+      const auto response = api::response_for_context_error(written.error());
+      return finish_response_without_purging(
+          request,
+          received,
+          send_router_response(request, response));
+    }
+    // Flash-owner latency is part of the absolute bound but not a network
+    // no-progress interval.
+    last_progress_us = esp_timer_get_time();
+  }
+
+  if (esp_timer_get_time() - receive_started_us >
+      static_cast<std::int64_t>(maximum_upload_receive_ms) * 1000LL) {
+    const core::Error error{
+        core::ErrorCategory::firmware_update,
+        "Firmware upload exceeded the 180 second absolute deadline",
+        true,
+    };
+    api_context_.abort_streaming_upload(session, error);
+    return reject_unread(
+        408,
+        "upload_timeout",
+        error.message.c_str(),
+        received,
+        true);
+  }
+
+  const auto finished = api_context_.finish_streaming_upload(session);
+  if (!finished.ok()) {
+    api_context_.abort_streaming_upload(session, finished.error());
+    const auto response = api::response_for_context_error(finished.error());
+    return send_router_response(request, response);
+  }
+  if (esp_timer_get_time() - receive_started_us >
+      static_cast<std::int64_t>(maximum_upload_receive_ms) * 1000LL) {
+    const core::Error error{
+        core::ErrorCategory::firmware_update,
+        "Firmware validation exceeded the 180 second absolute deadline",
+        true,
+    };
+    api_context_.abort_streaming_upload(session, error);
+    return reject_unread(
+        408,
+        "upload_timeout",
+        error.message.c_str(),
+        received,
+        true);
+  }
+  const auto response = upload_receipt(session, &finished.value());
+  return send_router_response(request, response);
 }
 
 esp_err_t LocalWebServer::handle_api(httpd_req_t* request) {
@@ -496,6 +863,48 @@ std::string LocalWebServer::make_scale_event() {
       : std::string(invalid_scale_event);
 }
 
+std::string LocalWebServer::make_update_event(std::uint64_t& revision) {
+  revision = 0U;
+  const auto response = router_.handle(
+      {api::Method::get,
+       "/api/v1/update",
+       {{"Accept", "application/json"}},
+       {}});
+  if (response.status != 200 || response.body.empty()) {
+    return invalid_update_event;
+  }
+
+  JsonDocument envelope;
+  const auto parsed = deserializeJson(
+      envelope,
+      response.body,
+      DeserializationOption::NestingLimit(maximum_event_json_nesting));
+  if (parsed || !envelope.is<JsonObjectConst>()) return invalid_update_event;
+  const auto root = envelope.as<JsonObjectConst>();
+  const auto* api_version = root["api_version"].as<const char*>();
+  const auto data = root["data"];
+  if (api_version == nullptr || std::strcmp(api_version, "v1") != 0 ||
+      !root["ok"].is<bool>() || !root["ok"].as<bool>() ||
+      !data.is<JsonObjectConst>() || data["revision"].isNull()) {
+    return invalid_update_event;
+  }
+  revision = data["revision"].as<std::uint64_t>();
+
+  constexpr std::string_view leading = R"({"type":"update","data":)";
+  const auto data_size = measureJson(data);
+  if (leading.size() + data_size + 1U > maximum_websocket_message_bytes) {
+    return invalid_update_event;
+  }
+  std::string event;
+  event.reserve(leading.size() + data_size + 1U);
+  event.append(leading.data(), leading.size());
+  serializeJson(data, event);
+  event.push_back('}');
+  return event.size() <= maximum_websocket_message_bytes
+      ? event
+      : std::string(invalid_update_event);
+}
+
 void LocalWebServer::websocket_send_complete(
     esp_err_t error,
     int socket,
@@ -583,6 +992,24 @@ std::size_t LocalWebServer::send_to_websocket_clients(
 
 void LocalWebServer::publish(std::uint32_t now_ms) {
   if (server_ == nullptr || websocket_client_count() == 0U) return;
+
+  const auto current_update_revision = api_context_.update_revision();
+  if ((!update_published_ ||
+       current_update_revision != last_update_revision_) &&
+      due(
+          now_ms,
+          last_update_publish_ms_,
+          update_publish_interval_ms,
+          update_published_)) {
+    std::uint64_t published_revision = 0U;
+    const auto queued = send_to_websocket_clients(
+        make_update_event(published_revision));
+    if (queued > 0U) {
+      last_update_revision_ = published_revision;
+      last_update_publish_ms_ = now_ms;
+      update_published_ = true;
+    }
+  }
 
   if (due(
           now_ms,

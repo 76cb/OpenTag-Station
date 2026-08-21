@@ -64,10 +64,24 @@ void test_errors_and_messages_are_bounded() {
       record->error->message.size());
 }
 
+void test_operation_ids_can_advance_past_a_durable_ota_operation() {
+  OperationRegistry registry;
+  registry.reserve_ids_above(900U);
+  TEST_ASSERT_EQUAL_UINT64(
+      901U, registry.begin(OperationKind::firmware_upload, 1U));
+  registry.reserve_ids_above(12U);
+  TEST_ASSERT_EQUAL_UINT64(
+      902U, registry.begin(OperationKind::firmware_reboot, 2U));
+  TEST_ASSERT_EQUAL_STRING(
+      "firmware_cancel",
+      opentag::application::to_string(OperationKind::firmware_cancel));
+}
+
 int main(int, char**) {
   UNITY_BEGIN();
   RUN_TEST(test_operations_are_correlated_and_newest_first);
   RUN_TEST(test_capacity_is_bounded_and_old_records_expire);
   RUN_TEST(test_errors_and_messages_are_bounded);
+  RUN_TEST(test_operation_ids_can_advance_past_a_durable_ota_operation);
   return UNITY_END();
 }

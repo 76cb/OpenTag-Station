@@ -105,18 +105,59 @@ Versioning once releases begin.
   after an unauthorized response.
 - Persistent YZC-133 hardware profiles corrected to the actual/default 5 kg
   cell while retaining the 2 kg variant and legacy-calibration inference.
-- Explicit NFC-unavailable responses for the wiring/RFAL-gated build, guarded
-  reboot/factory-reset commands delegated to their owner, and a read-only
-  `/api/v1/update` Phase 10 placeholder with no installer or A/B behavior.
+- Phase 9 explicit NFC-unavailable responses for the wiring/RFAL-gated build,
+  guarded reboot/factory-reset commands delegated to their owner, and a
+  read-only `/api/v1/update` boundary.
+- Phase 10 portable OTA state/metadata ownership with explicit receiving,
+  writing, validation, staged, reboot, candidate, confirmation, rollback, and
+  failure states behind mockable partition, digest, and durable-record ports.
+- An ESP-IDF 4.4/Arduino-ESP32 2.0.17 OTA adapter that resolves the inactive
+  slot internally, rejects the running partition, uses `esp_ota_begin/write/end`,
+  verifies the staged ESP32-S3 image, changes the boot slot only after explicit
+  confirmation, and calls the pinned candidate confirm/rollback APIs.
+- First-update rollback seeding for serial-flashed devices with erased OTA
+  metadata: the adapter marks the currently running slot valid before selecting
+  a candidate, then re-resolves the inactive target and refuses activation from
+  any pending, invalid, or aborted running image.
+- A fixed 256-byte OpenTag firmware manifest carrying project, WT32 hardware,
+  version, Git SHA, build date, and platform identity inside every image, with
+  staged-image project/hardware enforcement.
+- A dedicated bounded OTA FreeRTOS owner and streaming binary HTTP path using a
+  fixed 4 KiB handoff, an exact nonzero `Content-Length`, a 5 MiB ceiling,
+  rolling SHA-256, five-second receive-idle timeout, 180-second absolute
+  deadline, and deterministic abort/cleanup on short or disconnected uploads.
+- Checksum-protected OTA records in an isolated NVS namespace, durable monotonic
+  generation reservation, operation/generation/digest preconditions, progress
+  checkpoints, activation-intent ordering, and boot-time reconciliation for
+  interrupted upload, power-cut, confirmation, and rollback cut points.
+- An intentionally unactivated `ready_to_reboot` boundary: upload completion
+  cannot select the boot partition, and only the exact authenticated,
+  idempotent reboot mutation can activate and restart into the candidate.
+- One 30-second local boot-health policy shared by ordinary boot/crash tracking
+  and candidate validation. Required local owners must start; backend service
+  outages and deliberately unavailable NFC do not block confirmation.
+- A generation-token device lifecycle gate that makes generic reboot, factory
+  reset, OTA upload/activation, and candidate validation mutually exclusive.
+- A 26-route API inventory, update WebSocket snapshots, and an embedded Update
+  panel with browser-side hashing, upload progress, explicit reboot confirmation,
+  bounded validation/rollback errors, and reconnect/resume status after restart.
 
 ### Verified
 
 - The complete Phase 9 native run passes all 163 cases across eighteen suites.
-- The pinned WT32-SC01 Plus firmware build succeeds with RAM usage of
+- The final Phase 10 native run passes all 223 cases across twenty suites.
+- The pinned Phase 10 WT32-SC01 Plus firmware build succeeds without compiler
+  warnings with RAM usage of 167,152/327,680 bytes (51.0%) and flash usage of
+  1,946,637/5,242,880 bytes (37.1%): +26,272 RAM bytes and +97,964 flash bytes
+  versus the Phase 9 baseline.
+- For comparison, the Phase 9 WT32-SC01 Plus firmware used
   140,880/327,680 bytes (43.0%) and flash usage of 1,848,673/5,242,880 bytes
   (35.3%): +15,208 RAM bytes and +209,972 flash bytes versus Phase 8.
-- Portable routing, parsing, patching, and bounded ledgers are host-executed;
-  the embedded browser, transport, context, and device controls are compiled.
+- Portable routing, parsing, patching, bounded ledgers, OTA transitions,
+  boot-health decisions, update serialization, and lifecycle exclusion are
+  exercised by native suites with fake partition/digest/record providers.
+- The embedded browser, streaming transport, production OTA owner/context,
+  ESP-IDF image adapter, and rollback calls are covered by the pinned WT32 build.
 - Physical Phase 1 hardware verification remains outstanding.
 - Physical ST25R3916B, NFC-V, and OpenPrintTag verification remains outstanding.
 - Physical NAU7802/load-cell calibration and repeatability verification remains
@@ -126,7 +167,13 @@ Versioning once releases begin.
 - Live Spoolman v0.26.1, FilaBridge v1.2.2, and five-toolhead assignment
   verification remain outstanding.
 - Physical-browser validation of the embedded client, `/api/v1`, WebSocket
-  behavior, bearer-token flow, controlled reboot/reset, and target-LAN behavior
-  remains outstanding.
-- OTA upload, installation, A/B switching, pending-image validation, and
-  rollback remain Phase 10 work; Phase 9 implements only the GET placeholder.
+  behavior, bearer-token flow, streaming upload, controlled reboot/reset, and
+  target-LAN behavior remains outstanding.
+- Physical A→B and B→A installation, candidate confirmation, deliberate
+  candidate failure, bootloader rollback, power loss during upload and after
+  activation, reset/crash-loop handling during the health window, and browser
+  reconnect after reboot remain outstanding hardware-in-the-loop gates.
+- Phase 10 validates image integrity and identity but does not authenticate a
+  publisher: images are unsigned. The local upload endpoint is HTTP, not HTTPS,
+  and is intended only for a trusted isolated LAN. No remote URL updater or
+  globally weakened TLS policy was added.

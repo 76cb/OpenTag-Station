@@ -14,7 +14,7 @@ no PN532 implementation or fallback.
 ## Project status
 
 The repository contains the Phase 0 research baseline and implemented,
-host-tested, firmware-compiled software through Phase 9:
+host-tested, firmware-compiled software through Phase 10:
 
 - pinned PlatformIO, ESP32, LVGL, display, scale, and JSON dependencies;
 - A/B OTA partition layout;
@@ -77,15 +77,23 @@ host-tested, firmware-compiled software through Phase 9:
   live T1–T5 mappings, explicit replacement/advanced-print warnings, backend
   degradation, and local material/toolhead advisories;
 - a bounded embedded browser client, WebSocket live-update channel, and
-  transport-neutral 23-route `/api/v1` surface for status, configuration,
+  transport-neutral 26-route `/api/v1` surface for status, configuration,
   diagnostics, logs, scale, NFC, spool, printers/toolheads, controlled device
-  actions, operation status, and the Phase 10 update boundary;
+  actions, operation status, and validated firmware updates;
 - asynchronous mutation receipts backed by a central operation registry and
   bounded configuration, scale, backend, and device-control owner queues;
 - typed, credential-redacted configuration reads and compare-and-swap partial
   writes, with an initial local API bearer token provisioned from the physical
   touchscreen and browser credentials retained only in memory for the current
-  tab; and
+  tab;
+- a dedicated OTA owner that streams fixed 4 KiB chunks only to the inactive
+  5 MiB application slot, checks complete length and rolling SHA-256, verifies
+  the ESP32-S3 image and OpenTag manifest, and leaves a validated image
+  unactivated until an explicit authenticated reboot;
+- durable OTA generation/operation metadata, one shared 30-second local boot
+  health policy, ESP-IDF pending-image confirmation, and bootloader rollback
+  integration that is mutually exclusive with generic reboot and factory reset;
+  and
 - native host suites covering the domain foundation, official OpenPrintTag
   fixtures and malformed inputs, NFC-V safety, frontend recovery, and scale
   processing/fault behavior, configuration transactions/migrations/recovery,
@@ -93,22 +101,27 @@ host-tested, firmware-compiled software through Phase 9:
   deterministic identity resolution, FilaBridge contracts, assignment safety,
   material advisories, the full host workflow, and the local web/API boundary.
 
-The Phase 1–9 software sources and WT32 firmware image compile, and the host
-tests pass.
+The final Phase 10 native run passes 223/223 cases across twenty suites. The
+pinned WT32-SC01 Plus firmware builds without compiler warnings at 167,152 of
+327,680 RAM bytes (51.0%) and 1,946,637 of 5,242,880 flash bytes (37.1%):
++26,272 RAM bytes and +97,964 flash bytes versus Phase 9.
 Display, touch, backlight, storage, and PSRAM behavior still require execution
 on the actual board, so Phase 1 is not hardware-verified. NFC cannot be connected
 to a real frontend until the exact module/wiring and RFAL distribution gates are
-resolved; the Phase 9 firmware and API report NFC explicitly unavailable rather
+resolved; the current firmware and API report NFC explicitly unavailable rather
 than pretending a reader exists. Scale hardware behavior and physical
 calibration are not verified.
 Wi-Fi and transport behavior still require physical/on-network validation.
-Portable API routing, parsing, patching, and bounded ledgers are host-tested;
-the embedded browser, production API context, HTTP/WebSocket transport, and
-device-control integration are firmware-compiled but not browser/LAN-tested.
+Portable API routing, parsing, patching, bounded ledgers, OTA state transitions,
+boot-health decisions, lifecycle exclusion, and failure cleanup are host-tested.
+The embedded browser, production API context, HTTP/WebSocket upload transport,
+ESP-IDF OTA adapter, and device-control integration are firmware-compiled but
+not browser/LAN/flash-tested.
 Spoolman and FilaBridge behavior still require validation against live pinned
 instances, and the five-toolhead flow requires physical execution before
-release signoff. `/api/v1/update` is a read-only Phase 10 placeholder; OTA image
-installation and A/B switching are not implemented.
+release signoff. A/B installation, candidate confirmation, deliberate failure,
+and rollback still require the hardware-in-the-loop matrix before release
+signoff.
 
 ## Responsibilities
 
@@ -179,17 +192,37 @@ checkpoint have been signed off.
 ## Firmware updates and recovery
 
 The partition table reserves two 5 MiB application slots plus persistent NVS,
-OTA metadata, data storage, and crash dumps. A future installer will write only
-the inactive slot, verify hardware/size/SHA-256 from a manifest, boot it as
-pending, and mark it valid only after core local health checks. Network backends
-will not be required for validity. See [OTA architecture](docs/ota.md).
+OTA metadata, data storage, and crash dumps. The local Update panel hashes a
+selected `.bin` in the browser and streams it as `application/octet-stream`;
+the station never buffers the whole image. The OTA owner selects the inactive
+slot itself and accepts at most one 4 KiB chunk at a time. It verifies declared
+and received length, SHA-256, the ESP image/header and appended image hash, the
+ESP32-S3 target, and an embedded OpenTag project/hardware manifest.
 
-Phase 9 exposes only the read-only `/api/v1/update` status placeholder. It does
-not accept an image or manifest, write an OTA partition, select an A/B slot, or
-perform rollback. Until the Phase 10 installer exists, recovery uses the same
-USB/PlatformIO flash path as first installation. The planned recovery ladder is
-local browser upload, USB/WebSerial artifacts, then bootloader serial flashing;
-configuration and calibration remain outside both application slots.
+A successful upload reaches `ready_to_reboot` with the candidate still
+unactivated. An explicit authenticated and idempotent reboot request must match
+the candidate's operation ID, durable generation, and SHA-256 before the boot
+slot changes. On a serial-flashed device with uninitialized OTA metadata, the
+pinned adapter first selects the currently running slot and marks it valid,
+then re-resolves the inactive target before selecting the candidate. It refuses
+candidate selection from an unrelated pending, invalid, or aborted image. The
+durable record narrowly recovers a power cut or transient failure while seeding
+the pre-existing running image, and the exact reboot request can retry when no
+otadata side effect occurred. This ordering preserves a known-good rollback
+entry for the first browser update.
+The candidate then remains pending through one shared 30-second
+local-health window. Core local owners must be running, but Spoolman,
+FilaBridge, and NFC availability are deliberately not validity requirements.
+Healthy firmware calls the ESP-IDF confirm/cancel-rollback API; a fatal startup
+or an unconfirmed reset leaves the pinned rollback-enabled bootloader able to
+restore the previous slot.
+
+Image SHA-256 provides integrity, not publisher authenticity: Phase 10 does not
+implement signed firmware. The local web server is HTTP rather than HTTPS, so
+updates must be performed only on a trusted isolated LAN. There is no URL-based
+OTA path. USB/PlatformIO and bootloader serial flashing remain the recovery
+paths when the local service cannot start. Configuration and calibration remain
+outside both application slots. See [OTA architecture](docs/ota.md).
 
 ## Known limitations
 
@@ -212,14 +245,20 @@ configuration and calibration remain outside both application slots.
 - The Spoolman/FilaBridge adapters and the touchscreen orchestration are
   host-tested but not yet tested against live pinned servers or the physical
   five-toolhead station.
-- Phase 9's portable 23-route API policy is host-tested. The browser UI,
-  production context, WebSocket reconnect/live-refresh path, bearer-token flow,
-  controlled reboot/reset path, and embedded owner-queue integration are
+- The portable 26-route API policy and OTA core/safety policies are host-tested.
+  The browser UI, production context, WebSocket reconnect/live-refresh path,
+  bearer-token flow, streaming firmware transport, controlled reboot/reset
+  path, ESP-IDF OTA adapter, and embedded owner-queue integration are
   firmware-compiled but remain unverified in a physical browser on the target
   LAN and hardware.
-- OTA remains a Phase 10 boundary: the Phase 9 GET placeholder reports that it
-  is unavailable, and there is no upload, install, A/B selection, or rollback
-  implementation.
+- Firmware images are unsigned, and the local HTTP upload is not protected by
+  transport TLS. Bearer authentication, same-origin mutation headers,
+  idempotency, SHA-256, and image/manifest validation do not replace a signed
+  release chain or an encrypted trusted network.
+- Physical A→B and B→A updates, confirmation, intentional candidate failure,
+  bootloader rollback, power interruption at each cut point, crash-loop
+  recovery, and browser reconnect after reboot remain hardware-validation
+  requirements. Host tests and a successful firmware link do not prove them.
 
 ## Documentation
 

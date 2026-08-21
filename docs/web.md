@@ -1,17 +1,17 @@
 # Local web UI and API
 
-Phase 9 serves a dependency-free administration UI at `http://<station-ip>/`
+The station serves a dependency-free administration UI at `http://<station-ip>/`
 and a transport-neutral JSON API under `/api/v1`. The UI covers device status,
 scale controls and calibration, NFC status, spool resolution, printers and
 toolheads, backend probes, configuration, diagnostics, logs, controlled device
-actions, and the update-status placeholder.
+actions, and the validated A/B firmware-update workflow.
 
 ## Validation status
 
-The final serialized validation passed all 163 native cases across eighteen
-suites and successfully built the pinned `wt32-sc01-plus` firmware. Final
-usage is 140,880/327,680 RAM bytes (43.0%) and 1,848,673/5,242,880 flash bytes
-(35.3%).
+The final serialized validation passed all 223 native cases across twenty
+suites and successfully built the pinned `wt32-sc01-plus` firmware without
+compiler warnings. Final usage is 167,152/327,680 RAM bytes (51.0%) and
+1,946,637/5,242,880 flash bytes (37.1%).
 Portable router, parser, patch, and bounded-ledger logic executes in host tests;
 the embedded browser, production context, HTTP/WebSocket transport, and
 device-control integration compile and link but were not executed on target. No
@@ -47,7 +47,7 @@ remote and device text with DOM text nodes rather than HTML parsing.
 
 ## Route catalog
 
-The router has exactly 23 metadata-declared REST routes. `/api/v1/events` is a
+The router has exactly 26 metadata-declared REST routes. `/api/v1/events` is a
 separate WebSocket transport endpoint and is not included in that count.
 
 ### Station and diagnostics
@@ -98,15 +98,18 @@ separate WebSocket transport endpoint and is not included in that count.
 
 | # | Method and path | Purpose |
 | ---: | --- | --- |
-| 20 | `GET /api/v1/update` | Read the Phase 10 update-capability placeholder. |
-| 21 | `POST /api/v1/device/reboot` | Queue reboot with exact body `{"confirmation":"REBOOT"}`. |
-| 22 | `POST /api/v1/device/factory-reset` | Queue reset with exact body `{"confirmation":"FACTORY RESET"}`. |
+| 20 | `GET /api/v1/update` | Read update generation, state, partitions, current/candidate build, progress, validation, rollback, capabilities, and the last bounded error. |
+| 21 | `POST /api/v1/update/upload` | Stream one firmware binary to the inactive-slot owner; this route never enters the buffered JSON router. |
+| 22 | `POST /api/v1/update/reboot` | Activate the exact validated candidate and queue its owned reboot. |
+| 23 | `POST /api/v1/update/cancel` | Cancel the exact staged candidate while retaining the running firmware. |
+| 24 | `POST /api/v1/device/reboot` | Queue reboot with exact body `{"confirmation":"REBOOT"}`. |
+| 25 | `POST /api/v1/device/factory-reset` | Queue reset with exact body `{"confirmation":"FACTORY RESET"}`. |
 
 ### Operation status
 
 | # | Method and path | Purpose |
 | ---: | --- | --- |
-| 23 | `GET /api/v1/operations/{id}` | Read one positive, canonical decimal operation ID. |
+| 26 | `GET /api/v1/operations/{id}` | Read one positive, canonical decimal operation ID. |
 
 ## JSON protocol and HTTP status
 
@@ -144,6 +147,7 @@ message. The principal statuses are:
 | `408` | The complete request body was not received within the bounded transport deadline. |
 | `409` | Stale revision/state, idempotency-key conflict, unstable scale, or another state conflict. |
 | `413` | Global or route-specific body bound was exceeded. |
+| `415` | Firmware upload media type is not `application/octet-stream`. |
 | `422` | A context-level configuration/domain validation or tag validation failed. |
 | `500` | Internal routing, serialization, or snapshot safety failure. |
 | `502` | Backend authentication, API contract, or response failed. |
@@ -155,13 +159,17 @@ Unsupported `/api/<version>/...` requests return HTTP 404 with
 
 ## Mutation headers, operations, and idempotency
 
-Every mutation requires all of the following:
+Every mutation requires bearer authentication, the browser-source header, and
+an idempotency key. Buffered JSON mutations require all of the following:
 
 - `Authorization: Bearer <current-token>`;
 - `Content-Type: application/json` with optional UTF-8 charset;
 - `X-OpenTag-Request: web`;
 - an `Idempotency-Key` of 1–64 letters, digits, `-`, `_`, `.`, or `:`;
 - one JSON object whose fields exactly match the selected route.
+
+Firmware upload is the deliberate exception to the JSON-body rule. Its exact
+transport contract is documented under **Validated A/B update surface** below.
 
 An accepted mutation returns HTTP 202:
 
@@ -206,6 +214,9 @@ not routed through the REST router.
 - `{"type":"scale","data":...}` is published at most every 500 ms (2 Hz).
 - `{"type":"heartbeat","data":{"uptime_ms":...}}` is published about every
   15 seconds.
+- `{"type":"update","data":...}` publishes a bounded update snapshot when
+  update state/progress changes. The browser also reloads update, device, and
+  health state whenever the WebSocket reconnects after a reboot.
 - If a scale snapshot cannot be encoded safely, the server emits a bounded
   `invalidate` event so the client can refresh the resource.
 - The server permits at most two WebSocket clients within four total open HTTP
@@ -327,18 +338,76 @@ fail-closed until a new token is provisioned on the touchscreen.
 Power-loss timing, exact erase scope, marker recovery, restart, and first-run
 return still require physical target validation.
 
-## Update boundary
+## Validated A/B update surface
 
-Phase 9 implements only `GET /api/v1/update`. It returns a successful read with
-`supported: false`, state `not_available_in_phase_9`, and a message identifying
-Phase 10. There is no upload route, image validation, inactive-slot write, boot
-partition switch, rollback, or browser firmware installer in Phase 9.
+`GET /api/v1/update` is public like the other safe read snapshots. It exposes a
+nonnegative monotonic `generation` (`0` before the first upload and positive
+thereafter), update `state`, the upload operation ID,
+running/boot/inactive partition labels and capacities, current and candidate
+version/Git/build metadata, declared/calculated SHA-256, byte progress,
+validation result, rollback status, capability booleans, and one bounded last
+error. It never exposes a flash address or accepts a client-selected partition.
+
+Capabilities include `owner_ready`; upload, cancel, and reboot are unavailable
+when the sole OTA owner is not ready. `maximum_image_bytes` is `0` when no
+inactive application topology exists, rather than implying a generic 5 MiB
+target.
+
+`POST /api/v1/update/upload` is registered as a streaming-binary route with a
+hard 5 MiB ceiling matching one application slot. It is explicitly rejected by
+the normal 16 KiB buffered router. The dedicated transport requires:
+
+- `Authorization: Bearer <current-token>`;
+- `X-OpenTag-Request: web`;
+- a valid `Idempotency-Key`;
+- `Content-Type: application/octet-stream`;
+- a nonzero explicit `Content-Length` no larger than the inactive slot;
+- `X-OpenTag-Image-SHA256: <64 lowercase hexadecimal characters>`;
+- `X-OpenTag-Expected-Generation: <canonical nonnegative decimal generation>`.
+
+Candidate version, Git SHA, build date, board, and project identity come only
+from the embedded image metadata; request headers and the local filename are
+not trusted or forwarded. The browser calculates SHA-256 before upload, sends
+the `File` object directly with `XMLHttpRequest`, and shows transport progress
+as unvalidated until the station reports validation and inactive-slot install.
+It never stores the bearer token or firmware body.
+
+Reboot and cancel are normal bounded JSON mutations. Each body contains exactly
+four fields:
+
+```json
+{
+  "upload_operation_id": 91,
+  "expected_generation": 7,
+  "expected_sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+  "confirmation": "REBOOT INTO UPDATE"
+}
+```
+
+Cancel uses the exact confirmation `CANCEL UPDATE`. A successful upload reaches
+`ready_to_reboot` only after validation and inactive-slot installation, but the
+boot partition remains unchanged until the explicit reboot mutation accepts the
+exact candidate. If activation was durably selected but the restart response is
+ambiguous, the same exact reboot request may be retried only while the boot
+target still matches the validated inactive target and that target is not yet
+running. The exact request may also retry first-update rollback seeding when
+durable activation intent and the full validated target topology prove that
+boundary. Cancellation remains forbidden after activation intent. Both IDs
+must be positive, the digest must be exactly 64 lowercase hexadecimal
+characters, and every precondition must still match the device-owned candidate.
+This prevents a stale tab, old operation receipt, or replayed reboot from
+activating or cancelling a newer image. Upload abort in the browser closes the
+transfer so the service can abort the incomplete OTA handle; staged-candidate
+cancellation uses the JSON endpoint. Reboot is receipt-only in the UI, which
+reconnects and resumes status through candidate boot, health validation,
+confirmation, or rollback.
 
 ## Resource bounds
 
 | Resource | Bound |
 | --- | ---: |
 | Global request body / configuration PATCH | 16 KiB |
+| Firmware streaming upload | 5 MiB maximum; never buffered by the JSON router |
 | Tare, NFC read, backend probe, reboot, factory reset body | 256 bytes each |
 | Calibration body | 512 bytes |
 | Assignment or unassignment body | 2048 bytes |
@@ -348,10 +417,11 @@ partition switch, rollback, or browser firmware installer in Phase 9.
 | Application snapshot / complete response body | 24 KiB / 32 KiB |
 | HTTP sockets / WebSocket clients | 4 / 2 |
 | WebSocket post-handshake input / output | rejected / 4096 bytes |
-| HTTP server task stack / backlog | 6144 bytes / 2 connections |
-| Receive / send wait; complete-body deadline | 1 second / 1 second; 5 seconds |
+| HTTP server task stack / backlog | 20,480 bytes / 2 connections |
+| Receive / send wait; JSON body deadline | 1 second / 1 second; 5 seconds |
+| Firmware upload buffers / deadlines | one 4096-byte HTTP receive buffer plus four 4096-byte OTA command-slot buffers; 5 seconds without receive progress / 180 seconds absolute through validation |
 | Idempotency / operation / log history | 16 / 24 / 32 entries |
-| Embedded HTML / CSS / JavaScript | 16 / 24 / 42 KiB, 80 KiB combined |
+| Embedded HTML / CSS / JavaScript | 16 / 24 / 60 KiB, 88 KiB combined; Phase 10 actual 15,976 / 10,772 / 59,798 bytes, 86,546 total |
 
 GET routes accept no body. The transport reads the declared body exactly and
 rejects incomplete, oversized, or over-deadline input. Route limits are enforced
@@ -360,7 +430,7 @@ owner allocates an unbounded request queue for browser clients.
 
 ## Physical validation and known limitations
 
-Before Phase 9 can be called target-validated, exercise the assembled firmware
+Before Phase 10 can be called target-validated, exercise the assembled firmware
 on the WT32-SC01 Plus over an isolated encrypted LAN:
 
 1. Verify first-run token provisioning, missing/wrong/correct authentication,
@@ -379,10 +449,13 @@ on the WT32-SC01 Plus over an isolated encrypted LAN:
 8. Confirm responsive/accessibility behavior and safe rendering of backend,
    printer, spool, and log strings in supported desktop and mobile browsers.
 
-Known Phase 9 limitations are plain HTTP with public reads, small connection and
+Known limitations include plain HTTP with public reads, small connection and
 history rings, volatile idempotency/operation state, no physical NFC transport,
-no OTA mutation, and no completed target-browser/LAN/hardware validation. The
-legacy NVS calibration mirror and authoritative LittleFS configuration writes
+unsigned firmware images, and no completed target-browser/LAN/rollback hardware
+validation. Pinned ESP-IDF returns the first matching request-header value but
+does not expose a duplicate count to the upload handler, so duplicate-header
+behavior must be characterized on the target rather than claimed as rejected.
+The legacy NVS calibration mirror and authoritative LittleFS configuration writes
 are safety-ordered but not one power-atomic transaction. ESP-IDF header receipt
 uses bounded socket waits rather than a separate whole-header wall-clock
 deadline.

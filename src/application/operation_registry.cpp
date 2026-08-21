@@ -1,6 +1,7 @@
 #include "application/operation_registry.hpp"
 
 #include <algorithm>
+#include <limits>
 #include <utility>
 
 namespace opentag::application {
@@ -14,6 +15,9 @@ const char* to_string(OperationKind kind) {
     case OperationKind::toolhead_assignment: return "toolhead_assignment";
     case OperationKind::toolhead_unassignment: return "toolhead_unassignment";
     case OperationKind::nfc_read: return "nfc_read";
+    case OperationKind::firmware_upload: return "firmware_upload";
+    case OperationKind::firmware_reboot: return "firmware_reboot";
+    case OperationKind::firmware_cancel: return "firmware_cancel";
     case OperationKind::reboot: return "reboot";
     case OperationKind::factory_reset: return "factory_reset";
   }
@@ -62,6 +66,14 @@ std::uint64_t OperationRegistry::begin(
   count_ = std::min(count_ + 1U, capacity);
   ++revision_;
   return id;
+}
+
+void OperationRegistry::reserve_ids_above(std::uint64_t highest_used) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (highest_used >= next_id_ &&
+      highest_used != std::numeric_limits<std::uint64_t>::max()) {
+    next_id_ = highest_used + 1U;
+  }
 }
 
 void OperationRegistry::update(
