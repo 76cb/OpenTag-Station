@@ -6,6 +6,7 @@
 
 #include "core/error.hpp"
 #include "core/result.hpp"
+#include "hardware/scale/i2c_diagnostics.hpp"
 #include "services/scale_service.hpp"
 
 namespace {
@@ -472,8 +473,61 @@ void test_slow_stable_drift_sets_creep_warning() {
       0.01F, 3.0F, *service.status().sample.drift_from_stable_grams);
 }
 
+void test_i2c_scan_result_is_bounded_and_tracks_target() {
+  opentag::hardware::scale::I2cScanResult scan;
+  scan.bus_started = true;
+  for (std::uint8_t address = 0x08U; address <= 0x18U; ++address) {
+    scan.record(address, 0x2AU);
+  }
+  scan.record(0x2AU, 0x2AU);
+
+  TEST_ASSERT_EQUAL_UINT8(18U, scan.device_count);
+  TEST_ASSERT_EQUAL_UINT8(16U, scan.reported_count);
+  TEST_ASSERT_TRUE(scan.target_present);
+  TEST_ASSERT_TRUE(scan.truncated());
+}
+
+void test_i2c_diagnostic_prefers_expected_bus_target() {
+  opentag::hardware::scale::ScaleI2cDiagnosticResult diagnostic;
+  diagnostic.expected.record(0x2AU, 0x2AU);
+  diagnostic.reversed_scanned = true;
+  diagnostic.reversed.record(0x2AU, 0x2AU);
+
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(opentag::hardware::scale::ScaleI2cOutcome::present_on_expected_bus),
+      static_cast<int>(diagnostic.outcome()));
+}
+
+void test_i2c_diagnostic_reports_reversed_target() {
+  opentag::hardware::scale::ScaleI2cDiagnosticResult diagnostic;
+  diagnostic.reversed_scanned = true;
+  diagnostic.reversed.record(0x2AU, 0x2AU);
+
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(opentag::hardware::scale::ScaleI2cOutcome::present_on_reversed_bus),
+      static_cast<int>(diagnostic.outcome()));
+}
+
+void test_i2c_diagnostic_distinguishes_other_devices_from_empty_buses() {
+  opentag::hardware::scale::ScaleI2cDiagnosticResult diagnostic;
+  diagnostic.expected.record(0x3CU, 0x2AU);
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(opentag::hardware::scale::ScaleI2cOutcome::target_missing_with_other_devices),
+      static_cast<int>(diagnostic.outcome()));
+
+  diagnostic = {};
+  diagnostic.reversed_scanned = true;
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(opentag::hardware::scale::ScaleI2cOutcome::no_devices),
+      static_cast<int>(diagnostic.outcome()));
+}
+
 int main(int, char**) {
   UNITY_BEGIN();
+  RUN_TEST(test_i2c_scan_result_is_bounded_and_tracks_target);
+  RUN_TEST(test_i2c_diagnostic_prefers_expected_bus_target);
+  RUN_TEST(test_i2c_diagnostic_reports_reversed_target);
+  RUN_TEST(test_i2c_diagnostic_distinguishes_other_devices_from_empty_buses);
   RUN_TEST(test_hardware_profile_defaults_to_yzc133_5kg_and_validates_bounds);
   RUN_TEST(test_invalid_calibration_and_processing_configuration_are_rejected);
   RUN_TEST(test_initialization_loads_calibration_and_runs_internal_calibration);

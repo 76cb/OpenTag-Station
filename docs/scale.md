@@ -11,9 +11,20 @@ position, noise, and overload procedure is in
 ## Hardware boundary
 
 The NAU7802 is assigned to the WT32-SC01 Plus external I2C connector at address
-`0x2A`, with SDA on GPIO 10 and SCL on GPIO 11. It uses ESP32 `Wire1`; the
-built-in FT6336-compatible touch controller remains on its separate display bus.
-Pins live only in the central board profile and are injected into the driver.
+`0x2A`, with SDA on GPIO 10 and SCL on GPIO 11. It uses ESP32 `Wire` (I2C
+controller 0); the built-in FT6336-compatible touch controller uses `Wire1` (I2C
+controller 1) on its separate display bus. Pins live only in the central board
+profile and are injected into the driver.
+
+At scale-task startup, firmware performs one bounded scan of valid 7-bit I2C
+addresses on GPIO10/11. Only when that bus contains no devices does it scan once
+with SDA/SCL reversed. Serial output reports every detected address (up to a
+bounded display limit), whether NAU7802 address `0x2A` is present, and a specific
+wiring hint when `0x2A` is found only in the reversed orientation. The driver
+always restores GPIO10 SDA / GPIO11 SCL before normal initialization and never
+adapts production pin assignments from the scan. One concise result is retained
+in the bounded runtime log; the scan is not repeated by the five-second normal
+disconnected-device retry loop.
 
 The bounded hardware sequence resets the converter, enables its digital and
 analog power domains, checks power-ready and revision ID, selects the internal

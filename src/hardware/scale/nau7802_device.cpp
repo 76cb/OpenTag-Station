@@ -8,6 +8,8 @@
 namespace opentag::hardware::scale {
 namespace {
 
+constexpr std::uint16_t diagnostic_transaction_timeout_ms = 20U;
+
 core::Error communication_error(const std::string& message, bool retryable = true) {
   return {core::ErrorCategory::scale_unavailable, message, retryable};
 }
@@ -23,6 +25,44 @@ Nau7802Device::Nau7802Device(
     I2cPins pins,
     Nau7802Config config)
     : wire_(wire), pins_(pins), config_(config) {}
+
+I2cScanResult Nau7802Device::scan_bus(I2cPins pins) {
+  I2cScanResult result;
+  (void)wire_.end();
+  wire_.setTimeOut(diagnostic_transaction_timeout_ms);
+  result.bus_started =
+      pins.complete() && wire_.begin(pins.sda, pins.scl, config_.i2c_frequency_hz);
+  if (!result.bus_started) return result;
+
+  for (std::uint16_t address = first_valid_i2c_address;
+       address <= last_valid_i2c_address;
+       ++address) {
+    wire_.beginTransmission(static_cast<std::uint8_t>(address));
+    if (wire_.endTransmission(true) == 0U) {
+      result.record(static_cast<std::uint8_t>(address), Nau7802Device::address);
+    }
+  }
+  return result;
+}
+
+ScaleI2cDiagnosticResult Nau7802Device::diagnose_bus() {
+  ScaleI2cDiagnosticResult result;
+  const auto previous_timeout_ms = wire_.getTimeOut();
+  result.expected = scan_bus(pins_);
+  if (!result.expected.found_any()) {
+    result.reversed_scanned = true;
+    result.reversed = scan_bus({pins_.scl, pins_.sda});
+  }
+
+  // The reversed orientation is diagnostic only. Always leave the controller
+  // on the configured production pins, irrespective of what the scan found.
+  (void)wire_.end();
+  result.expected_bus_restored = pins_.complete() &&
+      wire_.begin(pins_.sda, pins_.scl, config_.i2c_frequency_hz);
+  wire_.setTimeOut(previous_timeout_ms);
+  expected_bus_ready_ = result.expected_bus_restored;
+  return result;
+}
 
 core::Result<std::uint8_t> Nau7802Device::read_register(std::uint8_t register_address) {
   wire_.beginTransmission(address);
@@ -67,7 +107,10 @@ core::Result<void> Nau7802Device::initialize(std::uint32_t timeout_ms) {
         configuration_error("NAU7802 pins/configuration or startup timeout is invalid"));
   }
   wire_.setTimeOut(static_cast<std::uint16_t>(std::min<std::uint32_t>(timeout_ms, 65535U)));
-  if (!wire_.begin(pins_.sda, pins_.scl, config_.i2c_frequency_hz)) {
+  const bool bus_ready = expected_bus_ready_ ||
+      wire_.begin(pins_.sda, pins_.scl, config_.i2c_frequency_hz);
+  expected_bus_ready_ = false;
+  if (!bus_ready) {
     return core::Result<void>::failure(communication_error("NAU7802 I2C bus initialization failed"));
   }
   const auto started_ms = millis();
