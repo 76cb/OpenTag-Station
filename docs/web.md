@@ -8,7 +8,8 @@ actions, and the validated A/B firmware-update workflow.
 
 ## Validation status
 
-Phase 11 preserves the 26-route contract and adds browser request epochs,
+The current firmware preserves the Phase 11 routes and adds four bounded
+network provisioning routes, for 30 metadata-declared routes. Browser request epochs,
 payload revision guards, and socket identity checks so stale REST/WebSocket
 responses cannot replace newer state. The grouped contract/security review and
 physical browser/LAN matrix are in
@@ -35,11 +36,16 @@ untrusted clients can capture or alter traffic.
 All read-only `GET` routes are public, including operation status and the
 read-only WebSocket event stream. Every mutation fails closed unless it carries
 an exact `Authorization: Bearer <token>` value matching the configured station
-token. An empty configured token authorizes nobody. Authentication is checked
-before mutation JSON is parsed or work is submitted.
+token. The only exception is `POST /api/v1/network/scan` and
+`POST /api/v1/network/connect` from a socket whose peer is verified as an
+active `192.168.4.0/24` setup-AP client. That authority is never accepted from
+a request header and cannot reach any other mutation. An empty configured token
+authorizes nobody elsewhere. Authentication is checked before mutation JSON is
+parsed or work is submitted.
 
-The first token, and recovery after a token is cleared or lost, require physical
-access to the masked touchscreen field. Once configured, an authenticated
+The first token may be created through the physically local setup AP or the
+masked touchscreen field. Recovery provisioning cannot replace an existing
+token. Once configured, an authenticated
 `PATCH /api/v1/config` can rotate it or explicitly clear it. The browser prompts
 for the current token only when a mutation needs it, retains it only in
 JavaScript memory for that tab, clears it after HTTP 401, and never stores it in
@@ -53,7 +59,7 @@ remote and device text with DOM text nodes rather than HTML parsing.
 
 ## Route catalog
 
-The router has exactly 26 metadata-declared REST routes. `/api/v1/events` is a
+The router has exactly 30 metadata-declared REST routes. `/api/v1/events` is a
 separate WebSocket transport endpoint and is not included in that count.
 
 ### Station and diagnostics
@@ -63,6 +69,10 @@ separate WebSocket transport endpoint and is not included in that count.
 | 1 | `GET /api/v1/status` | Combined system, backend, spool-generation, printer-revision, and operation-revision status. |
 | 2 | `GET /api/v1/device` | Device identity, local address, and firmware/build metadata. |
 | 3 | `GET /api/v1/health` | Local-service health, backend degradation, and NFC availability. |
+| 3a | `GET /api/v1/network` | Safe connection, setup AP, scan progress/results, hostname, and configuration revision. |
+| 3b | `POST /api/v1/network/scan` | Start one asynchronous bounded scan; AP clients or bearer authentication. |
+| 3c | `POST /api/v1/network/connect` | Revision-checked SSID/password/hostname and initial-token provisioning; AP clients or bearer authentication. |
+| 3d | `POST /api/v1/network/setup-mode` | Authenticated deliberate setup-AP activation. |
 | 4 | `GET /api/v1/diagnostics` | System, scale, backend, queue, operation, and NFC diagnostics. |
 | 5 | `GET /api/v1/logs` | Bounded redacted log history, cursors, drop count, and history-gap state. |
 
@@ -165,10 +175,13 @@ Unsupported `/api/<version>/...` requests return HTTP 404 with
 
 ## Mutation headers, operations, and idempotency
 
-Every mutation requires bearer authentication, the browser-source header, and
-an idempotency key. Buffered JSON mutations require all of the following:
+Every mutation requires the browser-source header and an idempotency key.
+Bearer authentication is required except for network scan/connect requests
+whose transport peer was verified on the active setup AP. Buffered JSON
+mutations require all of the following:
 
-- `Authorization: Bearer <current-token>`;
+- `Authorization: Bearer <current-token>`, except for the two scoped
+  setup-AP routes;
 - `Content-Type: application/json` with optional UTF-8 charset;
 - `X-OpenTag-Request: web`;
 - an `Idempotency-Key` of 1–64 letters, digits, `-`, `_`, `.`, or `:`;
@@ -338,8 +351,9 @@ until the three documents and the `opentag` application namespace are cleared
 and the `fsProvisioned` no-format guard is restored; only then is the marker
 removed. If any post-marker step is interrupted or fails, the device-control
 owner schedules a reboot and early boot repeats the idempotent recovery path.
-Successful recovery returns to first-run setup with browser mutations
-fail-closed until a new token is provisioned on the touchscreen.
+Successful recovery returns to first-run setup. The setup-AP connect route may
+create a missing token but cannot replace an existing token; every unrelated
+browser mutation remains fail-closed.
 
 Power-loss timing, exact erase scope, marker recovery, restart, and first-run
 return still require physical target validation.
@@ -439,8 +453,9 @@ owner allocates an unbounded request queue for browser clients.
 Before Phase 10 can be called target-validated, exercise the assembled firmware
 on the WT32-SC01 Plus over an isolated encrypted LAN:
 
-1. Verify first-run token provisioning, missing/wrong/correct authentication,
-   rotation, explicit clear, and touchscreen recovery.
+1. Verify first-run setup-AP token provisioning, missing/wrong/correct
+   authentication, rotation, explicit clear, and both setup-AP and touchscreen
+   recovery.
 2. Inspect wire traffic, configuration snapshots, logs, and browser state for
    secret leakage; remember that HTTP traffic itself remains plaintext.
 3. Race two configuration editors and stale assignment snapshots; confirm CAS,

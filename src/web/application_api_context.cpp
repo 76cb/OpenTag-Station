@@ -211,6 +211,23 @@ void write_system(JsonObject object, const diagnostics::SystemSnapshot& value) {
   network["gateway"] = value.gateway;
   network["dns_server"] = value.dns_server;
   network["reconnect_attempts"] = value.wifi_reconnect_attempts;
+  auto provisioning = network["provisioning"].to<JsonObject>();
+  provisioning["active"] = value.provisioning_active;
+  provisioning["reason"] = network::to_string(value.provisioning_reason);
+  provisioning["connection_failures"] = value.provisioning_failures;
+  provisioning["grace_active"] = value.provisioning_grace_active;
+  provisioning["grace_remaining_ms"] =
+      value.provisioning_grace_remaining_ms;
+  provisioning["ap_ssid"] = value.setup_ap_ssid;
+  provisioning["ap_ip"] = value.setup_ap_ip;
+  network["scan_running"] = value.wifi_scan_running;
+  network["scan_generation"] = value.wifi_scan_generation;
+  if (value.wifi_scan_error.has_value()) {
+    add_error(network["scan_error"].to<JsonObject>(), value.wifi_scan_error);
+  }
+  if (value.wifi_last_error.has_value()) {
+    add_error(network["error"].to<JsonObject>(), value.wifi_last_error);
+  }
 }
 
 void write_scale(JsonObject scale, const diagnostics::SystemSnapshot& value) {
@@ -657,6 +674,10 @@ bool ApplicationApiContext::authorize_mutation(
   return constant_time_token_match(bearer_token, configured);
 }
 
+bool ApplicationApiContext::authorize_provisioning() {
+  return diagnostics_.snapshot(millis()).provisioning_active;
+}
+
 core::Result<std::string> ApplicationApiContext::snapshot_json(
     api::Resource resource) {
   const auto now_ms = millis();
@@ -707,6 +728,22 @@ core::Result<std::string> ApplicationApiContext::snapshot_json(
       document["local_services_ready"] = essential_ok;
       document["backend_degraded"] = backend_degraded;
       document["nfc_available"] = false;
+      break;
+    }
+    case api::Resource::network: {
+      write_system(document["system"].to<JsonObject>(), system);
+      auto networks = document["networks"].to<JsonArray>();
+      for (const auto& candidate : network_.scan_results()) {
+        auto encoded = networks.add<JsonObject>();
+        encoded["ssid"] = candidate.ssid;
+        encoded["rssi_dbm"] = candidate.rssi_dbm;
+        encoded["secured"] = candidate.secured;
+      }
+      const auto configured = configuration_.versioned_snapshot();
+      document["config_revision"] = configured.revision;
+      document["hostname"] = configured.configuration.device.hostname;
+      document["access_token_configured"] =
+          !configured.configuration.web.access_token.empty();
       break;
     }
     case api::Resource::scale:
@@ -933,6 +970,79 @@ core::Result<api::OperationReceipt> ApplicationApiContext::submit_fresh(
       return receipt_result(
           configuration_worker_.submit_replace(
               proposed.value(), patch.expected_revision, now_ms),
+          "Configuration command queue is unavailable");
+    }
+    case api::MutationKind::network_scan: {
+      network_.request_scan();
+      const auto operation_id = operations_.begin(
+          application::OperationKind::network_scan,
+          now_ms,
+          "Wi-Fi scan requested");
+      operations_.succeed(
+          operation_id, now_ms, "Wi-Fi scan started asynchronously");
+      return core::Result<api::OperationReceipt>::success({operation_id});
+    }
+    case api::MutationKind::network_setup_mode: {
+      network_.request_setup_mode();
+      const auto operation_id = operations_.begin(
+          application::OperationKind::network_setup_mode,
+          now_ms,
+          "Setup access point requested");
+      operations_.succeed(
+          operation_id, now_ms, "Setup access point is starting");
+      return core::Result<api::OperationReceipt>::success({operation_id});
+    }
+    case api::MutationKind::network_connect: {
+      const auto& payload =
+          std::get<api::NetworkConnectMutation>(mutation.payload);
+      const auto current = configuration_.versioned_snapshot();
+      if (current.revision != payload.expected_revision) {
+        return core::Result<api::OperationReceipt>::failure(conflict_error(
+            "Configuration revision changed before Wi-Fi connection was submitted"));
+      }
+      if (current.configuration.web.access_token.empty() &&
+          !payload.access_token.has_value()) {
+        return core::Result<api::OperationReceipt>::failure(unavailable(
+            core::ErrorCategory::configuration,
+            "Initial setup requires a local API access token"));
+      }
+      if (mutation.provisioning_transport &&
+          !current.configuration.web.access_token.empty() &&
+          payload.access_token.has_value()) {
+        return core::Result<api::OperationReceipt>::failure(unavailable(
+            core::ErrorCategory::configuration,
+            "Recovery provisioning cannot replace an existing API access token"));
+      }
+      api::ConfigurationPatchMutation patch;
+      patch.expected_revision = payload.expected_revision;
+      api::WifiPatch wifi;
+      wifi.ssid = payload.ssid;
+      if (payload.password.has_value()) {
+        wifi.password = payload.password;
+      } else if (payload.ssid != current.configuration.wifi.ssid) {
+        wifi.password = std::string{};
+      }
+      patch.wifi = std::move(wifi);
+      if (payload.hostname.has_value()) {
+        api::DevicePatch device;
+        device.hostname = payload.hostname;
+        patch.device = std::move(device);
+      }
+      if (payload.access_token.has_value()) {
+        api::WebPatch web;
+        web.access_token = payload.access_token;
+        patch.web = std::move(web);
+      }
+      const auto proposed = apply_configuration_patch(current, patch);
+      if (!proposed.ok()) {
+        return core::Result<api::OperationReceipt>::failure(proposed.error());
+      }
+      return receipt_result(
+          configuration_worker_.submit_replace(
+              proposed.value(),
+              patch.expected_revision,
+              now_ms,
+              application::OperationKind::network_connect),
           "Configuration command queue is unavailable");
     }
     case api::MutationKind::reboot:

@@ -177,6 +177,18 @@ struct SystemSnapshot : ScaleDiagnosticSnapshot {
   std::string gateway;
   std::string dns_server;
   std::uint32_t wifi_reconnect_attempts{0U};
+  bool provisioning_active{false};
+  bool provisioning_grace_active{false};
+  network::ProvisioningReason provisioning_reason{
+      network::ProvisioningReason::none};
+  std::uint32_t provisioning_failures{0U};
+  std::uint32_t provisioning_grace_remaining_ms{0U};
+  std::string setup_ap_ssid;
+  std::string setup_ap_ip;
+  std::uint32_t wifi_scan_generation{0U};
+  std::vector<network::WifiNetwork> wifi_scan_results;
+  std::optional<core::Error> wifi_scan_error;
+  std::optional<core::Error> wifi_last_error;
 };
 
 class SystemDiagnostics {

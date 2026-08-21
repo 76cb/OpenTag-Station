@@ -145,6 +145,9 @@ const char* mutation_name(MutationKind kind) {
     case MutationKind::update_cancel: return "update_cancel";
     case MutationKind::reboot: return "reboot";
     case MutationKind::factory_reset: return "factory_reset";
+    case MutationKind::network_scan: return "network_scan";
+    case MutationKind::network_connect: return "network_connect";
+    case MutationKind::network_setup_mode: return "network_setup_mode";
   }
   return "unknown";
 }
@@ -883,17 +886,58 @@ core::Result<Mutation> parse_mutation(
 
   if (request.path == "/api/v1/scale/tare" ||
       request.path == "/api/v1/nfc/read" ||
-      request.path == "/api/v1/backends/test") {
+      request.path == "/api/v1/backends/test" ||
+      request.path == "/api/v1/network/scan" ||
+      request.path == "/api/v1/network/setup-mode") {
     if (object.size() != 0U) {
       return core::Result<Mutation>::failure(
           invalid_request("this operation requires an empty JSON object"));
     }
-    mutation.kind = request.path == "/api/v1/scale/tare"
-                        ? MutationKind::scale_tare
-                        : request.path == "/api/v1/nfc/read"
-                              ? MutationKind::nfc_read
-                              : MutationKind::backend_test;
+    if (request.path == "/api/v1/scale/tare") {
+      mutation.kind = MutationKind::scale_tare;
+    } else if (request.path == "/api/v1/nfc/read") {
+      mutation.kind = MutationKind::nfc_read;
+    } else if (request.path == "/api/v1/backends/test") {
+      mutation.kind = MutationKind::backend_test;
+    } else if (request.path == "/api/v1/network/scan") {
+      mutation.kind = MutationKind::network_scan;
+    } else {
+      mutation.kind = MutationKind::network_setup_mode;
+    }
     mutation.payload = EmptyMutation{};
+    return core::Result<Mutation>::success(std::move(mutation));
+  }
+
+  if (request.path == "/api/v1/network/connect") {
+    if (!keys_allowed(
+            object,
+            {"expected_revision", "ssid", "password", "hostname",
+             "access_token"}) ||
+        !has_key(object, "expected_revision") ||
+        !object["expected_revision"].is<std::uint64_t>() ||
+        !has_key(object, "ssid") || !object["ssid"].is<const char*>()) {
+      return core::Result<Mutation>::failure(
+          invalid_request("network connection fields or types are invalid"));
+    }
+    NetworkConnectMutation payload;
+    payload.expected_revision =
+        object["expected_revision"].as<std::uint64_t>();
+    payload.ssid = object["ssid"].as<const char*>();
+    if (payload.ssid.empty() || payload.ssid.size() > 32U ||
+        !safe_text_value(payload.ssid) ||
+        !read_optional_string(
+            object, "password", 64U, payload.password) ||
+        !read_optional_string(
+            object, "hostname", 63U, payload.hostname, false) ||
+        !read_optional_string(
+            object, "access_token", 128U, payload.access_token, false) ||
+        (payload.access_token.has_value() &&
+         !valid_web_access_token(*payload.access_token))) {
+      return core::Result<Mutation>::failure(
+          invalid_request("network connection values are invalid"));
+    }
+    mutation.kind = MutationKind::network_connect;
+    mutation.payload = std::move(payload);
     return core::Result<Mutation>::success(std::move(mutation));
   }
 
@@ -1039,6 +1083,7 @@ std::optional<Resource> resource_for_path(const std::string& path) {
   if (path == "/api/v1/status") return Resource::status;
   if (path == "/api/v1/device") return Resource::device;
   if (path == "/api/v1/health") return Resource::health;
+  if (path == "/api/v1/network") return Resource::network;
   if (path == "/api/v1/scale") return Resource::scale;
   if (path == "/api/v1/nfc") return Resource::nfc;
   if (path == "/api/v1/nfc/tag") return Resource::nfc_tag;
@@ -1161,17 +1206,24 @@ Response Router::handle(const Request& request) {
   if (route.mutation) {
     const auto authorization = unique_header(request, "Authorization", false);
     constexpr std::string_view bearer_prefix = "Bearer ";
-    if (!authorization.ok() || !authorization.value().has_value()) {
-      return authentication_required();
+    bool bearer_authorized = false;
+    if (authorization.ok() && authorization.value().has_value()) {
+      const std::string_view value(*authorization.value());
+      if (value.size() > bearer_prefix.size() &&
+          value.compare(0U, bearer_prefix.size(), bearer_prefix) == 0) {
+        const auto token = value.substr(bearer_prefix.size());
+        bearer_authorized =
+            token.find_first_of(" \t") == std::string_view::npos &&
+            context_.authorize_mutation(token);
+      }
     }
-    const std::string_view value(*authorization.value());
-    if (value.size() <= bearer_prefix.size() ||
-        value.compare(0U, bearer_prefix.size(), bearer_prefix) != 0) {
-      return authentication_required();
-    }
-    const auto token = value.substr(bearer_prefix.size());
-    if (token.find_first_of(" \t") != std::string_view::npos ||
-        !context_.authorize_mutation(token)) {
+    const bool provisioning_route =
+        request.path == "/api/v1/network/scan" ||
+        request.path == "/api/v1/network/connect";
+    const bool provisioning_authorized =
+        provisioning_route && request.provisioning_transport &&
+        context_.authorize_provisioning();
+    if (!bearer_authorized && !provisioning_authorized) {
       return authentication_required();
     }
   }
@@ -1210,6 +1262,7 @@ Response Router::handle(const Request& request) {
     return error_response(400, "invalid_request", mutation.error().message);
   }
   auto command = mutation.value();
+  command.provisioning_transport = request.provisioning_transport;
   command.payload_digest = mutation_payload_digest(
       command.kind, request.path, request.body);
   const auto submitted = context_.submit(command);

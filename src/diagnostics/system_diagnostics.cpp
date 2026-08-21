@@ -61,6 +61,18 @@ SystemSnapshot SystemDiagnostics::snapshot(std::uint32_t now_ms) const {
     result.gateway = network_status_.gateway;
     result.dns_server = network_status_.dns_server;
     result.wifi_reconnect_attempts = network_status_.reconnect_attempts;
+    result.provisioning_active = network_status_.provisioning_active;
+    result.provisioning_grace_active =
+        network_status_.provisioning_grace_active;
+    result.provisioning_reason = network_status_.provisioning_reason;
+    result.provisioning_failures = network_status_.provisioning_failures;
+    result.provisioning_grace_remaining_ms =
+        network_status_.provisioning_grace_remaining_ms;
+    result.setup_ap_ssid = network_status_.setup_ap_ssid;
+    result.setup_ap_ip = network_status_.setup_ap_ip;
+    result.wifi_scan_generation = network_status_.scan_generation;
+    result.wifi_scan_error = network_status_.scan_error;
+    result.wifi_last_error = network_status_.last_error;
   }
   return result;
 }

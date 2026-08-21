@@ -18,6 +18,11 @@ Versioning once releases begin.
 
 ### Added
 
+- A temporary `OpenTag-Setup-XXXX` AP/captive portal for browser-first Wi-Fi
+  provisioning and recovery, with AP-scoped scan/connect authorization,
+  asynchronous deduplicated scans, AP+STA connection progress, a 30-second
+  success grace period, touchscreen/serial guidance, and expanded web scale
+  bring-up diagnostics.
 - An ESP Web Tools HTTPS installer for WT32-SC01 Plus first installation and
   USB recovery, with a PlatformIO-derived merged factory image, pinned GitHub
   Pages automation, source-SHA validation, and no change to normal local A/B

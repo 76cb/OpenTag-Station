@@ -42,6 +42,31 @@ const char index_html[] = R"HTML(<!doctype html>
   </nav>
 
   <main id="content">
+    <section id="setup-portal" class="section setup-portal" aria-labelledby="setup-title" hidden>
+      <div class="section-heading">
+        <div><p class="eyebrow">OPEN TAG STATION SETUP</p><h2 id="setup-title">Connect this station</h2></div>
+        <span id="setup-badge" class="badge warning">Setup required</span>
+      </div>
+      <div class="card-grid two-column">
+        <article class="card">
+          <h3>1. Choose Wi-Fi</h3>
+          <p id="setup-ap-detail" class="muted">Connect to the setup access point, then choose the permanent network.</p>
+          <div class="action-row"><button id="setup-scan" class="button" type="button">Scan for networks</button><span id="setup-scan-status" class="hint" aria-live="polite">Not scanned yet</span></div>
+          <label for="setup-network-list">Nearby networks</label>
+          <select id="setup-network-list"><option value="">Choose a network or enter one manually</option></select>
+          <label for="setup-ssid">Wi-Fi name (SSID)</label><input id="setup-ssid" type="text" maxlength="32" autocomplete="off" required>
+          <label for="setup-password">Wi-Fi password</label><input id="setup-password" type="password" maxlength="64" autocomplete="new-password">
+        </article>
+        <article class="card">
+          <h3>2. Name and secure the station</h3>
+          <label for="setup-hostname">Hostname</label><input id="setup-hostname" type="text" maxlength="63" value="opentag-station">
+          <label for="setup-token">Local API access token <span class="muted">(16-128 characters)</span></label><input id="setup-token" type="password" minlength="16" maxlength="128" autocomplete="new-password">
+          <p class="hint">The token is write-only and never returned by the station. After Wi-Fi is connected, use Configuration for scale, Spoolman, and FilaBridge setup.</p>
+          <button id="setup-connect" class="button primary" type="button">Save and connect</button>
+          <p id="setup-connect-status" class="setup-status" aria-live="polite">Waiting for network details.</p>
+        </article>
+      </div>
+    </section>
     <section id="overview" class="section" aria-labelledby="overview-title">
       <div class="section-heading">
         <div><p class="eyebrow">AT A GLANCE</p><h2 id="overview-title">Device overview</h2></div>
@@ -79,11 +104,16 @@ const char index_html[] = R"HTML(<!doctype html>
             <div><dt>Profile</dt><dd id="scale-profile">—</dd></div>
             <div><dt>Rated capacity</dt><dd id="scale-capacity">—</dd></div>
             <div><dt>Calibration</dt><dd id="scale-calibration">—</dd></div>
+            <div><dt>Raw counts</dt><dd id="scale-raw" class="mono">—</dd></div>
+            <div><dt>Filtered counts</dt><dd id="scale-filtered" class="mono">—</dd></div>
+            <div><dt>Zero offset</dt><dd id="scale-zero" class="mono">—</dd></div>
+            <div><dt>Counts per gram</dt><dd id="scale-factor" class="mono">—</dd></div>
+            <div><dt>Reference mass</dt><dd id="scale-reference">—</dd></div>
           </dl>
         </article>
         <article class="card">
           <h3>Calibration controls</h3>
-          <p class="muted">Tare requires a stable empty platform. Calibration uses the persisted load-cell profile and rated capacity.</p>
+          <p class="muted"><strong>Tare:</strong> empty the platform, wait for Stable, then tare. <strong>Calibrate:</strong> tare first, place an accurate known mass, wait for Stable, enter its grams, then calibrate. The result is persisted through the existing calibration owner.</p>
           <div class="action-row"><button id="tare-scale" class="button" type="button">Tare scale</button></div>
           <form id="calibrate-form" class="stacked-form">
             <label for="reference-grams">Known reference weight (g)</label>
@@ -143,6 +173,8 @@ const char index_html[] = R"HTML(<!doctype html>
           <label for="config-brightness">Brightness (%)</label><input id="config-brightness" type="number" min="5" max="100" step="1">
         </fieldset>
         <fieldset class="card"><legend>Wi-Fi</legend>
+          <div class="action-row"><button id="config-scan" class="button quiet" type="button">Scan networks</button><span id="config-scan-status" class="hint">Not scanned yet</span></div>
+          <label for="config-network-list">Nearby networks</label><select id="config-network-list"><option value="">Choose or enter manually</option></select>
           <label for="config-ssid">SSID</label><input id="config-ssid" type="text" maxlength="32" autocomplete="off">
           <label for="config-wifi-password">New password <span class="muted">(blank keeps current)</span></label><input id="config-wifi-password" type="password" maxlength="64" autocomplete="new-password">
           <label class="check"><input id="clear-wifi-password" type="checkbox"> Explicitly clear saved password</label>
@@ -192,7 +224,7 @@ const char index_html[] = R"HTML(<!doctype html>
           <div class="action-row"><button id="upload-firmware" class="button primary" type="button" disabled>Upload and validate</button><button id="cancel-update" class="button" type="button" disabled>Cancel update</button><button id="reboot-update" class="button warning" type="button" disabled>Reboot into candidate</button></div>
           <ol id="update-stages" class="update-stages"><li data-stage="upload">Upload not started</li><li data-stage="validate">Image not validated</li><li data-stage="install">Inactive slot not installed</li><li data-stage="boot">Candidate not booted</li><li data-stage="confirm">Candidate not confirmed</li></ol><p id="update-error" class="hint" role="alert"></p>
         </article>
-        <article class="card danger-card"><h3>Device controls</h3><p class="muted">Commands require the current local API token and are queued only after explicit confirmation. The token stays in memory for this tab only.</p><div class="action-row"><button id="reboot-device" class="button warning" type="button">Reboot device</button></div><label for="factory-confirm">Type <strong>FACTORY RESET</strong> to enable reset</label><input id="factory-confirm" type="text" autocomplete="off"><button id="factory-reset" class="button danger" type="button" disabled>Factory reset</button></article>
+        <article class="card danger-card"><h3>Device controls</h3><p class="muted">Commands require the current local API token and are queued only after explicit confirmation. The token stays in memory for this tab only.</p><div class="action-row"><button id="start-setup-mode" class="button" type="button">Start setup access point</button><button id="reboot-device" class="button warning" type="button">Reboot device</button></div><label for="factory-confirm">Type <strong>FACTORY RESET</strong> to enable reset</label><input id="factory-confirm" type="text" autocomplete="off"><button id="factory-reset" class="button danger" type="button" disabled>Factory reset</button></article>
       </div>
     </section>
   </main>
@@ -333,6 +365,9 @@ footer { display: flex; justify-content: space-between; gap: 1rem; padding: 1.2r
 .toast { position: fixed; z-index: 80; right: 1rem; bottom: 1rem; max-width: min(28rem, calc(100vw - 2rem)); padding: .85rem 1rem; border: 1px solid var(--accent); border-radius: 10px; background: #12282a; box-shadow: var(--shadow); }
 .toast.error { border-color: var(--bad); background: #38141c; }
 .visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+.setup-portal { padding: 1.4rem; margin-top: 1.5rem; border: 2px solid var(--accent); border-radius: var(--radius); background: rgba(16, 54, 58, .45); }
+.setup-portal[hidden] { display: none; }
+.setup-status { min-height: 3rem; margin: 1rem 0 0; padding: .7rem; border-left: 4px solid var(--accent); background: rgba(0, 0, 0, .2); }
 
 @media (max-width: 850px) {
   .site-header { align-items: start; flex-direction: column; }
@@ -371,6 +406,9 @@ const char application_javascript[] = R"JS((function () {
     apiToken: '',
     config: null,
     configRevision: null,
+    network: null,
+    provisioningActive: false,
+    setupInitialized: false,
     spool: null,
     spoolGeneration: null,
     printerRevision: null,
@@ -539,8 +577,8 @@ const char application_javascript[] = R"JS((function () {
   }
 
   async function api(path, options) {
-    const settings = Object.assign({ method: 'GET', mutation: false }, options || {});
-    const token = settings.mutation ? apiToken() : '';
+    const settings = Object.assign({ method: 'GET', mutation: false, provisioning: false }, options || {});
+    const token = settings.mutation && !settings.provisioning ? apiToken() : '';
     const controller = new AbortController();
     const timeout = Math.min(REQUEST_TIMEOUT_MS, settings.timeoutMs || REQUEST_TIMEOUT_MS);
     const timer = window.setTimeout(function () { controller.abort(); }, timeout);
@@ -553,7 +591,7 @@ const char application_javascript[] = R"JS((function () {
     if (settings.mutation) {
       headers['X-OpenTag-Request'] = 'web';
       headers['Idempotency-Key'] = requestId();
-      headers.Authorization = 'Bearer ' + token;
+      if (!settings.provisioning) headers.Authorization = 'Bearer ' + token;
     }
     try {
       const response = await fetch(API + path, {
@@ -681,6 +719,78 @@ const char application_javascript[] = R"JS((function () {
     state.printerRevision = first(payload.printer_revision, payload.printers_revision, state.printerRevision);
   }
 
+  function populateNetworks(id, networks) {
+    const select = byId(id);
+    if (!select) return;
+    const selected = select.value;
+    select.replaceChildren();
+    const placeholder = document.createElement('option');
+    placeholder.value = '';
+    placeholder.textContent = 'Choose a network or enter one manually';
+    select.appendChild(placeholder);
+    asArray(networks).forEach(function (network) {
+      const value = asObject(network);
+      if (!value.ssid) return;
+      const option = document.createElement('option');
+      option.value = String(value.ssid);
+      option.textContent = String(value.ssid) + ' (' + String(first(value.rssi_dbm, '?')) + ' dBm, ' + (value.secured === true ? 'secured' : 'open') + ')';
+      select.appendChild(option);
+    });
+    if (Array.from(select.options).some(function (option) { return option.value === selected; })) select.value = selected;
+  }
+
+  function renderNetwork(payload) {
+    state.network = payload;
+    const system = asObject(payload.system);
+    const network = asObject(system.network);
+    const provisioning = asObject(network.provisioning);
+    state.provisioningActive = provisioning.active === true;
+    const portal = byId('setup-portal');
+    if (portal) portal.hidden = !state.provisioningActive;
+    setBadge('setup-badge', normalizeState(first(provisioning.reason, 'setup')), network.connected === true ? 'good' : 'warning');
+    setText('setup-ap-detail', state.provisioningActive
+      ? 'Setup AP: ' + String(first(provisioning.ap_ssid, 'OpenTag-Setup')) + ' at http://' + String(first(provisioning.ap_ip, '192.168.4.1')) + '/'
+      : 'Setup access point is inactive.');
+    const networks = asArray(payload.networks);
+    populateNetworks('setup-network-list', networks);
+    populateNetworks('config-network-list', networks);
+    const scanText = network.scan_running === true
+      ? 'Scanning...'
+      : networks.length + ' network' + (networks.length === 1 ? '' : 's') + ' found';
+    setText('setup-scan-status', scanText);
+    setText('config-scan-status', scanText);
+    if (!state.setupInitialized) {
+      setValue('setup-hostname', first(payload.hostname, 'opentag-station'));
+      setValue('setup-ssid', first(network.ssid, ''));
+      state.setupInitialized = true;
+    }
+    const tokenInput = byId('setup-token');
+    if (tokenInput) {
+      tokenInput.required = payload.access_token_configured !== true;
+      tokenInput.placeholder = payload.access_token_configured === true
+        ? 'Already configured - leave blank to preserve'
+        : 'Create a 16-128 character token';
+    }
+    let detail = 'Wi-Fi is ' + normalizeState(first(network.state, 'unknown')) + '.';
+    if (network.connected === true) {
+      detail = 'Connected to ' + String(first(network.ssid, 'Wi-Fi')) +
+        ' at ' + String(first(network.ip_address, 'an assigned IP')) +
+        '. Hostname: ' + String(first(payload.hostname, 'opentag-station')) +
+        '. mDNS: http://' + String(first(payload.hostname, 'opentag-station')) + '.local/.';
+      if (provisioning.grace_active === true) {
+        detail += ' Setup AP closes in about ' + Math.ceil(Number(provisioning.grace_remaining_ms || 0) / 1000) + ' seconds.';
+      }
+    } else if (asObject(network.error).message) {
+      detail += ' ' + String(asObject(network.error).message) +
+        ' The setup AP remains available.';
+    }
+    if (asObject(network.scan_error).message) {
+      setText('setup-scan-status', String(asObject(network.scan_error).message));
+      setText('config-scan-status', String(asObject(network.scan_error).message));
+    }
+    setText('setup-connect-status', detail);
+  }
+
   function renderBackend(prefix, value) {
     const availability = normalizeState(first(value.availability, value.state, value.connected === true ? 'connected' : value.connected === false ? 'offline' : null));
     setText(prefix + '-state', availability);
@@ -711,6 +821,12 @@ const char application_javascript[] = R"JS((function () {
     setText('scale-capacity', formatGrams(first(profile.rated_capacity_grams, scale.rated_capacity_grams, scale.load_cell_capacity_grams)));
     const calibrated = first(scale.calibrated, scale.calibration_loaded, asObject(scale.calibration).configured, false) === true;
     setText('scale-calibration', calibrated ? 'Calibrated' : 'Required');
+    const calibration = asObject(scale.calibration);
+    setText('scale-raw', first(sample.raw_counts, scale.raw_counts));
+    setText('scale-filtered', first(sample.filtered_counts, scale.filtered_counts));
+    setText('scale-zero', first(calibration.zero_offset_counts, scale.zero_offset_counts));
+    setText('scale-factor', first(calibration.counts_per_gram, scale.counts_per_gram));
+    setText('scale-reference', formatGrams(first(calibration.reference_grams, scale.reference_grams)));
   }
 
   function renderNfc(payload) {
@@ -1303,9 +1419,92 @@ const char application_javascript[] = R"JS((function () {
     }
   }
 
+  async function scanNetworks(button, provisioning) {
+    const prior = button.disabled;
+    button.disabled = true;
+    const currentNetwork =
+      asObject(asObject(asObject(state.network).system).network);
+    const previous = Number(first(currentNetwork.scan_generation, 0));
+    try {
+      await submitMutation('/network/scan', {
+        method: 'POST',
+        body: {},
+        provisioning: provisioning
+      });
+      const deadline = Date.now() + 12000;
+      while (Date.now() < deadline) {
+        await new Promise(function (resolve) { window.setTimeout(resolve, 750); });
+        const payload = await api('/network');
+        renderNetwork(asObject(payload));
+        const network = asObject(asObject(payload.system).network);
+        if (network.scan_running !== true &&
+            Number(first(network.scan_generation, 0)) > previous) return;
+      }
+      throw new Error('Wi-Fi scan did not finish before the display timeout.');
+    } catch (error) {
+      showToast(error.message || String(error), true);
+    } finally {
+      button.disabled = prior;
+    }
+  }
+
+  async function saveAndConnect(button) {
+    const ssid = rawValueOf('setup-ssid');
+    const password = rawValueOf('setup-password');
+    const hostname = valueOf('setup-hostname');
+    const token = rawValueOf('setup-token');
+    if (!ssid) { showToast('Choose or enter a Wi-Fi network.', true); return; }
+    if (!hostname) { showToast('Enter a hostname.', true); return; }
+    if (token && (token.length < 16 || token.length > 128)) {
+      showToast('The local API token must contain 16-128 characters.', true);
+      return;
+    }
+    if (asObject(state.network).access_token_configured !== true && !token) {
+      showToast('Create a local API access token before connecting.', true);
+      return;
+    }
+    button.disabled = true;
+    const body = {
+      expected_revision: Number(first(asObject(state.network).config_revision, 0)),
+      ssid: ssid,
+      hostname: hostname
+    };
+    if (password) body.password = password;
+    if (token) body.access_token = token;
+    try {
+      setText('setup-connect-status', 'Saving settings. The setup AP will remain available while the station connects...');
+      await submitMutation('/network/connect', {
+        method: 'POST',
+        body: body,
+        provisioning: true
+      });
+      setValue('setup-password', '');
+      setValue('setup-token', '');
+      const deadline = Date.now() + 60000;
+      while (Date.now() < deadline) {
+        await new Promise(function (resolve) { window.setTimeout(resolve, 1000); });
+        const payload = await api('/network');
+        renderNetwork(asObject(payload));
+        const network = asObject(asObject(payload.system).network);
+        if (network.connected === true) {
+          showToast('Wi-Fi connected. The setup AP will close after its grace period.');
+          load('/config', renderConfig, true);
+          return;
+        }
+      }
+      throw new Error('The station did not connect within 60 seconds. The setup AP remains available; verify the password and try again.');
+    } catch (error) {
+      setText('setup-connect-status', (error.message || String(error)) + ' The setup AP remains available.');
+      showToast(error.message || String(error), true);
+    } finally {
+      button.disabled = false;
+    }
+  }
+
   async function refreshLive(quiet) {
     await Promise.allSettled([
       load('/status', renderStatus, quiet),
+      load('/network', renderNetwork, quiet),
       load('/scale', renderScale, quiet),
       load('/nfc', renderNfc, quiet),
       load('/nfc/tag', renderTag, true),
@@ -1424,6 +1623,11 @@ const char application_javascript[] = R"JS((function () {
     byId('test-backends').addEventListener('click', function (event) { mutateButton(event.currentTarget, '/backends/test', {}, 'Backend connection tests complete.'); });
     byId('reload-config').addEventListener('click', function () { load('/config', renderConfig, false); });
     byId('config-scale-profile').addEventListener('change', updateCapacityHelp);
+    byId('setup-network-list').addEventListener('change', function (event) { if (event.currentTarget.value) setValue('setup-ssid', event.currentTarget.value); });
+    byId('config-network-list').addEventListener('change', function (event) { if (event.currentTarget.value) setValue('config-ssid', event.currentTarget.value); });
+    byId('setup-scan').addEventListener('click', function (event) { scanNetworks(event.currentTarget, true); });
+    byId('config-scan').addEventListener('click', function (event) { scanNetworks(event.currentTarget, false); });
+    byId('setup-connect').addEventListener('click', function (event) { saveAndConnect(event.currentTarget); });
     byId('config-form').addEventListener('submit', async function (event) {
       event.preventDefault();
       if (!state.config) { showToast('Load configuration before saving.', true); return; }
@@ -1471,6 +1675,11 @@ const char application_javascript[] = R"JS((function () {
       rebootIntoUpdate(event.currentTarget);
     });
     byId('reboot-device').addEventListener('click', function (event) { if (window.confirm('Reboot OpenTag Station now?')) submitRestartButton(event.currentTarget, '/device/reboot', { confirmation: 'REBOOT' }, 'Reboot'); });
+    byId('start-setup-mode').addEventListener('click', async function (event) {
+      if (!window.confirm('Start the temporary setup access point? Normal Wi-Fi remains active.')) return;
+      await mutateButton(event.currentTarget, '/network/setup-mode', {}, 'Setup access point is starting.');
+      load('/network', renderNetwork, true);
+    });
     byId('factory-confirm').addEventListener('input', function (event) { byId('factory-reset').disabled = event.currentTarget.value !== 'FACTORY RESET'; });
     byId('factory-reset').addEventListener('click', async function (event) {
       if (valueOf('factory-confirm') !== 'FACTORY RESET') return;

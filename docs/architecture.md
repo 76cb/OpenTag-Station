@@ -81,10 +81,11 @@ scale, configuration, or backend work.
 
 ## Local web/API boundary
 
-The embedded browser client and transport-neutral router expose 26
+The embedded browser client and transport-neutral router expose 30
 metadata-declared routes under `/api/v1`. Read routes cover station/device
 health, scale, NFC status/tag data, spool state, printers/toolheads,
-configuration, diagnostics, logs, operation status, and update state.
+configuration, network provisioning/scan state, diagnostics, logs, operation
+status, and update state.
 Mutations cover tare/calibration, NFC read, assignment/unassignment, backend
 tests, configuration patches, update upload/reboot/cancel, device reboot, and
 factory reset. The firmware upload route is metadata-declared but bypasses the
@@ -109,7 +110,8 @@ Configuration GET responses expose configured-state flags but no secret
 values. PATCH applies typed partial fields only when its `expected_revision`
 matches the mutex-protected configuration revision; omitted credentials remain
 unchanged and explicit empty credentials clear them. The initial local API
-bearer token is set on the physical touchscreen. The browser prompts for it when
+bearer token is set through the physically local setup AP or touchscreen.
+Recovery provisioning cannot replace an existing token. The browser prompts for it when
 a mutation needs authentication, keeps it only in JavaScript memory for the
 current tab, never places it in storage or a URL, and clears it after HTTP 401.
 

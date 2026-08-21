@@ -25,6 +25,9 @@ enum class OperationKind : std::uint8_t {
   firmware_cancel,
   reboot,
   factory_reset,
+  network_scan,
+  network_setup_mode,
+  network_connect,
 };
 
 enum class OperationState : std::uint8_t {

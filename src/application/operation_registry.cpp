@@ -20,6 +20,9 @@ const char* to_string(OperationKind kind) {
     case OperationKind::firmware_cancel: return "firmware_cancel";
     case OperationKind::reboot: return "reboot";
     case OperationKind::factory_reset: return "factory_reset";
+    case OperationKind::network_scan: return "network_scan";
+    case OperationKind::network_setup_mode: return "network_setup_mode";
+    case OperationKind::network_connect: return "network_connect";
   }
   return "unknown";
 }

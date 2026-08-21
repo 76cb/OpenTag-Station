@@ -120,6 +120,7 @@ class UiService {
   std::uint32_t last_tick_ms_{0};
   std::uint32_t last_refresh_ms_{0};
   std::uint32_t last_interaction_ms_{0};
+  std::uint32_t setup_scan_generation_{0U};
   lv_disp_draw_buf_t draw_buffer_{};
   lv_disp_drv_t display_driver_{};
   lv_indev_drv_t input_driver_{};

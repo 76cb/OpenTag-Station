@@ -54,9 +54,11 @@ host-tested, firmware-compiled software through Phase 11 release hardening:
 - an eight-step on-device first-run flow that remains navigable while Wi-Fi or
   either backend is unavailable, with flash writes delegated to a bounded
   configuration worker rather than the LVGL owner;
-- a dedicated Wi-Fi owner with asynchronous scan, stored credentials,
-  bounded connection attempts, exponential reconnect, DHCP/RSSI/IP/DNS/mDNS/NTP
-  diagnostics, plus bounded HTTP and CA-verified HTTPS transport;
+- a dedicated Wi-Fi owner with asynchronous deduplicated scan, stored
+  credentials, bounded connection attempts, exponential reconnect,
+  DHCP/RSSI/IP/DNS/mDNS/NTP diagnostics, and a temporary browser provisioning
+  AP/captive portal for first install and recovery, plus bounded HTTP and
+  CA-verified HTTPS transport;
 - a bounded Spoolman adapter with health/runtime probes, explicit capability
   reporting, strict normalized responses, filter/list/get/create/location/field
   operations, guarded verified remaining-weight writes, and one-key custom-field
@@ -77,15 +79,15 @@ host-tested, firmware-compiled software through Phase 11 release hardening:
   live T1–T5 mappings, explicit replacement/advanced-print warnings, backend
   degradation, and local material/toolhead advisories;
 - a bounded embedded browser client, WebSocket live-update channel, and
-  transport-neutral 26-route `/api/v1` surface for status, configuration,
+  transport-neutral 30-route `/api/v1` surface for status, provisioning, configuration,
   diagnostics, logs, scale, NFC, spool, printers/toolheads, controlled device
   actions, operation status, and validated firmware updates;
 - asynchronous mutation receipts backed by a central operation registry and
   bounded configuration, scale, backend, and device-control owner queues;
 - typed, credential-redacted configuration reads and compare-and-swap partial
-  writes, with an initial local API bearer token provisioned from the physical
-  touchscreen and browser credentials retained only in memory for the current
-  tab;
+  writes, with an initial local API bearer token provisioned through the
+  physically local setup AP or touchscreen and browser credentials retained
+  only in memory for the current tab;
 - a dedicated OTA owner that streams fixed 4 KiB chunks only to the inactive
   5 MiB application slot, checks complete length and rolling SHA-256, verifies
   the ESP32-S3 image and OpenTag manifest, and leaves a validated image
@@ -111,6 +113,10 @@ Its pinned WT32-SC01 Plus firmware builds without compiler warnings at 167,152 o
 The Phase 11 suite contains 225 host cases across the same twenty suites. Its
 hardened build uses 167,152 RAM bytes (51.0%, no Phase 10 change) and 1,948,105
 flash bytes (37.2%, +1,468 bytes versus Phase 10), with no compiler warnings.
+The current provisioning build passes 235/235 host cases across twenty suites
+and uses 167,840 RAM bytes (51.2%) and 2,018,169 flash bytes (38.5%), with no
+compiler warnings. That is +664 RAM bytes and +29,176 flash bytes versus the
+post-PR #4 display bring-up baseline.
 Display, touch, backlight, storage, and PSRAM behavior still require execution
 on the actual board, so Phase 1 is not hardware-verified. NFC cannot be connected
 to a real frontend until the exact module/wiring and RFAL distribution gates are
@@ -263,7 +269,7 @@ application slots. See [OTA architecture](docs/ota.md).
 - The Spoolman/FilaBridge adapters and the touchscreen orchestration are
   host-tested but not yet tested against live pinned servers or the physical
   five-toolhead station.
-- The portable 26-route API policy and OTA core/safety policies are host-tested.
+- The portable 30-route API policy and OTA core/safety policies are host-tested.
   The browser UI, production context, WebSocket reconnect/live-refresh path,
   bearer-token flow, streaming firmware transport, controlled reboot/reset
   path, ESP-IDF OTA adapter, and embedded owner-queue integration are
@@ -289,6 +295,7 @@ application slots. See [OTA architecture](docs/ota.md).
 - [FilaBridge adapter](docs/filabridge.md)
 - [Configuration and migrations](docs/configuration.md)
 - [Local web UI and API](docs/web.md)
+- [Browser provisioning and local management](docs/provisioning.md)
 - [OTA and rollback](docs/ota.md)
 - [Testing](docs/testing.md)
 - [Upstream compatibility](docs/UPSTREAM_COMPATIBILITY.md)

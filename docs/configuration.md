@@ -170,8 +170,11 @@ Physical power-loss recovery, flash wear, and backup/restore still require
 verification on the target board.
 
 The Ready step contains a masked local API token field and saves through the
-same revision-checked configuration worker. With no token configured, every
-browser mutation fails closed, so initial provisioning and recovery after a
-clear require physical touchscreen access. Once a token exists, an
-authenticated administrator may rotate it or explicitly clear it through the
-configuration PATCH. The token itself is never returned to the browser.
+same revision-checked configuration worker. A device without an SSID also
+serves the existing web app at `http://192.168.4.1/`. Only AP clients may use
+the scoped network scan/connect routes without an existing token; initial setup
+requires creating a write-only token in the same request. On recovery, that
+route cannot replace an existing token. All other browser mutations continue
+to fail closed without the current token. An authenticated administrator may
+rotate or explicitly clear it through the configuration PATCH. Credential
+values are never returned to the browser.

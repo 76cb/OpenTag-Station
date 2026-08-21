@@ -16,6 +16,7 @@
 #include "config/configuration_service.hpp"
 #include "diagnostics/system_diagnostics.hpp"
 #include "logging/bounded_log.hpp"
+#include "network/wifi_service.hpp"
 #include "services/station_workflow.hpp"
 #include "web/api_router.hpp"
 #include "web/idempotency_ledger.hpp"
@@ -48,7 +49,8 @@ class ApplicationApiContext final : public api::IApiContext {
       application::OperationRegistry& operations,
       logging::BoundedLog& logs,
       application::DeviceControlWorker& device_control,
-      application::OtaWorker& ota_worker)
+      application::OtaWorker& ota_worker,
+      network::WifiService& network)
       : diagnostics_(diagnostics),
         configuration_(configuration),
         configuration_worker_(configuration_worker),
@@ -58,10 +60,12 @@ class ApplicationApiContext final : public api::IApiContext {
         operations_(operations),
         logs_(logs),
         device_control_(device_control),
-        ota_worker_(ota_worker) {}
+        ota_worker_(ota_worker),
+        network_(network) {}
 
   [[nodiscard]] bool authorize_mutation(
       std::string_view bearer_token) override;
+  [[nodiscard]] bool authorize_provisioning() override;
   [[nodiscard]] core::Result<std::string> snapshot_json(
       api::Resource resource) override;
   [[nodiscard]] core::Result<std::optional<std::string>>
@@ -106,6 +110,7 @@ class ApplicationApiContext final : public api::IApiContext {
   logging::BoundedLog& logs_;
   application::DeviceControlWorker& device_control_;
   application::OtaWorker& ota_worker_;
+  network::WifiService& network_;
 
   std::mutex idempotency_mutex_;
   IdempotencyLedger idempotency_;

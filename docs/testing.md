@@ -159,7 +159,16 @@ These are three different validation levels:
   clients, and supported browsers. It remains required even when host tests and
   both final firmware builds pass.
 
-Phase 11 contains 225 host cases across the same twenty suites and adds
+The current suite contains 235 host cases across twenty suites. Provisioning
+coverage includes first boot, normal connected operation, three-failure
+fallback, AP retention during connection attempts, success grace shutdown,
+failure retention, millisecond wrap, scan deduplication, AP-scoped mutation
+authorization, secret non-echo, and the existing scale command-safety cases.
+The pinned WT32 build is warning-free at 167,840 RAM bytes and 2,018,169 flash
+bytes. This is +664 RAM bytes and +29,176 flash bytes versus the post-PR #4
+display bring-up baseline.
+
+Phase 11 originally contained 225 host cases across the same twenty suites and adds
 deterministic counter saturation and OpenPrintTag mutation cases,
 embedded-JavaScript syntax validation, and compiler stack-frame reporting. The
 WT32 build remains warning-free at 167,152 RAM bytes and 1,948,105 flash bytes.
