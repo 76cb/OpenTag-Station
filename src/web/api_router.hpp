@@ -51,6 +51,7 @@ struct Request {
   std::string path;
   std::vector<Header> headers;
   std::string body;
+  bool provisioning_transport{false};
 };
 
 struct Response {
@@ -75,10 +76,14 @@ struct RouteMetadata {
   BodyTransport body_transport{BodyTransport::buffered_json};
 };
 
-inline constexpr std::array<RouteMetadata, 26U> routes = {{
+inline constexpr std::array<RouteMetadata, 30U> routes = {{
     {Method::get, "/api/v1/status", 0U, false},
     {Method::get, "/api/v1/device", 0U, false},
     {Method::get, "/api/v1/health", 0U, false},
+    {Method::get, "/api/v1/network", 0U, false},
+    {Method::post, "/api/v1/network/scan", 256U, true},
+    {Method::post, "/api/v1/network/connect", 1024U, true},
+    {Method::post, "/api/v1/network/setup-mode", 256U, true},
     {Method::get, "/api/v1/scale", 0U, false},
     {Method::post, "/api/v1/scale/tare", 256U, true},
     {Method::post, "/api/v1/scale/calibrate", 512U, true},
@@ -112,6 +117,7 @@ enum class Resource : std::uint8_t {
   status,
   device,
   health,
+  network,
   scale,
   nfc,
   nfc_tag,
@@ -131,6 +137,14 @@ struct EmptyMutation {};
 
 struct ScaleCalibrationMutation {
   float reference_grams{0.0F};
+};
+
+struct NetworkConnectMutation {
+  std::uint64_t expected_revision{0U};
+  std::string ssid;
+  std::optional<std::string> password;
+  std::optional<std::string> hostname;
+  std::optional<std::string> access_token;
 };
 
 struct ToolheadMutationPreconditions {
@@ -247,11 +261,15 @@ enum class MutationKind : std::uint8_t {
   update_cancel,
   reboot,
   factory_reset,
+  network_scan,
+  network_connect,
+  network_setup_mode,
 };
 
 using MutationPayload = std::variant<
     EmptyMutation,
     ScaleCalibrationMutation,
+    NetworkConnectMutation,
     ToolheadAssignmentMutation,
     ToolheadUnassignmentMutation,
     ConfigurationPatchMutation,
@@ -263,6 +281,7 @@ struct Mutation {
   std::string idempotency_key;
   std::uint64_t payload_digest{0U};
   MutationPayload payload{EmptyMutation{}};
+  bool provisioning_transport{false};
 };
 
 struct OperationReceipt {
@@ -275,6 +294,7 @@ class IApiContext {
 
   [[nodiscard]] virtual bool authorize_mutation(
       std::string_view bearer_token) = 0;
+  [[nodiscard]] virtual bool authorize_provisioning() = 0;
 
   // Returns one complete, bounded JSON value. For redacted_configuration the
   // implementation must construct an allowlisted view and never return a raw

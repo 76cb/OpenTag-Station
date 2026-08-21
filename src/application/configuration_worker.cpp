@@ -61,9 +61,10 @@ bool ConfigurationWorker::enqueue(Command* command) {
 CommandReceipt ConfigurationWorker::submit_replace(
     const config::Configuration& configuration,
     std::uint64_t expected_revision,
-    std::uint32_t now_ms) {
+    std::uint32_t now_ms,
+    OperationKind operation_kind) {
   const auto operation_id = operations_.begin(
-      OperationKind::configuration, now_ms, "Configuration update queued");
+      operation_kind, now_ms, "Configuration update queued");
   auto* command = new (std::nothrow) Command;
   if (command == nullptr) {
     operations_.fail(

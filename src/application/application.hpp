@@ -96,7 +96,8 @@ class Application {
       operations_,
       logs_,
       device_control_,
-      ota_worker_};
+      ota_worker_,
+      network_};
   web::api::Router api_router_{api_context_};
   web::LocalWebServer web_server_{api_router_, api_context_};
   ui::UiService ui_{

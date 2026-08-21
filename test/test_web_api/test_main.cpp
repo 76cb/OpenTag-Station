@@ -27,6 +27,7 @@ using opentag::web::api::IApiContext;
 using opentag::web::api::Method;
 using opentag::web::api::Mutation;
 using opentag::web::api::MutationKind;
+using opentag::web::api::NetworkConnectMutation;
 using opentag::web::api::OperationReceipt;
 using opentag::web::api::Request;
 using opentag::web::api::Resource;
@@ -43,6 +44,11 @@ class FakeContext final : public IApiContext {
     ++authorization_calls;
     last_bearer_token = std::string(bearer_token);
     return authorization_configured && bearer_token == accepted_bearer_token;
+  }
+
+  bool authorize_provisioning() override {
+    ++provisioning_authorization_calls;
+    return provisioning_authorized;
   }
 
   Result<std::string> snapshot_json(Resource resource) override {
@@ -80,6 +86,8 @@ class FakeContext final : public IApiContext {
   }
 
   std::size_t authorization_calls{0U};
+  std::size_t provisioning_authorization_calls{0U};
+  bool provisioning_authorized{false};
   bool authorization_configured{true};
   std::string accepted_bearer_token{"station-secret"};
   std::string last_bearer_token;
@@ -222,11 +230,15 @@ void setUp() {}
 void tearDown() {}
 
 void test_route_table_contains_the_complete_versioned_surface() {
-  TEST_ASSERT_EQUAL_UINT(26U, opentag::web::api::routes.size());
-  const std::array<std::pair<Method, const char*>, 26U> expected = {{
+  TEST_ASSERT_EQUAL_UINT(30U, opentag::web::api::routes.size());
+  const std::array<std::pair<Method, const char*>, 30U> expected = {{
       {Method::get, "/api/v1/status"},
       {Method::get, "/api/v1/device"},
       {Method::get, "/api/v1/health"},
+      {Method::get, "/api/v1/network"},
+      {Method::post, "/api/v1/network/scan"},
+      {Method::post, "/api/v1/network/connect"},
+      {Method::post, "/api/v1/network/setup-mode"},
       {Method::get, "/api/v1/scale"},
       {Method::post, "/api/v1/scale/tare"},
       {Method::post, "/api/v1/scale/calibrate"},
@@ -260,10 +272,11 @@ void test_route_table_contains_the_complete_versioned_surface() {
 void test_snapshot_routes_return_versioned_bounded_envelopes() {
   FakeContext context;
   Router router(context);
-  const std::array<std::pair<const char*, Resource>, 13U> snapshots = {{
+  const std::array<std::pair<const char*, Resource>, 14U> snapshots = {{
       {"/api/v1/status", Resource::status},
       {"/api/v1/device", Resource::device},
       {"/api/v1/health", Resource::health},
+      {"/api/v1/network", Resource::network},
       {"/api/v1/scale", Resource::scale},
       {"/api/v1/nfc", Resource::nfc},
       {"/api/v1/nfc/tag", Resource::nfc_tag},
@@ -1091,6 +1104,60 @@ void test_update_ui_treats_explicit_server_capability_false_as_authoritative() {
   TEST_ASSERT_TRUE(source.find("return false;") != std::string::npos);
 }
 
+void test_provisioning_transport_is_scoped_to_network_setup_routes() {
+  FakeContext context;
+  context.provisioning_authorized = true;
+  Router router(context);
+
+  auto scan = mutation_request(
+      Method::post, "/api/v1/network/scan", "{}");
+  scan.headers.pop_back();
+  scan.provisioning_transport = true;
+  auto response = router.handle(scan);
+  TEST_ASSERT_EQUAL_INT(202, response.status);
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(MutationKind::network_scan),
+      static_cast<int>(context.last_mutation->kind));
+
+  auto scale = mutation_request(
+      Method::post, "/api/v1/scale/tare", "{}");
+  scale.headers.pop_back();
+  scale.provisioning_transport = true;
+  assert_versioned_error(
+      router.handle(scale), 401, "authentication_required");
+
+  auto remote_scan = scan;
+  remote_scan.provisioning_transport = false;
+  assert_versioned_error(
+      router.handle(remote_scan), 401, "authentication_required");
+}
+
+void test_provisioning_connect_is_typed_and_does_not_echo_secrets() {
+  FakeContext context;
+  context.provisioning_authorized = true;
+  Router router(context);
+  auto request = mutation_request(
+      Method::post,
+      "/api/v1/network/connect",
+      R"({"expected_revision":7,"ssid":"Workshop","password":"wifi-secret","hostname":"opentag-station","access_token":"0123456789abcdef"})");
+  request.headers.pop_back();
+  request.provisioning_transport = true;
+  const auto response = router.handle(request);
+  TEST_ASSERT_EQUAL_INT(202, response.status);
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(MutationKind::network_connect),
+      static_cast<int>(context.last_mutation->kind));
+  const auto& payload =
+      std::get<NetworkConnectMutation>(context.last_mutation->payload);
+  TEST_ASSERT_EQUAL_UINT64(7U, payload.expected_revision);
+  TEST_ASSERT_EQUAL_STRING("Workshop", payload.ssid.c_str());
+  TEST_ASSERT_EQUAL_STRING("wifi-secret", payload.password->c_str());
+  TEST_ASSERT_TRUE(context.last_mutation->provisioning_transport);
+  TEST_ASSERT_TRUE(response.body.find("wifi-secret") == std::string::npos);
+  TEST_ASSERT_TRUE(
+      response.body.find("0123456789abcdef") == std::string::npos);
+}
+
 int main(int, char**) {
   UNITY_BEGIN();
   RUN_TEST(test_route_table_contains_the_complete_versioned_surface);
@@ -1124,5 +1191,7 @@ int main(int, char**) {
       test_update_owner_capabilities_and_safe_reboot_retry_are_fail_closed);
   RUN_TEST(
       test_update_ui_treats_explicit_server_capability_false_as_authoritative);
+  RUN_TEST(test_provisioning_transport_is_scoped_to_network_setup_routes);
+  RUN_TEST(test_provisioning_connect_is_typed_and_does_not_echo_secrets);
   return UNITY_END();
 }

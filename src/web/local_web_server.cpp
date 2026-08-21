@@ -2,6 +2,7 @@
 
 #include <ArduinoJson.h>
 #include <esp_timer.h>
+#include <lwip/sockets.h>
 
 #include <algorithm>
 #include <array>
@@ -274,6 +275,24 @@ bool due(
       static_cast<std::uint32_t>(now_ms - previous_ms) >= interval_ms;
 }
 
+bool provisioning_peer(
+    httpd_req_t* request,
+    ApplicationApiContext& context) {
+  if (request == nullptr || !context.authorize_provisioning()) return false;
+  const auto socket = httpd_req_to_sockfd(request);
+  sockaddr_storage peer{};
+  socklen_t peer_length = sizeof(peer);
+  if (socket < 0 ||
+      getpeername(
+          socket, reinterpret_cast<sockaddr*>(&peer), &peer_length) != 0 ||
+      peer.ss_family != AF_INET) {
+    return false;
+  }
+  const auto& ipv4 = reinterpret_cast<const sockaddr_in&>(peer);
+  const auto address = ntohl(ipv4.sin_addr.s_addr);
+  return (address & 0xFFFFFF00UL) == 0xC0A80400UL;
+}
+
 }  // namespace
 
 LocalWebServer::LocalWebServer(
@@ -293,7 +312,7 @@ esp_err_t LocalWebServer::start() {
   configuration.stack_size = http_task_stack_bytes;
   configuration.max_open_sockets =
       static_cast<std::uint16_t>(maximum_open_sockets);
-  configuration.max_uri_handlers = 12U;
+  configuration.max_uri_handlers = 13U;
   configuration.max_resp_headers = 10U;
   configuration.backlog_conn = 2U;
   configuration.lru_purge_enable = true;
@@ -307,7 +326,7 @@ esp_err_t LocalWebServer::start() {
     return result;
   }
 
-  const std::array<httpd_uri_t, 12U> handlers = {{
+  const std::array<httpd_uri_t, 13U> handlers = {{
       make_uri("/", HTTP_GET, &LocalWebServer::static_asset_handler, this),
       make_uri(
           "/assets/app.css",
@@ -337,6 +356,7 @@ esp_err_t LocalWebServer::start() {
       make_uri("/api/*", HTTP_DELETE, &LocalWebServer::api_handler, this),
       make_uri("/api/*", HTTP_HEAD, &LocalWebServer::api_handler, this),
       make_uri("/api/*", HTTP_OPTIONS, &LocalWebServer::api_handler, this),
+      make_uri("/*", HTTP_GET, &LocalWebServer::static_asset_handler, this),
   }};
   for (const auto& handler : handlers) {
     result = httpd_register_uri_handler(server_, &handler);
@@ -439,6 +459,16 @@ esp_err_t LocalWebServer::handle_static_asset(httpd_req_t* request) {
     size = assets::application_javascript_size;
     content_type = "application/javascript; charset=utf-8";
   } else {
+    if (provisioning_peer(request, api_context_)) {
+      auto result = httpd_resp_set_status(request, "302 Found");
+      if (result != ESP_OK) return result;
+      result = httpd_resp_set_hdr(
+          request, "Location", "http://192.168.4.1/");
+      if (result != ESP_OK) return result;
+      result = set_security_headers(request);
+      if (result != ESP_OK) return result;
+      return httpd_resp_send(request, nullptr, 0U);
+    }
     return send_json_error(
         request, 404, "route_not_found", "No local asset matches this path");
   }
@@ -752,6 +782,8 @@ esp_err_t LocalWebServer::handle_api(httpd_req_t* request) {
         static_cast<std::int64_t>(maximum_request_receive_ms) * 1000LL;
   };
   api_request.body.resize(request->content_len);
+  api_request.provisioning_transport =
+      provisioning_peer(request, api_context_);
   std::size_t received = 0U;
   while (received < request->content_len) {
     if (receive_expired()) {

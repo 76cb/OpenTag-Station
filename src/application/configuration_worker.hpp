@@ -29,7 +29,8 @@ class ConfigurationWorker {
   [[nodiscard]] CommandReceipt submit_replace(
       const config::Configuration& configuration,
       std::uint64_t expected_revision,
-      std::uint32_t now_ms);
+      std::uint32_t now_ms,
+      OperationKind operation_kind = OperationKind::configuration);
   [[nodiscard]] bool submit_setup_completion(services::SetupStep step);
   [[nodiscard]] std::size_t pending() const {
     return pending_.load(std::memory_order_relaxed);

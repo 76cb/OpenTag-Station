@@ -548,6 +548,8 @@ void UiService::build_setup_screen() {
     lv_obj_set_size(setup_network_dropdown_, 156, 44);
     lv_obj_align(setup_network_dropdown_, LV_ALIGN_TOP_RIGHT, -14, 94);
     const auto networks = network_.scan_results();
+    setup_scan_generation_ =
+        diagnostics_.snapshot(millis()).wifi_scan_generation;
     std::string options = networks.empty() ? "Scan results" : "";
     for (const auto& network : networks) {
       if (!options.empty()) options += '\n';
@@ -926,6 +928,8 @@ void UiService::refresh_setup() {
                           : "Save failed; configuration was not changed";
   }
   const auto step = first_run_setup_.current();
+  const auto configured = configuration_.snapshot();
+  const auto network = diagnostics_.snapshot(millis());
   const auto step_number = static_cast<unsigned>(step) + 1U;
   lv_label_set_text_fmt(
       setup_progress_label_, "Step %u of 8", step_number);
@@ -957,16 +961,35 @@ void UiService::refresh_setup() {
       body = "READY\nSet and save a 16-128 character local API token.";
       break;
   }
-  lv_label_set_text(setup_body_label_, body);
-
-  const auto configured = configuration_.snapshot();
-  const auto network = diagnostics_.snapshot(millis());
+  if (!network.wifi_configured && network.provisioning_active) {
+    const std::string setup_body =
+        "SETUP REQUIRED\nConnect a phone or computer to\n" +
+        network.setup_ap_ssid + "\nthen open http://192.168.4.1/";
+    lv_label_set_text(setup_body_label_, setup_body.c_str());
+  } else {
+    lv_label_set_text(setup_body_label_, body);
+  }
+  if (setup_network_dropdown_ != nullptr &&
+      setup_scan_generation_ != network.wifi_scan_generation) {
+    const auto networks = network_.scan_results();
+    std::string options = networks.empty() ? "Scan results" : "";
+    for (const auto& candidate : networks) {
+      if (!options.empty()) options += '\n';
+      options += candidate.ssid;
+    }
+    lv_dropdown_set_options(setup_network_dropdown_, options.c_str());
+    setup_scan_generation_ = network.wifi_scan_generation;
+  }
   std::string status;
   switch (step) {
     case services::SetupStep::wifi:
       status = std::string("State: ") + network::to_string(network.wifi_state) +
           "  scan results: " + std::to_string(network_.scan_results().size());
       if (network.wifi_connected) status += "  IP: " + network.ip_address;
+      if (network.provisioning_active) {
+        status += "\nAP: " + network.setup_ap_ssid +
+            "  http://192.168.4.1/";
+      }
       break;
     case services::SetupStep::spoolman:
       status = configured.spoolman.url.empty() ? "Not configured" : "URL saved";
@@ -1165,6 +1188,10 @@ void UiService::refresh_workflow() {
   status += availability_text(state.spoolman);
   status += "\nFilaBridge ";
   status += availability_text(state.filabridge);
+  const auto network_status = diagnostics_.snapshot(millis());
+  if (network_status.wifi_connected && !network_status.ip_address.empty()) {
+    status += "\nIP " + network_status.ip_address;
+  }
   lv_label_set_text(workflow_status_label_, status.c_str());
 }
 

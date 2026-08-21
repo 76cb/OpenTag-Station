@@ -536,10 +536,36 @@ void Application::network_task_entry(void* context) {
       logging::LogComponent::web,
       web_started == ESP_OK ? "Local web server started"
                             : "Local web server failed to start");
+  auto previous_network_state = network::WifiState::uninitialized;
+  bool previous_provisioning_active = false;
+  std::string previous_ip;
   for (;;) {
     now_ms = millis();
     application->network_.poll(now_ms);
-    application->diagnostics_.set_network_status(application->network_.status());
+    const auto& network_status = application->network_.status();
+    application->diagnostics_.set_network_status(network_status);
+    if (network_status.state != previous_network_state ||
+        network_status.provisioning_active != previous_provisioning_active ||
+        network_status.ip_address != previous_ip) {
+      Serial.printf(
+          "Network: state=%s ssid=%s ip=%s setup_ap=%s reason=%s failures=%lu\n",
+          network::to_string(network_status.state),
+          network_status.ssid.empty() ? "-" : network_status.ssid.c_str(),
+          network_status.ip_address.empty()
+              ? "-" : network_status.ip_address.c_str(),
+          network_status.provisioning_active
+              ? network_status.setup_ap_ssid.c_str() : "off",
+          network::to_string(network_status.provisioning_reason),
+          static_cast<unsigned long>(network_status.provisioning_failures));
+      if (network_status.last_error.has_value()) {
+        Serial.printf(
+            "Network error: %s\n",
+            network_status.last_error->message.c_str());
+      }
+      previous_network_state = network_status.state;
+      previous_provisioning_active = network_status.provisioning_active;
+      previous_ip = network_status.ip_address;
+    }
     auto web_running = application->web_server_.running();
     application->web_server_running_.store(
         web_running,
