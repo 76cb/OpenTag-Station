@@ -8,6 +8,12 @@ actions, and the validated A/B firmware-update workflow.
 
 ## Validation status
 
+Phase 11 preserves the 26-route contract and adds browser request epochs,
+payload revision guards, and socket identity checks so stale REST/WebSocket
+responses cannot replace newer state. The grouped contract/security review and
+physical browser/LAN matrix are in
+[release-validation.md](release-validation.md).
+
 The final serialized validation passed all 223 native cases across twenty
 suites and successfully built the pinned `wt32-sc01-plus` firmware without
 compiler warnings. Final usage is 167,152/327,680 RAM bytes (51.0%) and

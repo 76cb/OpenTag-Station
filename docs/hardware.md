@@ -1,5 +1,11 @@
 # Hardware assumptions and risks
 
+## Phase 11 release status
+
+No physical validation is implied by compilation or host tests. The executable
+board, scale, NFC, integration, recovery, OTA, resource, and soak checklist is
+in [release-validation.md](release-validation.md).
+
 ## Confirmed baseline
 
 | Item | Current basis | Status |

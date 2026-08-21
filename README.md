@@ -14,7 +14,7 @@ no PN532 implementation or fallback.
 ## Project status
 
 The repository contains the Phase 0 research baseline and implemented,
-host-tested, firmware-compiled software through Phase 10:
+host-tested, firmware-compiled software through Phase 11 release hardening:
 
 - pinned PlatformIO, ESP32, LVGL, display, scale, and JSON dependencies;
 - A/B OTA partition layout;
@@ -93,7 +93,10 @@ host-tested, firmware-compiled software through Phase 10:
 - durable OTA generation/operation metadata, one shared 30-second local boot
   health policy, ESP-IDF pending-image confirmation, and bootloader rollback
   integration that is mutually exclusive with generic reboot and factory reset;
-  and
+- a release-hardening audit covering runtime ownership, task stacks, long-run
+  behavior, persistent write ordering, configuration migration, API/UI
+  consistency, failure injection, security, CI, and reproducibility, with one
+  explicitly unverified physical validation matrix;
 - native host suites covering the domain foundation, official OpenPrintTag
   fixtures and malformed inputs, NFC-V safety, frontend recovery, and scale
   processing/fault behavior, configuration transactions/migrations/recovery,
@@ -101,10 +104,13 @@ host-tested, firmware-compiled software through Phase 10:
   deterministic identity resolution, FilaBridge contracts, assignment safety,
   material advisories, the full host workflow, and the local web/API boundary.
 
-The final Phase 10 native run passes 223/223 cases across twenty suites. The
-pinned WT32-SC01 Plus firmware builds without compiler warnings at 167,152 of
+The verified Phase 10 source baseline passes 223/223 cases across twenty suites.
+Its pinned WT32-SC01 Plus firmware builds without compiler warnings at 167,152 of
 327,680 RAM bytes (51.0%) and 1,946,637 of 5,242,880 flash bytes (37.1%):
 +26,272 RAM bytes and +97,964 flash bytes versus Phase 9.
+The Phase 11 suite contains 225 host cases across the same twenty suites. Its
+hardened build uses 167,152 RAM bytes (51.0%, no Phase 10 change) and 1,948,105
+flash bytes (37.2%, +1,468 bytes versus Phase 10), with no compiler warnings.
 Display, touch, backlight, storage, and PSRAM behavior still require execution
 on the actual board, so Phase 1 is not hardware-verified. NFC cannot be connected
 to a real frontend until the exact module/wiring and RFAL distribution gates are
@@ -122,6 +128,9 @@ instances, and the five-toolhead flow requires physical execution before
 release signoff. A/B installation, candidate confirmation, deliberate failure,
 and rollback still require the hardware-in-the-loop matrix before release
 signoff.
+
+See [Phase 11 release-candidate validation](docs/release-validation.md) for the
+ownership/resource audit, remaining limitations, and physical test matrix.
 
 ## Responsibilities
 

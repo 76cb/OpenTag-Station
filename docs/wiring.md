@@ -1,5 +1,12 @@
 # Wiring
 
+## Release validation boundary
+
+All wiring and polarity checks remain UNVERIFIED. Record physical evidence
+against the scale and NFC procedures in
+[release-validation.md](release-validation.md) before enabling NFC or claiming
+scale accuracy.
+
 ## Rule
 
 The active board profile is the only firmware source of pin assignments. Driver,

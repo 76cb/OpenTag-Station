@@ -377,6 +377,9 @@ const char application_javascript[] = R"JS((function () {
     printers: [],
     toolheads: [],
     update: null,
+    scaleRevision: null,
+    updateRevision: null,
+    requestEpochs: Object.create(null),
     firmwareFile: null,
     firmwareSha256: '',
     firmwareHashRequest: 0,
@@ -628,9 +631,17 @@ const char application_javascript[] = R"JS((function () {
     throw new Error('Operation #' + id + ' did not finish within 45 seconds. Check diagnostics before retrying.');
   }
 
+  function beginLoad(path) {
+    const epoch = (state.requestEpochs[path] || 0) + 1;
+    state.requestEpochs[path] = epoch;
+    return epoch;
+  }
+
   async function load(path, render, quiet) {
+    const epoch = beginLoad(path);
     try {
       const payload = await api(path);
+      if (state.requestEpochs[path] !== epoch) return null;
       render(asObject(payload));
       return payload;
     } catch (error) {
@@ -681,6 +692,13 @@ const char application_javascript[] = R"JS((function () {
   function renderScale(payload) {
     const scale = asObject(first(payload.scale, payload));
     const sample = asObject(first(scale.sample, scale));
+    const revision = first(scale.revision, payload.revision);
+    if (revision !== null && Number.isSafeInteger(Number(revision))) {
+      const numericRevision = Number(revision);
+      if (state.scaleRevision !== null &&
+          numericRevision < state.scaleRevision) return;
+      state.scaleRevision = numericRevision;
+    }
     const profile = asObject(first(scale.profile, scale.scale_profile, {}));
     const gross = first(sample.gross_grams, scale.gross_grams, Number.isFinite(Number(scale.gross_milligrams)) ? Number(scale.gross_milligrams) / 1000 : null);
     setText('gross-weight', Number.isFinite(Number(gross)) ? Number(gross).toFixed(1) : null);
@@ -877,9 +895,11 @@ const char application_javascript[] = R"JS((function () {
   }
 
   async function refreshPrinters(quiet) {
+    const epoch = beginLoad('/printers+toolheads');
     try {
       const rawPrinterPayload = await api('/printers');
       const rawToolheadPayload = await api('/toolheads');
+      if (state.requestEpochs['/printers+toolheads'] !== epoch) return;
       const printerPayload = asObject(rawPrinterPayload);
       const toolheadPayload = asObject(rawToolheadPayload);
       state.printerRevision = first(printerPayload.revision, printerPayload.printer_revision, toolheadPayload.revision, state.printerRevision);
@@ -1112,6 +1132,13 @@ const char application_javascript[] = R"JS((function () {
   }
 
   function renderUpdate(payload) {
+    const revision = first(payload.revision, asObject(payload.update).revision);
+    if (revision !== null && Number.isSafeInteger(Number(revision))) {
+      const numericRevision = Number(revision);
+      if (state.updateRevision !== null &&
+          numericRevision < state.updateRevision) return;
+      state.updateRevision = numericRevision;
+    }
     state.update = payload;
     const status = String(first(payload.state, payload.status, 'unknown')).toLowerCase();
     const current = asObject(first(payload.current, payload.running_firmware, {}));
@@ -1308,6 +1335,10 @@ const char application_javascript[] = R"JS((function () {
     state.socket = socket;
     setText('live-status', 'Connecting to live updates…'); byId('live-indicator').className = 'status-dot pending';
     socket.addEventListener('open', function () {
+      if (state.socket !== socket) return;
+      state.scaleRevision = null;
+      state.updateRevision = null;
+      beginLoad('/scale');
       state.reconnectMs = 1000;
       setText('live-status', 'Live updates connected'); byId('live-indicator').className = 'status-dot online';
       load('/update', renderUpdate, true);
@@ -1315,16 +1346,23 @@ const char application_javascript[] = R"JS((function () {
       load('/health', renderHealth, true);
     });
     socket.addEventListener('message', function (event) {
+      if (state.socket !== socket) return;
       try {
         const message = JSON.parse(event.data);
         const type = String(first(message.type, message.event, 'snapshot'));
         const payload = asObject(first(message.data, message.payload, message.snapshot, message));
-        if (type === 'scale') renderScale(payload);
-        else if (type === 'update') renderUpdate(payload);
+        if (type === 'scale') {
+          beginLoad('/scale');
+          renderScale(payload);
+        }
+        else if (type === 'update') {
+          beginLoad('/update');
+          renderUpdate(payload);
+        }
         else if (type === 'invalidate' && payload.resource === 'update') {
           load('/update', renderUpdate, true);
         }
-        else if (type === 'health') renderHealth(payload);
+        else if (type === 'health') { beginLoad('/health'); renderHealth(payload); }
         else if (type === 'logs') load('/logs', renderLogs, true);
         else if (type === 'configuration') load('/config', renderConfig, true);
         else scheduleLiveRefresh();

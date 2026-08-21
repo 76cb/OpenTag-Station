@@ -1,5 +1,11 @@
 # Architecture
 
+Phase 11 audited every runtime owner, queue, lifecycle lease, persistent writer,
+and project-created task. The authoritative ownership and 96,256-byte configured
+dynamic task-stack inventory are in
+[release-validation.md](release-validation.md); changes to task creation or
+ownership must update that inventory.
+
 ## Design objective
 
 OpenTag Station is a recoverable local appliance, not a single-screen sketch.
