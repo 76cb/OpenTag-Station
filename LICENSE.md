@@ -1,6 +1,6 @@
 PolyForm Noncommercial License 1.0.0
 
-Copyright (c) 2026 [76cb](https://github.com)
+Copyright (c) 2026 [76cb](https://github.com/76cb)
 
 Acceptance
 By using or distributing this software, you accept this license.
