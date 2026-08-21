@@ -159,6 +159,23 @@ These are three different validation levels:
   clients, and supported browsers. It remains required even when host tests and
   both final firmware builds pass.
 
+Phase 11 contains 225 host cases across the same twenty suites and adds
+deterministic counter saturation and OpenPrintTag mutation cases,
+embedded-JavaScript syntax validation, and compiler stack-frame reporting. The
+WT32 build remains warning-free at 167,152 RAM bytes and 1,948,105 flash bytes.
+Run the release checks with:
+
+```bash
+git diff --check
+python3 tools/check_web_assets.py
+.venv/bin/pio test --environment native
+.venv/bin/pio run --environment wt32-sc01-plus
+python3 tools/analyze_stack_usage.py
+```
+
+The final count/build measurements and all-UNVERIFIED hardware/soak matrix are
+maintained in [release-validation.md](release-validation.md).
+
 ## Host unit tests
 
 Any logic not requiring physical hardware belongs here: OpenPrintTag

@@ -1,5 +1,12 @@
 # OpenPrintTag strategy
 
+## Phase 11 release status
+
+Host hardening now exercises every truncated prefix and every single-byte
+mutation of the official fixture in addition to the bounded CBOR/NDEF/NFC-V
+tests. ST25R3916B wiring, RFAL binding, RF behavior, and real-tag read/write
+remain UNVERIFIED in [release-validation.md](release-validation.md).
+
 ## Authority
 
 The baseline is the official

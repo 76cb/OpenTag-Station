@@ -7,6 +7,13 @@ Versioning once releases begin.
 
 ### Added
 
+- Phase 11 release-candidate validation record with runtime ownership, task and
+  dynamic-stack inventory, persistent write ordering, security limitations,
+  and an explicitly UNVERIFIED physical hardware matrix.
+- Deterministic embedded-JavaScript syntax and compiler stack-usage CI checks.
+- Exhaustive official-fixture truncation and single-byte mutation safety tests.
+- Saturating lifetime diagnostic counters, completion-paced backend probes,
+  and browser epochs/revisions that exclude stale REST/WebSocket updates.
 - Phase 0 upstream compatibility baseline.
 - Layered firmware and repository architecture.
 - Reproducible PlatformIO dependency pins and deterministic build metadata.

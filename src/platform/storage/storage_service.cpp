@@ -4,9 +4,10 @@
 #include <esp_partition.h>
 
 #include <cstddef>
-#include <limits>
 #include <mutex>
 #include <string>
+
+#include "core/saturating_counter.hpp"
 
 namespace opentag::platform::storage {
 namespace {
@@ -138,13 +139,10 @@ bool StorageService::initialize(std::uint32_t now_ms) {
   if (status_.nvs_ready) {
     const bool previous_boot_pending = preferences_.getBool("bootPending", false);
     const auto previous_crash_streak = preferences_.getUChar("crashStreak", 0U);
-    status_.boot_count = preferences_.getULong("bootCount", 0U) + 1U;
+    status_.boot_count = core::saturating_increment(
+        preferences_.getULong("bootCount", 0U));
     status_.crash_streak = previous_boot_pending
-                               ? static_cast<std::uint8_t>(
-                                     previous_crash_streak <
-                                             std::numeric_limits<std::uint8_t>::max()
-                                         ? previous_crash_streak + 1U
-                                         : previous_crash_streak)
+                               ? core::saturating_increment(previous_crash_streak)
                                : 0U;
     preferences_.putULong("bootCount", status_.boot_count);
     preferences_.putUChar("crashStreak", status_.crash_streak);

@@ -1,5 +1,13 @@
 # OTA, rollback, and recovery
 
+## Phase 11 release status
+
+Phase 11 re-audits OTA ownership, upload bounds, lifecycle exclusion, durable
+write order, first-use metadata recovery, and every activation/candidate power
+cut boundary. The complete A/B, rollback, interruption, browser-reconnect, and
+resource matrix remains UNVERIFIED in
+[release-validation.md](release-validation.md).
+
 ## Phase 10 boundary and validation levels
 
 Phase 10 implements local browser upload, inactive-slot staging, digest and

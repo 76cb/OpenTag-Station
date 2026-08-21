@@ -2,6 +2,7 @@
 
 #include <string>
 
+#include "core/saturating_counter.hpp"
 #include "network/http_transport.hpp"
 #include "network/network_policy.hpp"
 
@@ -22,6 +23,18 @@ void test_reconnect_backoff_doubles_saturates_and_resets() {
   backoff.reset();
   TEST_ASSERT_EQUAL_UINT32(0U, backoff.attempts());
   TEST_ASSERT_EQUAL_UINT32(1000U, backoff.next_delay_ms());
+}
+
+void test_diagnostic_counters_saturate_instead_of_wrapping() {
+  TEST_ASSERT_EQUAL_UINT32(
+      UINT32_MAX,
+      opentag::core::saturating_increment<std::uint32_t>(UINT32_MAX));
+  TEST_ASSERT_EQUAL_UINT8(
+      UINT8_MAX,
+      opentag::core::saturating_increment<std::uint8_t>(UINT8_MAX));
+  TEST_ASSERT_EQUAL_UINT32(
+      42U,
+      opentag::core::saturating_increment<std::uint32_t>(41U));
 }
 
 void test_url_parser_applies_default_and_explicit_ports() {
@@ -53,5 +66,6 @@ int main(int, char**) {
   RUN_TEST(test_reconnect_backoff_doubles_saturates_and_resets);
   RUN_TEST(test_url_parser_applies_default_and_explicit_ports);
   RUN_TEST(test_url_parser_rejects_credentials_fragments_bad_ports_and_schemes);
+  RUN_TEST(test_diagnostic_counters_saturate_instead_of_wrapping);
   return UNITY_END();
 }

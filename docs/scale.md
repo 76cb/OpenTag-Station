@@ -1,5 +1,13 @@
 # Scale subsystem
 
+## Phase 11 release status
+
+The default/current physical target remains YZC-133 5 kg and the YZC-133 2 kg
+profile remains supported. The release audit found no basis for an accuracy
+claim; the required wiring, stability, tare, calibration, repeatability, drift,
+position, noise, and overload procedure is in
+[release-validation.md](release-validation.md).
+
 ## Hardware boundary
 
 The NAU7802 is assigned to the WT32-SC01 Plus external I2C connector at address

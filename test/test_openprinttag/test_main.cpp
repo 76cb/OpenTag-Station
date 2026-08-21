@@ -236,6 +236,28 @@ void test_rejects_truncated_oversized_and_invalid_region_images() {
       static_cast<int>(refused.error().category));
 }
 
+void test_fixture_truncations_and_byte_mutations_fail_safely() {
+  const auto fixture = from_hex(official_fixture_01);
+  for (std::size_t length = 0U; length < fixture.size(); ++length) {
+    const auto decoded = Codec::decode(ByteView(fixture.data(), length));
+    TEST_ASSERT_FALSE_MESSAGE(
+        decoded.ok(), "a truncated declared-capacity image was accepted");
+  }
+
+  for (std::size_t index = 0U; index < fixture.size(); ++index) {
+    auto mutated = fixture;
+    mutated[index] ^= static_cast<std::uint8_t>(0xA5U + (index & 0x0FU));
+    const auto decoded = Codec::decode(ByteView(mutated));
+    if (decoded.ok()) {
+      const auto& envelope = decoded.value().envelope;
+      TEST_ASSERT_TRUE(envelope.capability_capacity <= mutated.size());
+      TEST_ASSERT_TRUE(envelope.payload_offset <= envelope.capability_capacity);
+      TEST_ASSERT_TRUE(
+          envelope.payload_size <= envelope.capability_capacity - envelope.payload_offset);
+    }
+  }
+}
+
 void test_cbor_limits_nesting_and_duplicate_keys() {
   std::vector<std::uint8_t> nested{0xBFU, 0x00U};
   nested.insert(nested.end(), 14U, 0x9FU);
@@ -362,6 +384,7 @@ int main(int, char**) {
   UNITY_BEGIN();
   RUN_TEST(test_decodes_official_openprinttag_fixture);
   RUN_TEST(test_update_preserves_unknown_main_bytes_and_other_regions);
+  RUN_TEST(test_fixture_truncations_and_byte_mutations_fail_safely);
   RUN_TEST(test_rejects_truncated_oversized_and_invalid_region_images);
   RUN_TEST(test_cbor_limits_nesting_and_duplicate_keys);
   RUN_TEST(test_normalizes_iso15693_wire_uid);

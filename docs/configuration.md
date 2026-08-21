@@ -1,5 +1,12 @@
 # Configuration and migrations
 
+## Phase 11 release status
+
+Fresh/current/legacy, malformed/truncated, missing/unknown field, secret
+preservation, CAS, profile, backup, and interrupted-write behavior are part of
+the release audit. The durable ordering and power-cut expectations are recorded
+in [release-validation.md](release-validation.md).
+
 ## Storage boundary
 
 Application code uses `ConfigurationService`; it does not address arbitrary

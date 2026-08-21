@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <cstdint>
 
+#include "core/saturating_counter.hpp"
+
 namespace opentag::network {
 
 class ExponentialReconnectBackoff {
@@ -19,7 +21,7 @@ class ExponentialReconnectBackoff {
     next_ms_ = next_ms_ > maximum_ms_ / 2U
                    ? maximum_ms_
                    : std::min(maximum_ms_, next_ms_ * 2U);
-    ++attempts_;
+    attempts_ = core::saturating_increment(attempts_);
     return result;
   }
 

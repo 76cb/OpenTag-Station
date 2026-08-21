@@ -456,7 +456,11 @@ void BackendWorker::run() {
     if (static_cast<std::uint32_t>(now_ms - last_probe_ms_) >=
         probe_interval_ms) {
       probe_backends();
-      last_probe_ms_ = now_ms;
+      // Schedule from completion, not from the timestamp captured before a
+      // potentially slow DNS/HTTP probe. Otherwise a probe cycle longer than
+      // the interval immediately starts another cycle and can become a
+      // permanent backend retry storm.
+      last_probe_ms_ = millis();
     }
   }
 }

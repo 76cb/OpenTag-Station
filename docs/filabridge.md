@@ -1,5 +1,12 @@
 # FilaBridge adapter strategy
 
+## Phase 11 release status
+
+The release audit rechecked zero-based T1-T5 translation, printer revisions,
+spool generations, expiry, non-replayed mutation, and exact readback. Live
+FilaBridge/Prusa XL behavior and backend-outage recovery remain UNVERIFIED in
+[release-validation.md](release-validation.md).
+
 ## Baseline
 
 The correct integration target is the maintained

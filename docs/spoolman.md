@@ -1,5 +1,12 @@
 # Spoolman adapter strategy
 
+## Phase 11 release status
+
+The release audit rechecked bounded transport, malformed/missing responses,
+capability degradation, identity generations, idempotency, and guarded exact
+readback. Live pinned-instance behavior and outage recovery remain UNVERIFIED in
+[release-validation.md](release-validation.md).
+
 ## Baseline
 
 The current source baseline is
