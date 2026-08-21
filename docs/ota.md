@@ -1,5 +1,11 @@
 # OTA, rollback, and recovery
 
+The authenticated local A/B updater documented here is the normal update path
+after OpenTag Station is running. The separate HTTPS
+[browser flasher](web-flasher.md) installs or recovers a complete serial factory
+image over USB; it is not an OTA replacement and may erase configuration or
+calibration.
+
 ## Phase 11 release status
 
 Phase 11 re-audits OTA ownership, upload bounds, lifecycle exclusion, durable

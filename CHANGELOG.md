@@ -7,6 +7,10 @@ Versioning once releases begin.
 
 ### Added
 
+- An ESP Web Tools HTTPS installer for WT32-SC01 Plus first installation and
+  USB recovery, with a PlatformIO-derived merged factory image, pinned GitHub
+  Pages automation, source-SHA validation, and no change to normal local A/B
+  OTA behavior.
 - Phase 11 release-candidate validation record with runtime ownership, task and
   dynamic-stack inventory, persistent write ordering, security limitations,
   and an explicitly UNVERIFIED physical hardware matrix.
