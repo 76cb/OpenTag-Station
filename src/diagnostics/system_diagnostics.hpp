@@ -198,7 +198,9 @@ struct ScaleDiagnosticSnapshot {
   bool scale_tare_ready{false};
   std::int32_t scale_tare_zero_offset_counts{0};
   bool scale_weight_available{false};
+  bool scale_raw_stable{false};
   bool scale_stable{false};
+  std::size_t scale_samples_in_filter{0U};
   bool scale_negative{false};
   bool scale_overload{false};
   bool scale_creep_warning{false};
@@ -234,7 +236,9 @@ class ScaleDiagnosticStore final {
     next.scale_persistence_available = status.persistence_available;
     next.scale_tare_ready = status.tare_ready;
     next.scale_tare_zero_offset_counts = status.tare_zero_offset_counts;
+    next.scale_raw_stable = status.sample.raw_stable;
     next.scale_stable = status.sample.stable;
+    next.scale_samples_in_filter = status.samples_in_filter;
     next.scale_negative = status.sample.negative;
     next.scale_overload = status.sample.overload;
     next.scale_creep_warning = status.sample.creep_warning;

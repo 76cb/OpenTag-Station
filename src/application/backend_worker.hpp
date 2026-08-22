@@ -113,6 +113,7 @@ class BackendWorker final {
   static void task_entry(void* context);
   void run();
   void probe_backends(std::uint64_t operation_id = 0U);
+  [[nodiscard]] bool apply_backend_settings_if_changed();
   void process(Command& command);
   [[nodiscard]] bool enqueue(Command* command);
 
@@ -127,8 +128,10 @@ class BackendWorker final {
   TaskHandle_t task_{nullptr};
   std::atomic_size_t pending_{0U};
   std::uint32_t last_probe_ms_{0U};
-  std::optional<config::SpoolmanSettings> applied_spoolman_settings_;
-  std::optional<config::FilaBridgeSettings> applied_filabridge_settings_;
+  std::optional<std::uint64_t> applied_backend_settings_revision_;
+  bool spoolman_configured_{false};
+  bool filabridge_configured_{false};
+  bool wifi_offline_published_{false};
   mutable std::mutex status_mutex_;
   BackendWorkerSnapshot status_;
   static constexpr std::uint32_t destructive_command_expiry_ms = 15000U;

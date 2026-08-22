@@ -29,9 +29,11 @@ ScaleStatus status_for(
   status.adc_ready = true;
   status.calibration_loaded = true;
   status.persistence_available = true;
+  status.samples_in_filter = 3U;
   status.sample.raw_counts = raw_counts;
   status.sample.filtered_raw_counts = raw_counts + 0.6;
   status.sample.gross_grams = gross_grams;
+  status.sample.raw_stable = stable;
   status.sample.stable = stable;
   return status;
 }
@@ -65,7 +67,9 @@ void test_scale_diagnostics_expose_coherent_hardware_and_calibration_state() {
   TEST_ASSERT_TRUE(snapshot.scale_calibration_loaded);
   TEST_ASSERT_TRUE(snapshot.scale_calibration_matches_hardware);
   TEST_ASSERT_TRUE(snapshot.scale_weight_available);
+  TEST_ASSERT_TRUE(snapshot.scale_raw_stable);
   TEST_ASSERT_TRUE(snapshot.scale_stable);
+  TEST_ASSERT_EQUAL_UINT(3U, snapshot.scale_samples_in_filter);
   TEST_ASSERT_EQUAL_INT32(1000, snapshot.scale_raw_counts);
   TEST_ASSERT_EQUAL_INT32(1001, snapshot.scale_filtered_counts);
   TEST_ASSERT_EQUAL_INT32(42125, snapshot.scale_gross_milligrams);

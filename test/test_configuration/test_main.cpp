@@ -794,6 +794,44 @@ void test_local_interface_snapshot_is_narrow_current_and_independent() {
       "LocalApiToken-0123456789", current.web.access_token.c_str());
 }
 
+void test_backend_settings_snapshot_is_scoped_revisioned_and_independent() {
+  MemoryDocumentStore documents;
+  LegacyScaleStore legacy;
+  ConfigurationService service(documents, legacy);
+  TEST_ASSERT_TRUE(service.initialize().ok());
+
+  auto configured = service.snapshot();
+  configured.device.hostname = "unrelated-hostname";
+  configured.toolheads = {
+      {1, "Large unrelated toolhead", 0.4F, true, "brass", 300U,
+       std::string(256U, 'N')},
+  };
+  configured.spoolman.url = "https://spoolman.local";
+  configured.spoolman.authentication_token = "spool-token";
+  configured.spoolman.ca_certificate_pem = std::string(4096U, 'S');
+  configured.filabridge.url = "https://filabridge.local";
+  configured.filabridge.authentication_token = "fila-token";
+  configured.filabridge.ca_certificate_pem = std::string(4096U, 'F');
+  TEST_ASSERT_TRUE(service.replace(configured).ok());
+
+  auto backend = service.backend_settings_snapshot();
+  TEST_ASSERT_EQUAL_UINT64(service.revision(), backend.revision);
+  TEST_ASSERT_EQUAL_STRING(
+      "https://spoolman.local", backend.spoolman.url.c_str());
+  TEST_ASSERT_EQUAL_UINT(4096U, backend.spoolman.ca_certificate_pem.size());
+  TEST_ASSERT_EQUAL_STRING(
+      "https://filabridge.local", backend.filabridge.url.c_str());
+  TEST_ASSERT_EQUAL_UINT(4096U, backend.filabridge.ca_certificate_pem.size());
+
+  backend.spoolman.url.clear();
+  backend.filabridge.url.clear();
+  const auto current = service.backend_settings_snapshot();
+  TEST_ASSERT_EQUAL_STRING(
+      "https://spoolman.local", current.spoolman.url.c_str());
+  TEST_ASSERT_EQUAL_STRING(
+      "https://filabridge.local", current.filabridge.url.c_str());
+}
+
 void test_complete_toolhead_profile_round_trips() {
   MemoryDocumentStore documents;
   LegacyScaleStore legacy;
@@ -892,6 +930,7 @@ int main(int, char**) {
   RUN_TEST(test_validation_rejects_invalid_scale_hardware_settings);
   RUN_TEST(test_web_access_token_validation_is_fail_closed_and_ascii_only);
   RUN_TEST(test_local_interface_snapshot_is_narrow_current_and_independent);
+  RUN_TEST(test_backend_settings_snapshot_is_scoped_revisioned_and_independent);
   RUN_TEST(test_complete_toolhead_profile_round_trips);
   RUN_TEST(test_confirmed_spool_mapping_round_trips_and_conflicts_are_rejected);
   RUN_TEST(test_first_run_navigation_allows_tokenless_setup_completion);

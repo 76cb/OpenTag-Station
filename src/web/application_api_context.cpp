@@ -292,11 +292,13 @@ void write_scale(
   if (value.scale_tare_ready) {
     scale["tare_zero_offset_counts"] = value.scale_tare_zero_offset_counts;
   }
+  scale["samples_in_filter"] = value.scale_samples_in_filter;
   auto sample = scale["sample"].to<JsonObject>();
   if (value.scale_weight_available) {
     sample["gross_grams"] =
         static_cast<double>(value.scale_gross_milligrams) / 1000.0;
   }
+  sample["raw_stable"] = value.scale_raw_stable;
   sample["stable"] = value.scale_stable;
   sample["negative"] = value.scale_negative;
   sample["overload"] = value.scale_overload;

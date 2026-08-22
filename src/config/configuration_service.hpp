@@ -121,6 +121,12 @@ struct LocalInterfaceSettingsSnapshot {
   std::uint64_t revision{0U};
 };
 
+struct BackendSettingsSnapshot {
+  SpoolmanSettings spoolman;
+  FilaBridgeSettings filabridge;
+  std::uint64_t revision{0U};
+};
+
 class ConfigurationService final : public services::IScaleCalibrationStore,
                                    public services::ISpoolIdentityMappingStore {
  public:
@@ -136,6 +142,7 @@ class ConfigurationService final : public services::IScaleCalibrationStore,
   [[nodiscard]] Configuration snapshot() const;
   [[nodiscard]] LocalInterfaceSettingsSnapshot
       local_interface_settings_snapshot() const;
+  [[nodiscard]] BackendSettingsSnapshot backend_settings_snapshot() const;
   [[nodiscard]] VersionedConfiguration versioned_snapshot() const;
   [[nodiscard]] std::uint64_t revision() const;
   [[nodiscard]] ConfigurationStatus status() const;
