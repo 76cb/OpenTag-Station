@@ -53,7 +53,11 @@ void test_scale_diagnostics_expose_coherent_hardware_and_calibration_state() {
   ScaleHardwareSettings hardware;
   hardware.rated_capacity_grams = 5000.0F;
   hardware.overload_ratio = 1.10F;
-  const auto status = status_for(1000, 42.125F, true);
+  auto status = status_for(1000, 42.125F, true);
+  status.measurement_purpose = opentag::services::ScaleMeasurementPurpose::weigh;
+  status.measurement_state = opentag::services::ScaleMeasurementState::completed;
+  status.last_completed_grams = 42.0F;
+  status.last_completed_at_ms = 12345U;
   const auto calibration = calibration_for(500.0F, 5000.0F);
 
   store.update(status, calibration, hardware);
@@ -69,6 +73,15 @@ void test_scale_diagnostics_expose_coherent_hardware_and_calibration_state() {
   TEST_ASSERT_TRUE(snapshot.scale_weight_available);
   TEST_ASSERT_TRUE(snapshot.scale_raw_stable);
   TEST_ASSERT_TRUE(snapshot.scale_stable);
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(opentag::services::ScaleMeasurementPurpose::weigh),
+      static_cast<int>(snapshot.scale_measurement_purpose));
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(opentag::services::ScaleMeasurementState::completed),
+      static_cast<int>(snapshot.scale_measurement_state));
+  TEST_ASSERT_TRUE(snapshot.scale_last_completed_available);
+  TEST_ASSERT_EQUAL_INT32(42000, snapshot.scale_last_completed_milligrams);
+  TEST_ASSERT_EQUAL_UINT32(12345U, snapshot.scale_last_completed_at_ms);
   TEST_ASSERT_EQUAL_UINT(3U, snapshot.scale_samples_in_filter);
   TEST_ASSERT_EQUAL_INT32(1000, snapshot.scale_raw_counts);
   TEST_ASSERT_EQUAL_INT32(1001, snapshot.scale_filtered_counts);

@@ -121,6 +121,11 @@ struct LocalInterfaceSettingsSnapshot {
   std::uint64_t revision{0U};
 };
 
+struct ScaleProfileSnapshot {
+  services::ScaleHardwareSettings hardware;
+  std::uint64_t revision{0U};
+};
+
 struct BackendSettingsSnapshot {
   SpoolmanSettings spoolman;
   FilaBridgeSettings filabridge;
@@ -143,10 +148,12 @@ class ConfigurationService final : public services::IScaleCalibrationStore,
   [[nodiscard]] LocalInterfaceSettingsSnapshot
       local_interface_settings_snapshot() const;
   [[nodiscard]] BackendSettingsSnapshot backend_settings_snapshot() const;
+  [[nodiscard]] ScaleProfileSnapshot scale_profile_snapshot() const;
   [[nodiscard]] VersionedConfiguration versioned_snapshot() const;
   [[nodiscard]] std::uint64_t revision() const;
   [[nodiscard]] ConfigurationStatus status() const;
   [[nodiscard]] core::Result<void> replace(const Configuration& configuration);
+  [[nodiscard]] core::Result<void> confirm_browser_setup();
   [[nodiscard]] core::Result<void> replace_if_revision(
       const Configuration& configuration,
       std::uint64_t expected_revision);

@@ -8,6 +8,7 @@
 #include <lvgl.h>
 
 #include "application/configuration_worker.hpp"
+#include "application/scale_command_queue.hpp"
 #include "application/backend_worker.hpp"
 #include "config/configuration_service.hpp"
 #include "diagnostics/system_diagnostics.hpp"
@@ -35,6 +36,7 @@ class UiService {
       services::FirstRunSetup& first_run_setup,
       network::WifiService& network,
       application::ConfigurationWorker& configuration_worker,
+      application::ScaleCommandQueue& scale_commands,
       services::StationWorkflow& workflow,
       application::BackendWorker& backend_worker)
       : display_(display),
@@ -43,6 +45,7 @@ class UiService {
         first_run_setup_(first_run_setup),
         network_(network),
         configuration_worker_(configuration_worker),
+        scale_commands_(scale_commands),
         workflow_(workflow),
         backend_worker_(backend_worker) {}
 
@@ -73,6 +76,7 @@ class UiService {
   static void setup_textarea_callback(lv_event_t* event);
   static void setup_keyboard_callback(lv_event_t* event);
   static void diagnostics_toggle_callback(lv_event_t* event);
+  static void weigh_callback(lv_event_t* event);
   static void toolhead_callback(lv_event_t* event);
   static void assignment_confirmation_callback(lv_event_t* event);
 
@@ -102,6 +106,7 @@ class UiService {
   services::FirstRunSetup& first_run_setup_;
   network::WifiService& network_;
   application::ConfigurationWorker& configuration_worker_;
+  application::ScaleCommandQueue& scale_commands_;
   services::StationWorkflow& workflow_;
   application::BackendWorker& backend_worker_;
   lv_color_t* buffer_one_{nullptr};
@@ -111,6 +116,7 @@ class UiService {
   bool initialized_{false};
   bool dimmed_{false};
   bool showing_setup_{false};
+  bool first_run_gate_{false};
   bool showing_diagnostics_{false};
   bool showing_display_self_test_{OPENTAG_DISPLAY_SELF_TEST == 1};
   std::uint8_t normal_brightness_percent_{80U};
@@ -138,12 +144,14 @@ class UiService {
   lv_obj_t* setup_keyboard_{nullptr};
   lv_obj_t* workflow_material_label_{nullptr};
   lv_obj_t* workflow_weight_label_{nullptr};
+  lv_obj_t* workflow_weigh_button_{nullptr};
   lv_obj_t* workflow_identity_label_{nullptr};
   lv_obj_t* workflow_status_label_{nullptr};
   lv_obj_t* display_test_touch_marker_{nullptr};
   lv_obj_t* display_test_touch_label_{nullptr};
   std::array<lv_obj_t*, 5> workflow_toolhead_buttons_{};
   std::string workflow_feedback_;
+  std::optional<std::uint64_t> weigh_operation_id_;
   std::string pending_printer_id_;
   int pending_backend_toolhead_id_{-1};
   bool pending_replace_confirmation_{false};

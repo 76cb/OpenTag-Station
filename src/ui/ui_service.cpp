@@ -129,7 +129,11 @@ bool UiService::initialize() {
   display_.set_brightness(normal_brightness_percent_);
   dim_after_ms_ = configured.device.dim_after_ms;
   sleep_after_ms_ = configured.device.sleep_after_ms;
-  showing_setup_ = !first_run_setup_.complete();
+  first_run_gate_ = !first_run_setup_.complete();
+  showing_setup_ = first_run_gate_;
+  if (first_run_gate_ && !configured.wifi.ssid.empty()) {
+    (void)first_run_setup_.go_to(services::SetupStep::ready);
+  }
   build_current_screen();
   const auto now_ms = millis();
   last_tick_ms_ = now_ms;
@@ -211,6 +215,7 @@ void UiService::build_current_screen() {
   setup_keyboard_ = nullptr;
   workflow_material_label_ = nullptr;
   workflow_weight_label_ = nullptr;
+  workflow_weigh_button_ = nullptr;
   workflow_identity_label_ = nullptr;
   workflow_status_label_ = nullptr;
   display_test_touch_marker_ = nullptr;
@@ -395,8 +400,17 @@ void UiService::build_workflow_screen() {
       workflow_weight_label_, lv_color_hex(accent_text), 0);
   lv_obj_align(workflow_weight_label_, LV_ALIGN_TOP_RIGHT, -14, 56);
 
+  workflow_weigh_button_ = lv_btn_create(screen);
+  lv_obj_set_size(workflow_weigh_button_, 94, 38);
+  lv_obj_align(workflow_weigh_button_, LV_ALIGN_TOP_RIGHT, -14, 96);
+  lv_obj_add_event_cb(
+      workflow_weigh_button_, weigh_callback, LV_EVENT_CLICKED, this);
+  auto* weigh_label = lv_label_create(workflow_weigh_button_);
+  lv_label_set_text(weigh_label, "Weigh");
+  lv_obj_center(weigh_label);
+
   workflow_identity_label_ = lv_label_create(screen);
-  lv_obj_set_width(workflow_identity_label_, 452);
+  lv_obj_set_width(workflow_identity_label_, 342);
   lv_obj_set_style_text_color(
       workflow_identity_label_, lv_color_hex(secondary_text), 0);
   lv_obj_align(workflow_identity_label_, LV_ALIGN_TOP_LEFT, 14, 108);
@@ -682,6 +696,7 @@ void UiService::setup_next_callback(lv_event_t* event) {
   }
   if (step == services::SetupStep::ready) {
     self->showing_setup_ = false;
+    self->first_run_gate_ = false;
     self->showing_diagnostics_ = false;
     self->build_current_screen();
     self->refresh_current(millis());
@@ -697,10 +712,25 @@ void UiService::setup_next_callback(lv_event_t* event) {
 void UiService::setup_toggle_callback(lv_event_t* event) {
   auto* self = static_cast<UiService*>(lv_event_get_user_data(event));
   self->showing_setup_ = !self->showing_setup_;
+  self->first_run_gate_ = false;
   self->showing_diagnostics_ = false;
   self->setup_feedback_.clear();
   self->build_current_screen();
   if (!self->showing_setup_) self->refresh_current(millis());
+}
+
+void UiService::weigh_callback(lv_event_t* event) {
+  auto* self = static_cast<UiService*>(lv_event_get_user_data(event));
+  const auto receipt = self->scale_commands_.submit_weigh(millis());
+  if (receipt.accepted) {
+    self->weigh_operation_id_ = receipt.operation_id;
+    self->workflow_feedback_ = "Weigh queued";
+  } else {
+    self->weigh_operation_id_.reset();
+    self->workflow_feedback_ =
+        "Weigh request rejected or the scale queue is full";
+  }
+  self->refresh_workflow();
 }
 
 void UiService::diagnostics_toggle_callback(lv_event_t* event) {
@@ -924,6 +954,13 @@ void UiService::setup_keyboard_callback(lv_event_t* event) {
 
 void UiService::refresh_setup() {
   if (!showing_setup_ || setup_progress_label_ == nullptr) return;
+  if (first_run_gate_ && first_run_setup_.complete()) {
+    showing_setup_ = false;
+    first_run_gate_ = false;
+    build_current_screen();
+    refresh_current(millis());
+    return;
+  }
   if (setup_feedback_ == "Save queued" &&
       configuration_worker_.pending() == 0U) {
     setup_feedback_ = configuration_worker_.last_operation_succeeded()
@@ -1054,6 +1091,27 @@ void UiService::refresh_workflow() {
   }
   const auto state = workflow_.snapshot();
   const auto configured = configuration_.snapshot();
+  const auto scale = diagnostics_.scale_snapshot();
+  if (weigh_operation_id_.has_value()) {
+    const auto operation = scale_commands_.operation(*weigh_operation_id_);
+    if (!operation.has_value()) {
+      workflow_feedback_ = "Weigh status unavailable; retry if needed";
+      weigh_operation_id_.reset();
+    } else if (operation->state == application::OperationState::queued ||
+               operation->state == application::OperationState::running) {
+      workflow_feedback_ = operation->message.empty()
+          ? "Weighing: waiting for the scale to settle"
+          : operation->message;
+    } else if (operation->state == application::OperationState::succeeded) {
+      workflow_feedback_ = "Weight captured";
+      weigh_operation_id_.reset();
+    } else {
+      workflow_feedback_ = operation->error.has_value()
+          ? "Weigh failed: " + operation->error->message
+          : "Weigh did not complete";
+      weigh_operation_id_.reset();
+    }
+  }
 
   if (!state.openprinttag_available) {
     lv_label_set_text(workflow_material_label_, "PLACE A SPOOL\nWaiting for OpenPrintTag");
@@ -1063,17 +1121,6 @@ void UiService::refresh_workflow() {
     const std::string material_name = state.material.material_name.value_or(
         state.material.material_abbreviation.value_or("OpenPrintTag material"));
     lv_label_set_text(workflow_material_label_, material_name.c_str());
-    if (state.reconciliation.measured_remaining_grams.has_value()) {
-      lv_label_set_text_fmt(
-          workflow_weight_label_,
-          "%.0f g\nremaining",
-          *state.reconciliation.measured_remaining_grams);
-    } else {
-      lv_label_set_text_fmt(
-          workflow_weight_label_,
-          "%.0f g\nphysical",
-          state.physical_weight.gross_grams);
-    }
     if (state.spool.has_value()) {
       lv_label_set_text_fmt(
           workflow_identity_label_,
@@ -1081,6 +1128,37 @@ void UiService::refresh_workflow() {
           static_cast<long>(state.spool->id));
     } else {
       lv_label_set_text(workflow_identity_label_, "Spoolman unresolved     OpenPrintTag OK");
+    }
+  }
+
+  if (scale.scale_measurement_state ==
+          services::ScaleMeasurementState::settling ||
+      scale.scale_measurement_state == services::ScaleMeasurementState::ready) {
+    if (scale.scale_weight_available) {
+      lv_label_set_text_fmt(
+          workflow_weight_label_, "%.0f g\nsettling",
+          static_cast<double>(scale.scale_gross_milligrams) / 1000.0);
+    } else {
+      lv_label_set_text(workflow_weight_label_, "-- g\nsettling");
+    }
+  } else if (scale.scale_last_completed_available) {
+    lv_label_set_text_fmt(
+        workflow_weight_label_, "%.0f g\n%lus ago",
+        static_cast<double>(scale.scale_last_completed_milligrams) / 1000.0,
+        static_cast<unsigned long>((millis() -
+            scale.scale_last_completed_at_ms) / 1000U));
+  } else {
+    lv_label_set_text(workflow_weight_label_, "-- g\npress Weigh");
+  }
+  if (workflow_weigh_button_ != nullptr) {
+    const bool enabled = scale.scale_adc_ready && scale.scale_calibrated &&
+        !diagnostics_.scale_measurement_active() &&
+        scale_commands_.pending() == 0U &&
+        !weigh_operation_id_.has_value();
+    if (enabled) {
+      lv_obj_clear_state(workflow_weigh_button_, LV_STATE_DISABLED);
+    } else {
+      lv_obj_add_state(workflow_weigh_button_, LV_STATE_DISABLED);
     }
   }
 

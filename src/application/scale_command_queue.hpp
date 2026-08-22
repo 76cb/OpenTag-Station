@@ -3,6 +3,7 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 
 #include <freertos/FreeRTOS.h>
 #include <freertos/queue.h>
@@ -24,6 +25,7 @@ class ScaleCommandQueue final {
         operations_(operations) {}
 
   [[nodiscard]] bool initialize();
+  [[nodiscard]] CommandReceipt submit_weigh(std::uint32_t now_ms);
   [[nodiscard]] CommandReceipt submit_tare(std::uint32_t now_ms);
   [[nodiscard]] CommandReceipt submit_calibration(
       float reference_grams,
@@ -32,9 +34,13 @@ class ScaleCommandQueue final {
   [[nodiscard]] std::size_t pending() const {
     return pending_.load(std::memory_order_relaxed);
   }
+  [[nodiscard]] std::optional<OperationRecord> operation(
+      std::uint64_t operation_id) const {
+    return operations_.get(operation_id);
+  }
 
  private:
-  enum class CommandType : std::uint8_t { tare, calibrate };
+  enum class CommandType : std::uint8_t { weigh, tare, calibrate };
   struct Command {
     CommandType type{CommandType::tare};
     float reference_grams{0.0F};
@@ -51,6 +57,7 @@ class ScaleCommandQueue final {
   OperationRegistry& operations_;
   QueueHandle_t queue_{nullptr};
   std::atomic_size_t pending_{0U};
+  std::optional<Command> active_;
 };
 
 }  // namespace opentag::application

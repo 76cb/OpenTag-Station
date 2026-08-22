@@ -59,6 +59,24 @@ enum class ScaleState : std::uint8_t {
 
 [[nodiscard]] const char* to_string(ScaleState state);
 
+enum class ScaleMeasurementPurpose : std::uint8_t {
+  weigh,
+  tare,
+  calibration,
+};
+
+enum class ScaleMeasurementState : std::uint8_t {
+  idle,
+  settling,
+  ready,
+  completed,
+  timed_out,
+  failed,
+};
+
+[[nodiscard]] const char* to_string(ScaleMeasurementPurpose purpose);
+[[nodiscard]] const char* to_string(ScaleMeasurementState state);
+
 struct ScaleProcessingConfig {
   static constexpr std::size_t maximum_filter_window = 32U;
 
@@ -66,11 +84,13 @@ struct ScaleProcessingConfig {
   float stability_threshold_grams{2.0F};
   std::uint32_t stability_duration_ms{1500U};
   std::uint32_t sample_timeout_ms{1500U};
+  std::uint32_t measurement_timeout_ms{20000U};
   std::int32_t tare_stability_counts{500};
   float negative_tolerance_grams{2.0F};
   float overload_ratio{1.10F};
   float adc_overload_ratio{0.98F};
   float creep_warning_grams{5.0F};
+  float near_zero_deadband_grams{1.0F};
 
   [[nodiscard]] core::Result<void> validate() const;
 };
@@ -97,6 +117,11 @@ struct ScaleStatus {
   std::int32_t tare_zero_offset_counts{0};
   std::size_t samples_in_filter{0};
   ScaleSample sample;
+  ScaleMeasurementPurpose measurement_purpose{ScaleMeasurementPurpose::weigh};
+  ScaleMeasurementState measurement_state{ScaleMeasurementState::idle};
+  std::optional<float> last_completed_grams;
+  std::uint32_t last_completed_at_ms{0U};
+  std::optional<core::Error> measurement_error;
   std::optional<core::Error> last_error;
 };
 
@@ -115,12 +140,19 @@ class ScaleService {
   [[nodiscard]] core::Result<void> reconfigure_hardware(
       const ScaleHardwareSettings& settings);
   [[nodiscard]] core::Result<bool> poll(std::uint32_t now_ms);
+  [[nodiscard]] core::Result<void> begin_measurement(
+      ScaleMeasurementPurpose purpose,
+      std::uint32_t now_ms);
   [[nodiscard]] core::Result<void> tare();
   [[nodiscard]] core::Result<ScaleCalibration> calibrate(
       float reference_grams,
       float load_cell_capacity_grams);
 
   [[nodiscard]] const ScaleStatus& status() const { return status_; }
+  [[nodiscard]] bool measurement_active() const {
+    return status_.measurement_state == ScaleMeasurementState::settling ||
+        status_.measurement_state == ScaleMeasurementState::ready;
+  }
   [[nodiscard]] const std::optional<ScaleCalibration>& calibration() const {
     return calibration_;
   }
@@ -129,7 +161,16 @@ class ScaleService {
   }
 
  private:
+  struct FilterStatistics {
+    double mean{0.0};
+    std::int32_t minimum{0};
+    std::int32_t maximum{0};
+  };
+
+  [[nodiscard]] FilterStatistics filter_statistics() const;
   [[nodiscard]] bool raw_filter_stable() const;
+  void advance_measurement(std::uint32_t now_ms);
+  void fail_active_measurement(const core::Error& error);
   void push_sample(std::int32_t raw_counts, std::uint32_t now_ms);
   void reset_filter();
   void set_error(core::Error error, ScaleState state);
@@ -148,6 +189,7 @@ class ScaleService {
   std::uint32_t last_sample_ms_{0U};
   std::optional<std::uint32_t> stable_candidate_since_ms_;
   std::optional<float> stable_baseline_grams_;
+  std::optional<std::uint32_t> measurement_started_ms_;
 };
 
 }  // namespace opentag::services

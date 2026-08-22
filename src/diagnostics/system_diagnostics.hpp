@@ -198,6 +198,13 @@ struct ScaleDiagnosticSnapshot {
   bool scale_tare_ready{false};
   std::int32_t scale_tare_zero_offset_counts{0};
   bool scale_weight_available{false};
+  services::ScaleMeasurementPurpose scale_measurement_purpose{
+      services::ScaleMeasurementPurpose::weigh};
+  services::ScaleMeasurementState scale_measurement_state{
+      services::ScaleMeasurementState::idle};
+  bool scale_last_completed_available{false};
+  std::int32_t scale_last_completed_milligrams{0};
+  std::uint32_t scale_last_completed_at_ms{0U};
   bool scale_raw_stable{false};
   bool scale_stable{false};
   std::size_t scale_samples_in_filter{0U};
@@ -236,6 +243,16 @@ class ScaleDiagnosticStore final {
     next.scale_persistence_available = status.persistence_available;
     next.scale_tare_ready = status.tare_ready;
     next.scale_tare_zero_offset_counts = status.tare_zero_offset_counts;
+    next.scale_measurement_purpose = status.measurement_purpose;
+    next.scale_measurement_state = status.measurement_state;
+    next.scale_last_completed_available =
+        status.last_completed_grams.has_value() &&
+        std::isfinite(*status.last_completed_grams);
+    next.scale_last_completed_milligrams =
+        next.scale_last_completed_available
+            ? bounded_int32(*status.last_completed_grams * 1000.0)
+            : 0;
+    next.scale_last_completed_at_ms = status.last_completed_at_ms;
     next.scale_raw_stable = status.sample.raw_stable;
     next.scale_stable = status.sample.stable;
     next.scale_samples_in_filter = status.samples_in_filter;
@@ -299,6 +316,13 @@ class ScaleDiagnosticStore final {
   [[nodiscard]] ScaleDiagnosticSnapshot snapshot() const {
     const std::lock_guard<std::mutex> lock(mutex_);
     return state_;
+  }
+
+  [[nodiscard]] bool measurement_active() const {
+    const std::lock_guard<std::mutex> lock(mutex_);
+    return state_.scale_measurement_state ==
+            services::ScaleMeasurementState::settling ||
+        state_.scale_measurement_state == services::ScaleMeasurementState::ready;
   }
 
  private:
@@ -390,6 +414,9 @@ class SystemDiagnostics {
       const services::ScaleHardwareSettings& hardware);
   [[nodiscard]] ScaleDiagnosticSnapshot scale_snapshot() const {
     return scale_diagnostics_.snapshot();
+  }
+  [[nodiscard]] bool scale_measurement_active() const {
+    return scale_diagnostics_.measurement_active();
   }
   void set_network_task_running(bool running) {
     network_task_running_.store(running, std::memory_order_relaxed);

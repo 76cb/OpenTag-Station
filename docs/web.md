@@ -8,8 +8,9 @@ actions, and the validated A/B firmware-update workflow.
 
 ## Validation status
 
-The current firmware preserves the Phase 11 routes and adds four bounded
-network provisioning routes, for 30 metadata-declared routes. The hardware
+The current firmware preserves the Phase 11 routes, adds four bounded
+network provisioning routes, and adds one bounded Weigh route, for 31
+metadata-declared routes. The hardware
 stabilization pass adds bounded browser scheduling, explicit configuration
 state, one managed live connection per tab, fallback polling, and a read-only
 transport self-test. Browser request epochs, payload revision guards, and socket
@@ -70,7 +71,7 @@ remote and device text with DOM text nodes rather than HTML parsing.
 
 ## Route catalog
 
-The router has exactly 30 metadata-declared REST routes. `/api/v1/events` is a
+The router has exactly 31 metadata-declared REST routes. `/api/v1/events` is a
 separate WebSocket transport endpoint and is not included in that count.
 
 ### Station and diagnostics
@@ -92,7 +93,8 @@ separate WebSocket transport endpoint and is not included in that count.
 | # | Method and path | Purpose |
 | ---: | --- | --- |
 | 6 | `GET /api/v1/scale` | Current scale snapshot and command-queue depth. |
-| 7 | `POST /api/v1/scale/tare` | Queue a tare; body is `{}`. |
+| 7 | `POST /api/v1/scale/weigh` | Start a bounded stable-weight session; body is `{}`. |
+| 7a | `POST /api/v1/scale/tare` | Queue a tare session; body is `{}`. |
 | 8 | `POST /api/v1/scale/calibrate` | Queue calibration with `{"reference_grams": number}` in `(0, 5000]`. |
 
 ### NFC and OpenPrintTag
@@ -556,7 +558,8 @@ on the WT32-SC01 Plus over an isolated encrypted LAN:
 6. Run two tabs long enough to cover both WebSockets and simultaneous controls;
    then attempt an excess client. Confirm graceful fallback/rejection, socket
    reclamation, and no device reset, watchdog, or task starvation.
-7. Verify scale events/tare/calibration against real hardware without starving
+7. Verify on-demand Weigh sessions, final retained results, session-only scale
+   events, tare, and calibration against real hardware without starving
    LVGL, network, configuration, or backend work.
 8. Confirm all NFC routes stay explicitly unavailable on the wiring-gated build.
 9. Exercise reboot and factory reset, including power interruption at each erase

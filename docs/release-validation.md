@@ -388,7 +388,7 @@ five-second no-progress deadline, and a 180-second absolute deadline.
 | --- | --- | --- |
 | `GET status,device,health,scale,nfc,nfc/tag,spool,printers,toolheads,config,diagnostics,logs,update` | 0 bytes | Snapshot; config is allowlisted/redacted |
 | `GET operations/{id}` | 0 bytes | Canonical positive ID; 404 after bounded eviction |
-| `POST scale/tare,nfc/read,backends/test` | 256-byte exact `{}` | Volatile ten-minute/32-entry idempotency |
+| `POST scale/weigh,scale/tare,nfc/read,backends/test` | 256-byte exact `{}` | Volatile ten-minute/32-entry idempotency |
 | `POST scale/calibrate` | 512-byte strict JSON | Reference within selected capacity |
 | `POST toolheads/{id}/assign` | 2,048-byte strict JSON | Spool generation, printer revision/state, current spool, confirmations |
 | `POST toolheads/{id}/unassign` | 2,048-byte strict JSON | Same stale guards and exact current spool |

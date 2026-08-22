@@ -77,7 +77,7 @@ struct RouteMetadata {
   BodyTransport body_transport{BodyTransport::buffered_json};
 };
 
-inline constexpr std::array<RouteMetadata, 30U> routes = {{
+inline constexpr std::array<RouteMetadata, 31U> routes = {{
     {Method::get, "/api/v1/status", 0U, false},
     {Method::get, "/api/v1/device", 0U, false},
     {Method::get, "/api/v1/health", 0U, false},
@@ -86,6 +86,7 @@ inline constexpr std::array<RouteMetadata, 30U> routes = {{
     {Method::post, "/api/v1/network/connect", 1024U, true},
     {Method::post, "/api/v1/network/setup-mode", 256U, true},
     {Method::get, "/api/v1/scale", 0U, false},
+    {Method::post, "/api/v1/scale/weigh", 256U, true},
     {Method::post, "/api/v1/scale/tare", 256U, true},
     {Method::post, "/api/v1/scale/calibrate", 512U, true},
     {Method::get, "/api/v1/nfc", 0U, false},
@@ -251,6 +252,7 @@ struct UpdateControlMutation {
 };
 
 enum class MutationKind : std::uint8_t {
+  scale_weigh,
   scale_tare,
   scale_calibration,
   nfc_read,

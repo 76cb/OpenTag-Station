@@ -134,6 +134,7 @@ Response context_error(const core::Error& error) {
 
 const char* mutation_name(MutationKind kind) {
   switch (kind) {
+    case MutationKind::scale_weigh: return "scale_weigh";
     case MutationKind::scale_tare: return "scale_tare";
     case MutationKind::scale_calibration: return "scale_calibration";
     case MutationKind::nfc_read: return "nfc_read";
@@ -893,7 +894,8 @@ core::Result<Mutation> parse_mutation(
   Mutation mutation;
   mutation.idempotency_key = idempotency_key;
 
-  if (request.path == "/api/v1/scale/tare" ||
+  if (request.path == "/api/v1/scale/weigh" ||
+      request.path == "/api/v1/scale/tare" ||
       request.path == "/api/v1/nfc/read" ||
       request.path == "/api/v1/backends/test" ||
       request.path == "/api/v1/network/scan" ||
@@ -902,7 +904,9 @@ core::Result<Mutation> parse_mutation(
       return core::Result<Mutation>::failure(
           invalid_request("this operation requires an empty JSON object"));
     }
-    if (request.path == "/api/v1/scale/tare") {
+    if (request.path == "/api/v1/scale/weigh") {
+      mutation.kind = MutationKind::scale_weigh;
+    } else if (request.path == "/api/v1/scale/tare") {
       mutation.kind = MutationKind::scale_tare;
     } else if (request.path == "/api/v1/nfc/read") {
       mutation.kind = MutationKind::nfc_read;
