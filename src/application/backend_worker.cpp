@@ -17,14 +17,20 @@ core::Error wifi_offline_error() {
   };
 }
 
-bool same_settings(
-    const config::SpoolmanSettings& left,
-    const config::SpoolmanSettings& right) {
-  return left.url == right.url &&
-      left.authentication_token == right.authentication_token &&
-      left.identity_field == right.identity_field &&
-      left.nfc_uid_field == right.nfc_uid_field &&
-      left.ca_certificate_pem == right.ca_certificate_pem;
+core::Error spoolman_unconfigured_error() {
+  return {
+      core::ErrorCategory::configuration,
+      "Spoolman URL is not configured",
+      false,
+  };
+}
+
+core::Error filabridge_unconfigured_error() {
+  return {
+      core::ErrorCategory::configuration,
+      "FilaBridge URL is not configured",
+      false,
+  };
 }
 
 std::string bounded_status_text(std::string value) {
@@ -61,15 +67,6 @@ BackendRuntimeSnapshot runtime_snapshot(
     result.last_error->message = bounded_status_text(result.last_error->message);
   }
   return result;
-}
-
-bool same_settings(
-    const config::FilaBridgeSettings& left,
-    const config::FilaBridgeSettings& right) {
-  return left.url == right.url &&
-      left.authentication_token == right.authentication_token &&
-      left.selected_printer_id == right.selected_printer_id &&
-      left.ca_certificate_pem == right.ca_certificate_pem;
 }
 
 }  // namespace
@@ -276,68 +273,138 @@ void BackendWorker::task_entry(void* context) {
   static_cast<BackendWorker*>(context)->run();
 }
 
+bool BackendWorker::apply_backend_settings_if_changed() {
+  const auto current_revision = configuration_.revision();
+  if (applied_backend_settings_revision_.has_value() &&
+      *applied_backend_settings_revision_ == current_revision) {
+    return false;
+  }
+
+  auto configured = configuration_.backend_settings_snapshot();
+  if (applied_backend_settings_revision_.has_value() &&
+      *applied_backend_settings_revision_ == configured.revision) {
+    return false;
+  }
+
+  spoolman_configured_ = !configured.spoolman.url.empty();
+  filabridge_configured_ = !configured.filabridge.url.empty();
+  resolver_.configure(configured.spoolman);
+  spoolman_.configure(std::move(configured.spoolman));
+  filabridge_.configure(std::move(configured.filabridge));
+  applied_backend_settings_revision_ = configured.revision;
+  wifi_offline_published_ = false;
+
+  std::optional<core::Error> spoolman_error;
+  std::optional<core::Error> filabridge_error;
+  if (!spoolman_configured_) {
+    spoolman_error = spoolman_unconfigured_error();
+    workflow_.set_spoolman_probe(false, spoolman_error);
+  }
+  if (!filabridge_configured_) {
+    filabridge_error = filabridge_unconfigured_error();
+    workflow_.set_filabridge_probe(false, false, filabridge_error);
+  }
+  if (spoolman_error.has_value() || filabridge_error.has_value()) {
+    std::lock_guard<std::mutex> lock(status_mutex_);
+    if (spoolman_error.has_value()) {
+      status_.spoolman = {};
+      status_.spoolman.last_error = *spoolman_error;
+    }
+    if (filabridge_error.has_value()) {
+      status_.filabridge = {};
+      status_.filabridge.last_error = *filabridge_error;
+    }
+    ++status_.revision;
+  }
+  return true;
+}
+
 void BackendWorker::probe_backends(std::uint64_t operation_id) {
   const auto now_ms = millis();
   if (operation_id != 0U) {
     operations_.mark_running(operation_id, now_ms, "Probing backends");
   }
-  if (WiFi.status() != WL_CONNECTED) {
-    const auto error = wifi_offline_error();
-    workflow_.set_spoolman_probe(false, error);
-    workflow_.set_filabridge_probe(false, false, error);
-    {
-      std::lock_guard<std::mutex> lock(status_mutex_);
-      status_.spoolman = {};
-      status_.filabridge = {};
-      status_.spoolman.last_error = error;
-      status_.filabridge.last_error = error;
-      ++status_.revision;
+
+  (void)apply_backend_settings_if_changed();
+  if (!spoolman_configured_ && !filabridge_configured_) {
+    if (operation_id != 0U) {
+      operations_.fail(operation_id, now_ms, spoolman_unconfigured_error());
     }
-    if (operation_id != 0U) operations_.fail(operation_id, now_ms, error);
     return;
   }
 
-  const auto configured = configuration_.snapshot();
-  spoolman_.configure(configured.spoolman);
-  filabridge_.configure(configured.filabridge);
-  resolver_.configure(configured.spoolman);
-  applied_spoolman_settings_ = configured.spoolman;
-  applied_filabridge_settings_ = configured.filabridge;
+  if (WiFi.status() != WL_CONNECTED) {
+    if (wifi_offline_published_ && operation_id == 0U) return;
+    const auto error = wifi_offline_error();
+    if (spoolman_configured_) workflow_.set_spoolman_probe(false, error);
+    if (filabridge_configured_) {
+      workflow_.set_filabridge_probe(false, false, error);
+    }
+    {
+      std::lock_guard<std::mutex> lock(status_mutex_);
+      if (spoolman_configured_) {
+        status_.spoolman = {};
+        status_.spoolman.last_error = error;
+      }
+      if (filabridge_configured_) {
+        status_.filabridge = {};
+        status_.filabridge.last_error = error;
+      }
+      ++status_.revision;
+    }
+    wifi_offline_published_ = true;
+    if (operation_id != 0U) operations_.fail(operation_id, now_ms, error);
+    return;
+  }
+  wifi_offline_published_ = false;
 
-  const auto spoolman_status = spoolman_.probe();
-  workflow_.set_spoolman_probe(
-      spoolman_status.ok() && spoolman_status.value().healthy,
-      spoolman_status.ok()
-          ? std::optional<core::Error>{}
-          : std::optional<core::Error>{spoolman_status.error()});
-
-  const auto filabridge_status = filabridge_.probe();
+  std::optional<core::Error> spoolman_error;
+  std::optional<core::Error> filabridge_error;
   std::optional<core::Error> printer_refresh_error;
-  if (!filabridge_status.ok()) {
-    workflow_.set_filabridge_probe(false, false, filabridge_status.error());
-  } else {
-    const auto capabilities = filabridge_.capabilities();
-    const bool assignment_available =
-        capabilities.has(integrations::BackendCapability::map_toolhead) &&
-        capabilities.has(integrations::BackendCapability::unmap_toolhead);
-    workflow_.set_filabridge_probe(
-        true,
-        assignment_available,
-        filabridge_status.value().last_error);
-    const auto refreshed = workflow_.refresh_printers();
-    printer_refresh_error = refreshed.filabridge_error;
+  if (spoolman_configured_) {
+    const auto result = spoolman_.probe();
+    if (!result.ok()) spoolman_error = result.error();
+    workflow_.set_spoolman_probe(
+        result.ok() && result.value().healthy,
+        spoolman_error);
+  }
+  if (filabridge_configured_) {
+    const auto result = filabridge_.probe();
+    if (!result.ok()) {
+      filabridge_error = result.error();
+      workflow_.set_filabridge_probe(false, false, filabridge_error);
+    } else {
+      const auto capabilities = filabridge_.capabilities();
+      const bool assignment_available =
+          capabilities.has(integrations::BackendCapability::map_toolhead) &&
+          capabilities.has(integrations::BackendCapability::unmap_toolhead);
+      workflow_.set_filabridge_probe(
+          true,
+          assignment_available,
+          result.value().last_error);
+      const auto refreshed = workflow_.refresh_printers();
+      printer_refresh_error = refreshed.filabridge_error;
+    }
   }
   {
     std::lock_guard<std::mutex> lock(status_mutex_);
-    status_.spoolman = runtime_snapshot(spoolman_.status());
-    status_.filabridge = runtime_snapshot(filabridge_.status());
+    if (spoolman_configured_) {
+      status_.spoolman = runtime_snapshot(spoolman_.status());
+    }
+    if (filabridge_configured_) {
+      status_.filabridge = runtime_snapshot(filabridge_.status());
+    }
     ++status_.revision;
   }
   if (operation_id != 0U) {
-    if (!spoolman_status.ok()) {
-      operations_.fail(operation_id, millis(), spoolman_status.error());
-    } else if (!filabridge_status.ok()) {
-      operations_.fail(operation_id, millis(), filabridge_status.error());
+    if (!spoolman_configured_) {
+      operations_.fail(operation_id, millis(), spoolman_unconfigured_error());
+    } else if (spoolman_error.has_value()) {
+      operations_.fail(operation_id, millis(), *spoolman_error);
+    } else if (!filabridge_configured_) {
+      operations_.fail(operation_id, millis(), filabridge_unconfigured_error());
+    } else if (filabridge_error.has_value()) {
+      operations_.fail(operation_id, millis(), *filabridge_error);
     } else if (printer_refresh_error.has_value()) {
       operations_.fail(operation_id, millis(), *printer_refresh_error);
     } else {
@@ -347,14 +414,13 @@ void BackendWorker::probe_backends(std::uint64_t operation_id) {
 }
 
 void BackendWorker::process(Command& command) {
+  const bool backend_settings_changed = apply_backend_settings_if_changed();
+  if (command.type == CommandType::refresh) {
+    probe_backends(command.operation_id);
+    return;
+  }
   const auto configured = configuration_.snapshot();
   if (command.type == CommandType::identified_spool) {
-    if (!applied_spoolman_settings_.has_value() ||
-        !same_settings(*applied_spoolman_settings_, configured.spoolman)) {
-      spoolman_.configure(configured.spoolman);
-      resolver_.configure(configured.spoolman);
-      applied_spoolman_settings_ = configured.spoolman;
-    }
     const auto state = workflow_.accept_identified_spool(
         command.material,
         command.uid,
@@ -366,8 +432,7 @@ void BackendWorker::process(Command& command) {
     return;
   }
   if (command.type == CommandType::assign) {
-    if (!applied_filabridge_settings_.has_value() ||
-        !same_settings(*applied_filabridge_settings_, configured.filabridge)) {
+    if (backend_settings_changed) {
       probe_backends();
     }
     if (static_cast<std::uint32_t>(millis() - command.enqueued_at_ms) >
@@ -409,8 +474,7 @@ void BackendWorker::process(Command& command) {
     return;
   }
   if (command.type == CommandType::unassign) {
-    if (!applied_filabridge_settings_.has_value() ||
-        !same_settings(*applied_filabridge_settings_, configured.filabridge)) {
+    if (backend_settings_changed) {
       probe_backends();
     }
     if (static_cast<std::uint32_t>(millis() - command.enqueued_at_ms) >

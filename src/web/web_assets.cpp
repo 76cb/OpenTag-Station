@@ -1334,7 +1334,8 @@ const char application_javascript[] = R"JS((function () {
     const scale = asObject(state.scale);
     const sample = asObject(first(scale.sample, scale));
     const adcReady = scale.adc_ready === true;
-    const stable = first(sample.stable, scale.stable, false) === true;
+    const rawStable = first(sample.raw_stable, scale.raw_stable, false) === true;
+    const samplesInFilter = Number(first(scale.samples_in_filter, sample.samples_in_filter, 0));
     const explicitTare = Object.prototype.hasOwnProperty.call(scale, 'tare_ready');
     const tareReady = explicitTare ? scale.tare_ready === true : state.scaleTareFallback;
     const reference = Number(valueOf('reference-grams'));
@@ -1343,22 +1344,26 @@ const char application_javascript[] = R"JS((function () {
     const referenceReady = Number.isFinite(reference) && reference > 0 && reference <= maximum;
     const tare = byId('tare-scale');
     const calibrate = byId('calibrate-scale');
-    if (tare) tare.disabled = !adcReady || !stable || state.scaleBusy || state.maintenance;
-    if (calibrate) calibrate.disabled = !adcReady || !stable || !tareReady || !referenceReady || state.scaleBusy || state.maintenance;
+    if (tare) tare.disabled = !adcReady || !rawStable || state.scaleBusy || state.maintenance;
+    if (calibrate) calibrate.disabled = !adcReady || !rawStable || !tareReady || !referenceReady || state.scaleBusy || state.maintenance;
     if (state.scaleBusy) {
       setText('scale-action-status', state.scaleProgress || 'Scale operation in progress…');
     } else if (!state.scale) {
       setText('scale-action-status', 'Waiting for the first scale snapshot.');
     } else if (!adcReady) {
       setText('scale-action-status', 'Scale hardware is unavailable; tare and calibration are disabled.');
-    } else if (!stable) {
-      setText('scale-action-status', 'Waiting for stable reading. Keep the platform still.');
+    } else if (!tareReady && !rawStable) {
+      setText('scale-action-status', 'Waiting for stable empty platform.');
     } else if (!tareReady) {
-      setText('scale-action-status', 'Empty the platform, wait for Stable, then Tare. Calibration remains disabled until tare completes.');
+      setText('scale-action-status', 'Ready to tare.');
+    } else if (!Number.isFinite(samplesInFilter) || samplesInFilter <= 0) {
+      setText('scale-action-status', 'Tare complete — place reference weight.');
+    } else if (!rawStable) {
+      setText('scale-action-status', 'Waiting for stable reference weight.');
+    } else if (!referenceReady) {
+      setText('scale-action-status', 'Reference weight is stable. Enter its mass to continue.');
     } else {
-      setText('scale-action-status', 'Tare complete at ' +
-        String(first(scale.tare_zero_offset_counts, asObject(scale.calibration).zero_offset_counts, 'the current zero')) +
-        ' counts. Place the reference weight, wait for Stable, then calibrate.');
+      setText('scale-action-status', 'Ready to calibrate.');
     }
   }
 
@@ -2554,19 +2559,21 @@ const char application_javascript[] = R"JS((function () {
   async function runScaleMutation(button, path, body, success) {
     const scale = asObject(state.scale);
     const sample = asObject(first(scale.sample, scale));
-    const stable = first(sample.stable, scale.stable, false) === true;
+    const rawStable = first(sample.raw_stable, scale.raw_stable, false) === true;
     const tareReady = Object.prototype.hasOwnProperty.call(scale, 'tare_ready')
       ? scale.tare_ready === true : state.scaleTareFallback;
     if (scale.adc_ready !== true) {
       showToast('Scale hardware is unavailable.', true);
       return;
     }
-    if (!stable) {
-      showToast('Waiting for stable reading. Keep the platform still before sending this command.', true);
-      return;
-    }
     if (path === '/scale/calibrate' && !tareReady) {
       showToast('Tare must complete before calibration.', true);
+      return;
+    }
+    if (!rawStable) {
+      showToast(path === '/scale/tare'
+        ? 'Waiting for stable empty platform.'
+        : 'Waiting for stable reference weight.', true);
       return;
     }
     state.scaleBusy = true;

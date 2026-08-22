@@ -696,7 +696,7 @@ test("failed startup keeps UNKNOWN control optimistic and sends a tokenless firs
   const reference = document.getElementById("reference-grams");
   reference.max = "5000";
   reference.value = "250";
-  T.renderScale({ revision: 1, adc_ready: true, stable: true, tare_ready: true });
+  T.renderScale({ revision: 1, adc_ready: true, stable: true, raw_stable: true, samples_in_filter: 3, tare_ready: true });
   assert.equal(document.getElementById("tare-scale").disabled, false);
   assert.equal(document.getElementById("calibrate-scale").disabled, false);
   T.renderNfc({ available: true, state: "ready" });
@@ -1481,38 +1481,55 @@ test('heartbeat and snapshot events cause no REST storm while invalidation refre
   assert.equal(app.fetchCalls[0].url, '/api/v1/network');
 });
 
-test('scale controls require ready/stable ADC, tare, and a valid reference without requiring a token', () => {
+test('fresh calibration follows raw-stable empty, tare, and raw-stable reference states', () => {
   const { T, document } = loadApplication();
   const tare = document.getElementById('tare-scale');
   const calibrate = document.getElementById('calibrate-scale');
+  const status = document.getElementById('scale-action-status');
   const reference = document.getElementById('reference-grams');
   reference.max = '5000';
   reference.value = '250';
 
-  T.updateScaleControls();
-  assert.equal(tare.disabled, true);
-  assert.equal(calibrate.disabled, true);
-
   T.applyAuthState(false, 1);
-  T.renderScale({ revision: 1, adc_ready: false, stable: true, tare_ready: false });
+  T.renderScale({
+    revision: 1, adc_ready: true, stable: false, raw_stable: false,
+    samples_in_filter: 2, tare_ready: false,
+  });
   assert.equal(tare.disabled, true);
-  T.renderScale({ revision: 2, adc_ready: true, stable: false, tare_ready: false });
-  assert.equal(tare.disabled, true);
-  T.renderScale({ revision: 3, adc_ready: true, stable: true, tare_ready: false });
-  assert.equal(tare.disabled, false, 'tokenless trusted-LAN mode must permit tare');
   assert.equal(calibrate.disabled, true);
-  assert.match(document.getElementById('scale-action-status').textContent, /Tare/i);
+  assert.equal(status.textContent, 'Waiting for stable empty platform.');
 
   T.renderScale({
-    revision: 4,
-    adc_ready: true,
-    stable: true,
-    tare_ready: true,
-    tare_zero_offset_counts: 1234,
+    revision: 2, adc_ready: true, stable: false, raw_stable: true,
+    samples_in_filter: 3, tare_ready: false,
+  });
+  assert.equal(tare.disabled, false, 'gram stability must not block the first tare');
+  assert.equal(calibrate.disabled, true);
+  assert.equal(status.textContent, 'Ready to tare.');
+
+  T.renderScale({
+    revision: 3, adc_ready: true, stable: false, raw_stable: false,
+    samples_in_filter: 0, tare_ready: true, tare_zero_offset_counts: 1234,
+  });
+  assert.equal(tare.disabled, true);
+  assert.equal(calibrate.disabled, true);
+  assert.equal(status.textContent, 'Tare complete — place reference weight.');
+
+  T.renderScale({
+    revision: 4, adc_ready: true, stable: false, raw_stable: false,
+    samples_in_filter: 2, tare_ready: true, tare_zero_offset_counts: 1234,
+  });
+  assert.equal(calibrate.disabled, true);
+  assert.equal(status.textContent, 'Waiting for stable reference weight.');
+
+  T.renderScale({
+    revision: 5, adc_ready: true, stable: false, raw_stable: true,
+    samples_in_filter: 3, tare_ready: true, tare_zero_offset_counts: 1234,
   });
   assert.equal(tare.disabled, false);
-  assert.equal(calibrate.disabled, false);
-  assert.match(document.getElementById('scale-action-status').textContent, /Tare complete at 1234 counts/i);
+  assert.equal(calibrate.disabled, false, 'gram stability must not block first calibration');
+  assert.equal(status.textContent, 'Ready to calibrate.');
+
   T.state.scaleBusy = true;
   T.updateScaleControls();
   assert.equal(tare.disabled, true);
@@ -1525,7 +1542,7 @@ test("scale mutation completion keeps controls gated by the authoritative latest
       name: "ADC not ready",
       path: "/scale/tare",
       body: {},
-      finalScale: { revision: 2, adc_ready: false, stable: true, tare_ready: true },
+      finalScale: { revision: 2, adc_ready: false, stable: true, raw_stable: true, samples_in_filter: 3, tare_ready: true },
       target: "tare-scale",
       disabled: ["tare-scale", "calibrate-scale"],
     },
@@ -1533,7 +1550,7 @@ test("scale mutation completion keeps controls gated by the authoritative latest
       name: "unstable sample",
       path: "/scale/tare",
       body: {},
-      finalScale: { revision: 2, adc_ready: true, stable: false, tare_ready: true },
+      finalScale: { revision: 2, adc_ready: true, stable: false, raw_stable: false, samples_in_filter: 2, tare_ready: true },
       target: "tare-scale",
       disabled: ["tare-scale", "calibrate-scale"],
     },
@@ -1541,7 +1558,7 @@ test("scale mutation completion keeps controls gated by the authoritative latest
       name: "tare not ready",
       path: "/scale/calibrate",
       body: { reference_grams: 250 },
-      finalScale: { revision: 2, adc_ready: true, stable: true, tare_ready: false },
+      finalScale: { revision: 2, adc_ready: true, stable: true, raw_stable: true, samples_in_filter: 3, tare_ready: false },
       target: "calibrate-scale",
       disabled: ["calibrate-scale"],
     },
@@ -1571,7 +1588,7 @@ test("scale mutation completion keeps controls gated by the authoritative latest
     reference.max = "5000";
     reference.value = "250";
     T.applyAuthState(false, 1);
-    T.renderScale({ revision: 1, adc_ready: true, stable: true, tare_ready: true });
+    T.renderScale({ revision: 1, adc_ready: true, stable: true, raw_stable: true, samples_in_filter: 3, tare_ready: true });
     const target = document.getElementById(scenario.target);
     assert.equal(target.disabled, false, scenario.name + " action starts enabled");
 

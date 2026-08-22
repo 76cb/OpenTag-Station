@@ -715,6 +715,12 @@ ConfigurationService::local_interface_settings_snapshot() const {
   return {configuration_.device.hostname, configuration_.web, revision_};
 }
 
+BackendSettingsSnapshot
+ConfigurationService::backend_settings_snapshot() const {
+  const std::lock_guard<std::mutex> lock(mutex_);
+  return {configuration_.spoolman, configuration_.filabridge, revision_};
+}
+
 VersionedConfiguration ConfigurationService::versioned_snapshot() const {
   const std::lock_guard<std::mutex> lock(mutex_);
   return {configuration_, revision_};

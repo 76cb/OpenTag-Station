@@ -320,6 +320,40 @@ void test_noise_prevents_stability_and_tare() {
       static_cast<int>(result.error().category));
 }
 
+void test_fresh_uncalibrated_raw_stability_enables_first_calibration() {
+  FakeAdc adc;
+  FakeStore store;
+  ScaleService service(adc, store, test_config());
+  TEST_ASSERT_TRUE(service.initialize(0U, 1000U).ok());
+  TEST_ASSERT_FALSE(service.status().calibration_loaded);
+  TEST_ASSERT_FALSE(service.status().sample.stable);
+  TEST_ASSERT_FALSE(service.status().sample.raw_stable);
+
+  sample(service, adc, 1000, 0U);
+  sample(service, adc, 1001, 10U);
+  TEST_ASSERT_FALSE(service.status().sample.raw_stable);
+  sample(service, adc, 999, 20U);
+  TEST_ASSERT_TRUE(service.status().sample.raw_stable);
+  TEST_ASSERT_FALSE(service.status().sample.stable);
+
+  TEST_ASSERT_TRUE(service.tare().ok());
+  TEST_ASSERT_TRUE(service.status().tare_ready);
+  TEST_ASSERT_EQUAL_UINT(0U, service.status().samples_in_filter);
+  TEST_ASSERT_FALSE(service.status().sample.raw_stable);
+
+  sample(service, adc, 2000, 30U);
+  sample(service, adc, 2001, 40U);
+  TEST_ASSERT_FALSE(service.status().sample.raw_stable);
+  sample(service, adc, 1999, 50U);
+  TEST_ASSERT_TRUE(service.status().sample.raw_stable);
+  TEST_ASSERT_FALSE(service.status().sample.stable);
+
+  const auto result = service.calibrate(100.0F, 2000.0F);
+  TEST_ASSERT_TRUE(result.ok());
+  TEST_ASSERT_TRUE(service.status().calibration_loaded);
+  TEST_ASSERT_EQUAL_UINT(1U, store.save_calls);
+}
+
 void test_tare_and_reference_calibration_persist_and_compute_grams() {
   FakeAdc adc;
   FakeStore store;
@@ -542,6 +576,7 @@ int main(int, char**) {
   RUN_TEST(test_calibration_capacity_must_match_explicit_profile);
   RUN_TEST(test_stable_weight_requires_full_filter_and_duration);
   RUN_TEST(test_noise_prevents_stability_and_tare);
+  RUN_TEST(test_fresh_uncalibrated_raw_stability_enables_first_calibration);
   RUN_TEST(test_tare_and_reference_calibration_persist_and_compute_grams);
   RUN_TEST(test_negative_load_cell_orientation_is_supported);
   RUN_TEST(test_negative_and_both_overload_paths_are_reported);

@@ -118,6 +118,7 @@ core::Result<void> ScaleService::reconfigure_hardware(
 void ScaleService::set_error(core::Error error, ScaleState state) {
   status_.last_error = std::move(error);
   status_.state = state;
+  status_.sample.raw_stable = false;
   status_.sample.stable = false;
 }
 
@@ -227,6 +228,7 @@ void ScaleService::push_sample(std::int32_t raw_counts, std::uint32_t now_ms) {
   status_.sample.raw_counts = raw_counts;
   status_.sample.filtered_raw_counts = total / static_cast<double>(sample_count_);
   status_.sample.sampled_at_ms = now_ms;
+  status_.sample.raw_stable = raw_filter_stable();
   status_.sample.stable = false;
   status_.sample.negative = false;
   status_.sample.creep_warning = false;

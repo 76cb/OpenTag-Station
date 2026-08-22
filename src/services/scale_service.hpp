@@ -80,6 +80,7 @@ struct ScaleSample {
   double filtered_raw_counts{0.0};
   std::optional<float> gross_grams;
   std::optional<float> drift_from_stable_grams;
+  bool raw_stable{false};
   bool stable{false};
   bool negative{false};
   bool overload{false};
