@@ -23,6 +23,9 @@ build from physical evidence that does not yet exist.
   boot-health, and OTA failure suites. Source review and request/revision guards
   address stale browser response exclusion; browser execution remains a
   physical/LAN validation item.
+- The provisioning stack hotfix passes 240/240 native cases and its warning-free
+  WT32 build uses 167,912 RAM bytes and 2,017,881 flash bytes: +72/-288 bytes
+  versus the PR #5 base at `e33bf97cceca0d1246317d38c892ecd9c71d5cfe`.
 - No statement in this document is evidence of electrical, RF, mechanical,
   browser-on-target, live-backend, or bootloader-on-target behavior.
 
@@ -80,14 +83,16 @@ ESP-IDF's Arduino port interprets these configured stack depths as bytes.
 | `opentag-config` | 1 | 0 | 8,192 | JSON configuration copy/validation, LittleFS commit, Wi-Fi handoff | Configuration mutation owner |
 | `opentag-scale` | 1 | 0 | 6,144 | NAU7802 I2C poll/filter/calibration/persistence | Scale hardware and command owner |
 | `opentag-backend` | 1 | 0 | 12,288 | DNS/HTTP/TLS, bounded JSON parse, resolution, guarded readback | Spoolman/FilaBridge/workflow owner |
-| `opentag-network` | 1 | 0 | 8,192 | Wi-Fi scan/reconnect, diagnostics, WebSocket serialization | Network and web lifecycle owner |
+| `opentag-network` | 1 | 0 | 16,384 | Wi-Fi scan/reconnect, diagnostics, bounded WebSocket serialization | Network and web lifecycle owner |
 | `opentag-control` | 1 | 0 | 4,096 | reset intent, bounded erase, restart | Generic reboot/factory-reset owner |
 | `opentag-ota` | 1 | 0 | 24,576 | boot reconciliation, SHA/flash operations, image validation, rollback | OTA/candidate owner |
 | ESP-IDF `httpd` | 5 default | unpinned default | 20,480 | request headers/body, JSON router or 4 KiB upload handoff | HTTP/WebSocket handler execution |
 | NFC owner | — | — | 0 | Not created while RFAL/wiring gate is disabled | Must be inventoried when enabled |
 
-Configured project-created dynamic task stacks total **96,256 bytes**. This does
-not include the Arduino loop task or ESP-IDF system tasks (idle, timer, Wi-Fi,
+Configured project-created dynamic task stacks total **104,448 bytes**. The
+Arduino loop task is separately configured to **16,384 bytes** through the
+framework-supported `SET_LOOP_TASK_STACK_SIZE` mechanism. The total does not
+include ESP-IDF system tasks (idle, timer, Wi-Fi,
 TCP/IP, event loop, IPC, and driver tasks), whose reservations come from the
 pinned framework configuration rather than project calls.
 
@@ -101,6 +106,18 @@ OTA pre-task cleanup (5,280), firmware description (5,264), upload setup
 frames are compiler-marked dynamic; their largest reported estimate is 240
 bytes. These values are not cumulative call-chain proof. The gated NFC owner
 must be sized above the decode call chain before enablement.
+
+The provisioning hotfix build parses 8,127 frames from 413 files. Moving the
+decoded configuration holder to the heap and filling its result in place drops
+`decode_document` from 2,416 to 288 bytes, `read_configuration` from 2,688 to
+1,216 bytes, and `ConfigurationService::initialize` from 1,424 to 768 bytes.
+The configured-boot audited frame sum for `Application::setup` plus those three
+frames falls from 8,352 to 4,112 bytes. Network-task WebSocket publication no
+longer calls the 2,192-byte router and full 6,192-byte snapshot serializer for
+scale/update events; its direct scale/update serializers use 560/1,056 bytes.
+The remaining full snapshot frame is 5,056 bytes and stays on the 20 KiB HTTP
+task. Compiler frame values remain non-cumulative estimates, so the 16 KiB
+network and loop reservations are paired with runtime high-water diagnostics.
 
 On hardware, capture `uxTaskGetSystemState` or equivalent diagnostics after
 boot, UI navigation, Wi-Fi reconnect, backend timeout, scale calibration,
@@ -163,7 +180,7 @@ recovery, failed save, failed legacy calibration clear/save, and reset-oriented
 storage behavior. Unsafe types/ranges and mismatched hardware/calibration are
 rejected. A corrupt primary with no valid backup starts in an initialized but
 persistence-unavailable safe-degraded state: Wi-Fi is unconfigured and the
-empty bearer token authorizes no mutation.
+empty bearer token intentionally permits tokenless local mutations.
 
 The runtime CAS revision is intentionally boot-local and is not a durable
 sequence. Clients must reload after reboot or HTTP 409.
@@ -242,9 +259,9 @@ UNVERIFIED.
 ## Definitive API contract
 
 All responses use the versioned structured envelope documented in
-[web.md](web.md). All GET routes are public. Every mutation requires the exact
-bearer token, `X-OpenTag-Request: web`, and a valid idempotency key; an empty
-configured token fails closed. Buffered mutations require JSON. Upload requires
+[web.md](web.md). All GET routes are public. Every mutation requires
+`X-OpenTag-Request: web` and a valid idempotency key; the exact bearer token is
+also required when a nonempty token is configured. Buffered mutations require JSON. Upload requires
 `application/octet-stream`, exact length/digest/generation headers, a
 five-second no-progress deadline, and a 180-second absolute deadline.
 

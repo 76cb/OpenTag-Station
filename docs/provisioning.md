@@ -38,15 +38,16 @@ Use setup mode only in a physically controlled location.
    SSID, strongest-first, and show RSSI and whether the network is secured.
 4. Select a result or enter an SSID manually.
 5. Enter the Wi-Fi password and hostname.
-6. On a new device, create a 16-128 character local API access token. It is
+6. Optionally enter a 16-128 character **Local API access token (optional)**.
+   Leaving it blank disables local API authentication. A configured token is
    write-only and is never returned by the station.
 7. Select **Save and connect**.
 
-Configuration is committed by the existing revision-checked configuration
-worker before the network owner applies it. The AP remains available throughout
-the attempt. The page polls live network state and reports the selected SSID,
-assigned IP, hostname, mDNS URL, and failures without showing passwords or
-tokens.
+The HTTP receipt is delivered before the configuration worker can persist the
+revision-checked change or ask the network owner to apply it. The AP remains
+available throughout the association attempt. The page polls live network
+state and reports the selected SSID, assigned IP, hostname, mDNS URL, and
+failures without showing passwords or tokens.
 
 After a successful join, the AP remains for a 30-second grace period, then
 shuts down. A failed join leaves the AP active so credentials can be corrected.
@@ -63,9 +64,11 @@ grams, stability, profile/capacity, calibration coefficients, tare, reference
 mass calibration, persisted result reporting, backend setup, diagnostics,
 device controls, and authenticated A/B OTA.
 
-Normal mutations require the current bearer token. Wi-Fi scanning and
-reconfiguration are available in the Configuration section. Starting the setup
-AP deliberately also requires the bearer token.
+When a local API token is configured, normal mutations require that exact
+bearer token. When the token is blank, local mutations are allowed without an
+`Authorization` header. Wi-Fi scanning and reconfiguration are available in
+the Configuration section; starting setup mode follows the same conditional
+authentication policy.
 
 ## On-device guidance and serial diagnostics
 
@@ -73,9 +76,10 @@ When Wi-Fi is unconfigured, the touchscreen shows **SETUP REQUIRED**, the AP
 SSID, and `http://192.168.4.1/`; touchscreen text entry is not required.
 Connected workflow and diagnostic screens show the assigned IP.
 
-Serial diagnostics report only state transitions, SSID, IP, AP state, setup
-reason, bounded failure count, and redacted error text. Passwords, API tokens,
-and backend credentials are never printed.
+Serial diagnostics report bounded boot/stable stack margins, setup-AP and grace
+state, scan request/start/completion or actual failure code, connect receipt,
+configuration persistence, STA association state, SSID, and IP. Passwords, API
+tokens, authorization values, and backend credentials are never printed.
 
 ## Physical validation still required
 

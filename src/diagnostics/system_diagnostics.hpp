@@ -22,6 +22,15 @@ class StorageService;
 
 namespace opentag::diagnostics {
 
+struct TaskStackMargins {
+  std::uint32_t loop_free_bytes{0U};
+  std::uint32_t network_free_bytes{0U};
+  std::uint32_t ui_free_bytes{0U};
+  std::uint32_t configuration_free_bytes{0U};
+  std::uint32_t scale_free_bytes{0U};
+  std::uint32_t httpd_free_bytes{0U};
+};
+
 struct ScaleDiagnosticSnapshot {
   std::uint64_t scale_revision{0U};
   bool scale_task_running{false};
@@ -158,6 +167,7 @@ struct SystemSnapshot : ScaleDiagnosticSnapshot {
   std::uint32_t psram_free_bytes{0};
   std::uint32_t boot_count{0};
   std::uint8_t crash_streak{0};
+  TaskStackMargins task_stacks;
   bool display_ready{false};
   bool touch_configured{false};
   bool nvs_ready{false};
@@ -213,6 +223,14 @@ class SystemDiagnostics {
     network_task_running_.store(running, std::memory_order_relaxed);
   }
   void set_network_status(const network::WifiStatus& status);
+  void set_task_stack_margins(const TaskStackMargins& margins) {
+    const std::lock_guard<std::mutex> lock(stack_mutex_);
+    task_stack_margins_ = margins;
+  }
+  [[nodiscard]] TaskStackMargins task_stack_margins() const {
+    const std::lock_guard<std::mutex> lock(stack_mutex_);
+    return task_stack_margins_;
+  }
   [[nodiscard]] static const char* current_reset_reason();
 
  private:
@@ -223,6 +241,8 @@ class SystemDiagnostics {
   std::atomic_bool network_task_running_{false};
   mutable std::mutex network_mutex_;
   network::WifiStatus network_status_;
+  mutable std::mutex stack_mutex_;
+  TaskStackMargins task_stack_margins_;
 };
 
 }  // namespace opentag::diagnostics

@@ -60,8 +60,8 @@ const char index_html[] = R"HTML(<!doctype html>
         <article class="card">
           <h3>2. Name and secure the station</h3>
           <label for="setup-hostname">Hostname</label><input id="setup-hostname" type="text" maxlength="63" value="opentag-station">
-          <label for="setup-token">Local API access token <span class="muted">(16-128 characters)</span></label><input id="setup-token" type="password" minlength="16" maxlength="128" autocomplete="new-password">
-          <p class="hint">The token is write-only and never returned by the station. After Wi-Fi is connected, use Configuration for scale, Spoolman, and FilaBridge setup.</p>
+          <label for="setup-token">Local API access token (optional)</label><input id="setup-token" type="password" minlength="16" maxlength="128" autocomplete="new-password">
+          <p class="hint">Leave blank to disable local API authentication. A configured token is write-only and never returned by the station.</p>
           <button id="setup-connect" class="button primary" type="button">Save and connect</button>
           <p id="setup-connect-status" class="setup-status" aria-live="polite">Waiting for network details.</p>
         </article>
@@ -404,6 +404,7 @@ const char application_javascript[] = R"JS((function () {
   const UPDATE_UPLOAD_TIMEOUT_MS = 180000;
   const state = {
     apiToken: '',
+    apiTokenConfigured: true,
     config: null,
     configRevision: null,
     network: null,
@@ -569,6 +570,7 @@ const char application_javascript[] = R"JS((function () {
   }
 
   function apiToken() {
+    if (!state.apiTokenConfigured) return '';
     if (state.apiToken) return state.apiToken;
     const value = window.prompt('Enter the 16–128 character local API token. It stays in memory for this tab only.');
     if (value === null) throw new Error('Local API authentication was cancelled.');
@@ -591,7 +593,7 @@ const char application_javascript[] = R"JS((function () {
     if (settings.mutation) {
       headers['X-OpenTag-Request'] = 'web';
       headers['Idempotency-Key'] = requestId();
-      if (!settings.provisioning) headers.Authorization = 'Bearer ' + token;
+      if (!settings.provisioning && token) headers.Authorization = 'Bearer ' + token;
     }
     try {
       const response = await fetch(API + path, {
@@ -741,6 +743,7 @@ const char application_javascript[] = R"JS((function () {
 
   function renderNetwork(payload) {
     state.network = payload;
+    state.apiTokenConfigured = payload.access_token_configured === true;
     const system = asObject(payload.system);
     const network = asObject(system.network);
     const provisioning = asObject(network.provisioning);
@@ -766,10 +769,10 @@ const char application_javascript[] = R"JS((function () {
     }
     const tokenInput = byId('setup-token');
     if (tokenInput) {
-      tokenInput.required = payload.access_token_configured !== true;
+      tokenInput.required = false;
       tokenInput.placeholder = payload.access_token_configured === true
         ? 'Already configured - leave blank to preserve'
-        : 'Create a 16-128 character token';
+        : 'Optional - blank disables local API authentication';
     }
     let detail = 'Wi-Fi is ' + normalizeState(first(network.state, 'unknown')) + '.';
     if (network.connected === true) {
@@ -1071,6 +1074,7 @@ const char application_javascript[] = R"JS((function () {
     const spoolman = asObject(payload.spoolman);
     const filabridge = asObject(payload.filabridge);
     const web = asObject(payload.web);
+    state.apiTokenConfigured = web.access_token_configured === true;
     const profile = asObject(first(payload.scale_profile, payload.scale && payload.scale.profile, {}));
     setValue('config-hostname', device.hostname);
     setValue('config-brightness', device.brightness_percent);
@@ -1343,7 +1347,7 @@ const char application_javascript[] = R"JS((function () {
       xhr.setRequestHeader('Content-Type', 'application/octet-stream');
       xhr.setRequestHeader('X-OpenTag-Request', 'web');
       xhr.setRequestHeader('Idempotency-Key', requestId());
-      xhr.setRequestHeader('Authorization', 'Bearer ' + token);
+      if (token) xhr.setRequestHeader('Authorization', 'Bearer ' + token);
       xhr.setRequestHeader('X-OpenTag-Image-SHA256', digest);
       xhr.setRequestHeader('X-OpenTag-Expected-Generation', String(generation));
       xhr.upload.addEventListener('progress', function (event) {
@@ -1457,10 +1461,6 @@ const char application_javascript[] = R"JS((function () {
     if (!hostname) { showToast('Enter a hostname.', true); return; }
     if (token && (token.length < 16 || token.length > 128)) {
       showToast('The local API token must contain 16-128 characters.', true);
-      return;
-    }
-    if (asObject(state.network).access_token_configured !== true && !token) {
-      showToast('Create a local API access token before connecting.', true);
       return;
     }
     button.disabled = true;

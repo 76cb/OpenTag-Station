@@ -1,7 +1,7 @@
 # Architecture
 
 Phase 11 audited every runtime owner, queue, lifecycle lease, persistent writer,
-and project-created task. The authoritative ownership and 96,256-byte configured
+and project-created task. The authoritative ownership and 104,448-byte configured
 dynamic task-stack inventory are in
 [release-validation.md](release-validation.md); changes to task creation or
 ownership must update that inventory.
@@ -109,10 +109,11 @@ CSS, and JavaScript are protected by compile-time source-size bounds.
 Configuration GET responses expose configured-state flags but no secret
 values. PATCH applies typed partial fields only when its `expected_revision`
 matches the mutex-protected configuration revision; omitted credentials remain
-unchanged and explicit empty credentials clear them. The initial local API
-bearer token is set through the physically local setup AP or touchscreen.
-Recovery provisioning cannot replace an existing token. The browser prompts for it when
-a mutation needs authentication, keeps it only in JavaScript memory for the
+unchanged and explicit empty credentials clear them. The optional local API
+bearer token may be set through the physically local setup AP or touchscreen;
+leaving it blank permits tokenless local mutations. Recovery provisioning
+cannot replace an existing token. The browser prompts for it when a protected
+mutation needs authentication, keeps it only in JavaScript memory for the
 current tab, never places it in storage or a URL, and clears it after HTTP 401.
 
 The RFAL/wiring-gated firmware still reports NFC explicitly unavailable. NFC

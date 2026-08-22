@@ -112,7 +112,7 @@ the public response.
 `POST /api/v1/update/upload` is a dedicated binary route, not a 16 KiB JSON
 request. It requires:
 
-- `Authorization: Bearer <current-token>`;
+- `Authorization: Bearer <current-token>` when a token is configured;
 - `X-OpenTag-Request: web`;
 - a valid `Idempotency-Key`;
 - `Content-Type: application/octet-stream`;
@@ -143,8 +143,9 @@ generation, expected digest, and confirmation string:
 }
 ```
 
-Cancel requires `CANCEL UPDATE`. Reboot and cancel also require bearer/source/
-idempotency headers. The device rechecks all three immutable preconditions, so
+Cancel requires `CANCEL UPDATE`. Reboot and cancel also require source and
+idempotency headers, plus bearer authentication when a token is configured. The
+device rechecks all three immutable preconditions, so
 an old browser tab, operation receipt, or replay cannot control a newer image.
 Cancel is accepted only while receiving/writing or while a validated image is
 still unactivated.

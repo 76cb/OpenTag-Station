@@ -43,7 +43,8 @@ class FakeContext final : public IApiContext {
   bool authorize_mutation(std::string_view bearer_token) override {
     ++authorization_calls;
     last_bearer_token = std::string(bearer_token);
-    return authorization_configured && bearer_token == accepted_bearer_token;
+    return tokenless_mutations_allowed ||
+        (authorization_configured && bearer_token == accepted_bearer_token);
   }
 
   bool authorize_provisioning() override {
@@ -89,6 +90,7 @@ class FakeContext final : public IApiContext {
   std::size_t provisioning_authorization_calls{0U};
   bool provisioning_authorized{false};
   bool authorization_configured{true};
+  bool tokenless_mutations_allowed{false};
   std::string accepted_bearer_token{"station-secret"};
   std::string last_bearer_token;
   std::size_t snapshot_calls{0U};
@@ -432,7 +434,7 @@ void test_mutation_authorization_is_fail_closed_and_precedes_parsing() {
   auto response = router.handle(missing);
   assert_versioned_error(response, 401, "authentication_required");
   TEST_ASSERT_EQUAL_STRING("Bearer", response_header(response, "WWW-Authenticate"));
-  TEST_ASSERT_EQUAL_UINT(0U, context.authorization_calls);
+  TEST_ASSERT_EQUAL_UINT(1U, context.authorization_calls);
   TEST_ASSERT_EQUAL_UINT(0U, context.submit_calls);
 
   auto malformed = mutation_request(
@@ -443,7 +445,7 @@ void test_mutation_authorization_is_fail_closed_and_precedes_parsing() {
   malformed.headers.back().value = "Bearer  station-secret";
   assert_versioned_error(
       router.handle(malformed), 401, "authentication_required");
-  TEST_ASSERT_EQUAL_UINT(0U, context.authorization_calls);
+  TEST_ASSERT_EQUAL_UINT(3U, context.authorization_calls);
 
   auto wrong = mutation_request(
       Method::post,
@@ -453,7 +455,7 @@ void test_mutation_authorization_is_fail_closed_and_precedes_parsing() {
       "incorrect-secret");
   assert_versioned_error(
       router.handle(wrong), 401, "authentication_required");
-  TEST_ASSERT_EQUAL_UINT(1U, context.authorization_calls);
+  TEST_ASSERT_EQUAL_UINT(4U, context.authorization_calls);
   TEST_ASSERT_EQUAL_STRING("incorrect-secret", context.last_bearer_token.c_str());
   TEST_ASSERT_EQUAL_UINT(0U, context.submit_calls);
 
@@ -462,19 +464,33 @@ void test_mutation_authorization_is_fail_closed_and_precedes_parsing() {
       Method::post, "/api/v1/scale/tare", "{}");
   assert_versioned_error(
       router.handle(unconfigured), 401, "authentication_required");
-  TEST_ASSERT_EQUAL_UINT(2U, context.authorization_calls);
+  TEST_ASSERT_EQUAL_UINT(5U, context.authorization_calls);
   TEST_ASSERT_EQUAL_UINT(0U, context.submit_calls);
 
   context.authorization_configured = true;
   response = router.handle(mutation_request(
       Method::post, "/api/v1/scale/tare", "{}"));
   TEST_ASSERT_EQUAL_INT(202, response.status);
-  TEST_ASSERT_EQUAL_UINT(3U, context.authorization_calls);
+  TEST_ASSERT_EQUAL_UINT(6U, context.authorization_calls);
   TEST_ASSERT_EQUAL_UINT(1U, context.submit_calls);
 
   const auto public_response = router.handle(get_request("/api/v1/status"));
   TEST_ASSERT_EQUAL_INT(200, public_response.status);
-  TEST_ASSERT_EQUAL_UINT(3U, context.authorization_calls);
+  TEST_ASSERT_EQUAL_UINT(6U, context.authorization_calls);
+}
+
+void test_tokenless_local_mutations_are_allowed_without_authorization_header() {
+  FakeContext context;
+  context.tokenless_mutations_allowed = true;
+  Router router(context);
+  auto request = mutation_request(
+      Method::post, "/api/v1/scale/tare", "{}");
+  request.headers.pop_back();
+  const auto response = router.handle(request);
+  TEST_ASSERT_EQUAL_INT(202, response.status);
+  TEST_ASSERT_EQUAL_UINT(1U, context.authorization_calls);
+  TEST_ASSERT_TRUE(context.last_bearer_token.empty());
+  TEST_ASSERT_EQUAL_UINT(1U, context.submit_calls);
 }
 
 void test_mutation_headers_are_required_and_idempotency_is_bounded() {
@@ -1156,6 +1172,29 @@ void test_provisioning_connect_is_typed_and_does_not_echo_secrets() {
   TEST_ASSERT_TRUE(response.body.find("wifi-secret") == std::string::npos);
   TEST_ASSERT_TRUE(
       response.body.find("0123456789abcdef") == std::string::npos);
+  TEST_ASSERT_TRUE(response.delivered_network_connect_operation.has_value());
+  TEST_ASSERT_EQUAL_UINT64(
+      context.next_operation_id,
+      *response.delivered_network_connect_operation);
+}
+
+void test_tokenless_provisioning_connect_accepts_omitted_optional_token() {
+  FakeContext context;
+  context.provisioning_authorized = true;
+  context.tokenless_mutations_allowed = true;
+  Router router(context);
+  auto request = mutation_request(
+      Method::post,
+      "/api/v1/network/connect",
+      R"({"expected_revision":7,"ssid":"Workshop","hostname":"opentag-station"})");
+  request.headers.pop_back();
+  request.provisioning_transport = true;
+  const auto response = router.handle(request);
+  TEST_ASSERT_EQUAL_INT(202, response.status);
+  const auto& payload =
+      std::get<NetworkConnectMutation>(context.last_mutation->payload);
+  TEST_ASSERT_FALSE(payload.access_token.has_value());
+  TEST_ASSERT_TRUE(response.delivered_network_connect_operation.has_value());
 }
 
 int main(int, char**) {
@@ -1168,6 +1207,8 @@ int main(int, char**) {
   RUN_TEST(test_route_misses_versions_and_methods_have_stable_errors);
   RUN_TEST(test_request_shape_and_body_bounds_are_enforced_before_dispatch);
   RUN_TEST(test_mutation_authorization_is_fail_closed_and_precedes_parsing);
+  RUN_TEST(
+      test_tokenless_local_mutations_are_allowed_without_authorization_header);
   RUN_TEST(test_mutation_headers_are_required_and_idempotency_is_bounded);
   RUN_TEST(test_empty_mutations_are_strict_and_forward_typed_commands);
   RUN_TEST(test_calibration_accepts_only_a_bounded_numeric_reference);
@@ -1193,5 +1234,6 @@ int main(int, char**) {
       test_update_ui_treats_explicit_server_capability_false_as_authoritative);
   RUN_TEST(test_provisioning_transport_is_scoped_to_network_setup_routes);
   RUN_TEST(test_provisioning_connect_is_typed_and_does_not_echo_secrets);
+  RUN_TEST(test_tokenless_provisioning_connect_accepts_omitted_optional_token);
   return UNITY_END();
 }

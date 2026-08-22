@@ -8,9 +8,12 @@
 #include "network/network_policy.hpp"
 
 using opentag::network::ExponentialReconnectBackoff;
+using opentag::network::AsyncWifiScanState;
+using opentag::network::NetworkConnectReceiptGate;
 using opentag::network::ProvisioningPolicy;
 using opentag::network::ProvisioningReason;
 using opentag::network::WifiNetwork;
+using opentag::network::WifiScanOutcome;
 using opentag::network::normalize_scan_results;
 using opentag::network::parse_http_url;
 
@@ -135,6 +138,60 @@ void test_scan_results_dedupe_strongest_sort_and_bound() {
   TEST_ASSERT_EQUAL_STRING("weak", normalized[2].ssid.c_str());
 }
 
+void test_async_scan_tracks_start_completion_and_coalesced_request() {
+  AsyncWifiScanState scan;
+  scan.request();
+  TEST_ASSERT_TRUE(scan.start_due());
+  scan.request();
+  auto transition = scan.accept_start_result(-1);
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(WifiScanOutcome::running),
+      static_cast<int>(transition.outcome));
+  TEST_ASSERT_TRUE(scan.running());
+
+  // A request arriving after the first request is consumed but before the
+  // asynchronous start completes must survive as the one coalesced follow-up.
+  scan.request();
+  TEST_ASSERT_FALSE(scan.start_due());
+  transition = scan.accept_poll_result(-1);
+  TEST_ASSERT_TRUE(scan.running());
+  transition = scan.accept_poll_result(7);
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(WifiScanOutcome::complete),
+      static_cast<int>(transition.outcome));
+  TEST_ASSERT_EQUAL_UINT32(1U, scan.generation());
+  TEST_ASSERT_TRUE(scan.start_due());
+}
+
+void test_async_scan_failure_preserves_actual_result_code() {
+  AsyncWifiScanState scan;
+  scan.request();
+  TEST_ASSERT_TRUE(scan.start_due());
+  const auto transition = scan.accept_start_result(-2);
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(WifiScanOutcome::failed),
+      static_cast<int>(transition.outcome));
+  TEST_ASSERT_EQUAL_INT16(-2, transition.result_code);
+  TEST_ASSERT_FALSE(scan.running());
+  TEST_ASSERT_TRUE(scan.last_failure_code().has_value());
+  TEST_ASSERT_EQUAL_INT16(-2, *scan.last_failure_code());
+}
+
+void test_connect_receipt_gate_blocks_reconfigure_until_exact_ack() {
+  NetworkConnectReceiptGate gate;
+  TEST_ASSERT_TRUE(gate.expect(41U));
+  TEST_ASSERT_FALSE(gate.expect(42U));
+  TEST_ASSERT_FALSE(gate.delivered(41U));
+  TEST_ASSERT_FALSE(gate.acknowledge(42U));
+  TEST_ASSERT_FALSE(gate.delivered(41U));
+  TEST_ASSERT_TRUE(gate.acknowledge(41U));
+  TEST_ASSERT_TRUE(gate.delivered(41U));
+  TEST_ASSERT_FALSE(gate.expect(42U));
+  TEST_ASSERT_TRUE(gate.delivered(41U));
+  gate.clear(41U);
+  TEST_ASSERT_FALSE(gate.delivered(41U));
+}
+
 int main(int, char**) {
   UNITY_BEGIN();
   RUN_TEST(test_reconnect_backoff_doubles_saturates_and_resets);
@@ -144,5 +201,8 @@ int main(int, char**) {
   RUN_TEST(test_provisioning_policy_covers_first_boot_fallback_and_ap_grace);
   RUN_TEST(test_provisioning_grace_deadline_is_millis_wrap_safe);
   RUN_TEST(test_scan_results_dedupe_strongest_sort_and_bound);
+  RUN_TEST(test_async_scan_tracks_start_completion_and_coalesced_request);
+  RUN_TEST(test_async_scan_failure_preserves_actual_result_code);
+  RUN_TEST(test_connect_receipt_gate_blocks_reconfigure_until_exact_ack);
   return UNITY_END();
 }

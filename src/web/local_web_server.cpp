@@ -24,7 +24,6 @@ namespace {
 constexpr std::size_t maximum_collected_header_value_bytes = 512U;
 constexpr std::uint32_t maximum_request_receive_ms = 5000U;
 constexpr std::uint32_t maximum_upload_receive_ms = 180000U;
-constexpr std::size_t maximum_event_json_nesting = 8U;
 constexpr char invalid_scale_event[] =
     R"({"type":"invalidate","data":{"resource":"scale"}})";
 constexpr char invalid_update_event[] =
@@ -516,23 +515,23 @@ esp_err_t LocalWebServer::handle_update_upload(httpd_req_t* request) {
 
   std::size_t collected_header_bytes = 0U;
   std::string authorization;
-  if (!read_required_header(
+  bool upload_authorized = api_context_.authorize_mutation({});
+  if (!upload_authorized &&
+      read_required_header(
           request,
           "Authorization",
           authorization,
           collected_header_bytes)) {
-    (void)httpd_resp_set_hdr(request, "WWW-Authenticate", "Bearer");
-    return reject_unread(
-        401,
-        "authentication_required",
-        "A valid bearer token is required for firmware upload");
+    constexpr std::string_view bearer_prefix = "Bearer ";
+    const std::string_view authorization_view(authorization);
+    upload_authorized = authorization_view.size() > bearer_prefix.size() &&
+        authorization_view.substr(0U, bearer_prefix.size()) == bearer_prefix &&
+        authorization_view.substr(bearer_prefix.size()).find_first_of(" \t") ==
+            std::string_view::npos &&
+        api_context_.authorize_mutation(
+            authorization_view.substr(bearer_prefix.size()));
   }
-  constexpr std::string_view bearer_prefix = "Bearer ";
-  const std::string_view authorization_view(authorization);
-  if (authorization_view.size() <= bearer_prefix.size() ||
-      authorization_view.substr(0U, bearer_prefix.size()) != bearer_prefix ||
-      !api_context_.authorize_mutation(
-          authorization_view.substr(bearer_prefix.size()))) {
+  if (!upload_authorized) {
     (void)httpd_resp_set_hdr(request, "WWW-Authenticate", "Bearer");
     return reject_unread(
         401,
@@ -817,7 +816,14 @@ esp_err_t LocalWebServer::handle_api(httpd_req_t* request) {
     }
   }
 
-  return send_router_response(request, router_.handle(api_request));
+  const auto response = router_.handle(api_request);
+  const auto sent = send_router_response(request, response);
+  if (sent == ESP_OK &&
+      response.delivered_network_connect_operation.has_value()) {
+    (void)api_context_.acknowledge_network_connect_receipt(
+        *response.delivered_network_connect_operation);
+  }
+  return sent;
 }
 
 esp_err_t LocalWebServer::handle_websocket(httpd_req_t* request) {
@@ -856,84 +862,21 @@ std::size_t LocalWebServer::websocket_client_count(int excluded_fd) const {
 }
 
 std::string LocalWebServer::make_scale_event() {
-  const auto response = router_.handle(
-      {api::Method::get,
-       "/api/v1/scale",
-       {{"Accept", "application/json"}},
-       {}});
-  if (response.status != 200 || response.body.empty()) {
-    return invalid_scale_event;
-  }
-
-  JsonDocument envelope;
-  const auto parsed = deserializeJson(
-      envelope,
-      response.body,
-      DeserializationOption::NestingLimit(maximum_event_json_nesting));
-  if (parsed || !envelope.is<JsonObjectConst>()) return invalid_scale_event;
-  const auto root = envelope.as<JsonObjectConst>();
-  const auto* api_version = root["api_version"].as<const char*>();
-  const auto data = root["data"];
-  if (api_version == nullptr || std::strcmp(api_version, "v1") != 0 ||
-      !root["ok"].is<bool>() || !root["ok"].as<bool>() ||
-      data.isUnbound()) {
-    return invalid_scale_event;
-  }
-
-  constexpr std::string_view leading = R"({"type":"scale","data":)";
-  const auto data_size = measureJson(data);
-  if (leading.size() + data_size + 1U > maximum_websocket_message_bytes) {
-    return invalid_scale_event;
-  }
-  std::string event;
-  event.reserve(leading.size() + data_size + 1U);
-  event.append(leading.data(), leading.size());
-  serializeJson(data, event);
-  event.push_back('}');
-  return event.size() <= maximum_websocket_message_bytes
-      ? event
+  const auto event = api_context_.scale_event_json();
+  return event.ok() &&
+          !event.value().empty() &&
+          event.value().size() <= maximum_websocket_message_bytes
+      ? event.value()
       : std::string(invalid_scale_event);
 }
 
 std::string LocalWebServer::make_update_event(std::uint64_t& revision) {
   revision = 0U;
-  const auto response = router_.handle(
-      {api::Method::get,
-       "/api/v1/update",
-       {{"Accept", "application/json"}},
-       {}});
-  if (response.status != 200 || response.body.empty()) {
-    return invalid_update_event;
-  }
-
-  JsonDocument envelope;
-  const auto parsed = deserializeJson(
-      envelope,
-      response.body,
-      DeserializationOption::NestingLimit(maximum_event_json_nesting));
-  if (parsed || !envelope.is<JsonObjectConst>()) return invalid_update_event;
-  const auto root = envelope.as<JsonObjectConst>();
-  const auto* api_version = root["api_version"].as<const char*>();
-  const auto data = root["data"];
-  if (api_version == nullptr || std::strcmp(api_version, "v1") != 0 ||
-      !root["ok"].is<bool>() || !root["ok"].as<bool>() ||
-      !data.is<JsonObjectConst>() || data["revision"].isNull()) {
-    return invalid_update_event;
-  }
-  revision = data["revision"].as<std::uint64_t>();
-
-  constexpr std::string_view leading = R"({"type":"update","data":)";
-  const auto data_size = measureJson(data);
-  if (leading.size() + data_size + 1U > maximum_websocket_message_bytes) {
-    return invalid_update_event;
-  }
-  std::string event;
-  event.reserve(leading.size() + data_size + 1U);
-  event.append(leading.data(), leading.size());
-  serializeJson(data, event);
-  event.push_back('}');
-  return event.size() <= maximum_websocket_message_bytes
-      ? event
+  const auto event = api_context_.update_event_json(revision);
+  return event.ok() &&
+          !event.value().empty() &&
+          event.value().size() <= maximum_websocket_message_bytes
+      ? event.value()
       : std::string(invalid_update_event);
 }
 

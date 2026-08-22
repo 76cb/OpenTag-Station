@@ -133,8 +133,8 @@ values. The response exposes only:
 - `filabridge.authentication_token_configured` and
   `filabridge.custom_ca_configured`.
 
-Configuration PATCH requests are authenticated mutations and require
-`Authorization: Bearer ...`, `Content-Type: application/json`,
+Configuration PATCH requests require `Authorization: Bearer ...` only when a
+local API token is configured. They always require `Content-Type: application/json`,
 `X-OpenTag-Request: web`, a bounded `Idempotency-Key`, and one JSON object.
 The body is limited to 16 KiB and nesting depth 8. Unknown keys, ambiguous
 aliases, empty section objects, mismatched JSON types, non-finite
@@ -169,12 +169,13 @@ ability to reach diagnostics or revisit setup.
 Physical power-loss recovery, flash wear, and backup/restore still require
 verification on the target board.
 
-The Ready step contains a masked local API token field and saves through the
-same revision-checked configuration worker. A device without an SSID also
+The Ready step contains a masked **Local API access token (optional)** field and
+saves through the same revision-checked configuration worker. Leaving it blank
+disables local API authentication. A device without an SSID also
 serves the existing web app at `http://192.168.4.1/`. Only AP clients may use
 the scoped network scan/connect routes without an existing token; initial setup
-requires creating a write-only token in the same request. On recovery, that
-route cannot replace an existing token. All other browser mutations continue
-to fail closed without the current token. An authenticated administrator may
+may include a write-only token in the same request. On recovery, that route
+cannot replace an existing token. Other browser mutations remain tokenless
+until a token is configured. An authenticated administrator may
 rotate or explicitly clear it through the configuration PATCH. Credential
 values are never returned to the browser.
