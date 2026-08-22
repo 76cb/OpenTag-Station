@@ -794,6 +794,31 @@ void test_local_interface_snapshot_is_narrow_current_and_independent() {
       "LocalApiToken-0123456789", current.web.access_token.c_str());
 }
 
+void test_scale_profile_snapshot_is_scoped_revisioned_and_independent() {
+  MemoryDocumentStore documents;
+  LegacyScaleStore legacy;
+  ConfigurationService service(documents, legacy);
+  TEST_ASSERT_TRUE(service.initialize().ok());
+
+  auto configured = service.snapshot();
+  configured.spoolman.ca_certificate_pem = std::string(4096U, 'S');
+  configured.filabridge.ca_certificate_pem = std::string(4096U, 'F');
+  configured.scale_hardware.rated_capacity_grams = 2000.0F;
+  configured.scale_hardware.overload_ratio = 1.15F;
+  TEST_ASSERT_TRUE(service.replace(configured).ok());
+
+  auto profile = service.scale_profile_snapshot();
+  TEST_ASSERT_EQUAL_UINT64(service.revision(), profile.revision);
+  TEST_ASSERT_EQUAL_STRING("YZC-133", profile.hardware.load_cell_model.c_str());
+  TEST_ASSERT_FLOAT_WITHIN(
+      0.01F, 2000.0F, profile.hardware.rated_capacity_grams);
+  TEST_ASSERT_FLOAT_WITHIN(0.001F, 1.15F, profile.hardware.overload_ratio);
+  profile.hardware.rated_capacity_grams = 5000.0F;
+  TEST_ASSERT_FLOAT_WITHIN(
+      0.01F, 2000.0F,
+      service.scale_profile_snapshot().hardware.rated_capacity_grams);
+}
+
 void test_backend_settings_snapshot_is_scoped_revisioned_and_independent() {
   MemoryDocumentStore documents;
   LegacyScaleStore legacy;
@@ -879,6 +904,34 @@ void test_confirmed_spool_mapping_round_trips_and_conflicts_are_rejected() {
       1U, reader.load_spool_identity_mappings().value().size());
 }
 
+void test_browser_setup_completion_is_transactional_and_tokenless() {
+  MemoryDocumentStore documents;
+  LegacyScaleStore legacy;
+  ConfigurationService configuration(documents, legacy);
+  TEST_ASSERT_TRUE(configuration.initialize().ok());
+  auto configured = configuration.snapshot();
+  configured.wifi.ssid = "configured-by-browser";
+  TEST_ASSERT_TRUE(configuration.replace(configured).ok());
+  const auto before_revision = configuration.revision();
+
+  documents.save_fails = true;
+  TEST_ASSERT_FALSE(configuration.confirm_browser_setup().ok());
+  TEST_ASSERT_FALSE(configuration.snapshot().setup.ready_confirmed);
+  TEST_ASSERT_EQUAL_UINT64(before_revision, configuration.revision());
+
+  documents.save_fails = false;
+  TEST_ASSERT_TRUE(configuration.confirm_browser_setup().ok());
+  const auto completed = configuration.snapshot();
+  TEST_ASSERT_TRUE(completed.setup.ready_confirmed);
+  TEST_ASSERT_TRUE((completed.setup.completed_steps & (1U << 0U)) != 0U);
+  TEST_ASSERT_TRUE((completed.setup.completed_steps & (1U << 1U)) != 0U);
+  TEST_ASSERT_TRUE((completed.setup.completed_steps & (1U << 7U)) != 0U);
+  TEST_ASSERT_TRUE(completed.web.access_token.empty());
+  TEST_ASSERT_EQUAL_UINT64(before_revision + 1U, configuration.revision());
+  TEST_ASSERT_TRUE(configuration.confirm_browser_setup().ok());
+  TEST_ASSERT_EQUAL_UINT64(before_revision + 1U, configuration.revision());
+}
+
 void test_first_run_navigation_allows_tokenless_setup_completion() {
   MemoryDocumentStore documents;
   LegacyScaleStore legacy;
@@ -930,9 +983,11 @@ int main(int, char**) {
   RUN_TEST(test_validation_rejects_invalid_scale_hardware_settings);
   RUN_TEST(test_web_access_token_validation_is_fail_closed_and_ascii_only);
   RUN_TEST(test_local_interface_snapshot_is_narrow_current_and_independent);
+  RUN_TEST(test_scale_profile_snapshot_is_scoped_revisioned_and_independent);
   RUN_TEST(test_backend_settings_snapshot_is_scoped_revisioned_and_independent);
   RUN_TEST(test_complete_toolhead_profile_round_trips);
   RUN_TEST(test_confirmed_spool_mapping_round_trips_and_conflicts_are_rejected);
+  RUN_TEST(test_browser_setup_completion_is_transactional_and_tokenless);
   RUN_TEST(test_first_run_navigation_allows_tokenless_setup_completion);
   return UNITY_END();
 }

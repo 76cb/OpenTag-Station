@@ -388,6 +388,7 @@ esp_err_t LocalWebServer::start() {
 
   api_context_.transport_diagnostics().set_http_server_running(true);
   scale_published_ = false;
+  scale_session_was_active_ = false;
   heartbeat_published_ = false;
   update_published_ = false;
   last_scale_publish_ms_ = 0U;
@@ -412,6 +413,7 @@ esp_err_t LocalWebServer::stop() {
   server_ = nullptr;
   api_context_.transport_diagnostics().set_http_server_running(false);
   scale_published_ = false;
+  scale_session_was_active_ = false;
   heartbeat_published_ = false;
   update_published_ = false;
   websocket_send_.remaining.store(0U, std::memory_order_relaxed);
@@ -1074,7 +1076,10 @@ std::size_t LocalWebServer::send_to_websocket_clients(
 }
 
 void LocalWebServer::publish(std::uint32_t now_ms) {
-  if (server_ == nullptr || websocket_client_count() == 0U) return;
+  if (server_ == nullptr || websocket_client_count() == 0U) {
+    scale_session_was_active_ = false;
+    return;
+  }
   // The network task is the sole publisher. Avoid constructing JSON while the
   // HTTPD task still owns the reusable batch payload for a prior socket send.
   if (websocket_send_.busy.load(std::memory_order_acquire)) return;
@@ -1098,15 +1103,21 @@ void LocalWebServer::publish(std::uint32_t now_ms) {
     }
   }
 
-  if (due(
-          now_ms,
-          last_scale_publish_ms_,
-          scale_publish_interval_ms,
-          scale_published_)) {
+  const bool scale_session_active = api_context_.scale_measurement_active();
+  const bool scale_session_finished =
+      scale_session_was_active_ && !scale_session_active;
+  if ((scale_session_active &&
+       due(
+           now_ms,
+           last_scale_publish_ms_,
+           scale_publish_interval_ms,
+           scale_published_)) ||
+      scale_session_finished) {
     const auto queued = send_to_websocket_clients(make_scale_event());
     if (queued > 0U) {
       last_scale_publish_ms_ = now_ms;
       scale_published_ = true;
+      scale_session_was_active_ = scale_session_active;
       return;
     }
   }

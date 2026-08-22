@@ -279,7 +279,8 @@ void write_system(JsonObject object, const diagnostics::SystemSnapshot& value) {
 
 void write_scale(
     JsonObject scale,
-    const diagnostics::ScaleDiagnosticSnapshot& value) {
+    const diagnostics::ScaleDiagnosticSnapshot& value,
+    std::uint32_t snapshot_at_ms) {
   scale["revision"] = value.scale_revision;
   scale["state"] = services::to_string(value.scale_state);
   scale["adc_ready"] = value.scale_adc_ready;
@@ -293,6 +294,20 @@ void write_scale(
     scale["tare_zero_offset_counts"] = value.scale_tare_zero_offset_counts;
   }
   scale["samples_in_filter"] = value.scale_samples_in_filter;
+  auto measurement = scale["measurement"].to<JsonObject>();
+  measurement["snapshot_at_ms"] = snapshot_at_ms;
+  measurement["purpose"] = services::to_string(value.scale_measurement_purpose);
+  measurement["state"] = services::to_string(value.scale_measurement_state);
+  measurement["active"] = value.scale_measurement_state ==
+          services::ScaleMeasurementState::settling ||
+      value.scale_measurement_state == services::ScaleMeasurementState::ready;
+  if (value.scale_last_completed_available) {
+    measurement["last_completed_grams"] =
+        static_cast<double>(value.scale_last_completed_milligrams) / 1000.0;
+    measurement["last_completed_at_ms"] = value.scale_last_completed_at_ms;
+    measurement["last_completed_age_ms"] = static_cast<std::uint32_t>(
+        snapshot_at_ms - value.scale_last_completed_at_ms);
+  }
   auto sample = scale["sample"].to<JsonObject>();
   if (value.scale_weight_available) {
     sample["gross_grams"] =
@@ -749,7 +764,8 @@ core::Result<std::string> ApplicationApiContext::scale_event_json() {
   document["type"] = "scale";
   write_scale(
       document["data"].to<JsonObject>(),
-      diagnostics_.scale_snapshot());
+      diagnostics_.scale_snapshot(),
+      millis());
   return serialized(document);
 }
 
@@ -857,7 +873,8 @@ core::Result<std::string> ApplicationApiContext::snapshot_json(
     case api::Resource::scale: {
       write_scale(
           document["scale"].to<JsonObject>(),
-          diagnostics_.scale_snapshot());
+          diagnostics_.scale_snapshot(),
+          now_ms);
       document["command_queue_depth"] = scale_commands_.pending();
       break;
     }
@@ -930,7 +947,7 @@ core::Result<std::string> ApplicationApiContext::snapshot_json(
       const auto system = diagnostics_.snapshot(now_ms);
       const auto backends = backend_worker_.snapshot();
       write_system(document["system"].to<JsonObject>(), system);
-      write_scale(document["scale"].to<JsonObject>(), system);
+      write_scale(document["scale"].to<JsonObject>(), system, now_ms);
       auto encoded_backends = document["backends"].to<JsonObject>();
       write_backend(encoded_backends["spoolman"].to<JsonObject>(), backends.spoolman);
       write_backend(
@@ -1030,6 +1047,10 @@ core::Result<api::OperationReceipt> ApplicationApiContext::submit_fresh(
     const api::Mutation& mutation,
     std::uint32_t now_ms) {
   switch (mutation.kind) {
+    case api::MutationKind::scale_weigh:
+      return receipt_result(
+          scale_commands_.submit_weigh(now_ms),
+          "Scale command queue is unavailable");
     case api::MutationKind::scale_tare:
       return receipt_result(
           scale_commands_.submit_tare(now_ms), "Scale command queue is unavailable");

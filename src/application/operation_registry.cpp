@@ -19,6 +19,7 @@ bool terminal(OperationState state) {
 const char* to_string(OperationKind kind) {
   switch (kind) {
     case OperationKind::configuration: return "configuration";
+    case OperationKind::scale_weigh: return "scale_weigh";
     case OperationKind::scale_tare: return "scale_tare";
     case OperationKind::scale_calibration: return "scale_calibration";
     case OperationKind::backend_probe: return "backend_probe";

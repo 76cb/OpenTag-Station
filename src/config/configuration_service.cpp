@@ -721,6 +721,11 @@ ConfigurationService::backend_settings_snapshot() const {
   return {configuration_.spoolman, configuration_.filabridge, revision_};
 }
 
+ScaleProfileSnapshot ConfigurationService::scale_profile_snapshot() const {
+  const std::lock_guard<std::mutex> lock(mutex_);
+  return {configuration_.scale_hardware, revision_};
+}
+
 VersionedConfiguration ConfigurationService::versioned_snapshot() const {
   const std::lock_guard<std::mutex> lock(mutex_);
   return {configuration_, revision_};
@@ -793,6 +798,23 @@ core::Result<void> ConfigurationService::replace(
         configuration_error("configuration service is not initialized"));
   }
   return persist_locked(configuration);
+}
+
+core::Result<void> ConfigurationService::confirm_browser_setup() {
+  const std::lock_guard<std::mutex> lock(mutex_);
+  if (!status_.initialized) {
+    return core::Result<void>::failure(
+        configuration_error("configuration service is not initialized"));
+  }
+  if (configuration_.setup.ready_confirmed) {
+    return core::Result<void>::success();
+  }
+  auto updated = configuration_;
+  constexpr std::uint32_t browser_completed_steps =
+      (1U << 0U) | (1U << 1U) | (1U << 7U);
+  updated.setup.completed_steps |= browser_completed_steps;
+  updated.setup.ready_confirmed = true;
+  return persist_locked(updated);
 }
 
 core::Result<void> ConfigurationService::replace_if_revision(

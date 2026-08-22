@@ -17,6 +17,8 @@ using opentag::services::IScaleAdc;
 using opentag::services::IScaleCalibrationStore;
 using opentag::services::ScaleCalibration;
 using opentag::services::ScaleHardwareSettings;
+using opentag::services::ScaleMeasurementPurpose;
+using opentag::services::ScaleMeasurementState;
 using opentag::services::ScaleProcessingConfig;
 using opentag::services::ScaleService;
 using opentag::services::ScaleState;
@@ -121,6 +123,25 @@ ScaleProcessingConfig test_config() {
   result.overload_ratio = 1.10F;
   result.adc_overload_ratio = 0.98F;
   result.creep_warning_grams = 5.0F;
+  return result;
+}
+
+ScaleProcessingConfig measurement_config() {
+  auto result = test_config();
+  result.filter_window = 10U;
+  result.stability_threshold_grams = 2.0F;
+  result.stability_duration_ms = 400U;
+  result.sample_timeout_ms = 2000U;
+  result.measurement_timeout_ms = 2500U;
+  result.tare_stability_counts = 900;
+  result.near_zero_deadband_grams = 1.0F;
+  return result;
+}
+
+ScaleCalibration physical_calibration() {
+  auto result = calibration(438.7, 5000.0F);
+  result.zero_offset_counts = 132000;
+  result.reference_grams = 1115.0F;
   return result;
 }
 
@@ -512,6 +533,223 @@ void test_slow_stable_drift_sets_creep_warning() {
       0.01F, 3.0F, *service.status().sample.drift_from_stable_grams);
 }
 
+void test_noisy_reference_settles_to_one_gram_result() {
+  FakeAdc adc;
+  FakeStore store;
+  store.stored = physical_calibration();
+  ScaleService service(adc, store, measurement_config());
+  TEST_ASSERT_TRUE(service.initialize(0U, 1000U).ok());
+  TEST_ASSERT_TRUE(service.begin_measurement(
+      ScaleMeasurementPurpose::weigh, 0U).ok());
+
+  const std::int32_t readings[] = {
+      621150, 621430, 620980, 621290, 621010,
+      621360, 621120, 621250, 621040, 621330,
+      621180, 621300, 621100, 621260, 621170,
+  };
+  for (std::size_t index = 0U; index < 15U; ++index) {
+    sample(service, adc, readings[index],
+           static_cast<std::uint32_t>((index + 1U) * 100U));
+  }
+
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(ScaleMeasurementState::completed),
+      static_cast<int>(service.status().measurement_state));
+  TEST_ASSERT_TRUE(service.status().last_completed_grams.has_value());
+  TEST_ASSERT_FLOAT_WITHIN(1.0F, 1115.0F,
+      *service.status().last_completed_grams);
+}
+
+void test_isolated_outliers_do_not_move_settled_result() {
+  FakeAdc adc;
+  FakeStore store;
+  store.stored = physical_calibration();
+  ScaleService service(adc, store, measurement_config());
+  TEST_ASSERT_TRUE(service.initialize(0U, 1000U).ok());
+  TEST_ASSERT_TRUE(service.begin_measurement(
+      ScaleMeasurementPurpose::weigh, 0U).ok());
+
+  const std::int32_t readings[] = {
+      621180, 621220, 645000, 621140, 621260,
+      621090, 621310, 621170, 621240, 621130,
+      621280, 621160, 621210, 621110, 621270,
+  };
+  for (std::size_t index = 0U; index < 15U; ++index) {
+    sample(service, adc, readings[index],
+           static_cast<std::uint32_t>((index + 1U) * 100U));
+  }
+
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(ScaleMeasurementState::completed),
+      static_cast<int>(service.status().measurement_state));
+  TEST_ASSERT_FLOAT_WITHIN(1.0F, 1115.0F,
+      *service.status().last_completed_grams);
+  TEST_ASSERT_FLOAT_WITHIN(500.0F, 621200.0F,
+      static_cast<float>(service.status().sample.filtered_raw_counts));
+}
+
+void test_measurement_waits_for_load_transition_to_settle() {
+  FakeAdc adc;
+  FakeStore store;
+  store.stored = physical_calibration();
+  ScaleService service(adc, store, measurement_config());
+  TEST_ASSERT_TRUE(service.initialize(0U, 1000U).ok());
+  TEST_ASSERT_TRUE(service.begin_measurement(
+      ScaleMeasurementPurpose::weigh, 0U).ok());
+
+  for (std::uint32_t index = 0U; index < 5U; ++index) {
+    sample(service, adc, 132000 + static_cast<std::int32_t>(index * 20U),
+           (index + 1U) * 100U);
+  }
+  for (std::uint32_t index = 5U; index < 10U; ++index) {
+    sample(service, adc, 621200, (index + 1U) * 100U);
+  }
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(ScaleMeasurementState::settling),
+      static_cast<int>(service.status().measurement_state));
+  for (std::uint32_t index = 10U; index < 19U; ++index) {
+    sample(service, adc, 621200 + static_cast<std::int32_t>(index % 3U) * 20,
+           (index + 1U) * 100U);
+  }
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(ScaleMeasurementState::completed),
+      static_cast<int>(service.status().measurement_state));
+}
+
+void test_removal_returns_to_conservative_zero_deadband() {
+  FakeAdc adc;
+  FakeStore store;
+  store.stored = physical_calibration();
+  ScaleService service(adc, store, measurement_config());
+  TEST_ASSERT_TRUE(service.initialize(0U, 1000U).ok());
+  TEST_ASSERT_TRUE(service.begin_measurement(
+      ScaleMeasurementPurpose::weigh, 0U).ok());
+  for (std::uint32_t index = 0U; index < 15U; ++index) {
+    sample(service, adc, 621200, (index + 1U) * 100U);
+  }
+  TEST_ASSERT_FLOAT_WITHIN(1.0F, 1115.0F,
+      *service.status().last_completed_grams);
+
+  TEST_ASSERT_TRUE(service.begin_measurement(
+      ScaleMeasurementPurpose::weigh, 1600U).ok());
+  for (std::uint32_t index = 0U; index < 15U; ++index) {
+    sample(service, adc, 132300 + static_cast<std::int32_t>(index % 3U) * 10,
+           1700U + index * 100U);
+  }
+  TEST_ASSERT_FLOAT_WITHIN(0.01F, 0.0F,
+      *service.status().last_completed_grams);
+}
+
+void test_measurement_times_out_without_false_result() {
+  FakeAdc adc;
+  FakeStore store;
+  store.stored = physical_calibration();
+  auto config = measurement_config();
+  config.measurement_timeout_ms = 1200U;
+  ScaleService service(adc, store, config);
+  TEST_ASSERT_TRUE(service.initialize(0U, 1000U).ok());
+  TEST_ASSERT_TRUE(service.begin_measurement(
+      ScaleMeasurementPurpose::weigh, 0U).ok());
+  for (std::uint32_t index = 0U; index < 12U; ++index) {
+    sample(service, adc, index % 2U == 0U ? 132000 : 621200,
+           (index + 1U) * 100U);
+  }
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(ScaleMeasurementState::timed_out),
+      static_cast<int>(service.status().measurement_state));
+  TEST_ASSERT_FALSE(service.status().last_completed_grams.has_value());
+  TEST_ASSERT_TRUE(service.status().measurement_error.has_value());
+}
+
+void test_repeat_measurements_replace_retained_result() {
+  FakeAdc adc;
+  FakeStore store;
+  store.stored = physical_calibration();
+  ScaleService service(adc, store, measurement_config());
+  TEST_ASSERT_TRUE(service.initialize(0U, 1000U).ok());
+  TEST_ASSERT_TRUE(service.begin_measurement(
+      ScaleMeasurementPurpose::weigh, 0U).ok());
+  for (std::uint32_t index = 0U; index < 15U; ++index) {
+    sample(service, adc, 351350, (index + 1U) * 100U);
+  }
+  TEST_ASSERT_FLOAT_WITHIN(1.0F, 500.0F,
+      *service.status().last_completed_grams);
+  const auto first_at = service.status().last_completed_at_ms;
+
+  TEST_ASSERT_TRUE(service.begin_measurement(
+      ScaleMeasurementPurpose::weigh, 1600U).ok());
+  for (std::uint32_t index = 0U; index < 15U; ++index) {
+    sample(service, adc, 570700, 1700U + index * 100U);
+  }
+  TEST_ASSERT_FLOAT_WITHIN(1.0F, 1000.0F,
+      *service.status().last_completed_grams);
+  TEST_ASSERT_GREATER_THAN(first_at, service.status().last_completed_at_ms);
+}
+
+void test_tare_and_calibration_sessions_wait_for_raw_stability() {
+  FakeAdc adc;
+  FakeStore store;
+  ScaleService service(adc, store, measurement_config());
+  ScaleHardwareSettings hardware;
+  TEST_ASSERT_TRUE(service.configure_hardware(hardware).ok());
+  TEST_ASSERT_TRUE(service.initialize(0U, 1000U).ok());
+  TEST_ASSERT_TRUE(service.begin_measurement(
+      ScaleMeasurementPurpose::tare, 0U).ok());
+  for (std::uint32_t index = 0U; index < 10U; ++index) {
+    sample(service, adc, 132000 + static_cast<std::int32_t>(index % 3U) * 10,
+           (index + 1U) * 100U);
+  }
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(ScaleMeasurementState::ready),
+      static_cast<int>(service.status().measurement_state));
+  TEST_ASSERT_TRUE(service.tare().ok());
+  TEST_ASSERT_TRUE(service.status().tare_ready);
+
+  TEST_ASSERT_TRUE(service.begin_measurement(
+      ScaleMeasurementPurpose::calibration, 1100U).ok());
+  for (std::uint32_t index = 0U; index < 10U; ++index) {
+    sample(service, adc, 621200 + static_cast<std::int32_t>(index % 3U) * 10,
+           1200U + index * 100U);
+  }
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(ScaleMeasurementState::ready),
+      static_cast<int>(service.status().measurement_state));
+  TEST_ASSERT_TRUE(service.calibrate(1115.0F, 5000.0F).ok());
+  TEST_ASSERT_TRUE(service.status().calibration_loaded);
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(ScaleMeasurementState::completed),
+      static_cast<int>(service.status().measurement_state));
+}
+
+void test_session_failure_is_terminal_and_tare_invalidates_retained_weight() {
+  FakeAdc adc;
+  FakeStore store;
+  store.stored = physical_calibration();
+  ScaleService service(adc, store, measurement_config());
+  TEST_ASSERT_TRUE(service.initialize(0U, 1000U).ok());
+  TEST_ASSERT_TRUE(service.begin_measurement(
+      ScaleMeasurementPurpose::weigh, 0U).ok());
+  for (std::uint32_t index = 0U; index < 15U; ++index) {
+    sample(service, adc, 351350, (index + 1U) * 100U);
+  }
+  TEST_ASSERT_TRUE(service.status().last_completed_grams.has_value());
+
+  TEST_ASSERT_TRUE(service.begin_measurement(
+      ScaleMeasurementPurpose::tare, 1600U).ok());
+  for (std::uint32_t index = 0U; index < 10U; ++index) {
+    sample(service, adc, 132000, 1700U + index * 100U);
+  }
+  store.save_fails = true;
+  const auto failed = service.tare();
+  TEST_ASSERT_FALSE(failed.ok());
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(ScaleMeasurementState::failed),
+      static_cast<int>(service.status().measurement_state));
+  TEST_ASSERT_FALSE(service.status().last_completed_grams.has_value());
+  TEST_ASSERT_TRUE(service.begin_measurement(
+      ScaleMeasurementPurpose::tare, 2800U).ok());
+}
+
 void test_i2c_scan_result_is_bounded_and_tracks_target() {
   opentag::hardware::scale::I2cScanResult scan;
   scan.bus_started = true;
@@ -584,5 +822,13 @@ int main(int, char**) {
   RUN_TEST(test_adc_and_store_failures_remain_structured_and_degraded);
   RUN_TEST(test_failed_calibration_save_is_reported_without_losing_runtime_factor);
   RUN_TEST(test_slow_stable_drift_sets_creep_warning);
+  RUN_TEST(test_noisy_reference_settles_to_one_gram_result);
+  RUN_TEST(test_isolated_outliers_do_not_move_settled_result);
+  RUN_TEST(test_measurement_waits_for_load_transition_to_settle);
+  RUN_TEST(test_removal_returns_to_conservative_zero_deadband);
+  RUN_TEST(test_measurement_times_out_without_false_result);
+  RUN_TEST(test_repeat_measurements_replace_retained_result);
+  RUN_TEST(test_tare_and_calibration_sessions_wait_for_raw_stability);
+  RUN_TEST(test_session_failure_is_terminal_and_tare_invalidates_retained_weight);
   return UNITY_END();
 }

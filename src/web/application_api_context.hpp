@@ -69,6 +69,9 @@ class ApplicationApiContext final : public api::IApiContext {
   [[nodiscard]] bool acknowledge_network_connect_receipt(
       std::uint64_t operation_id);
   [[nodiscard]] core::Result<std::string> scale_event_json();
+  [[nodiscard]] bool scale_measurement_active() const {
+    return diagnostics_.scale_measurement_active();
+  }
   [[nodiscard]] core::Result<std::string> update_event_json(
       std::uint64_t& revision);
   [[nodiscard]] core::Result<std::string> snapshot_json(

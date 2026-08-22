@@ -246,8 +246,8 @@ void setUp() {}
 void tearDown() {}
 
 void test_route_table_contains_the_complete_versioned_surface() {
-  TEST_ASSERT_EQUAL_UINT(30U, opentag::web::api::routes.size());
-  const std::array<std::pair<Method, const char*>, 30U> expected = {{
+  TEST_ASSERT_EQUAL_UINT(31U, opentag::web::api::routes.size());
+  const std::array<std::pair<Method, const char*>, 31U> expected = {{
       {Method::get, "/api/v1/status"},
       {Method::get, "/api/v1/device"},
       {Method::get, "/api/v1/health"},
@@ -256,6 +256,7 @@ void test_route_table_contains_the_complete_versioned_surface() {
       {Method::post, "/api/v1/network/connect"},
       {Method::post, "/api/v1/network/setup-mode"},
       {Method::get, "/api/v1/scale"},
+      {Method::post, "/api/v1/scale/weigh"},
       {Method::post, "/api/v1/scale/tare"},
       {Method::post, "/api/v1/scale/calibrate"},
       {Method::get, "/api/v1/nfc"},
@@ -538,7 +539,8 @@ void test_mutation_headers_are_required_and_idempotency_is_bounded() {
 void test_empty_mutations_are_strict_and_forward_typed_commands() {
   FakeContext context;
   Router router(context);
-  const std::array<std::pair<const char*, MutationKind>, 3U> operations = {{
+  const std::array<std::pair<const char*, MutationKind>, 4U> operations = {{
+      {"/api/v1/scale/weigh", MutationKind::scale_weigh},
       {"/api/v1/scale/tare", MutationKind::scale_tare},
       {"/api/v1/nfc/read", MutationKind::nfc_read},
       {"/api/v1/backends/test", MutationKind::backend_test},

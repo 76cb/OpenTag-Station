@@ -109,6 +109,7 @@ class Application {
       first_run_setup_,
       network_,
       configuration_worker_,
+      scale_commands_,
       workflow_,
       backend_worker_};
   ApplicationStateMachine state_machine_;

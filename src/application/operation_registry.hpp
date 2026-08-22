@@ -14,6 +14,7 @@ namespace opentag::application {
 
 enum class OperationKind : std::uint8_t {
   configuration,
+  scale_weigh,
   scale_tare,
   scale_calibration,
   backend_probe,

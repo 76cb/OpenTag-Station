@@ -39,6 +39,27 @@ const char* to_string(ScaleState state) {
   return "unknown";
 }
 
+const char* to_string(ScaleMeasurementPurpose purpose) {
+  switch (purpose) {
+    case ScaleMeasurementPurpose::weigh: return "weigh";
+    case ScaleMeasurementPurpose::tare: return "tare";
+    case ScaleMeasurementPurpose::calibration: return "calibration";
+  }
+  return "unknown";
+}
+
+const char* to_string(ScaleMeasurementState state) {
+  switch (state) {
+    case ScaleMeasurementState::idle: return "idle";
+    case ScaleMeasurementState::settling: return "settling";
+    case ScaleMeasurementState::ready: return "ready";
+    case ScaleMeasurementState::completed: return "completed";
+    case ScaleMeasurementState::timed_out: return "timed out";
+    case ScaleMeasurementState::failed: return "failed";
+  }
+  return "unknown";
+}
+
 core::Result<void> ScaleHardwareSettings::validate() const {
   const bool supported_capacity =
       rated_capacity_grams == 2000.0F || rated_capacity_grams == 5000.0F;
@@ -71,11 +92,14 @@ core::Result<void> ScaleProcessingConfig::validate() const {
   if (filter_window < 3U || filter_window > maximum_filter_window ||
       !std::isfinite(stability_threshold_grams) || stability_threshold_grams < 0.0F ||
       stability_duration_ms == 0U || sample_timeout_ms == 0U ||
+      measurement_timeout_ms == 0U ||
       tare_stability_counts < 0 || !std::isfinite(negative_tolerance_grams) ||
       negative_tolerance_grams < 0.0F || !std::isfinite(overload_ratio) ||
       overload_ratio <= 1.0F || !std::isfinite(adc_overload_ratio) ||
       adc_overload_ratio <= 0.0F || adc_overload_ratio > 1.0F ||
-      !std::isfinite(creep_warning_grams) || creep_warning_grams < 0.0F) {
+      !std::isfinite(creep_warning_grams) || creep_warning_grams < 0.0F ||
+      !std::isfinite(near_zero_deadband_grams) ||
+      near_zero_deadband_grams < 0.0F || near_zero_deadband_grams > 2.0F) {
     return core::Result<void>::failure(configuration_error("scale processing configuration is invalid"));
   }
   return core::Result<void>::success();
@@ -115,7 +139,15 @@ core::Result<void> ScaleService::reconfigure_hardware(
   return configure_hardware(settings);
 }
 
+void ScaleService::fail_active_measurement(const core::Error& error) {
+  if (!measurement_active()) return;
+  status_.measurement_state = ScaleMeasurementState::failed;
+  status_.measurement_error = error;
+  measurement_started_ms_.reset();
+}
+
 void ScaleService::set_error(core::Error error, ScaleState state) {
+  fail_active_measurement(error);
   status_.last_error = std::move(error);
   status_.state = state;
   status_.sample.raw_stable = false;
@@ -202,13 +234,89 @@ void ScaleService::reset_filter() {
   status_.sample = {};
 }
 
+ScaleService::FilterStatistics ScaleService::filter_statistics() const {
+  if (sample_count_ == 0U) return {};
+  std::array<std::int32_t, ScaleProcessingConfig::maximum_filter_window> sorted{};
+  std::copy_n(samples_.begin(), sample_count_, sorted.begin());
+  std::sort(
+      sorted.begin(),
+      sorted.begin() + static_cast<std::ptrdiff_t>(sample_count_));
+  const std::size_t trim = sample_count_ >= 5U ? sample_count_ / 5U : 0U;
+  const std::size_t begin = trim;
+  const std::size_t end = sample_count_ - trim;
+  double total = 0.0;
+  for (std::size_t index = begin; index < end; ++index) total += sorted[index];
+  return {
+      total / static_cast<double>(end - begin),
+      sorted[begin],
+      sorted[end - 1U],
+  };
+}
+
 bool ScaleService::raw_filter_stable() const {
   if (sample_count_ < config_.filter_window) return false;
-  const auto begin = samples_.begin();
-  const auto end = begin + static_cast<std::ptrdiff_t>(sample_count_);
-  const auto bounds = std::minmax_element(begin, end);
-  return static_cast<std::int64_t>(*bounds.second) - *bounds.first <=
+  const auto statistics = filter_statistics();
+  return static_cast<std::int64_t>(statistics.maximum) - statistics.minimum <=
       config_.tare_stability_counts;
+}
+
+core::Result<void> ScaleService::begin_measurement(
+    ScaleMeasurementPurpose purpose,
+    std::uint32_t now_ms) {
+  if (!status_.adc_ready) {
+    return core::Result<void>::failure(
+        unavailable("NAU7802 is not initialized"));
+  }
+  if (measurement_active()) {
+    return core::Result<void>::failure(
+        unavailable("another scale measurement is already active"));
+  }
+  if (purpose == ScaleMeasurementPurpose::weigh && !calibration_.has_value()) {
+    return core::Result<void>::failure(
+        configuration_error("scale calibration is required before weighing"));
+  }
+  reset_filter();
+  status_.measurement_purpose = purpose;
+  status_.measurement_state = ScaleMeasurementState::settling;
+  status_.measurement_error.reset();
+  measurement_started_ms_ = now_ms;
+  return core::Result<void>::success();
+}
+
+void ScaleService::advance_measurement(std::uint32_t now_ms) {
+  if (status_.measurement_state != ScaleMeasurementState::settling ||
+      !measurement_started_ms_.has_value()) {
+    return;
+  }
+  const bool ready = status_.measurement_purpose ==
+          ScaleMeasurementPurpose::weigh
+      ? status_.sample.stable
+      : status_.sample.raw_stable;
+  if (ready) {
+    if (status_.measurement_purpose == ScaleMeasurementPurpose::weigh) {
+      float completed = *status_.sample.gross_grams;
+      if (std::fabs(completed) < config_.near_zero_deadband_grams) {
+        completed = 0.0F;
+      } else {
+        completed = std::round(completed);
+      }
+      status_.last_completed_grams = completed;
+      status_.last_completed_at_ms = now_ms;
+      status_.measurement_state = ScaleMeasurementState::completed;
+      measurement_started_ms_.reset();
+    } else {
+      status_.measurement_state = ScaleMeasurementState::ready;
+    }
+    return;
+  }
+  if (static_cast<std::uint32_t>(now_ms - *measurement_started_ms_) >=
+      config_.measurement_timeout_ms) {
+    const auto error = unstable(
+        "scale did not settle before the measurement deadline");
+    status_.measurement_state = ScaleMeasurementState::timed_out;
+    status_.measurement_error = error;
+    measurement_started_ms_.reset();
+  }
 }
 
 void ScaleService::push_sample(std::int32_t raw_counts, std::uint32_t now_ms) {
@@ -217,16 +325,9 @@ void ScaleService::push_sample(std::int32_t raw_counts, std::uint32_t now_ms) {
   sample_count_ = std::min(sample_count_ + 1U, config_.filter_window);
   status_.samples_in_filter = sample_count_;
 
-  double total = 0.0;
-  std::int32_t minimum = std::numeric_limits<std::int32_t>::max();
-  std::int32_t maximum = std::numeric_limits<std::int32_t>::min();
-  for (std::size_t index = 0U; index < sample_count_; ++index) {
-    total += samples_[index];
-    minimum = std::min(minimum, samples_[index]);
-    maximum = std::max(maximum, samples_[index]);
-  }
+  const auto statistics = filter_statistics();
   status_.sample.raw_counts = raw_counts;
-  status_.sample.filtered_raw_counts = total / static_cast<double>(sample_count_);
+  status_.sample.filtered_raw_counts = statistics.mean;
   status_.sample.sampled_at_ms = now_ms;
   status_.sample.raw_stable = raw_filter_stable();
   status_.sample.stable = false;
@@ -252,7 +353,8 @@ void ScaleService::push_sample(std::int32_t raw_counts, std::uint32_t now_ms) {
       std::fabs(grams) > calibration_->load_cell_capacity_grams * config_.overload_ratio;
 
   const double spread_grams =
-      static_cast<double>(static_cast<std::int64_t>(maximum) - minimum) /
+      static_cast<double>(
+          static_cast<std::int64_t>(statistics.maximum) - statistics.minimum) /
       std::fabs(calibration_->counts_per_gram);
   const bool candidate = sample_count_ == config_.filter_window &&
       spread_grams <= config_.stability_threshold_grams &&
@@ -306,58 +408,75 @@ core::Result<bool> ScaleService::poll(std::uint32_t now_ms) {
                       : ScaleState::calibration_required;
   status_.last_error.reset();
   push_sample(raw.value(), now_ms);
+  advance_measurement(now_ms);
   return core::Result<bool>::success(true);
 }
 
 core::Result<void> ScaleService::tare() {
+  const auto fail = [this](core::Error error) {
+    fail_active_measurement(error);
+    return core::Result<void>::failure(std::move(error));
+  };
   if (!raw_filter_stable()) {
-    return core::Result<void>::failure(unstable("scale must be stable before tare"));
+    return fail(unstable("scale must be stable before tare"));
   }
   pending_zero_offset_counts_ =
       static_cast<std::int32_t>(std::llround(status_.sample.filtered_raw_counts));
   status_.tare_ready = true;
   status_.tare_zero_offset_counts = *pending_zero_offset_counts_;
+  status_.last_completed_grams.reset();
+  status_.last_completed_at_ms = 0U;
   if (calibration_.has_value()) {
     calibration_->zero_offset_counts = *pending_zero_offset_counts_;
     const auto saved = store_.save_scale_calibration(*calibration_);
     if (!saved.ok()) {
       status_.persistence_available = false;
       status_.last_error = saved.error();
-      return saved;
+      return fail(saved.error());
     }
     status_.persistence_available = true;
   }
+  const bool completes_session =
+      status_.measurement_state == ScaleMeasurementState::ready &&
+      status_.measurement_purpose == ScaleMeasurementPurpose::tare;
   reset_filter();
+  if (completes_session) {
+    status_.measurement_state = ScaleMeasurementState::completed;
+    status_.measurement_error.reset();
+    measurement_started_ms_.reset();
+  }
   return core::Result<void>::success();
 }
 
 core::Result<ScaleCalibration> ScaleService::calibrate(
     float reference_grams,
     float load_cell_capacity_grams) {
+  const auto fail = [this](core::Error error) {
+    fail_active_measurement(error);
+    return core::Result<ScaleCalibration>::failure(std::move(error));
+  };
   if (!pending_zero_offset_counts_.has_value()) {
-    return core::Result<ScaleCalibration>::failure(
-        configuration_error("tare is required before scale calibration"));
+    return fail(configuration_error("tare is required before scale calibration"));
   }
   if (!raw_filter_stable()) {
-    return core::Result<ScaleCalibration>::failure(
-        unstable("reference weight must be stable before calibration"));
+    return fail(unstable("reference weight must be stable before calibration"));
   }
   if (!std::isfinite(reference_grams) || reference_grams <= 0.0F ||
       !std::isfinite(load_cell_capacity_grams) ||
       load_cell_capacity_grams < reference_grams) {
-    return core::Result<ScaleCalibration>::failure(
-        configuration_error("calibration reference/capacity is invalid"));
+    return fail(configuration_error(
+        "calibration reference/capacity is invalid"));
   }
   if (hardware_settings_explicit_ && !capacities_match(
           load_cell_capacity_grams, hardware_settings_.rated_capacity_grams)) {
-    return core::Result<ScaleCalibration>::failure(configuration_error(
+    return fail(configuration_error(
         "calibration capacity does not match configured scale hardware"));
   }
   const double delta =
       status_.sample.filtered_raw_counts - *pending_zero_offset_counts_;
   if (std::fabs(delta) < 100.0) {
-    return core::Result<ScaleCalibration>::failure(
-        configuration_error("calibration reference produced too few ADC counts"));
+    return fail(configuration_error(
+        "calibration reference produced too few ADC counts"));
   }
   ScaleCalibration proposed;
   proposed.zero_offset_counts = *pending_zero_offset_counts_;
@@ -367,7 +486,7 @@ core::Result<ScaleCalibration> ScaleService::calibrate(
   proposed.reference_grams = reference_grams;
   proposed.load_cell_capacity_grams = load_cell_capacity_grams;
   const auto valid = proposed.validate();
-  if (!valid.ok()) return core::Result<ScaleCalibration>::failure(valid.error());
+  if (!valid.ok()) return fail(valid.error());
 
   calibration_ = proposed;
   if (!hardware_settings_explicit_) {
@@ -375,15 +494,25 @@ core::Result<ScaleCalibration> ScaleService::calibrate(
   }
   status_.calibration_loaded = true;
   status_.state = ScaleState::sampling;
+  status_.last_completed_grams.reset();
+  status_.last_completed_at_ms = 0U;
   const auto saved = store_.save_scale_calibration(proposed);
   if (!saved.ok()) {
     status_.persistence_available = false;
     status_.last_error = saved.error();
-    return core::Result<ScaleCalibration>::failure(saved.error());
+    return fail(saved.error());
   }
   status_.persistence_available = true;
   status_.last_error.reset();
+  const bool completes_session =
+      status_.measurement_state == ScaleMeasurementState::ready &&
+      status_.measurement_purpose == ScaleMeasurementPurpose::calibration;
   reset_filter();
+  if (completes_session) {
+    status_.measurement_state = ScaleMeasurementState::completed;
+    status_.measurement_error.reset();
+    measurement_started_ms_.reset();
+  }
   return core::Result<ScaleCalibration>::success(proposed);
 }
 

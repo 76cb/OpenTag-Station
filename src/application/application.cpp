@@ -555,6 +555,16 @@ void Application::scale_task_entry(void* context) {
         "Scale I2C could not restore production GPIO10 SDA / GPIO11 SCL");
   }
 
+  auto configured_profile = application->configuration_.scale_profile_snapshot();
+  auto applied_profile_revision = configured_profile.revision;
+  const auto& startup_hardware = application->scale_.hardware_settings();
+  if (startup_hardware.load_cell_model != configured_profile.hardware.load_cell_model ||
+      std::fabs(startup_hardware.rated_capacity_grams -
+                configured_profile.hardware.rated_capacity_grams) > 0.01F ||
+      std::fabs(startup_hardware.overload_ratio -
+                configured_profile.hardware.overload_ratio) > 0.0001F) {
+    (void)application->scale_.reconfigure_hardware(configured_profile.hardware);
+  }
   auto last_initialize_attempt_ms = millis();
   auto initialized = application->scale_.initialize(
       last_initialize_attempt_ms, operation_timeout_ms).ok();
@@ -563,26 +573,36 @@ void Application::scale_task_entry(void* context) {
       application->scale_.calibration(),
       application->scale_.hardware_settings());
   auto last_profile_check_ms = last_initialize_attempt_ms;
+  auto last_diagnostics_ms = last_initialize_attempt_ms;
+  auto published_measurement_state =
+      application->scale_.status().measurement_state;
 
   for (;;) {
     const auto now_ms = millis();
+    bool sample_updated = false;
     const bool profile_check_due =
         static_cast<std::uint32_t>(now_ms - last_profile_check_ms) >= 1000U;
-    const auto& active_hardware = application->scale_.hardware_settings();
-    const auto configured_hardware = profile_check_due
-        ? application->configuration_.snapshot().scale_hardware
-        : active_hardware;
-    const bool hardware_changed = profile_check_due &&
-        (active_hardware.load_cell_model !=
-             configured_hardware.load_cell_model ||
-         std::fabs(active_hardware.rated_capacity_grams -
-                   configured_hardware.rated_capacity_grams) > 0.01F ||
-         std::fabs(active_hardware.overload_ratio -
-                   configured_hardware.overload_ratio) > 0.0001F);
-    if (profile_check_due) last_profile_check_ms = now_ms;
+    bool hardware_changed = false;
+    if (profile_check_due) {
+      last_profile_check_ms = now_ms;
+      const auto current_revision = application->configuration_.revision();
+      if (current_revision != applied_profile_revision) {
+        configured_profile = application->configuration_.scale_profile_snapshot();
+        if (configured_profile.revision != applied_profile_revision) {
+          const auto& active_hardware = application->scale_.hardware_settings();
+          hardware_changed = active_hardware.load_cell_model !=
+                  configured_profile.hardware.load_cell_model ||
+              std::fabs(active_hardware.rated_capacity_grams -
+                        configured_profile.hardware.rated_capacity_grams) > 0.01F ||
+              std::fabs(active_hardware.overload_ratio -
+                        configured_profile.hardware.overload_ratio) > 0.0001F;
+          applied_profile_revision = configured_profile.revision;
+        }
+      }
+    }
     if (hardware_changed) {
       const auto reconfigured = application->scale_.reconfigure_hardware(
-          configured_hardware);
+          configured_profile.hardware);
       initialized = reconfigured.ok() && application->scale_.initialize(
           now_ms, operation_timeout_ms).ok();
       last_initialize_attempt_ms = now_ms;
@@ -595,14 +615,26 @@ void Application::scale_task_entry(void* context) {
           now_ms, operation_timeout_ms).ok();
     } else if (initialized) {
       const auto poll_result = application->scale_.poll(now_ms);
-      (void)poll_result;
+      sample_updated = poll_result.ok() && poll_result.value();
     }
     application->scale_commands_.process_one(now_ms);
-    application->diagnostics_.set_scale_status(
-        application->scale_.status(),
-        application->scale_.calibration(),
-        application->scale_.hardware_settings());
-    vTaskDelay(pdMS_TO_TICKS(20U));
+    const auto measurement_state =
+        application->scale_.status().measurement_state;
+    const bool measurement_changed =
+        measurement_state != published_measurement_state;
+    const bool idle_diagnostics_due =
+        static_cast<std::uint32_t>(now_ms - last_diagnostics_ms) >= 1000U;
+    if (hardware_changed || measurement_changed ||
+        (application->scale_.measurement_active() && sample_updated) ||
+        idle_diagnostics_due) {
+      application->diagnostics_.set_scale_status(
+          application->scale_.status(),
+          application->scale_.calibration(),
+          application->scale_.hardware_settings());
+      last_diagnostics_ms = now_ms;
+      published_measurement_state = measurement_state;
+    }
+    vTaskDelay(pdMS_TO_TICKS(50U));
   }
 }
 

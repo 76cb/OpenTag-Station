@@ -94,12 +94,13 @@ const char index_html[] = R"HTML(<!doctype html>
     </section>
 
     <section id="scale" class="section" aria-labelledby="scale-title">
-      <div class="section-heading"><div><p class="eyebrow">LIVE SENSOR</p><h2 id="scale-title">Scale</h2></div><span id="scale-badge" class="badge neutral">Unknown</span></div>
+      <div class="section-heading"><div><p class="eyebrow">ON-DEMAND SENSOR</p><h2 id="scale-title">Scale</h2></div><span id="scale-badge" class="badge neutral">Unknown</span></div>
       <div class="card-grid two-column">
         <article class="card weight-card" aria-live="polite">
           <p class="metric-label">Gross weight</p>
           <p><span id="gross-weight" class="weight-value">—</span> <span class="unit">g</span></p>
-          <p id="weight-quality" class="quality">No measurement</p>
+          <p id="weight-quality" class="quality">Press Weigh</p>
+          <div class="action-row"><button id="weigh-scale" class="button primary" type="button" disabled>Weigh</button></div>
           <dl class="facts compact">
             <div><dt>Profile</dt><dd id="scale-profile">—</dd></div>
             <div><dt>Rated capacity</dt><dd id="scale-capacity">—</dd></div>
@@ -1333,6 +1334,8 @@ const char application_javascript[] = R"JS((function () {
   function updateScaleControls() {
     const scale = asObject(state.scale);
     const sample = asObject(first(scale.sample, scale));
+    const measurement = asObject(scale.measurement);
+    const measurementActive = measurement.active === true;
     const adcReady = scale.adc_ready === true;
     const rawStable = first(sample.raw_stable, scale.raw_stable, false) === true;
     const samplesInFilter = Number(first(scale.samples_in_filter, sample.samples_in_filter, 0));
@@ -1342,10 +1345,13 @@ const char application_javascript[] = R"JS((function () {
     const maximumNode = byId('reference-grams');
     const maximum = Number(maximumNode ? maximumNode.max : 0);
     const referenceReady = Number.isFinite(reference) && reference > 0 && reference <= maximum;
+    const blocked = state.scaleBusy || measurementActive || state.maintenance;
+    const weigh = byId('weigh-scale');
     const tare = byId('tare-scale');
     const calibrate = byId('calibrate-scale');
-    if (tare) tare.disabled = !adcReady || !rawStable || state.scaleBusy || state.maintenance;
-    if (calibrate) calibrate.disabled = !adcReady || !rawStable || !tareReady || !referenceReady || state.scaleBusy || state.maintenance;
+    if (weigh) weigh.disabled = !adcReady || scale.calibrated !== true || blocked;
+    if (tare) tare.disabled = !adcReady || blocked;
+    if (calibrate) calibrate.disabled = !adcReady || !tareReady || !referenceReady || blocked;
     if (state.scaleBusy) {
       setText('scale-action-status', state.scaleProgress || 'Scale operation in progress…');
     } else if (!state.scale) {
@@ -1381,16 +1387,31 @@ const char application_javascript[] = R"JS((function () {
       state.scaleTareFallback = scale.tare_ready === true;
     }
     const profile = asObject(first(scale.profile, scale.scale_profile, {}));
+    const measurement = asObject(scale.measurement);
+    const measurementActive = measurement.active === true;
     const gross = first(sample.gross_grams, scale.gross_grams,
       Number.isFinite(Number(scale.gross_milligrams)) ? Number(scale.gross_milligrams) / 1000 : null);
-    setText('gross-weight', Number.isFinite(Number(gross)) ? Number(gross).toFixed(1) : null);
-    const stable = first(sample.stable, scale.stable, false) === true;
+    const completed = Number(measurement.last_completed_grams);
+    const displayed = measurementActive && Number.isFinite(Number(gross))
+      ? Math.round(Number(gross))
+      : Number.isFinite(completed) ? Math.round(completed) : null;
+    setText('gross-weight', displayed);
     const overload = first(sample.overload, scale.overload, false) === true;
     const adcReady = scale.adc_ready === true;
+    const reportedAge = Number(measurement.last_completed_age_ms);
+    const capturedAt = Number(measurement.last_completed_at_ms);
+    const snapshotAt = Number(measurement.snapshot_at_ms);
+    const age = Number.isFinite(reportedAge) ? reportedAge :
+      Number.isFinite(capturedAt) && Number.isFinite(snapshotAt)
+        ? Math.max(0, snapshotAt - capturedAt) : null;
+    const capturedTime = age === null ? 'unknown time' :
+      new Date(Date.now() - age).toLocaleTimeString();
+    const measurementState = String(first(measurement.state, 'idle'));
     setText('weight-quality', !adcReady ? 'Scale hardware unavailable' :
-      overload ? 'OVERLOAD' : stable ? 'Stable' : gross === null ? 'No measurement' : 'Moving');
-    const scaleState = normalizeState(first(scale.state, scale.status, 'unknown'));
-    setBadge('scale-badge', scaleState, overload ? 'bad' : stable ? 'good' : 'neutral');
+      overload ? 'OVERLOAD' : measurementActive ? 'Settling…' :
+      Number.isFinite(completed) ? 'Captured at ' + capturedTime : 'Press Weigh');
+    setBadge('scale-badge', normalizeState(measurementState), overload ? 'bad' :
+      measurementState === 'completed' ? 'good' : measurementActive ? 'warning' : 'neutral');
     setText('scale-profile', first(profile.display_name, profile.id, scale.load_cell_profile, scale.load_cell_model));
     setText('scale-capacity', formatGrams(first(profile.rated_capacity_grams, scale.rated_capacity_grams, scale.load_cell_capacity_grams)));
     const calibrated = first(scale.calibrated, scale.calibration_loaded,
@@ -2467,9 +2488,12 @@ const char application_javascript[] = R"JS((function () {
     state.fallbackTimer = 0;
     if (!state.fallbackActive || state.unloading || state.maintenance) return;
     state.fallbackTick += 1;
-    await load('/scale', renderScale, true, PRIORITY.CORE, {
-      supersedeKey: 'fallback:/scale', group: 'fallback:'
-    });
+    const measurement = asObject(asObject(state.scale).measurement);
+    if (state.scaleBusy || measurement.active === true) {
+      await load('/scale', renderScale, true, PRIORITY.CORE, {
+        supersedeKey: 'fallback:/scale', group: 'fallback:'
+      });
+    }
     if (state.fallbackTick % 5 === 0 && state.fallbackActive) {
       await load('/health', renderHealth, true, PRIORITY.CORE, {
         supersedeKey: 'fallback:/health', group: 'fallback:'
@@ -2558,8 +2582,6 @@ const char application_javascript[] = R"JS((function () {
 
   async function runScaleMutation(button, path, body, success) {
     const scale = asObject(state.scale);
-    const sample = asObject(first(scale.sample, scale));
-    const rawStable = first(sample.raw_stable, scale.raw_stable, false) === true;
     const tareReady = Object.prototype.hasOwnProperty.call(scale, 'tare_ready')
       ? scale.tare_ready === true : state.scaleTareFallback;
     if (scale.adc_ready !== true) {
@@ -2568,12 +2590,6 @@ const char application_javascript[] = R"JS((function () {
     }
     if (path === '/scale/calibrate' && !tareReady) {
       showToast('Tare must complete before calibration.', true);
-      return;
-    }
-    if (!rawStable) {
-      showToast(path === '/scale/tare'
-        ? 'Waiting for stable empty platform.'
-        : 'Waiting for stable reference weight.', true);
       return;
     }
     state.scaleBusy = true;
@@ -2708,6 +2724,9 @@ const char application_javascript[] = R"JS((function () {
 
   function wireActions() {
     byId('refresh-all').addEventListener('click', function () { refreshAll(false); });
+    byId('weigh-scale').addEventListener('click', function (event) {
+      runScaleMutation(event.currentTarget, '/scale/weigh', {}, 'Weight captured.');
+    });
     byId('tare-scale').addEventListener('click', function (event) {
       if (window.confirm('Tare the scale now? The platform must be empty and stable.')) {
         runScaleMutation(event.currentTarget, '/scale/tare', {}, 'Tare complete.');
@@ -3004,6 +3023,8 @@ const char application_javascript[] = R"JS((function () {
       applyAuthState: applyAuthState,
       renderAuthState: renderAuthState,
       handleLiveEvent: handleLiveEvent,
+      fallbackStep: fallbackStep,
+      setFallbackPolling: setFallbackPolling,
       resourcePriority: resourcePriority,
       updateScaleControls: updateScaleControls,
       renderScale: renderScale,

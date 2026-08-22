@@ -644,6 +644,7 @@ test("blank-token trusted-LAN mode never prompts or sends Authorization for muta
 
   assert.equal(T.applyAuthState(false, 1), true);
   const mutations = [
+    { path: "/scale/weigh", method: "POST", body: {} },
     { path: "/scale/tare", method: "POST", body: {} },
     { path: "/config", method: "PATCH", body: { expected_revision: 1 } },
     { path: "/backends/test", method: "POST", body: {} },
@@ -657,7 +658,7 @@ test("blank-token trusted-LAN mode never prompts or sends Authorization for muta
     }));
   }
 
-  assert.deepEqual(receipts.map((receipt) => receipt.operation_id), [1, 2, 3, 4, 5]);
+  assert.deepEqual(receipts.map((receipt) => receipt.operation_id), [1, 2, 3, 4, 5, 6]);
   assert.equal(app.prompts.length, 0);
   assert.equal(app.fetchCalls.length, mutations.length);
   assert.deepEqual(app.fetchCalls.map((call) => call.url),
@@ -1481,7 +1482,31 @@ test('heartbeat and snapshot events cause no REST storm while invalidation refre
   assert.equal(app.fetchCalls[0].url, '/api/v1/network');
 });
 
-test('fresh calibration follows raw-stable empty, tare, and raw-stable reference states', () => {
+test('on-demand scale renders only settling or retained results and gates Weigh', () => {
+  assert.ok(readFileSync(ASSET_PATH, 'utf8').includes(
+    'id="weigh-scale" class="button primary" type="button" disabled>Weigh</button>'));
+  const { T, document } = loadApplication();
+  T.renderScale({
+    revision: 1, adc_ready: true, calibrated: true,
+    measurement: { state: 'completed', active: false, last_completed_grams: 1114.6,
+      last_completed_at_ms: 1000, snapshot_at_ms: 6500 },
+    sample: { gross_grams: 1127.4, raw_stable: true, stable: true },
+  });
+  assert.equal(document.getElementById('gross-weight').textContent, '1115');
+  assert.match(document.getElementById('weight-quality').textContent, /^Captured at /);
+  assert.equal(document.getElementById('weigh-scale').disabled, false);
+
+  T.renderScale({
+    revision: 2, adc_ready: true, calibrated: true,
+    measurement: { state: 'settling', active: true, snapshot_at_ms: 7000 },
+    sample: { gross_grams: 1113.6, raw_stable: false, stable: false },
+  });
+  assert.equal(document.getElementById('gross-weight').textContent, '1114');
+  assert.equal(document.getElementById('weight-quality').textContent, 'Settling…');
+  assert.equal(document.getElementById('weigh-scale').disabled, true);
+});
+
+test('fresh calibration actions automatically wait for raw-stable windows', () => {
   const { T, document } = loadApplication();
   const tare = document.getElementById('tare-scale');
   const calibrate = document.getElementById('calibrate-scale');
@@ -1492,46 +1517,49 @@ test('fresh calibration follows raw-stable empty, tare, and raw-stable reference
 
   T.applyAuthState(false, 1);
   T.renderScale({
-    revision: 1, adc_ready: true, stable: false, raw_stable: false,
-    samples_in_filter: 2, tare_ready: false,
+    revision: 1, adc_ready: true, calibrated: false, raw_stable: false,
+    samples_in_filter: 2, tare_ready: false, measurement: { state: 'idle', active: false },
   });
-  assert.equal(tare.disabled, true);
+  assert.equal(tare.disabled, false, 'tare starts a bounded settling session');
   assert.equal(calibrate.disabled, true);
   assert.equal(status.textContent, 'Waiting for stable empty platform.');
 
   T.renderScale({
-    revision: 2, adc_ready: true, stable: false, raw_stable: true,
-    samples_in_filter: 3, tare_ready: false,
+    revision: 2, adc_ready: true, calibrated: false, raw_stable: true,
+    samples_in_filter: 3, tare_ready: false, measurement: { state: 'idle', active: false },
   });
-  assert.equal(tare.disabled, false, 'gram stability must not block the first tare');
-  assert.equal(calibrate.disabled, true);
+  assert.equal(tare.disabled, false);
   assert.equal(status.textContent, 'Ready to tare.');
 
   T.renderScale({
-    revision: 3, adc_ready: true, stable: false, raw_stable: false,
+    revision: 3, adc_ready: true, calibrated: false, raw_stable: false,
     samples_in_filter: 0, tare_ready: true, tare_zero_offset_counts: 1234,
+    measurement: { state: 'completed', active: false },
   });
-  assert.equal(tare.disabled, true);
-  assert.equal(calibrate.disabled, true);
+  assert.equal(calibrate.disabled, false, 'calibrate starts its own reference settling session');
   assert.equal(status.textContent, 'Tare complete — place reference weight.');
 
   T.renderScale({
-    revision: 4, adc_ready: true, stable: false, raw_stable: false,
+    revision: 4, adc_ready: true, calibrated: false, raw_stable: false,
     samples_in_filter: 2, tare_ready: true, tare_zero_offset_counts: 1234,
+    measurement: { state: 'idle', active: false },
   });
-  assert.equal(calibrate.disabled, true);
+  assert.equal(calibrate.disabled, false);
   assert.equal(status.textContent, 'Waiting for stable reference weight.');
 
   T.renderScale({
-    revision: 5, adc_ready: true, stable: false, raw_stable: true,
+    revision: 5, adc_ready: true, calibrated: false, raw_stable: true,
     samples_in_filter: 3, tare_ready: true, tare_zero_offset_counts: 1234,
+    measurement: { state: 'idle', active: false },
   });
-  assert.equal(tare.disabled, false);
-  assert.equal(calibrate.disabled, false, 'gram stability must not block first calibration');
+  assert.equal(calibrate.disabled, false);
   assert.equal(status.textContent, 'Ready to calibrate.');
 
-  T.state.scaleBusy = true;
-  T.updateScaleControls();
+  T.renderScale({
+    revision: 6, adc_ready: true, calibrated: false, raw_stable: false,
+    samples_in_filter: 1, tare_ready: true,
+    measurement: { purpose: 'calibration', state: 'settling', active: true },
+  });
   assert.equal(tare.disabled, true);
   assert.equal(calibrate.disabled, true);
 });
@@ -1547,10 +1575,10 @@ test("scale mutation completion keeps controls gated by the authoritative latest
       disabled: ["tare-scale", "calibrate-scale"],
     },
     {
-      name: "unstable sample",
+      name: "active measurement",
       path: "/scale/tare",
       body: {},
-      finalScale: { revision: 2, adc_ready: true, stable: false, raw_stable: false, samples_in_filter: 2, tare_ready: true },
+      finalScale: { revision: 2, adc_ready: true, stable: false, raw_stable: false, samples_in_filter: 2, tare_ready: true, measurement: { state: "settling", active: true } },
       target: "tare-scale",
       disabled: ["tare-scale", "calibrate-scale"],
     },
@@ -1610,6 +1638,27 @@ test("scale mutation completion keeps controls gated by the authoritative latest
     }
     assert.equal(app.fetchCalls.filter((call) => call.init.method === "POST").length, 1);
   }
+});
+
+test('fallback polling skips idle scale and follows an active measurement only', async () => {
+  const app = loadApplication({
+    fetch: async () => jsonResponse(200, {
+      scale: { revision: 2, adc_ready: true, calibrated: true, measurement: { state: 'settling', active: true } },
+    }),
+  });
+  const { T } = app;
+  T.state.fallbackActive = true;
+  T.state.scale = { calibrated: true, measurement: { state: 'completed', active: false } };
+  await T.fallbackStep();
+  assert.equal(app.fetchCalls.length, 0, 'idle fallback must not poll scale');
+  T.setFallbackPolling(false);
+
+  T.state.fallbackActive = true;
+  T.state.scale = { calibrated: true, measurement: { state: 'settling', active: true } };
+  await T.fallbackStep();
+  assert.equal(app.fetchCalls.length, 1);
+  assert.equal(app.fetchCalls[0].url, '/api/v1/scale');
+  T.setFallbackPolling(false);
 });
 
 test('local self-test uses the fixed read-only REST list and inspects the existing socket without opening another', async () => {

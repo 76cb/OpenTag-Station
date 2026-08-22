@@ -295,10 +295,25 @@ void ConfigurationWorker::run() {
     }
 
     const auto final_operation = operations_.get(command->operation_id);
+    bool operation_succeeded = final_operation.has_value() &&
+        final_operation->state == OperationState::succeeded;
+    if (operation_succeeded &&
+        command->operation_kind == OperationKind::network_connect) {
+      const auto setup_completed = configuration_.confirm_browser_setup();
+      if (!setup_completed.ok()) {
+        operation_succeeded = false;
+        Serial.printf(
+            "browser_setup_completion=failed operation=%llu error=%s\n",
+            static_cast<unsigned long long>(command->operation_id),
+            setup_completed.error().message.c_str());
+      } else {
+        Serial.printf(
+            "browser_setup_completion=ready operation=%llu\n",
+            static_cast<unsigned long long>(command->operation_id));
+      }
+    }
     last_operation_succeeded_.store(
-        final_operation.has_value() &&
-            final_operation->state == OperationState::succeeded,
-        std::memory_order_relaxed);
+        operation_succeeded, std::memory_order_relaxed);
     if (command->receipt_required) {
       network_connect_receipt_.clear(command->operation_id);
     }
