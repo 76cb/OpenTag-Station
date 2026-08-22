@@ -185,7 +185,11 @@ Response operation_response(MutationKind kind, std::uint64_t operation_id) {
   data["state"] = "queued";
   std::string body;
   serializeJson(document, body);
-  return base_response(202, std::move(body));
+  auto response = base_response(202, std::move(body));
+  if (kind == MutationKind::network_connect) {
+    response.delivered_network_connect_operation = operation_id;
+  }
+  return response;
 }
 
 bool forbidden_configuration_key(std::string_view key) {
@@ -1206,17 +1210,19 @@ Response Router::handle(const Request& request) {
   if (route.mutation) {
     const auto authorization = unique_header(request, "Authorization", false);
     constexpr std::string_view bearer_prefix = "Bearer ";
-    bool bearer_authorized = false;
+    std::string_view supplied_token;
     if (authorization.ok() && authorization.value().has_value()) {
       const std::string_view value(*authorization.value());
       if (value.size() > bearer_prefix.size() &&
           value.compare(0U, bearer_prefix.size(), bearer_prefix) == 0) {
         const auto token = value.substr(bearer_prefix.size());
-        bearer_authorized =
-            token.find_first_of(" \t") == std::string_view::npos &&
-            context_.authorize_mutation(token);
+        if (token.find_first_of(" \t") == std::string_view::npos) {
+          supplied_token = token;
+        }
       }
     }
+    const bool bearer_authorized =
+        context_.authorize_mutation(supplied_token);
     const bool provisioning_route =
         request.path == "/api/v1/network/scan" ||
         request.path == "/api/v1/network/connect";

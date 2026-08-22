@@ -34,18 +34,19 @@ port-forward it, expose it to the public Internet, or use it on a network where
 untrusted clients can capture or alter traffic.
 
 All read-only `GET` routes are public, including operation status and the
-read-only WebSocket event stream. Every mutation fails closed unless it carries
-an exact `Authorization: Bearer <token>` value matching the configured station
-token. The only exception is `POST /api/v1/network/scan` and
-`POST /api/v1/network/connect` from a socket whose peer is verified as an
-active `192.168.4.0/24` setup-AP client. That authority is never accepted from
-a request header and cannot reach any other mutation. An empty configured token
-authorizes nobody elsewhere. Authentication is checked before mutation JSON is
-parsed or work is submitted.
+read-only WebSocket event stream. When the station has a nonempty local API
+token, every mutation requires an exact `Authorization: Bearer <token>` value.
+When the token is blank, local mutations are allowed without bearer
+authentication. Even when a token is configured, `POST /api/v1/network/scan`
+and `POST /api/v1/network/connect` are also authorized for a socket whose peer
+is verified as an active `192.168.4.0/24` setup-AP client. That authority is
+never accepted from a request header and cannot reach any other mutation.
+Authentication policy is checked before mutation JSON is parsed or work is
+submitted.
 
-The first token may be created through the physically local setup AP or the
-masked touchscreen field. Recovery provisioning cannot replace an existing
-token. Once configured, an authenticated
+The optional token may be created through the physically local setup AP or the
+masked touchscreen field; leaving it blank disables local API authentication.
+Recovery provisioning cannot replace an existing token. Once configured, an authenticated
 `PATCH /api/v1/config` can rotate it or explicitly clear it. The browser prompts
 for the current token only when a mutation needs it, retains it only in
 JavaScript memory for that tab, clears it after HTTP 401, and never stores it in
@@ -71,7 +72,7 @@ separate WebSocket transport endpoint and is not included in that count.
 | 3 | `GET /api/v1/health` | Local-service health, backend degradation, and NFC availability. |
 | 3a | `GET /api/v1/network` | Safe connection, setup AP, scan progress/results, hostname, and configuration revision. |
 | 3b | `POST /api/v1/network/scan` | Start one asynchronous bounded scan; AP clients or bearer authentication. |
-| 3c | `POST /api/v1/network/connect` | Revision-checked SSID/password/hostname and initial-token provisioning; AP clients or bearer authentication. |
+| 3c | `POST /api/v1/network/connect` | Revision-checked SSID/password/hostname and optional-token provisioning; AP clients or conditional bearer authentication. |
 | 3d | `POST /api/v1/network/setup-mode` | Authenticated deliberate setup-AP activation. |
 | 4 | `GET /api/v1/diagnostics` | System, scale, backend, queue, operation, and NFC diagnostics. |
 | 5 | `GET /api/v1/logs` | Bounded redacted log history, cursors, drop count, and history-gap state. |
@@ -176,12 +177,12 @@ Unsupported `/api/<version>/...` requests return HTTP 404 with
 ## Mutation headers, operations, and idempotency
 
 Every mutation requires the browser-source header and an idempotency key.
-Bearer authentication is required except for network scan/connect requests
-whose transport peer was verified on the active setup AP. Buffered JSON
-mutations require all of the following:
+Bearer authentication is required when a token is configured, except for
+network scan/connect requests whose transport peer was verified on the active
+setup AP. Buffered JSON mutations require all of the following:
 
-- `Authorization: Bearer <current-token>`, except for the two scoped
-  setup-AP routes;
+- `Authorization: Bearer <current-token>` when a token is configured, except
+  for the two scoped setup-AP routes;
 - `Content-Type: application/json` with optional UTF-8 charset;
 - `X-OpenTag-Request: web`;
 - an `Idempotency-Key` of 1–64 letters, digits, `-`, `_`, `.`, or `:`;
@@ -330,9 +331,10 @@ returning an empty result.
 
 ## Reboot and factory reset
 
-Both controls require bearer authentication, normal mutation headers,
-idempotency, and exact case-sensitive confirmation text. Reboot preserves data
-and schedules an ESP restart after a bounded response-flush delay.
+Both controls require bearer authentication when a token is configured, plus
+normal mutation headers, idempotency, and exact case-sensitive confirmation
+text. Reboot preserves data and schedules an ESP restart after a bounded
+response-flush delay.
 
 Factory reset has deliberately narrow storage scope. It removes only:
 
@@ -352,8 +354,8 @@ and the `fsProvisioned` no-format guard is restored; only then is the marker
 removed. If any post-marker step is interrupted or fails, the device-control
 owner schedules a reboot and early boot repeats the idempotent recovery path.
 Successful recovery returns to first-run setup. The setup-AP connect route may
-create a missing token but cannot replace an existing token; every unrelated
-browser mutation remains fail-closed.
+create a missing optional token but cannot replace an existing token; when the
+token remains blank, unrelated local mutations are intentionally tokenless.
 
 Power-loss timing, exact erase scope, marker recovery, restart, and first-run
 return still require physical target validation.
@@ -377,7 +379,7 @@ target.
 hard 5 MiB ceiling matching one application slot. It is explicitly rejected by
 the normal 16 KiB buffered router. The dedicated transport requires:
 
-- `Authorization: Bearer <current-token>`;
+- `Authorization: Bearer <current-token>` when a token is configured;
 - `X-OpenTag-Request: web`;
 - a valid `Idempotency-Key`;
 - `Content-Type: application/octet-stream`;
@@ -453,9 +455,9 @@ owner allocates an unbounded request queue for browser clients.
 Before Phase 10 can be called target-validated, exercise the assembled firmware
 on the WT32-SC01 Plus over an isolated encrypted LAN:
 
-1. Verify first-run setup-AP token provisioning, missing/wrong/correct
-   authentication, rotation, explicit clear, and both setup-AP and touchscreen
-   recovery.
+1. Verify tokenless first-run setup and local mutations, then optional token
+   provisioning, missing/wrong/correct authentication, rotation, explicit
+   clear, and both setup-AP and touchscreen recovery.
 2. Inspect wire traffic, configuration snapshots, logs, and browser state for
    secret leakage; remember that HTTP traffic itself remains plaintext.
 3. Race two configuration editors and stale assignment snapshots; confirm CAS,

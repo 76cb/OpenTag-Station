@@ -68,7 +68,7 @@ twenty suites. This is the runner result after the final safety fixes:
 - a 16-entry idempotency ledger with same-payload reuse, conflict detection,
   wrap-safe TTL expiration, deterministic overwrite, and concurrent access;
 - the complete versioned web route table, global/per-route request and response
-  bounds, strict JSON shapes/types, fail-closed bearer authorization, required
+  bounds, strict JSON shapes/types, conditional bearer authorization, required
   mutation headers, stable structured errors, and destructive confirmations;
 - stale spool/printer/configuration preconditions, exact assignment and
   unassignment bodies, operation receipts, payload digests, and duplicate
@@ -159,14 +159,15 @@ These are three different validation levels:
   clients, and supported browsers. It remains required even when host tests and
   both final firmware builds pass.
 
-The current suite contains 235 host cases across twenty suites. Provisioning
-coverage includes first boot, normal connected operation, three-failure
-fallback, AP retention during connection attempts, success grace shutdown,
-failure retention, millisecond wrap, scan deduplication, AP-scoped mutation
-authorization, secret non-echo, and the existing scale command-safety cases.
-The pinned WT32 build is warning-free at 167,840 RAM bytes and 2,018,169 flash
-bytes. This is +664 RAM bytes and +29,176 flash bytes versus the post-PR #4
-display bring-up baseline.
+The current hotfix suite contains 240 host cases across twenty suites.
+Provisioning coverage includes first boot, normal connected operation,
+three-failure fallback, AP retention during connection attempts, success grace
+shutdown, failure retention, millisecond wrap, scan deduplication and
+asynchronous start/completion/failure, exact connect-receipt gating, AP-scoped
+mutation authorization, tokenless provisioning/local mutation, configured-token
+enforcement, secret non-echo, and the existing scale command-safety cases. The
+pinned WT32 hotfix build is warning-free at 167,912 RAM bytes and 2,017,881
+flash bytes: +72 RAM bytes and -288 flash bytes versus the PR #5 base.
 
 Phase 11 originally contained 225 host cases across the same twenty suites and adds
 deterministic counter saturation and OpenPrintTag mutation cases,
@@ -325,9 +326,10 @@ has visibly returned to the previous known-good partition.
 
 Flash a real board on an isolated test LAN and verify:
 
-1. Before a local API token exists, read-only snapshots load but every mutation
-   fails closed. Provision a valid token through the masked touchscreen field,
-   then confirm `GET /api/v1/config` reports only
+1. Before a local API token exists, verify read-only snapshots and local
+   mutations work without `Authorization`. Provision a valid token through the
+   masked touchscreen field, verify missing/wrong credentials now fail, then
+   confirm `GET /api/v1/config` reports only
    `web.access_token_configured: true` and never the token.
 2. Inspect the configuration response and logs over the wire for Wi-Fi
    passwords, backend credentials, CA material, authorization values, tokens,

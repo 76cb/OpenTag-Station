@@ -1,7 +1,9 @@
 #pragma once
 
 #include <algorithm>
+#include <atomic>
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -95,6 +97,115 @@ struct WifiNetwork {
   std::string ssid;
   std::int32_t rssi_dbm{0};
   bool secured{false};
+};
+
+inline constexpr std::int16_t wifi_scan_running_result = -1;
+
+enum class WifiScanOutcome : std::uint8_t {
+  idle,
+  running,
+  complete,
+  failed,
+};
+
+struct WifiScanTransition {
+  WifiScanOutcome outcome{WifiScanOutcome::idle};
+  std::int16_t result_code{0};
+};
+
+// Transport-independent bookkeeping for the Arduino Wi-Fi asynchronous scan
+// contract. A request received while a scan is running is coalesced into one
+// follow-up scan instead of being lost or forcing scanDelete() mid-scan.
+class AsyncWifiScanState {
+ public:
+  void request() { requested_.store(true, std::memory_order_release); }
+
+  [[nodiscard]] bool start_due() {
+    if (running_) return false;
+    return requested_.exchange(false, std::memory_order_acq_rel);
+  }
+
+  [[nodiscard]] bool running() const { return running_; }
+  [[nodiscard]] std::uint32_t generation() const { return generation_; }
+  [[nodiscard]] std::optional<std::int16_t> last_failure_code() const {
+    return last_failure_code_;
+  }
+
+  [[nodiscard]] WifiScanTransition accept_start_result(
+      std::int16_t result_code) {
+    return accept_result(result_code);
+  }
+
+  [[nodiscard]] WifiScanTransition accept_poll_result(
+      std::int16_t result_code) {
+    return accept_result(result_code);
+  }
+
+ private:
+  [[nodiscard]] WifiScanTransition accept_result(std::int16_t result_code) {
+    if (result_code == wifi_scan_running_result) {
+      running_ = true;
+      return {WifiScanOutcome::running, result_code};
+    }
+    running_ = false;
+    if (result_code < 0) {
+      last_failure_code_ = result_code;
+      return {WifiScanOutcome::failed, result_code};
+    }
+    last_failure_code_.reset();
+    generation_ = core::saturating_increment(generation_);
+    return {WifiScanOutcome::complete, result_code};
+  }
+
+  std::atomic_bool requested_{false};
+  bool running_{false};
+  std::uint32_t generation_{0U};
+  std::optional<std::int16_t> last_failure_code_;
+};
+
+// Save & Connect commands may not touch persistence or the radio until the
+// HTTP task confirms that the 202 receipt was delivered. The fixed atomic gate
+// carries only an operation id and does not retain credentials.
+class NetworkConnectReceiptGate {
+ public:
+  [[nodiscard]] bool expect(std::uint64_t operation_id) {
+    if (operation_id == 0U) return false;
+    std::uint64_t empty = 0U;
+    if (!expected_.compare_exchange_strong(
+            empty, operation_id, std::memory_order_acq_rel)) {
+      return false;
+    }
+    // No acknowledgement can be published until expect() returns the newly
+    // reserved id to the submitter. Clear the prior receipt only after the
+    // reservation succeeds so a rejected overlap cannot erase it.
+    delivered_.store(0U, std::memory_order_release);
+    return true;
+  }
+
+  [[nodiscard]] bool acknowledge(std::uint64_t operation_id) {
+    if (operation_id == 0U ||
+        expected_.load(std::memory_order_acquire) != operation_id) {
+      return false;
+    }
+    delivered_.store(operation_id, std::memory_order_release);
+    return true;
+  }
+
+  [[nodiscard]] bool delivered(std::uint64_t operation_id) const {
+    return operation_id != 0U &&
+        delivered_.load(std::memory_order_acquire) == operation_id;
+  }
+
+  void clear(std::uint64_t operation_id) {
+    if (expected_.load(std::memory_order_acquire) == operation_id) {
+      delivered_.store(0U, std::memory_order_release);
+      expected_.store(0U, std::memory_order_release);
+    }
+  }
+
+ private:
+  std::atomic<std::uint64_t> expected_{0U};
+  std::atomic<std::uint64_t> delivered_{0U};
 };
 
 [[nodiscard]] inline std::vector<WifiNetwork> normalize_scan_results(

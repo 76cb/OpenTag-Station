@@ -77,9 +77,24 @@ CommandReceipt ConfigurationWorker::submit_replace(
   }
   command->type = CommandType::replace;
   command->configuration = configuration;
+  command->operation_kind = operation_kind;
   command->expected_revision = expected_revision;
   command->operation_id = operation_id;
+  if (operation_kind == OperationKind::network_connect &&
+      !network_connect_receipt_.expect(operation_id)) {
+    operations_.fail(
+        operation_id,
+        now_ms,
+        {core::ErrorCategory::conflict,
+         "Another Save & Connect receipt is still pending",
+         true});
+    delete command;
+    return {false, operation_id};
+  }
   if (!enqueue(command)) {
+    if (operation_kind == OperationKind::network_connect) {
+      network_connect_receipt_.clear(operation_id);
+    }
     operations_.fail(
         operation_id,
         now_ms,
@@ -145,9 +160,38 @@ void ConfigurationWorker::run() {
     operations_.mark_running(
         command->operation_id,
         started_at_ms,
-        command->type == CommandType::replace
+        command->operation_kind == OperationKind::network_connect
+            ? "Waiting for HTTP receipt delivery"
+            : command->type == CommandType::replace
             ? "Validating configuration revision"
             : "Applying setup progress to latest configuration");
+
+    if (command->operation_kind == OperationKind::network_connect) {
+      constexpr std::uint32_t receipt_timeout_ms = 5000U;
+      while (!network_connect_receipt_.delivered(command->operation_id) &&
+             static_cast<std::uint32_t>(millis() - started_at_ms) <
+                 receipt_timeout_ms) {
+        vTaskDelay(pdMS_TO_TICKS(10U));
+      }
+      if (!network_connect_receipt_.delivered(command->operation_id)) {
+        operations_.fail(
+            command->operation_id,
+            millis(),
+            {core::ErrorCategory::network,
+             "Connect receipt was not delivered; settings and radio were unchanged",
+             true});
+        Serial.printf(
+            "connect_receipt=failed operation=%llu ap=retained\n",
+            static_cast<unsigned long long>(command->operation_id));
+        network_connect_receipt_.clear(command->operation_id);
+        delete command;
+        pending_.fetch_sub(1U, std::memory_order_relaxed);
+        continue;
+      }
+      Serial.printf(
+          "connect_receipt=delivered operation=%llu\n",
+          static_cast<unsigned long long>(command->operation_id));
+    }
 
     auto before = configuration_.snapshot();
     auto proposed = before;
@@ -180,7 +224,13 @@ void ConfigurationWorker::run() {
       }
     }
     last_operation_succeeded_.store(saved.ok(), std::memory_order_relaxed);
-    if (saved.ok() && wifi_changed(before, proposed)) {
+    const bool should_reconfigure = saved.ok() &&
+        (wifi_changed(before, proposed) ||
+         command->operation_kind == OperationKind::network_connect);
+    if (should_reconfigure) {
+      Serial.printf(
+          "configuration=persisted operation=%llu\n",
+          static_cast<unsigned long long>(command->operation_id));
       network_.request_reconfigure(proposed.device, proposed.wifi);
     }
     const auto completed_at_ms = millis();
@@ -191,6 +241,9 @@ void ConfigurationWorker::run() {
           "Configuration persisted");
     } else {
       operations_.fail(command->operation_id, completed_at_ms, saved.error());
+    }
+    if (command->operation_kind == OperationKind::network_connect) {
+      network_connect_receipt_.clear(command->operation_id);
     }
     delete command;
     pending_.fetch_sub(1U, std::memory_order_relaxed);

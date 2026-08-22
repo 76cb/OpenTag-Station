@@ -38,6 +38,7 @@ SystemSnapshot SystemDiagnostics::snapshot(std::uint32_t now_ms) const {
   result.psram_free_bytes = ESP.getFreePsram();
   result.boot_count = storage.boot_count;
   result.crash_streak = storage.crash_streak;
+  result.task_stacks = task_stack_margins();
   result.display_ready = display_.initialized();
   result.touch_configured = display_.touch_configured();
   result.nvs_ready = storage.nvs_ready;

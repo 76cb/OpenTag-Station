@@ -49,6 +49,8 @@ class Application {
   bool start_ui_task();
   bool start_scale_task();
   bool start_network_task();
+  void record_task_stack_margins();
+  void print_task_stack_margins(const char* phase) const;
   [[nodiscard]] BootHealthSignals boot_health_signals(
       std::uint32_t now_ms) const;
   void process_boot_health(std::uint32_t now_ms);
@@ -114,6 +116,7 @@ class Application {
   TaskHandle_t ui_task_handle_{nullptr};
   TaskHandle_t scale_task_handle_{nullptr};
   TaskHandle_t network_task_handle_{nullptr};
+  TaskHandle_t loop_task_handle_{nullptr};
   bool storage_ready_{false};
   bool ota_records_ready_{false};
   bool ota_task_started_{false};
@@ -136,6 +139,8 @@ class Application {
       opentag::ota::CandidateHealthDecision::stabilizing};
   std::uint32_t last_boot_health_attempt_ms_{0U};
   std::uint32_t last_serial_diagnostics_ms_{0};
+  std::uint32_t last_stack_sample_ms_{0U};
+  bool stable_stack_margins_printed_{false};
 };
 
 }  // namespace opentag::application

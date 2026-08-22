@@ -40,6 +40,15 @@ void print_scale_i2c_scan(
 }
 
 constexpr std::uint32_t boot_health_retry_interval_ms = 1000U;
+constexpr std::uint32_t stack_diagnostic_interval_ms = 1000U;
+constexpr std::uint32_t stable_stack_diagnostic_delay_ms = 15000U;
+
+std::uint32_t stack_high_water_free_bytes(TaskHandle_t task) {
+  if (task == nullptr) return 0U;
+  // ESP-IDF reports this value in bytes, unlike vanilla FreeRTOS which reports
+  // stack words. Keep the public diagnostic in the framework's native units.
+  return static_cast<std::uint32_t>(uxTaskGetStackHighWaterMark(task));
+}
 
 bool candidate_validation_pending(opentag::ota::UpdateState state) {
   return state == opentag::ota::UpdateState::candidate_boot ||
@@ -73,6 +82,7 @@ bool rollback_seed_recovery_pending(
 }  // namespace
 
 void Application::setup() {
+  loop_task_handle_ = xTaskGetCurrentTaskHandle();
   Serial.begin(115200);
   delay(150);
 
@@ -199,6 +209,38 @@ void Application::setup() {
       configuration_task_started_ ? "started" : "ERROR",
       backend_task_started_ ? "started" : "ERROR",
       device_control_started_ ? "started" : "ERROR");
+  record_task_stack_margins();
+  print_task_stack_margins("boot");
+}
+
+void Application::record_task_stack_margins() {
+  diagnostics::TaskStackMargins margins;
+  margins.loop_free_bytes = stack_high_water_free_bytes(loop_task_handle_);
+  margins.network_free_bytes =
+      stack_high_water_free_bytes(network_task_handle_);
+  margins.ui_free_bytes = stack_high_water_free_bytes(ui_task_handle_);
+  margins.configuration_free_bytes =
+      stack_high_water_free_bytes(configuration_worker_.task_handle());
+  margins.scale_free_bytes = stack_high_water_free_bytes(scale_task_handle_);
+#if INCLUDE_xTaskGetHandle == 1
+  margins.httpd_free_bytes =
+      stack_high_water_free_bytes(xTaskGetHandle("httpd"));
+#endif
+  diagnostics_.set_task_stack_margins(margins);
+}
+
+void Application::print_task_stack_margins(const char* phase) const {
+  const auto margins = diagnostics_.task_stack_margins();
+  Serial.printf(
+      "stack_margin phase=%s loopTask=%lu opentag-network=%lu "
+      "opentag-ui=%lu opentag-config=%lu opentag-scale=%lu httpd=%lu bytes\n",
+      phase,
+      static_cast<unsigned long>(margins.loop_free_bytes),
+      static_cast<unsigned long>(margins.network_free_bytes),
+      static_cast<unsigned long>(margins.ui_free_bytes),
+      static_cast<unsigned long>(margins.configuration_free_bytes),
+      static_cast<unsigned long>(margins.scale_free_bytes),
+      static_cast<unsigned long>(margins.httpd_free_bytes));
 }
 
 BootHealthSignals Application::boot_health_signals(
@@ -318,6 +360,16 @@ void Application::process_boot_health(std::uint32_t now_ms) {
 void Application::loop() {
   const auto now_ms = millis();
   process_boot_health(now_ms);
+  if (static_cast<std::uint32_t>(now_ms - last_stack_sample_ms_) >=
+      stack_diagnostic_interval_ms) {
+    record_task_stack_margins();
+    last_stack_sample_ms_ = now_ms;
+  }
+  if (!stable_stack_margins_printed_ &&
+      now_ms >= stable_stack_diagnostic_delay_ms) {
+    print_task_stack_margins("stable");
+    stable_stack_margins_printed_ = true;
+  }
   if (static_cast<std::uint32_t>(now_ms - last_serial_diagnostics_ms_) >= 30000U) {
     const auto status = diagnostics_.snapshot(now_ms);
     Serial.printf(
@@ -354,7 +406,7 @@ bool Application::start_scale_task() {
 }
 
 bool Application::start_network_task() {
-  constexpr std::uint32_t network_stack_bytes = 8192U;
+  constexpr std::uint32_t network_stack_bytes = 16384U;
   constexpr UBaseType_t network_priority = 1U;
   constexpr BaseType_t network_core = 0;
   return xTaskCreatePinnedToCore(
@@ -538,6 +590,7 @@ void Application::network_task_entry(void* context) {
                             : "Local web server failed to start");
   auto previous_network_state = network::WifiState::uninitialized;
   bool previous_provisioning_active = false;
+  bool previous_grace_active = false;
   std::string previous_ip;
   for (;;) {
     now_ms = millis();
@@ -546,6 +599,7 @@ void Application::network_task_entry(void* context) {
     application->diagnostics_.set_network_status(network_status);
     if (network_status.state != previous_network_state ||
         network_status.provisioning_active != previous_provisioning_active ||
+        network_status.provisioning_grace_active != previous_grace_active ||
         network_status.ip_address != previous_ip) {
       Serial.printf(
           "Network: state=%s ssid=%s ip=%s setup_ap=%s reason=%s failures=%lu\n",
@@ -557,6 +611,11 @@ void Application::network_task_entry(void* context) {
               ? network_status.setup_ap_ssid.c_str() : "off",
           network::to_string(network_status.provisioning_reason),
           static_cast<unsigned long>(network_status.provisioning_failures));
+      Serial.printf(
+          "ap_grace=%s remaining_ms=%lu\n",
+          network_status.provisioning_grace_active ? "active" : "inactive",
+          static_cast<unsigned long>(
+              network_status.provisioning_grace_remaining_ms));
       if (network_status.last_error.has_value()) {
         Serial.printf(
             "Network error: %s\n",
@@ -564,6 +623,7 @@ void Application::network_task_entry(void* context) {
       }
       previous_network_state = network_status.state;
       previous_provisioning_active = network_status.provisioning_active;
+      previous_grace_active = network_status.provisioning_grace_active;
       previous_ip = network_status.ip_address;
     }
     auto web_running = application->web_server_.running();

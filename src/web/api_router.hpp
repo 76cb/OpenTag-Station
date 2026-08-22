@@ -58,6 +58,7 @@ struct Response {
   std::int32_t status{500};
   std::vector<Header> headers;
   std::string body;
+  std::optional<std::uint64_t> delivered_network_connect_operation;
 };
 
 // Shared mapping for buffered API owners and the dedicated binary transport.

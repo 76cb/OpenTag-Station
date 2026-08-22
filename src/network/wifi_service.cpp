@@ -12,6 +12,10 @@
 namespace opentag::network {
 namespace {
 
+static_assert(
+    WIFI_SCAN_RUNNING == wifi_scan_running_result,
+    "Arduino Wi-Fi scan-running result changed");
+
 core::Error network_error(const std::string& message, bool retryable = true) {
   return {core::ErrorCategory::network, message, retryable};
 }
@@ -46,7 +50,7 @@ core::Result<void> WifiService::initialize(
   was_connected_ = false;
   ntp_requested_ = false;
 
-  WiFi.scanDelete();
+  if (WiFi.scanComplete() != WIFI_SCAN_RUNNING) WiFi.scanDelete();
   WiFi.persistent(false);
   WiFi.setAutoReconnect(false);
   if (!WiFi.mode(
@@ -77,6 +81,9 @@ core::Result<void> WifiService::initialize(
 
 void WifiService::start_connection(std::uint32_t now_ms) {
   provisioning_.begin_connection_attempt();
+  Serial.printf(
+      "sta_association=started ap=%s\n",
+      setup_ap_running_ ? "retained" : "inactive");
   WiFi.disconnect(false, false);
   WiFi.begin(
       wifi_.ssid.c_str(), wifi_.password.empty() ? nullptr : wifi_.password.c_str());
@@ -95,6 +102,8 @@ void WifiService::schedule_reconnect(
     (void)start_setup_ap();
   }
   status_.last_error = network_error(reason);
+  Serial.printf("sta_association=failed reason=%s ap=%s\n", reason,
+                setup_ap_running_ ? "retained" : "inactive");
   if (!wifi_.auto_reconnect) {
     status_.state = WifiState::disconnected;
     return;
@@ -121,6 +130,10 @@ void WifiService::enter_connected(std::uint32_t now_ms) {
   ntp_requested_ = true;
   was_connected_ = true;
   provisioning_.connected(now_ms);
+  Serial.printf(
+      "sta_association=connected lan_ip=%s ap_grace=%s\n",
+      status_.ip_address.c_str(),
+      provisioning_.grace_active() ? "active" : "inactive");
 }
 
 void WifiService::leave_connected() {
@@ -137,7 +150,8 @@ void WifiService::leave_connected() {
 }
 
 void WifiService::request_scan() {
-  scan_requested_.store(true, std::memory_order_relaxed);
+  scan_state_.request();
+  Serial.println("wifi_scan=requested");
 }
 
 void WifiService::request_setup_mode() {
@@ -157,30 +171,49 @@ std::vector<WifiNetwork> WifiService::scan_results() const {
 }
 
 void WifiService::poll_scan() {
-  if (scan_requested_.exchange(false, std::memory_order_relaxed) &&
-      !status_.scan_running) {
-    WiFi.scanDelete();
-    const auto started = WiFi.scanNetworks(true, true, false, 120U);
-    status_.scan_running = started == WIFI_SCAN_RUNNING;
-    if (!status_.scan_running && started < 0) {
-      status_.scan_error =
-          network_error("Wi-Fi scan could not be started");
+  if (scan_state_.start_due()) {
+    const auto existing = WiFi.scanComplete();
+    WifiScanTransition transition;
+    if (existing == WIFI_SCAN_RUNNING) {
+      // A library-owned scan is already active. Join it without deleting its
+      // result storage or attempting a competing AP+STA scan.
+      transition = scan_state_.accept_start_result(existing);
+    } else {
+      if (existing >= 0) WiFi.scanDelete();
+      transition = scan_state_.accept_start_result(
+          WiFi.scanNetworks(true, true, false, 120U));
+    }
+    status_.scan_running = scan_state_.running();
+    if (transition.outcome == WifiScanOutcome::running) {
+      status_.scan_error.reset();
+      Serial.println("wifi_scan=started");
+    } else if (transition.outcome == WifiScanOutcome::failed) {
+      fail_scan(transition.result_code);
+    } else if (transition.outcome == WifiScanOutcome::complete) {
+      finish_scan(transition.result_code);
     }
   }
-  if (!status_.scan_running) return;
-  const auto complete = WiFi.scanComplete();
-  if (complete == WIFI_SCAN_RUNNING) return;
-  status_.scan_running = false;
-  if (complete < 0) {
-    status_.scan_error = network_error("Wi-Fi scan failed");
-    WiFi.scanDelete();
+  if (!scan_state_.running()) return;
+  const auto transition =
+      scan_state_.accept_poll_result(WiFi.scanComplete());
+  status_.scan_running = scan_state_.running();
+  if (transition.outcome == WifiScanOutcome::running) return;
+  if (transition.outcome == WifiScanOutcome::failed) {
+    fail_scan(transition.result_code);
     return;
   }
+  if (transition.outcome == WifiScanOutcome::complete) {
+    finish_scan(transition.result_code);
+  }
+}
 
+void WifiService::finish_scan(std::int16_t result_count) {
   std::vector<WifiNetwork> observed;
   observed.reserve(static_cast<std::size_t>(std::min<std::int16_t>(
-      complete, 64)));
-  for (std::int16_t index = 0; index < complete && index < 64; ++index) {
+      result_count, 64)));
+  for (std::int16_t index = 0;
+       index < result_count && index < 64;
+       ++index) {
     const std::string ssid = WiFi.SSID(index).c_str();
     if (ssid.empty()) continue;
     observed.push_back({
@@ -194,8 +227,19 @@ void WifiService::poll_scan() {
     scan_results_ = std::move(results);
   }
   status_.scan_error.reset();
-  ++status_.scan_generation;
+  status_.scan_generation = scan_state_.generation();
   WiFi.scanDelete();
+  Serial.printf(
+      "wifi_scan=complete count=%u\n",
+      static_cast<unsigned>(scan_results_.size()));
+}
+
+void WifiService::fail_scan(std::int16_t result_code) {
+  status_.scan_running = false;
+  status_.scan_error = network_error(
+      "Wi-Fi scan failed with code " + std::to_string(result_code));
+  WiFi.scanDelete();
+  Serial.printf("wifi_scan=failed code=%d\n", static_cast<int>(result_code));
 }
 
 bool WifiService::start_setup_ap() {
@@ -220,6 +264,10 @@ bool WifiService::start_setup_ap() {
   setup_ap_running_ = true;
   status_.setup_ap_ssid = ssid;
   status_.setup_ap_ip = "192.168.4.1";
+  Serial.printf(
+      "setup_ap=started ssid=%s ip=%s\n",
+      status_.setup_ap_ssid.c_str(),
+      status_.setup_ap_ip.c_str());
   return true;
 }
 
@@ -231,6 +279,7 @@ void WifiService::stop_setup_ap() {
   status_.setup_ap_ssid.clear();
   status_.setup_ap_ip.clear();
   (void)WiFi.mode(WIFI_STA);
+  Serial.println("setup_ap=stopped grace=complete");
 }
 
 void WifiService::update_provisioning_status(std::uint32_t now_ms) {

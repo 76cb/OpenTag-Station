@@ -78,6 +78,8 @@ class WifiService {
   void enter_connected(std::uint32_t now_ms);
   void leave_connected();
   void poll_scan();
+  void finish_scan(std::int16_t result_count);
+  void fail_scan(std::int16_t result_code);
   bool start_setup_ap();
   void stop_setup_ap();
   void update_provisioning_status(std::uint32_t now_ms);
@@ -95,7 +97,7 @@ class WifiService {
   bool setup_ap_running_{false};
   bool was_connected_{false};
   bool ntp_requested_{false};
-  std::atomic_bool scan_requested_{false};
+  AsyncWifiScanState scan_state_;
   std::atomic_bool setup_requested_{false};
   mutable std::mutex reconfigure_mutex_;
   std::optional<std::pair<config::DeviceSettings, config::WifiSettings>>

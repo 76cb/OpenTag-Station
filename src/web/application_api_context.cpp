@@ -191,6 +191,13 @@ void write_system(JsonObject object, const diagnostics::SystemSnapshot& value) {
   object["psram_free_bytes"] = value.psram_free_bytes;
   object["boot_count"] = value.boot_count;
   object["crash_streak"] = value.crash_streak;
+  auto stacks = object["stack_high_water_free_bytes"].to<JsonObject>();
+  stacks["loopTask"] = value.task_stacks.loop_free_bytes;
+  stacks["opentag-network"] = value.task_stacks.network_free_bytes;
+  stacks["opentag-ui"] = value.task_stacks.ui_free_bytes;
+  stacks["opentag-config"] = value.task_stacks.configuration_free_bytes;
+  stacks["opentag-scale"] = value.task_stacks.scale_free_bytes;
+  stacks["httpd"] = value.task_stacks.httpd_free_bytes;
   object["reset_reason"] = value.reset_reason;
   object["display_ready"] = value.display_ready;
   object["touch_configured"] = value.touch_configured;
@@ -532,7 +539,7 @@ bool safely_selected_candidate(
 }
 
 void write_update(
-    JsonDocument& document,
+    JsonObject document,
     const opentag::ota::UpdateSnapshot& update,
     bool owner_ready) {
   document["revision"] = update.revision;
@@ -671,11 +678,38 @@ std::uint64_t streaming_upload_digest(const StreamingUploadRequest& request) {
 bool ApplicationApiContext::authorize_mutation(
     std::string_view bearer_token) {
   const auto configured = configuration_.snapshot().web.access_token;
+  if (configured.empty()) return true;
   return constant_time_token_match(bearer_token, configured);
 }
 
 bool ApplicationApiContext::authorize_provisioning() {
   return diagnostics_.snapshot(millis()).provisioning_active;
+}
+
+bool ApplicationApiContext::acknowledge_network_connect_receipt(
+    std::uint64_t operation_id) {
+  return configuration_worker_.acknowledge_network_connect_receipt(
+      operation_id);
+}
+
+core::Result<std::string> ApplicationApiContext::scale_event_json() {
+  JsonDocument document;
+  document["type"] = "scale";
+  write_scale(
+      document["data"].to<JsonObject>(),
+      diagnostics_.snapshot(millis()));
+  return serialized(document);
+}
+
+core::Result<std::string> ApplicationApiContext::update_event_json(
+    std::uint64_t& revision) {
+  const auto update = ota_worker_.snapshot();
+  revision = update.revision;
+  JsonDocument document;
+  document["type"] = "update";
+  write_update(
+      document["data"].to<JsonObject>(), update, ota_worker_.ready());
+  return serialized(document);
 }
 
 core::Result<std::string> ApplicationApiContext::snapshot_json(
@@ -852,7 +886,10 @@ core::Result<std::string> ApplicationApiContext::snapshot_json(
       break;
     }
     case api::Resource::update:
-      write_update(document, ota_worker_.snapshot(), ota_worker_.ready());
+      write_update(
+          document.to<JsonObject>(),
+          ota_worker_.snapshot(),
+          ota_worker_.ready());
       break;
   }
   return serialized(document);
@@ -1000,12 +1037,6 @@ core::Result<api::OperationReceipt> ApplicationApiContext::submit_fresh(
         return core::Result<api::OperationReceipt>::failure(conflict_error(
             "Configuration revision changed before Wi-Fi connection was submitted"));
       }
-      if (current.configuration.web.access_token.empty() &&
-          !payload.access_token.has_value()) {
-        return core::Result<api::OperationReceipt>::failure(unavailable(
-            core::ErrorCategory::configuration,
-            "Initial setup requires a local API access token"));
-      }
       if (mutation.provisioning_transport &&
           !current.configuration.web.access_token.empty() &&
           payload.access_token.has_value()) {
@@ -1037,13 +1068,18 @@ core::Result<api::OperationReceipt> ApplicationApiContext::submit_fresh(
       if (!proposed.ok()) {
         return core::Result<api::OperationReceipt>::failure(proposed.error());
       }
+      const auto receipt = configuration_worker_.submit_replace(
+          proposed.value(),
+          patch.expected_revision,
+          now_ms,
+          application::OperationKind::network_connect);
+      if (receipt.accepted) {
+        Serial.printf(
+            "connect_request=accepted operation=%llu\n",
+            static_cast<unsigned long long>(receipt.operation_id));
+      }
       return receipt_result(
-          configuration_worker_.submit_replace(
-              proposed.value(),
-              patch.expected_revision,
-              now_ms,
-              application::OperationKind::network_connect),
-          "Configuration command queue is unavailable");
+          receipt, "Configuration command queue is unavailable");
     }
     case api::MutationKind::reboot:
       return receipt_result(

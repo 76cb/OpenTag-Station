@@ -283,8 +283,10 @@ core::Result<void> migrate(JsonDocument& document, bool& migrated) {
   return core::Result<void>::success();
 }
 
-core::Result<Configuration> read_configuration(const JsonDocument& document) {
-  Configuration result;
+core::Result<void> read_configuration(
+    const JsonDocument& document,
+    Configuration& result) {
+  result = {};
   result.schema_version = document["schema_version"].as<std::uint32_t>();
   result.hardware_id = text_or(document["hardware_id"], result.hardware_id);
 
@@ -370,7 +372,7 @@ core::Result<Configuration> read_configuration(const JsonDocument& document) {
   if (document["toolheads"].is<JsonArrayConst>()) {
     for (const auto value : document["toolheads"].as<JsonArrayConst>()) {
       if (!value.is<JsonObjectConst>()) {
-        return core::Result<Configuration>::failure(
+        return core::Result<void>::failure(
             configuration_error("toolhead profile must be an object"));
       }
       const auto profile_json = value.as<JsonObjectConst>();
@@ -393,12 +395,12 @@ core::Result<Configuration> read_configuration(const JsonDocument& document) {
   if (document["spool_identity_mappings"].is<JsonArrayConst>()) {
     const auto mappings = document["spool_identity_mappings"].as<JsonArrayConst>();
     if (mappings.size() > 64U) {
-      return core::Result<Configuration>::failure(
+      return core::Result<void>::failure(
           configuration_error("too many spool identity mappings"));
     }
     for (const auto value : mappings) {
       if (!value.is<JsonObjectConst>()) {
-        return core::Result<Configuration>::failure(
+        return core::Result<void>::failure(
             configuration_error("spool identity mapping must be an object"));
       }
       const auto input = value.as<JsonObjectConst>();
@@ -429,8 +431,8 @@ core::Result<Configuration> read_configuration(const JsonDocument& document) {
       number_or<bool>(setup["ready_confirmed"], false);
 
   const auto valid = result.validate();
-  if (!valid.ok()) return core::Result<Configuration>::failure(valid.error());
-  return core::Result<Configuration>::success(std::move(result));
+  if (!valid.ok()) return valid;
+  return core::Result<void>::success();
 }
 
 core::Result<JsonDocument> parse_document(
@@ -462,21 +464,24 @@ struct DecodedConfigurationDocument {
   std::uint32_t loaded_schema{0U};
 };
 
-core::Result<DecodedConfigurationDocument> decode_document(
+core::Result<std::shared_ptr<DecodedConfigurationDocument>> decode_document(
     const std::string& input) {
-  DecodedConfigurationDocument result;
+  auto result = std::make_shared<DecodedConfigurationDocument>();
   auto parsed = parse_document(
-      input, result.migrated, result.loaded_schema);
+      input, result->migrated, result->loaded_schema);
   if (!parsed.ok()) {
-    return core::Result<DecodedConfigurationDocument>::failure(parsed.error());
+    return core::Result<std::shared_ptr<DecodedConfigurationDocument>>::failure(
+        parsed.error());
   }
-  auto decoded = read_configuration(parsed.value());
+  const auto decoded = read_configuration(
+      parsed.value(), result->configuration);
   if (!decoded.ok()) {
-    return core::Result<DecodedConfigurationDocument>::failure(decoded.error());
+    return core::Result<std::shared_ptr<DecodedConfigurationDocument>>::failure(
+        decoded.error());
   }
-  result.document = std::move(parsed.value());
-  result.configuration = std::move(decoded.value());
-  return core::Result<DecodedConfigurationDocument>::success(std::move(result));
+  result->document = std::move(parsed.value());
+  return core::Result<std::shared_ptr<DecodedConfigurationDocument>>::success(
+      std::move(result));
 }
 
 }  // namespace
@@ -622,7 +627,7 @@ core::Result<void> ConfigurationService::initialize() {
   impl_->document.clear();
 
   const auto stored = document_store_.load_configuration_document();
-  std::optional<DecodedConfigurationDocument> loaded;
+  std::shared_ptr<DecodedConfigurationDocument> loaded;
   std::optional<core::Error> load_error;
   bool primary_missing = false;
   if (!stored.ok()) {
@@ -639,7 +644,7 @@ core::Result<void> ConfigurationService::initialize() {
   }
 
   bool recovered_from_backup = false;
-  if (!loaded.has_value()) {
+  if (loaded == nullptr) {
     const auto backup = document_store_.load_configuration_backup_document();
     if (backup.ok() && backup.value().has_value()) {
       auto decoded = decode_document(*backup.value());
@@ -654,7 +659,7 @@ core::Result<void> ConfigurationService::initialize() {
     }
   }
 
-  if (loaded.has_value()) {
+  if (loaded != nullptr) {
     impl_->document = std::move(loaded->document);
     configuration_ = std::move(loaded->configuration);
     status_.initialized = true;
@@ -844,9 +849,9 @@ core::Result<void> ConfigurationService::import_json(
   std::uint32_t loaded_schema = 0U;
   auto parsed = parse_document(document, migrated, loaded_schema);
   if (!parsed.ok()) return core::Result<void>::failure(parsed.error());
-  auto decoded = read_configuration(parsed.value());
+  Configuration imported;
+  const auto decoded = read_configuration(parsed.value(), imported);
   if (!decoded.ok()) return core::Result<void>::failure(decoded.error());
-  auto imported = decoded.value();
 
   if (!accept_credentials) {
     imported.wifi.ssid = configuration_.wifi.ssid;

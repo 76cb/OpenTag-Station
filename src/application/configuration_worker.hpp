@@ -32,6 +32,11 @@ class ConfigurationWorker {
       std::uint32_t now_ms,
       OperationKind operation_kind = OperationKind::configuration);
   [[nodiscard]] bool submit_setup_completion(services::SetupStep step);
+  [[nodiscard]] bool acknowledge_network_connect_receipt(
+      std::uint64_t operation_id) {
+    return network_connect_receipt_.acknowledge(operation_id);
+  }
+  [[nodiscard]] TaskHandle_t task_handle() const { return task_; }
   [[nodiscard]] std::size_t pending() const {
     return pending_.load(std::memory_order_relaxed);
   }
@@ -49,6 +54,7 @@ class ConfigurationWorker {
     CommandType type{CommandType::replace};
     config::Configuration configuration;
     services::SetupStep setup_step{services::SetupStep::welcome};
+    OperationKind operation_kind{OperationKind::configuration};
     std::uint64_t expected_revision{0U};
     std::uint64_t operation_id{0U};
   };
@@ -64,6 +70,7 @@ class ConfigurationWorker {
   TaskHandle_t task_{nullptr};
   std::atomic_size_t pending_{0U};
   std::atomic_bool last_operation_succeeded_{true};
+  network::NetworkConnectReceiptGate network_connect_receipt_;
 };
 
 }  // namespace opentag::application
