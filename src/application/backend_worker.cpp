@@ -139,6 +139,7 @@ CommandReceipt BackendWorker::submit_assignment_operation(
   const auto now_ms = millis();
   const auto operation_id = operations_.begin(
       OperationKind::toolhead_assignment, now_ms, "Assignment queued");
+  if (operation_id == 0U) return {false, 0U};
   if (printer_id.empty() || printer_id.size() > 128U ||
       backend_toolhead_id < 0 || backend_toolhead_id > 31) {
     operations_.fail(
@@ -192,6 +193,7 @@ CommandReceipt BackendWorker::submit_unassignment_operation(
   const auto now_ms = millis();
   const auto operation_id = operations_.begin(
       OperationKind::toolhead_unassignment, now_ms, "Unassignment queued");
+  if (operation_id == 0U) return {false, 0U};
   if (printer_id.empty() || printer_id.size() > 128U ||
       backend_toolhead_id < 0 || backend_toolhead_id > 31) {
     operations_.fail(
@@ -237,6 +239,7 @@ CommandReceipt BackendWorker::submit_refresh() {
   const auto now_ms = millis();
   const auto operation_id = operations_.begin(
       OperationKind::backend_probe, now_ms, "Backend probe queued");
+  if (operation_id == 0U) return {false, 0U};
   auto* command = new (std::nothrow) Command;
   if (command == nullptr) {
     operations_.fail(
@@ -309,6 +312,7 @@ void BackendWorker::probe_backends(std::uint64_t operation_id) {
           : std::optional<core::Error>{spoolman_status.error()});
 
   const auto filabridge_status = filabridge_.probe();
+  std::optional<core::Error> printer_refresh_error;
   if (!filabridge_status.ok()) {
     workflow_.set_filabridge_probe(false, false, filabridge_status.error());
   } else {
@@ -321,7 +325,7 @@ void BackendWorker::probe_backends(std::uint64_t operation_id) {
         assignment_available,
         filabridge_status.value().last_error);
     const auto refreshed = workflow_.refresh_printers();
-    (void)refreshed;
+    printer_refresh_error = refreshed.filabridge_error;
   }
   {
     std::lock_guard<std::mutex> lock(status_mutex_);
@@ -334,6 +338,8 @@ void BackendWorker::probe_backends(std::uint64_t operation_id) {
       operations_.fail(operation_id, millis(), spoolman_status.error());
     } else if (!filabridge_status.ok()) {
       operations_.fail(operation_id, millis(), filabridge_status.error());
+    } else if (printer_refresh_error.has_value()) {
+      operations_.fail(operation_id, millis(), *printer_refresh_error);
     } else {
       operations_.succeed(operation_id, millis(), "Backend probes completed");
     }

@@ -3,9 +3,13 @@
 #include <Arduino.h>
 
 #include <new>
+#include <optional>
+#include <utility>
 
 namespace opentag::application {
 namespace {
+
+constexpr std::uint32_t maximum_network_apply_wait_ms = 85000U;
 
 bool wifi_changed(
     const config::Configuration& before,
@@ -59,12 +63,14 @@ bool ConfigurationWorker::enqueue(Command* command) {
 }
 
 CommandReceipt ConfigurationWorker::submit_replace(
-    const config::Configuration& configuration,
+    config::Configuration configuration,
     std::uint64_t expected_revision,
     std::uint32_t now_ms,
-    OperationKind operation_kind) {
+    OperationKind operation_kind,
+    bool require_http_receipt) {
   const auto operation_id = operations_.begin(
       operation_kind, now_ms, "Configuration update queued");
+  if (operation_id == 0U) return {false, 0U};
   auto* command = new (std::nothrow) Command;
   if (command == nullptr) {
     operations_.fail(
@@ -76,23 +82,28 @@ CommandReceipt ConfigurationWorker::submit_replace(
     return {false, operation_id};
   }
   command->type = CommandType::replace;
-  command->configuration = configuration;
+  command->configuration.emplace(std::move(configuration));
   command->operation_kind = operation_kind;
   command->expected_revision = expected_revision;
   command->operation_id = operation_id;
-  if (operation_kind == OperationKind::network_connect &&
+  const bool receipt_required =
+      operation_kind == OperationKind::network_connect ||
+      (require_http_receipt &&
+       wifi_changed(configuration_.snapshot(), *command->configuration));
+  command->receipt_required = receipt_required;
+  if (receipt_required &&
       !network_connect_receipt_.expect(operation_id)) {
     operations_.fail(
         operation_id,
         now_ms,
         {core::ErrorCategory::conflict,
-         "Another Save & Connect receipt is still pending",
+         "Another Wi-Fi-changing configuration receipt is still pending",
          true});
     delete command;
     return {false, operation_id};
   }
   if (!enqueue(command)) {
-    if (operation_kind == OperationKind::network_connect) {
+    if (receipt_required) {
       network_connect_receipt_.clear(operation_id);
     }
     operations_.fail(
@@ -110,6 +121,7 @@ bool ConfigurationWorker::submit_setup_completion(services::SetupStep step) {
   const auto now_ms = millis();
   const auto operation_id = operations_.begin(
       OperationKind::configuration, now_ms, "Setup progress update queued");
+  if (operation_id == 0U) return false;
   if (static_cast<std::uint8_t>(step) >
       static_cast<std::uint8_t>(services::SetupStep::ready)) {
     operations_.fail(
@@ -160,13 +172,13 @@ void ConfigurationWorker::run() {
     operations_.mark_running(
         command->operation_id,
         started_at_ms,
-        command->operation_kind == OperationKind::network_connect
+        command->receipt_required
             ? "Waiting for HTTP receipt delivery"
             : command->type == CommandType::replace
             ? "Validating configuration revision"
             : "Applying setup progress to latest configuration");
 
-    if (command->operation_kind == OperationKind::network_connect) {
+    if (command->receipt_required) {
       constexpr std::uint32_t receipt_timeout_ms = 5000U;
       while (!network_connect_receipt_.delivered(command->operation_id) &&
              static_cast<std::uint32_t>(millis() - started_at_ms) <
@@ -178,10 +190,10 @@ void ConfigurationWorker::run() {
             command->operation_id,
             millis(),
             {core::ErrorCategory::network,
-             "Connect receipt was not delivered; settings and radio were unchanged",
+             "Configuration receipt was not delivered; settings and radio were unchanged",
              true});
         Serial.printf(
-            "connect_receipt=failed operation=%llu ap=retained\n",
+            "configuration_receipt=failed operation=%llu radio=unchanged\n",
             static_cast<unsigned long long>(command->operation_id));
         network_connect_receipt_.clear(command->operation_id);
         delete command;
@@ -189,33 +201,40 @@ void ConfigurationWorker::run() {
         continue;
       }
       Serial.printf(
-          "connect_receipt=delivered operation=%llu\n",
+          "configuration_receipt=delivered operation=%llu\n",
           static_cast<unsigned long long>(command->operation_id));
     }
 
     auto before = configuration_.snapshot();
-    auto proposed = before;
+    std::optional<config::Configuration> proposed;
     auto saved = core::Result<void>::failure(
         {core::ErrorCategory::configuration,
          "Configuration command was not processed",
          false});
     if (command->type == CommandType::replace) {
-      proposed = command->configuration;
-      saved = configuration_.replace_if_revision(
-          proposed, command->expected_revision);
+      if (!command->configuration.has_value()) {
+        saved = core::Result<void>::failure(
+            {core::ErrorCategory::configuration,
+             "Configuration command payload is unavailable",
+             false});
+      } else {
+        proposed.emplace(std::move(*command->configuration));
+        saved = configuration_.replace_if_revision(
+            *proposed, command->expected_revision);
+      }
     } else {
       constexpr std::uint8_t maximum_attempts = 3U;
       for (std::uint8_t attempt = 0U; attempt < maximum_attempts; ++attempt) {
         const auto latest = configuration_.versioned_snapshot();
         before = latest.configuration;
-        proposed = before;
-        proposed.setup.completed_steps |=
+        proposed.emplace(before);
+        proposed->setup.completed_steps |=
             1U << static_cast<std::uint8_t>(command->setup_step);
         if (command->setup_step == services::SetupStep::ready) {
-          proposed.setup.ready_confirmed = true;
+          proposed->setup.ready_confirmed = true;
         }
         saved = configuration_.replace_if_revision(
-            proposed, latest.revision);
+            *proposed, latest.revision);
         if (saved.ok() ||
             saved.error().category != core::ErrorCategory::conflict ||
             !saved.error().retryable) {
@@ -223,26 +242,64 @@ void ConfigurationWorker::run() {
         }
       }
     }
-    last_operation_succeeded_.store(saved.ok(), std::memory_order_relaxed);
     const bool should_reconfigure = saved.ok() &&
-        (wifi_changed(before, proposed) ||
-         command->operation_kind == OperationKind::network_connect);
+        (proposed.has_value() &&
+         (wifi_changed(before, *proposed) ||
+         command->operation_kind == OperationKind::network_connect));
+    bool network_operation_submitted = false;
     if (should_reconfigure) {
       Serial.printf(
           "configuration=persisted operation=%llu\n",
           static_cast<unsigned long long>(command->operation_id));
-      network_.request_reconfigure(proposed.device, proposed.wifi);
+      operations_.mark_running(
+          command->operation_id,
+          millis(),
+          "Configuration persisted; waiting for Wi-Fi owner");
+      network_operation_submitted = network_.request_reconfigure(
+          proposed->device, proposed->wifi, command->operation_id);
+      if (!network_operation_submitted) {
+        operations_.fail(
+            command->operation_id,
+            millis(),
+            {core::ErrorCategory::network,
+             "Configuration persisted, but the Wi-Fi apply slot is unavailable",
+             true});
+      }
     }
     const auto completed_at_ms = millis();
-    if (saved.ok()) {
+    if (saved.ok() && !should_reconfigure) {
       operations_.succeed(
           command->operation_id,
           completed_at_ms,
           "Configuration persisted");
-    } else {
+    } else if (!saved.ok()) {
       operations_.fail(command->operation_id, completed_at_ms, saved.error());
     }
-    if (command->operation_kind == OperationKind::network_connect) {
+
+    if (network_operation_submitted) {
+      const auto wait_started_ms = millis();
+      while (!network_.reconfigure_operation_finished(command->operation_id) &&
+             static_cast<std::uint32_t>(millis() - wait_started_ms) <
+                 maximum_network_apply_wait_ms) {
+        vTaskDelay(pdMS_TO_TICKS(20U));
+      }
+      if (!network_.reconfigure_operation_finished(command->operation_id) &&
+          network_.abandon_reconfigure_operation(command->operation_id)) {
+        operations_.fail(
+            command->operation_id,
+            millis(),
+            {core::ErrorCategory::network,
+             "Persisted Wi-Fi configuration did not reach a terminal radio result within 85 seconds",
+             true});
+      }
+    }
+
+    const auto final_operation = operations_.get(command->operation_id);
+    last_operation_succeeded_.store(
+        final_operation.has_value() &&
+            final_operation->state == OperationState::succeeded,
+        std::memory_order_relaxed);
+    if (command->receipt_required) {
       network_connect_receipt_.clear(command->operation_id);
     }
     delete command;

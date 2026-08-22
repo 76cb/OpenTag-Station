@@ -47,6 +47,7 @@ CommandReceipt DeviceControlWorker::submit(Action action, std::uint32_t now_ms) 
     }
     const auto rejected_id = operations_.begin(
         kind, now_ms, "Device control request rejected");
+    if (rejected_id == 0U) return {false, 0U};
     operations_.fail(
         rejected_id,
         now_ms,
@@ -60,6 +61,7 @@ CommandReceipt DeviceControlWorker::submit(Action action, std::uint32_t now_ms) 
   if (!lease) {
     const auto rejected_id = operations_.begin(
         kind, now_ms, "Device control request rejected");
+    if (rejected_id == 0U) return {false, 0U};
     const auto active = lifecycle_.snapshot();
     operations_.fail(
         rejected_id,
@@ -76,6 +78,10 @@ CommandReceipt DeviceControlWorker::submit(Action action, std::uint32_t now_ms) 
       now_ms,
       action == Action::reboot ? "Device reboot queued"
                                : "Factory reset queued");
+  if (operation_id == 0U) {
+    (void)lifecycle_.release(lease);
+    return {false, 0U};
+  }
   Command command{action, operation_id};
   active_operation_id_ = operation_id;
   active_action_ = action;

@@ -22,12 +22,167 @@ class StorageService;
 
 namespace opentag::diagnostics {
 
+enum class WebsocketDisconnectReason : std::uint8_t {
+  none,
+  peer_or_network_closed,
+  server_stopped,
+  send_failure,
+  protocol_rejected,
+};
+
+[[nodiscard]] constexpr const char* to_string(
+    WebsocketDisconnectReason reason) {
+  switch (reason) {
+    case WebsocketDisconnectReason::none: return "none";
+    case WebsocketDisconnectReason::peer_or_network_closed:
+      return "peer-or-network-closed";
+    case WebsocketDisconnectReason::server_stopped: return "server-stopped";
+    case WebsocketDisconnectReason::send_failure: return "send-failure";
+    case WebsocketDisconnectReason::protocol_rejected:
+      return "protocol-rejected";
+  }
+  return "unknown";
+}
+
+struct TransportDiagnosticSnapshot {
+  bool http_server_running{false};
+  std::uint32_t active_http_sessions{0U};
+  std::uint32_t maximum_observed_http_sessions{0U};
+  std::uint32_t http_session_open_count{0U};
+  std::uint32_t http_session_close_count{0U};
+  std::uint32_t websocket_clients{0U};
+  std::uint32_t websocket_open_count{0U};
+  std::uint32_t websocket_disconnect_count{0U};
+  std::uint32_t websocket_send_failure_count{0U};
+  std::uint32_t websocket_dropped_event_count{0U};
+  WebsocketDisconnectReason last_websocket_disconnect_reason{
+      WebsocketDisconnectReason::none};
+};
+
+// Allocation-free counters shared by the HTTPD task, its asynchronous send
+// callbacks, and the network owner. Counts are lifetime-since-boot values;
+// only the live gauges are cleared when the server stops.
+class TransportDiagnosticStore final {
+ public:
+  void set_http_server_running(bool running) {
+    http_server_running_.store(running, std::memory_order_release);
+    if (!running) {
+      active_http_sessions_.store(0U, std::memory_order_relaxed);
+      websocket_clients_.store(0U, std::memory_order_relaxed);
+    }
+  }
+
+  void http_session_opened() {
+    http_session_open_count_.fetch_add(1U, std::memory_order_relaxed);
+    const auto active =
+        active_http_sessions_.fetch_add(1U, std::memory_order_relaxed) + 1U;
+    update_maximum(maximum_observed_http_sessions_, active);
+  }
+
+  void http_session_closed() {
+    http_session_close_count_.fetch_add(1U, std::memory_order_relaxed);
+    decrement_saturating(active_http_sessions_);
+  }
+
+  void websocket_opened() {
+    websocket_open_count_.fetch_add(1U, std::memory_order_relaxed);
+    websocket_clients_.fetch_add(1U, std::memory_order_relaxed);
+  }
+
+  void websocket_disconnected(WebsocketDisconnectReason reason) {
+    decrement_saturating(websocket_clients_);
+    websocket_disconnect_count_.fetch_add(1U, std::memory_order_relaxed);
+    last_websocket_disconnect_reason_.store(
+        reason == WebsocketDisconnectReason::none
+            ? WebsocketDisconnectReason::peer_or_network_closed
+            : reason,
+        std::memory_order_relaxed);
+  }
+
+  // A dropped event is one client-bound frame that could not be queued or
+  // completed. Coalesced state is retried and is deliberately not counted.
+  void websocket_send_failed() {
+    websocket_send_failure_count_.fetch_add(1U, std::memory_order_relaxed);
+    websocket_dropped_event_count_.fetch_add(1U, std::memory_order_relaxed);
+  }
+
+  void websocket_event_dropped() {
+    websocket_dropped_event_count_.fetch_add(1U, std::memory_order_relaxed);
+  }
+
+  [[nodiscard]] TransportDiagnosticSnapshot snapshot() const {
+    TransportDiagnosticSnapshot result;
+    result.http_server_running =
+        http_server_running_.load(std::memory_order_acquire);
+    result.active_http_sessions =
+        active_http_sessions_.load(std::memory_order_relaxed);
+    result.maximum_observed_http_sessions =
+        maximum_observed_http_sessions_.load(std::memory_order_relaxed);
+    result.http_session_open_count =
+        http_session_open_count_.load(std::memory_order_relaxed);
+    result.http_session_close_count =
+        http_session_close_count_.load(std::memory_order_relaxed);
+    result.websocket_clients =
+        websocket_clients_.load(std::memory_order_relaxed);
+    result.websocket_open_count =
+        websocket_open_count_.load(std::memory_order_relaxed);
+    result.websocket_disconnect_count =
+        websocket_disconnect_count_.load(std::memory_order_relaxed);
+    result.websocket_send_failure_count =
+        websocket_send_failure_count_.load(std::memory_order_relaxed);
+    result.websocket_dropped_event_count =
+        websocket_dropped_event_count_.load(std::memory_order_relaxed);
+    result.last_websocket_disconnect_reason =
+        last_websocket_disconnect_reason_.load(std::memory_order_relaxed);
+    return result;
+  }
+
+ private:
+  static void decrement_saturating(std::atomic<std::uint32_t>& value) {
+    auto current = value.load(std::memory_order_relaxed);
+    while (current != 0U &&
+           !value.compare_exchange_weak(
+               current,
+               current - 1U,
+               std::memory_order_relaxed,
+               std::memory_order_relaxed)) {}
+  }
+
+  static void update_maximum(
+      std::atomic<std::uint32_t>& maximum,
+      std::uint32_t candidate) {
+    auto current = maximum.load(std::memory_order_relaxed);
+    while (candidate > current &&
+           !maximum.compare_exchange_weak(
+               current,
+               candidate,
+               std::memory_order_relaxed,
+               std::memory_order_relaxed)) {}
+  }
+
+  std::atomic_bool http_server_running_{false};
+  std::atomic<std::uint32_t> active_http_sessions_{0U};
+  std::atomic<std::uint32_t> maximum_observed_http_sessions_{0U};
+  std::atomic<std::uint32_t> http_session_open_count_{0U};
+  std::atomic<std::uint32_t> http_session_close_count_{0U};
+  std::atomic<std::uint32_t> websocket_clients_{0U};
+  std::atomic<std::uint32_t> websocket_open_count_{0U};
+  std::atomic<std::uint32_t> websocket_disconnect_count_{0U};
+  std::atomic<std::uint32_t> websocket_send_failure_count_{0U};
+  std::atomic<std::uint32_t> websocket_dropped_event_count_{0U};
+  std::atomic<WebsocketDisconnectReason> last_websocket_disconnect_reason_{
+      WebsocketDisconnectReason::none};
+};
+
 struct TaskStackMargins {
   std::uint32_t loop_free_bytes{0U};
   std::uint32_t network_free_bytes{0U};
   std::uint32_t ui_free_bytes{0U};
   std::uint32_t configuration_free_bytes{0U};
+  std::uint32_t backend_free_bytes{0U};
   std::uint32_t scale_free_bytes{0U};
+  std::uint32_t device_control_free_bytes{0U};
+  std::uint32_t ota_free_bytes{0U};
   std::uint32_t httpd_free_bytes{0U};
 };
 
@@ -40,6 +195,8 @@ struct ScaleDiagnosticSnapshot {
   bool scale_calibration_loaded{false};
   bool scale_calibration_matches_hardware{false};
   bool scale_persistence_available{true};
+  bool scale_tare_ready{false};
+  std::int32_t scale_tare_zero_offset_counts{0};
   bool scale_weight_available{false};
   bool scale_stable{false};
   bool scale_negative{false};
@@ -75,6 +232,8 @@ class ScaleDiagnosticStore final {
     next.scale_state = status.state;
     next.scale_adc_ready = status.adc_ready;
     next.scale_persistence_available = status.persistence_available;
+    next.scale_tare_ready = status.tare_ready;
+    next.scale_tare_zero_offset_counts = status.tare_zero_offset_counts;
     next.scale_stable = status.sample.stable;
     next.scale_negative = status.sample.negative;
     next.scale_overload = status.sample.overload;
@@ -163,11 +322,15 @@ struct SystemSnapshot : ScaleDiagnosticSnapshot {
   std::uint32_t uptime_ms{0};
   std::uint32_t free_heap_bytes{0};
   std::uint32_t minimum_free_heap_bytes{0};
+  std::uint32_t largest_free_internal_block_bytes{0};
   std::uint32_t psram_total_bytes{0};
   std::uint32_t psram_free_bytes{0};
+  std::uint32_t minimum_free_psram_bytes{0};
+  std::uint32_t largest_free_psram_block_bytes{0};
   std::uint32_t boot_count{0};
   std::uint8_t crash_streak{0};
   TaskStackMargins task_stacks;
+  TransportDiagnosticSnapshot transport;
   bool display_ready{false};
   bool touch_configured{false};
   bool nvs_ready{false};
@@ -196,6 +359,8 @@ struct SystemSnapshot : ScaleDiagnosticSnapshot {
   std::string setup_ap_ssid;
   std::string setup_ap_ip;
   std::uint32_t wifi_scan_generation{0U};
+  std::uint32_t wifi_scan_attempt_generation{0U};
+  std::uint32_t wifi_scan_result_attempt_generation{0U};
   std::vector<network::WifiNetwork> wifi_scan_results;
   std::optional<core::Error> wifi_scan_error;
   std::optional<core::Error> wifi_last_error;
@@ -219,6 +384,9 @@ class SystemDiagnostics {
       const services::ScaleStatus& status,
       const std::optional<services::ScaleCalibration>& calibration,
       const services::ScaleHardwareSettings& hardware);
+  [[nodiscard]] ScaleDiagnosticSnapshot scale_snapshot() const {
+    return scale_diagnostics_.snapshot();
+  }
   void set_network_task_running(bool running) {
     network_task_running_.store(running, std::memory_order_relaxed);
   }
@@ -230,6 +398,9 @@ class SystemDiagnostics {
   [[nodiscard]] TaskStackMargins task_stack_margins() const {
     const std::lock_guard<std::mutex> lock(stack_mutex_);
     return task_stack_margins_;
+  }
+  [[nodiscard]] TransportDiagnosticStore& transport_diagnostics() {
+    return transport_diagnostics_;
   }
   [[nodiscard]] static const char* current_reset_reason();
 
@@ -243,6 +414,7 @@ class SystemDiagnostics {
   network::WifiStatus network_status_;
   mutable std::mutex stack_mutex_;
   TaskStackMargins task_stack_margins_;
+  TransportDiagnosticStore transport_diagnostics_;
 };
 
 }  // namespace opentag::diagnostics

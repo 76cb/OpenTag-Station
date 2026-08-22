@@ -11,6 +11,7 @@
 
 #include "boards/wt32_sc01_plus_rev_a.hpp"
 #include "diagnostics/build_info.hpp"
+#include "web/local_access_policy.hpp"
 
 namespace opentag::ui {
 namespace {
@@ -590,8 +591,10 @@ void UiService::build_setup_screen() {
   } else if (step == services::SetupStep::ready) {
     setup_input_one_ = create_setup_textarea(
         94,
-        "Local API token (16-128 characters)",
-        configured.web.access_token,
+        configured.web.access_token.empty()
+            ? "Local API token (optional, 16-128 characters)"
+            : "New local API token (blank keeps current)",
+        "",
         128U,
         true);
     lv_textarea_set_accepted_chars(
@@ -866,13 +869,13 @@ void UiService::setup_save_callback(lv_event_t* event) {
     updated.filabridge.authentication_token = second;
   } else if (step == services::SetupStep::printer_selection) {
     updated.filabridge.selected_printer_id = first;
-  } else if (step == services::SetupStep::ready) {
+  } else if (step == services::SetupStep::ready && !first.empty()) {
     updated.web.access_token = first;
   }
   updated.setup.completed_steps |=
       1U << static_cast<std::uint8_t>(step);
   const auto receipt = self->configuration_worker_.submit_replace(
-      updated, versioned.revision, millis());
+      std::move(updated), versioned.revision, millis());
   if (!receipt.accepted) {
     self->setup_feedback_ = "Configuration queue is unavailable";
   } else {
@@ -925,7 +928,7 @@ void UiService::refresh_setup() {
       configuration_worker_.pending() == 0U) {
     setup_feedback_ = configuration_worker_.last_operation_succeeded()
                           ? "Saved"
-                          : "Save failed; configuration was not changed";
+                          : "Save or network apply failed; review persisted settings";
   }
   const auto step = first_run_setup_.current();
   const auto configured = configuration_.snapshot();
@@ -958,7 +961,7 @@ void UiService::refresh_setup() {
       body = "NFC STATUS\nDisabled until the reader is physically integrated.";
       break;
     case services::SetupStep::ready:
-      body = "READY\nSet and save a 16-128 character local API token.";
+      body = "READY\nLocal API authentication is optional.";
       break;
   }
   if (!network.wifi_configured && network.provisioning_active) {
@@ -1011,9 +1014,15 @@ void UiService::refresh_setup() {
       status = "NFC disabled by wiring guard";
       break;
     case services::SetupStep::ready:
-      status = configured.web.access_token.empty()
-                   ? "Browser mutations disabled until a local API token is configured"
-                   : "Local API token configured; browser mutations may be authorized";
+      if (web::local_access_policy(configured.web.access_token)
+              .authentication_enabled) {
+        status = "Local API authentication: ENABLED\n"
+                 "Local browser control: ENABLED";
+      } else {
+        status = "Local API authentication: DISABLED\n"
+                 "Local browser control: ENABLED\n"
+                 "Trusted LAN mode — set an API token in Configuration to require authentication.";
+      }
       if (first_run_setup_.complete()) status += "\nSetup previously confirmed";
       break;
     case services::SetupStep::welcome:
@@ -1230,10 +1239,16 @@ void UiService::refresh_diagnostics(std::uint32_t now_ms) {
       first_run_setup_.complete() ? "ready" : "incomplete");
   lv_label_set_text_fmt(
       memory_label_,
-      "MEMORY\nHeap: %lu KiB (min %lu)\nPSRAM: %lu / %lu KiB\nLVGL buffers: %s",
+      "MEMORY\nHeap: %lu KiB (min %lu, block %lu)\n"
+      "PSRAM: %lu KiB (min %lu, block %lu) / %lu\nLVGL buffers: %s",
       static_cast<unsigned long>(status.free_heap_bytes / 1024U),
       static_cast<unsigned long>(status.minimum_free_heap_bytes / 1024U),
+      static_cast<unsigned long>(
+          status.largest_free_internal_block_bytes / 1024U),
       static_cast<unsigned long>(status.psram_free_bytes / 1024U),
+      static_cast<unsigned long>(status.minimum_free_psram_bytes / 1024U),
+      static_cast<unsigned long>(
+          status.largest_free_psram_block_bytes / 1024U),
       static_cast<unsigned long>(status.psram_total_bytes / 1024U),
       buffers_in_psram_ ? "PSRAM" : "internal fallback");
   lv_label_set_text_fmt(

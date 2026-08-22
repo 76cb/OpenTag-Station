@@ -1,6 +1,7 @@
 #include "application/application.hpp"
 
 #include <Arduino.h>
+#include <esp_heap_caps.h>
 
 #include <cmath>
 
@@ -40,8 +41,29 @@ void print_scale_i2c_scan(
 }
 
 constexpr std::uint32_t boot_health_retry_interval_ms = 1000U;
-constexpr std::uint32_t stack_diagnostic_interval_ms = 1000U;
+constexpr std::uint32_t stack_diagnostic_interval_ms = 5000U;
 constexpr std::uint32_t stable_stack_diagnostic_delay_ms = 15000U;
+
+void print_memory_milestone(const char* milestone) {
+  const auto psram_total = ESP.getPsramSize();
+  Serial.printf(
+      "memory_milestone=%s heap=%lu min_heap=%lu largest_heap=%lu "
+      "psram_free=%lu min_psram=%lu largest_psram=%lu\n",
+      milestone,
+      static_cast<unsigned long>(ESP.getFreeHeap()),
+      static_cast<unsigned long>(ESP.getMinFreeHeap()),
+      static_cast<unsigned long>(heap_caps_get_largest_free_block(
+          MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)),
+      static_cast<unsigned long>(ESP.getFreePsram()),
+      static_cast<unsigned long>(
+          psram_total == 0U
+              ? 0U
+              : heap_caps_get_minimum_free_size(MALLOC_CAP_SPIRAM)),
+      static_cast<unsigned long>(
+          psram_total == 0U
+              ? 0U
+              : heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM)));
+}
 
 std::uint32_t stack_high_water_free_bytes(TaskHandle_t task) {
   if (task == nullptr) return 0U;
@@ -85,6 +107,7 @@ void Application::setup() {
   loop_task_handle_ = xTaskGetCurrentTaskHandle();
   Serial.begin(115200);
   delay(150);
+  print_memory_milestone("boot-before-services");
 
   const auto& build = diagnostics::build_info;
   Serial.println();
@@ -209,6 +232,7 @@ void Application::setup() {
       configuration_task_started_ ? "started" : "ERROR",
       backend_task_started_ ? "started" : "ERROR",
       device_control_started_ ? "started" : "ERROR");
+  print_memory_milestone("boot-owners-started");
   record_task_stack_margins();
   print_task_stack_margins("boot");
 }
@@ -221,7 +245,13 @@ void Application::record_task_stack_margins() {
   margins.ui_free_bytes = stack_high_water_free_bytes(ui_task_handle_);
   margins.configuration_free_bytes =
       stack_high_water_free_bytes(configuration_worker_.task_handle());
+  margins.backend_free_bytes =
+      stack_high_water_free_bytes(backend_worker_.task_handle());
   margins.scale_free_bytes = stack_high_water_free_bytes(scale_task_handle_);
+  margins.device_control_free_bytes =
+      stack_high_water_free_bytes(device_control_.task_handle());
+  margins.ota_free_bytes =
+      stack_high_water_free_bytes(ota_worker_.task_handle());
 #if INCLUDE_xTaskGetHandle == 1
   margins.httpd_free_bytes =
       stack_high_water_free_bytes(xTaskGetHandle("httpd"));
@@ -233,13 +263,17 @@ void Application::print_task_stack_margins(const char* phase) const {
   const auto margins = diagnostics_.task_stack_margins();
   Serial.printf(
       "stack_margin phase=%s loopTask=%lu opentag-network=%lu "
-      "opentag-ui=%lu opentag-config=%lu opentag-scale=%lu httpd=%lu bytes\n",
+      "opentag-ui=%lu opentag-config=%lu opentag-backend=%lu "
+      "opentag-scale=%lu opentag-control=%lu opentag-ota=%lu httpd=%lu bytes\n",
       phase,
       static_cast<unsigned long>(margins.loop_free_bytes),
       static_cast<unsigned long>(margins.network_free_bytes),
       static_cast<unsigned long>(margins.ui_free_bytes),
       static_cast<unsigned long>(margins.configuration_free_bytes),
+      static_cast<unsigned long>(margins.backend_free_bytes),
       static_cast<unsigned long>(margins.scale_free_bytes),
+      static_cast<unsigned long>(margins.device_control_free_bytes),
+      static_cast<unsigned long>(margins.ota_free_bytes),
       static_cast<unsigned long>(margins.httpd_free_bytes));
 }
 
@@ -373,11 +407,16 @@ void Application::loop() {
   if (static_cast<std::uint32_t>(now_ms - last_serial_diagnostics_ms_) >= 30000U) {
     const auto status = diagnostics_.snapshot(now_ms);
     Serial.printf(
-        "health uptime=%lus heap=%lu psram_free=%lu ui=%s scale=%s raw=%ld "
-        "stable=%s wifi=%s rssi=%ld ntp=%s crash_streak=%u\n",
+        "health uptime=%lus heap=%lu min_heap=%lu largest_heap=%lu "
+        "psram_free=%lu min_psram=%lu largest_psram=%lu ui=%s scale=%s "
+        "raw=%ld stable=%s wifi=%s rssi=%ld ntp=%s crash_streak=%u\n",
         static_cast<unsigned long>(status.uptime_ms / 1000U),
         static_cast<unsigned long>(status.free_heap_bytes),
+        static_cast<unsigned long>(status.minimum_free_heap_bytes),
+        static_cast<unsigned long>(status.largest_free_internal_block_bytes),
         static_cast<unsigned long>(status.psram_free_bytes),
+        static_cast<unsigned long>(status.minimum_free_psram_bytes),
+        static_cast<unsigned long>(status.largest_free_psram_block_bytes),
         status.ui_task_running ? "running" : "stopped",
         services::to_string(status.scale_state),
         static_cast<long>(status.scale_raw_counts),
@@ -572,12 +611,16 @@ void Application::network_task_entry(void* context) {
   application->diagnostics_.set_network_task_running(true);
   const auto configured = application->configuration_.snapshot();
   auto now_ms = millis();
+  print_memory_milestone("network-before-wifi");
   const auto initialized = application->network_.initialize(
       configured.device, configured.wifi, now_ms);
   (void)initialized;
+  print_memory_milestone("network-after-wifi");
   application->diagnostics_.set_network_status(application->network_.status());
   auto last_web_start_attempt_ms = now_ms;
+  print_memory_milestone("http-before-start");
   const auto web_started = application->web_server_.start();
+  print_memory_milestone("http-after-start");
   application->web_server_running_.store(
       web_started == ESP_OK,
       std::memory_order_release);

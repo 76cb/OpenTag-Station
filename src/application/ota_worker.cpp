@@ -7,6 +7,8 @@
 #include <cstring>
 #include <string>
 
+#include "ota/upload_operation_policy.hpp"
+
 namespace opentag::application {
 namespace {
 
@@ -91,7 +93,55 @@ bool cancel_state_allowed(const opentag::ota::UpdateSnapshot& state) {
        !state.activated && !state.activation_intent);
 }
 
+bool terminal_operation_state(OperationState state) {
+  return state == OperationState::succeeded ||
+      state == OperationState::failed ||
+      state == OperationState::confirmation_required;
+}
+
 }  // namespace
+
+opentag::ota::UpdateSnapshot OtaWorker::snapshot() const {
+  const std::lock_guard<std::mutex> lock(published_snapshot_mutex_);
+  return published_snapshot_;
+}
+
+void OtaWorker::publish_owner_snapshot() {
+  // Keep this fixed-size copy in the publisher's frame so callers that own
+  // command/result buffers do not retain a second UpdateSnapshot across flash
+  // or record-store calls.
+  const auto current = manager_.snapshot();
+  const std::lock_guard<std::mutex> lock(published_snapshot_mutex_);
+  published_snapshot_ = current;
+}
+
+void OtaWorker::reconcile_published_lifecycle() {
+  // This bounded copy has a separate lifetime from command processing and all
+  // platform flash descriptors.
+  const auto current = snapshot();
+  reconcile_lifecycle(current);
+}
+
+bool OtaWorker::reconcile_published_candidate_confirmation() {
+  const auto current = snapshot();
+  reconcile_lifecycle(current);
+  return current.state == opentag::ota::UpdateState::confirmed ||
+      (current.running_image_state ==
+           opentag::ota::PartitionImageState::valid &&
+       opentag::ota::same_partition(current.running, current.target));
+}
+
+bool OtaWorker::reconcile_published_rollback(bool transition_ok) {
+  const auto current = snapshot();
+  reconcile_lifecycle(current);
+  return transition_ok ||
+      current.state == opentag::ota::UpdateState::rolled_back ||
+      current.state == opentag::ota::UpdateState::confirmed ||
+      (current.running_image_state ==
+           opentag::ota::PartitionImageState::valid &&
+       (!current.target.present() ||
+        opentag::ota::same_partition(current.running, current.target)));
+}
 
 bool OtaWorker::start(std::uint32_t now_ms) {
   if (task_ != nullptr) return ready();
@@ -163,6 +213,7 @@ std::optional<std::uint8_t> OtaWorker::reserve_slot(bool abandoned) {
     slot.health_revision = 0U;
     slot.health_attempt = 0U;
     slot.control_operation_id = 0U;
+    slot.cleanup_reason.reset();
     slot.result.reset();
     slot.in_use = true;
     slot.abandoned = abandoned;
@@ -221,6 +272,9 @@ core::Result<opentag::ota::UpdateSnapshot> OtaWorker::wait_for_slot(
   // The fixed slot remains reserved until the owner eventually completes it;
   // it is never reused while the worker may still hold references to it.
   slot.abandoned = true;
+  if (slot.kind == CommandKind::finish_and_activate) {
+    pending_finish_cleanup_ = slot.precondition;
+  }
   return core::Result<opentag::ota::UpdateSnapshot>::failure(
       worker_error("OTA owner command timed out"));
 }
@@ -233,30 +287,33 @@ void OtaWorker::complete_slot(
   auto& slot = slots_[index];
   slot.result = std::move(result);
   if (slot.abandoned) {
-    std::optional<opentag::ota::OperationPrecondition> abandoned_begin;
-    if (slot.kind == CommandKind::begin && slot.result->ok()) {
-      const auto& opened = slot.result->value();
-      if (opened.operation_id != 0U && opened.generation != 0U) {
-        abandoned_begin = opentag::ota::OperationPrecondition{
+    const auto kind = slot.kind;
+    const auto precondition = slot.precondition;
+    const auto begin_operation_id = slot.begin_request.operation_id;
+    auto abandoned_result = std::move(*slot.result);
+    slot.result.reset();
+    lock.unlock();
+    if (kind == CommandKind::begin) {
+      if (!abandoned_result.ok()) {
+        operations_.fail(
+            begin_operation_id, millis(), abandoned_result.error());
+      } else {
+        const auto& opened = abandoned_result.value();
+        const opentag::ota::OperationPrecondition opened_precondition{
             opened.operation_id,
             opened.generation,
         };
+        const auto reason = worker_error(
+            "OTA begin timed out; the late upload was canceled", true);
+        const auto canceled = manager_.cancel(opened_precondition, millis());
+        publish_owner_snapshot();
+        reconcile_upload_cleanup(
+            opened_precondition, millis(), reason, canceled, true);
       }
+    } else if (kind == CommandKind::finish_and_activate) {
+      reconcile_late_finish(precondition, millis(), abandoned_result);
     }
-    slot.result.reset();
-    if (!abandoned_begin.has_value()) {
-      slot.in_use = false;
-      slot.abandoned = false;
-      return;
-    }
-
-    // A caller can time out before this begin command reaches the owner. If
-    // the owner later opens the inactive writer, no HTTP session remains to
-    // stream or abort it. Keep the slot reserved, cancel the exact generation
-    // on the OTA owner, then reconcile the lifecycle before allowing reuse.
-    lock.unlock();
-    (void)manager_.cancel(*abandoned_begin, millis());
-    reconcile_lifecycle(manager_.snapshot());
+    reconcile_published_lifecycle();
     lock.lock();
     slot.in_use = false;
     slot.abandoned = false;
@@ -266,6 +323,110 @@ void OtaWorker::complete_slot(
   // this path either drains this semaphore while consuming result, or marks
   // the still-reserved slot abandoned before we acquire the mutex.
   (void)xSemaphoreGive(slot.completion);
+}
+
+void OtaWorker::reconcile_upload_cleanup(
+    opentag::ota::OperationPrecondition precondition,
+    std::uint32_t now_ms,
+    const core::Error& terminal_reason,
+    const core::Result<opentag::ota::UpdateSnapshot>& cleanup,
+    bool authoritative_cleanup_attempt) {
+  const auto snapshot = cleanup.ok() ? cleanup.value() : this->snapshot();
+  const auto disposition = opentag::ota::classify_upload_cleanup(
+      precondition, snapshot, cleanup.ok());
+  bool finish_cleanup_pending = false;
+  {
+    const std::lock_guard<std::mutex> lock(slots_mutex_);
+    finish_cleanup_pending = pending_finish_cleanup_.has_value() &&
+        same_precondition(*pending_finish_cleanup_, precondition);
+  }
+  const auto resolution = opentag::ota::resolve_upload_operation(
+      disposition,
+      finish_cleanup_pending,
+      authoritative_cleanup_attempt);
+
+  if (resolution != opentag::ota::UploadOperationResolution::running &&
+      finish_cleanup_pending) {
+    const std::lock_guard<std::mutex> lock(slots_mutex_);
+    if (pending_finish_cleanup_.has_value() &&
+        same_precondition(*pending_finish_cleanup_, precondition)) {
+      pending_finish_cleanup_.reset();
+    }
+  }
+
+  const auto operation = operations_.get(precondition.operation_id);
+  if (!operation.has_value()) return;
+  if (resolution == opentag::ota::UploadOperationResolution::failed) {
+    auto error = terminal_reason;
+    if (disposition == opentag::ota::UploadCleanupDisposition::failed &&
+        !snapshot.last_error.empty()) {
+      error.message = std::string(snapshot.last_error.view());
+    }
+    operations_.fail(precondition.operation_id, now_ms, std::move(error));
+    return;
+  }
+  if (resolution == opentag::ota::UploadOperationResolution::succeeded) {
+    operations_.succeed(
+        precondition.operation_id,
+        now_ms,
+        "Firmware validated in the inactive slot; reboot confirmation required");
+    return;
+  }
+  if (operation->state == OperationState::queued ||
+      operation->state == OperationState::running) {
+    operations_.mark_running(
+        precondition.operation_id,
+        now_ms,
+        "Firmware cleanup is unresolved; inspect update state before retrying");
+  }
+}
+
+void OtaWorker::reconcile_late_finish(
+    opentag::ota::OperationPrecondition precondition,
+    std::uint32_t now_ms,
+    const core::Result<opentag::ota::UpdateSnapshot>& result) {
+  const auto snapshot = result.ok() ? result.value() : this->snapshot();
+  const auto disposition = opentag::ota::classify_upload_cleanup(
+      precondition, snapshot, false);
+  const auto resolution = opentag::ota::resolve_upload_operation(
+      disposition, true, false);
+  if (resolution == opentag::ota::UploadOperationResolution::failed) {
+    const auto error = result.ok()
+        ? worker_error("Firmware validation failed", false)
+        : result.error();
+    {
+      const std::lock_guard<std::mutex> lock(slots_mutex_);
+      if (pending_finish_cleanup_.has_value() &&
+          same_precondition(*pending_finish_cleanup_, precondition)) {
+        pending_finish_cleanup_.reset();
+      }
+    }
+    operations_.fail(precondition.operation_id, now_ms, error);
+    return;
+  }
+
+  const auto operation = operations_.get(precondition.operation_id);
+  if (operation.has_value() && terminal_operation_state(operation->state)) {
+    const std::lock_guard<std::mutex> lock(slots_mutex_);
+    if (pending_finish_cleanup_.has_value() &&
+        same_precondition(*pending_finish_cleanup_, precondition)) {
+      pending_finish_cleanup_.reset();
+    }
+    return;
+  }
+  if (operation.has_value()) {
+    operations_.mark_running(
+        precondition.operation_id,
+        now_ms,
+        "Firmware finish exceeded its deadline; canceling the late candidate");
+  }
+  const auto reason = worker_error(
+      "Firmware finish exceeded its deadline; the late candidate was canceled",
+      true);
+  const auto cleanup = manager_.cancel(precondition, now_ms);
+  publish_owner_snapshot();
+  reconcile_upload_cleanup(
+      precondition, now_ms, reason, cleanup, true);
 }
 
 core::Result<opentag::ota::UpdateSnapshot> OtaWorker::execute_sync(
@@ -342,24 +503,22 @@ void OtaWorker::reconcile_lifecycle(
 core::Result<opentag::ota::UpdateSnapshot> OtaWorker::begin_upload(
     const opentag::ota::BeginUploadRequest& request,
     std::uint32_t now_ms) {
-  if (!ready()) {
+  const auto reject = [&](core::Error error) {
+    operations_.fail(request.operation_id, now_ms, error);
     return core::Result<opentag::ota::UpdateSnapshot>::failure(
-        worker_error("OTA owner is unavailable"));
-  }
+        std::move(error));
+  };
+  if (!ready()) return reject(worker_error("OTA owner is unavailable"));
   if (storage_.factory_reset_recovery_pending()) {
-    return core::Result<opentag::ota::UpdateSnapshot>::failure(
-        worker_conflict(
-            "Factory reset recovery blocks firmware upload"));
+    return reject(worker_conflict(
+        "Factory reset recovery blocks firmware upload"));
   }
   const auto lease = acquire_lifecycle(DeviceLifecycleOwner::ota_update);
-  if (!lease.ok()) {
-    return core::Result<opentag::ota::UpdateSnapshot>::failure(lease.error());
-  }
+  if (!lease.ok()) return reject(lease.error());
   const auto index = reserve_slot(false);
   if (!index.has_value()) {
     release_lifecycle();
-    return core::Result<opentag::ota::UpdateSnapshot>::failure(
-        worker_error("OTA command pool is exhausted"));
+    return reject(worker_error("OTA command pool is exhausted"));
   }
   auto& slot = slots_[*index];
   slot.kind = CommandKind::begin;
@@ -370,8 +529,7 @@ core::Result<opentag::ota::UpdateSnapshot> OtaWorker::begin_upload(
   if (!enqueue_slot(*index)) {
     release_slot(*index);
     release_lifecycle();
-    return core::Result<opentag::ota::UpdateSnapshot>::failure(
-        worker_error("OTA command queue is unavailable or full"));
+    return reject(worker_error("OTA command queue is unavailable or full"));
   }
   return wait_for_slot(*index);
 }
@@ -421,21 +579,45 @@ core::Result<opentag::ota::UpdateSnapshot> OtaWorker::finish_and_activate(
 
 core::Result<opentag::ota::UpdateSnapshot> OtaWorker::abort_upload(
     opentag::ota::OperationPrecondition precondition,
-    std::uint32_t now_ms) {
-  if (!ready() || !lifecycle_owned(DeviceLifecycleOwner::ota_update)) {
+    std::uint32_t now_ms,
+    core::Error terminal_reason) {
+  const auto reject = [&](core::Error error) {
+    auto result = core::Result<opentag::ota::UpdateSnapshot>::failure(
+        std::move(error));
+    reconcile_upload_cleanup(
+        precondition, now_ms, terminal_reason, result, false);
+    return result;
+  };
+  const auto operation = operations_.get(precondition.operation_id);
+  if (operation.has_value() && terminal_operation_state(operation->state)) {
     return core::Result<opentag::ota::UpdateSnapshot>::failure(
-        worker_error("OTA stream is not active", false));
+        worker_conflict(
+            "Firmware upload operation already reached a terminal result"));
+  }
+  if (operation.has_value() &&
+      (operation->state == OperationState::queued ||
+       operation->state == OperationState::running)) {
+    operations_.mark_running(
+        precondition.operation_id,
+        now_ms,
+        "Stopping incomplete firmware upload");
+  }
+  if (!ready() || !lifecycle_owned(DeviceLifecycleOwner::ota_update)) {
+    return reject(worker_error("OTA stream is not active", false));
   }
   const auto index = reserve_slot(false);
   if (!index.has_value()) {
-    return core::Result<opentag::ota::UpdateSnapshot>::failure(
-        worker_error("OTA command pool is exhausted"));
+    return reject(worker_error("OTA command pool is exhausted"));
   }
   auto& slot = slots_[*index];
   slot.kind = CommandKind::abort;
   slot.precondition = precondition;
   slot.now_ms = now_ms;
-  return execute_sync(*index);
+  slot.cleanup_reason = terminal_reason;
+  auto result = execute_sync(*index);
+  reconcile_upload_cleanup(
+      precondition, millis(), terminal_reason, result, false);
+  return result;
 }
 
 CommandReceipt OtaWorker::submit_reboot(
@@ -469,6 +651,7 @@ CommandReceipt OtaWorker::submit_control(
   const std::lock_guard<std::mutex> lock(control_mutex_);
   const auto reject = [&](core::Error error) {
     const auto id = operations_.begin(operation_kind, now_ms, queued_message);
+    if (id == 0U) return CommandReceipt{false, 0U};
     operations_.fail(id, now_ms, std::move(error));
     return CommandReceipt{false, id};
   };
@@ -480,7 +663,7 @@ CommandReceipt OtaWorker::submit_control(
     return reject(worker_conflict(
         "OTA update does not own the device lifecycle"));
   }
-  const auto current = manager_.snapshot();
+  const auto current = snapshot();
   const bool matching_control = control_active_ && control_kind_ == kind &&
       same_precondition(control_precondition_, precondition);
   if (!snapshot_owned_by(current, precondition)) {
@@ -501,6 +684,7 @@ CommandReceipt OtaWorker::submit_control(
 
   const auto operation_id = operations_.begin(
       operation_kind, now_ms, queued_message);
+  if (operation_id == 0U) return {false, 0U};
   const auto index = reserve_slot(true);
   if (!index.has_value()) {
     operations_.fail(
@@ -582,7 +766,8 @@ void OtaWorker::task_entry(void* context) {
 
 void OtaWorker::run(std::uint32_t initialized_at_ms) {
   const auto initialized = manager_.initialize_from_boot(initialized_at_ms);
-  auto initialized_state = manager_.snapshot();
+  publish_owner_snapshot();
+  auto initialized_state = snapshot();
   if (initialized_state.operation_id != 0U) {
     operations_.reserve_ids_above(initialized_state.operation_id);
   }
@@ -609,7 +794,8 @@ void OtaWorker::run(std::uint32_t initialized_at_ms) {
         const auto recovered =
             manager_.recover_rollback_seed(initialized_at_ms);
         rollback_seed_recovery_required_ = !recovered.ok();
-        initialized_state = manager_.snapshot();
+        publish_owner_snapshot();
+        initialized_state = snapshot();
       }
     } else if (pending_bootloader_confirmation(
                    initialized_state.running_image_state)) {
@@ -621,7 +807,8 @@ void OtaWorker::run(std::uint32_t initialized_at_ms) {
       startup_ok = topology_available && candidate_excluded;
       if (startup_ok && candidate_state(initialized_state.state)) {
         (void)manager_.rollback_candidate(initialized_at_ms);
-        initialized_state = manager_.snapshot();
+        publish_owner_snapshot();
+        initialized_state = snapshot();
         reconcile_lifecycle(initialized_state);
       }
     } else {
@@ -659,8 +846,7 @@ void OtaWorker::run(std::uint32_t initialized_at_ms) {
       }
       complete_slot(
           index,
-          core::Result<opentag::ota::UpdateSnapshot>::success(
-              manager_.snapshot()));
+          core::Result<opentag::ota::UpdateSnapshot>::success(snapshot()));
       {
         const std::lock_guard<std::mutex> lock(boot_health_mutex_);
         const bool changed = boot_health_revision_ != revision;
@@ -686,9 +872,14 @@ core::Result<opentag::ota::UpdateSnapshot> OtaWorker::process(
     CommandSlot& command) {
   auto result = core::Result<opentag::ota::UpdateSnapshot>::failure(
       worker_error("Unsupported OTA owner command", false));
+  bool reconcile_cleanup = false;
   switch (command.kind) {
     case CommandKind::begin:
       result = manager_.begin_upload(command.begin_request, command.now_ms);
+      if (!result.ok()) {
+        operations_.fail(
+            command.begin_request.operation_id, millis(), result.error());
+      }
       break;
     case CommandKind::write:
       result = manager_.write_chunk(
@@ -702,7 +893,19 @@ core::Result<opentag::ota::UpdateSnapshot> OtaWorker::process(
       result = manager_.finish_upload(command.precondition, command.now_ms);
       break;
     case CommandKind::abort:
-      result = manager_.cancel(command.precondition, command.now_ms);
+      if (const auto operation =
+              operations_.get(command.precondition.operation_id);
+          operation.has_value() &&
+          terminal_operation_state(operation->state)) {
+        // A late queued abort must not mutate a candidate after the correlated
+        // upload receipt has reached its immutable authoritative outcome.
+        result = core::Result<opentag::ota::UpdateSnapshot>::failure(
+            worker_conflict(
+                "Firmware upload operation already reached a terminal result"));
+      } else {
+        result = manager_.cancel(command.precondition, command.now_ms);
+        reconcile_cleanup = command.cleanup_reason.has_value();
+      }
       break;
     case CommandKind::cancel: {
       operations_.mark_running(
@@ -710,6 +913,7 @@ core::Result<opentag::ota::UpdateSnapshot> OtaWorker::process(
           command.now_ms,
           "Cancelling staged OTA image");
       result = manager_.cancel(command.precondition, command.now_ms);
+      publish_owner_snapshot();
       if (result.ok()) {
         operations_.succeed(
             command.control_operation_id,
@@ -728,6 +932,7 @@ core::Result<opentag::ota::UpdateSnapshot> OtaWorker::process(
           command.now_ms,
           "Selecting validated inactive OTA image");
       result = manager_.activate(command.precondition, command.now_ms);
+      publish_owner_snapshot();
       if (!result.ok()) {
         operations_.fail(
             command.control_operation_id, command.now_ms, result.error());
@@ -736,6 +941,7 @@ core::Result<opentag::ota::UpdateSnapshot> OtaWorker::process(
       }
       result = manager_.mark_reboot_pending(
           command.precondition, command.now_ms);
+      publish_owner_snapshot();
       if (!result.ok()) {
         operations_.fail(
             command.control_operation_id, command.now_ms, result.error());
@@ -756,7 +962,16 @@ core::Result<opentag::ota::UpdateSnapshot> OtaWorker::process(
     case CommandKind::boot_health:
       break;
   }
-  reconcile_lifecycle(manager_.snapshot());
+  publish_owner_snapshot();
+  if (reconcile_cleanup && command.cleanup_reason.has_value()) {
+    reconcile_upload_cleanup(
+        command.precondition,
+        millis(),
+        *command.cleanup_reason,
+        result,
+        true);
+  }
+  reconcile_published_lifecycle();
   return result;
 }
 
@@ -764,7 +979,7 @@ bool OtaWorker::process_boot_health(
     opentag::ota::CandidateHealthDecision decision,
     std::uint32_t now_ms,
     std::uint8_t attempt) {
-  const auto current = manager_.snapshot();
+  const auto current = snapshot();
   if (candidate_state(current.state) &&
       decision ==
           opentag::ota::CandidateHealthDecision::factory_reset_recovery &&
@@ -773,6 +988,8 @@ bool OtaWorker::process_boot_health(
     // candidate exclusion lease and reboot so early storage recovery and the
     // rollback-enabled bootloader can each reconcile on the next boot.
     (void)manager_.handle_candidate_health(decision, now_ms);
+    publish_owner_snapshot();
+    reconcile_published_lifecycle();
     vTaskDelay(pdMS_TO_TICKS(750U));
     esp_restart();
     return false;
@@ -780,7 +997,8 @@ bool OtaWorker::process_boot_health(
   if (rollback_seed_recovery_required_) {
     const auto recovered = manager_.recover_rollback_seed(now_ms);
     rollback_seed_recovery_required_ = !recovered.ok();
-    reconcile_lifecycle(manager_.snapshot());
+    publish_owner_snapshot();
+    reconcile_published_lifecycle();
     return rollback_seed_recovery_required_ &&
         attempt < boot_health_retry_limit;
   }
@@ -806,6 +1024,8 @@ bool OtaWorker::process_boot_health(
     if (elapsed < opentag::ota::candidate_confirmation_window_ms) {
       (void)manager_.handle_candidate_health(
           opentag::ota::CandidateHealthDecision::stabilizing, now_ms);
+      publish_owner_snapshot();
+      reconcile_published_lifecycle();
       return false;
     }
 
@@ -819,13 +1039,9 @@ bool OtaWorker::process_boot_health(
     }
 
     const auto confirmed = manager_.confirm_candidate(now_ms);
-    const auto after = manager_.snapshot();
-    reconcile_lifecycle(after);
+    publish_owner_snapshot();
     const bool physically_or_logically_confirmed =
-        after.state == opentag::ota::UpdateState::confirmed ||
-        (after.running_image_state ==
-             opentag::ota::PartitionImageState::valid &&
-         opentag::ota::same_partition(after.running, after.target));
+        reconcile_published_candidate_confirmation();
     if (confirmed.ok() || physically_or_logically_confirmed) {
       candidate_rollback_required_ = false;
       return false;
@@ -839,7 +1055,8 @@ bool OtaWorker::process_boot_health(
     return attempt_candidate_rollback(now_ms, attempt);
   }
   const auto handled = manager_.handle_candidate_health(decision, now_ms);
-  reconcile_lifecycle(manager_.snapshot());
+  publish_owner_snapshot();
+  reconcile_published_lifecycle();
   return !handled.ok() && attempt < boot_health_retry_limit;
 }
 
@@ -847,14 +1064,8 @@ bool OtaWorker::attempt_candidate_rollback(
     std::uint32_t now_ms,
     std::uint8_t attempt) {
   const auto rolled_back = manager_.rollback_candidate(now_ms);
-  const auto after = manager_.snapshot();
-  reconcile_lifecycle(after);
-  const bool terminal = rolled_back.ok() ||
-      after.state == opentag::ota::UpdateState::rolled_back ||
-      after.state == opentag::ota::UpdateState::confirmed ||
-      (after.running_image_state == opentag::ota::PartitionImageState::valid &&
-       (!after.target.present() ||
-        opentag::ota::same_partition(after.running, after.target)));
+  publish_owner_snapshot();
+  const bool terminal = reconcile_published_rollback(rolled_back.ok());
   if (terminal) candidate_rollback_required_ = false;
   return !terminal && attempt < boot_health_retry_limit;
 }

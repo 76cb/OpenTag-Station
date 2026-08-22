@@ -111,8 +111,10 @@ values. PATCH applies typed partial fields only when its `expected_revision`
 matches the mutex-protected configuration revision; omitted credentials remain
 unchanged and explicit empty credentials clear them. The optional local API
 bearer token may be set through the physically local setup AP or touchscreen;
-leaving it blank permits tokenless local mutations. Recovery provisioning
-cannot replace an existing token. The browser prompts for it when a protected
+leaving it blank selects trusted-LAN mode: local API authentication is disabled,
+local browser control remains enabled, and the missing optional token does not
+degrade health or block setup. Recovery provisioning cannot replace an existing
+token. When a token is configured, the browser prompts for it when a protected
 mutation needs authentication, keeps it only in JavaScript memory for the
 current tab, never places it in storage or a URL, and clears it after HTTP 401.
 
@@ -183,9 +185,11 @@ Generic reboot, factory reset, OTA update, and candidate validation acquire one
 generation-token `DeviceLifecycleGate`. Only the current lease can release it,
 so a stale completion cannot unlock a newer destructive operation. OTA does not
 hold the LVGL or backend task, change configuration/calibration data, or touch
-LittleFS. The local API is authenticated and idempotent, but the image is not
-cryptographically signed and the local HTTP transport is not TLS-protected;
-deployments must use a trusted isolated LAN.
+LittleFS. The local API is idempotent and conditionally authenticated: a blank
+token deliberately permits trusted-LAN mutations, while a configured token is
+required for protected mutations. The image is not cryptographically signed and
+the local HTTP transport is not TLS-protected; deployments must use a trusted
+isolated LAN.
 
 The NFC protocol, configurable ESP32 RFAL primitives, and frontend orchestration
 are now implemented behind bounded interfaces. The vendor RFAL binding is
@@ -319,7 +323,7 @@ bounded diagnostic export, not for hiding unbounded growth.
 | 6 | Configuration + networking | One migrated settings service, resilient first-run setup, Wi-Fi/backoff/status, and bounded CA-verified HTTP(S) pass host/build gates; physical LAN behavior remains gated. |
 | 7 | Spoolman | Version/capability probes and pinned contract tests pass; identity resolution is deterministic; remaining-weight writes are stable, explicit, merge-safe, and verified. |
 | 8 | FilaBridge + main workflow | Pinned contract tests pass for printer/toolheads/mappings/map/unmap; numbering normalizes once; place → identify → weigh → resolve → T1–T5 → assign → verify degrades safely. |
-| 9 | Web UI/API | Portable 23-route router, parser, patch, and bounded-ledger logic is host-tested; embedded assets, production context, HTTP/WebSocket transport, owner queues, bearer authentication, reset control, and the update placeholder are firmware-compiled. Physical-browser, target-LAN, and hardware validation remain outstanding. |
+| 9 | Web UI/API | Portable 30-route router, parser, patch, and bounded-ledger logic is host-tested; embedded assets, production context, HTTP/WebSocket transport, owner queues, optional conditional bearer authentication, reset control, and the update placeholder are firmware-compiled. Physical-browser, target-LAN, and hardware validation remain outstanding. |
 | 10 | OTA | Portable state/record/health/exclusion policy is host-tested and the fixed-buffer owner, streaming API/UI, ESP-IDF inactive-slot adapter, image/manifest validation, activation, confirmation, and rollback integration are firmware-compiled. Physical A→B/B→A, failure rollback, power cuts, restart, and browser recovery remain gated. |
 | 11 | Release hardening | Pinned compatibility, parser, migration, fault, performance, memory, HIL, and rollback suites pass; recovery artifacts and release documentation are published. |
 

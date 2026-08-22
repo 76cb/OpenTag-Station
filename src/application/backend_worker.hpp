@@ -79,6 +79,7 @@ class BackendWorker final {
       std::optional<std::uint64_t> expected_printer_revision = std::nullopt);
   [[nodiscard]] CommandReceipt submit_refresh();
   [[nodiscard]] BackendWorkerSnapshot snapshot() const;
+  [[nodiscard]] TaskHandle_t task_handle() const { return task_; }
   [[nodiscard]] std::size_t pending() const {
     return pending_.load(std::memory_order_relaxed);
   }

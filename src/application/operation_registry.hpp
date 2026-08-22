@@ -53,6 +53,15 @@ struct CommandReceipt {
   std::uint64_t operation_id{0U};
 };
 
+struct OperationRegistryStatistics {
+  std::size_t used{0U};
+  std::size_t queued{0U};
+  std::size_t running{0U};
+  std::size_t terminal{0U};
+  std::size_t confirmation_required{0U};
+  std::uint64_t revision{0U};
+};
+
 [[nodiscard]] const char* to_string(OperationKind kind);
 [[nodiscard]] const char* to_string(OperationState state);
 
@@ -61,6 +70,8 @@ class OperationRegistry final {
   static constexpr std::size_t capacity = 24U;
   static constexpr std::size_t maximum_message_bytes = 192U;
 
+  // Returns zero without changing the registry when every slot belongs to a
+  // queued or running operation. Nonterminal work is never evicted.
   [[nodiscard]] std::uint64_t begin(
       OperationKind kind,
       std::uint32_t now_ms,
@@ -85,6 +96,9 @@ class OperationRegistry final {
   [[nodiscard]] std::optional<OperationRecord> get(std::uint64_t id) const;
   [[nodiscard]] std::vector<OperationRecord> snapshot(
       std::size_t limit = capacity) const;
+  // Returns a coherent, allocation-free count of the fixed registry slots.
+  // Terminal includes succeeded, failed, and confirmation-required records.
+  [[nodiscard]] OperationRegistryStatistics statistics() const;
   [[nodiscard]] std::uint64_t revision() const;
 
  private:

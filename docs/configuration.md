@@ -170,12 +170,27 @@ Physical power-loss recovery, flash wear, and backup/restore still require
 verification on the target board.
 
 The Ready step contains a masked **Local API access token (optional)** field and
-saves through the same revision-checked configuration worker. Leaving it blank
-disables local API authentication. A device without an SSID also
+saves through the same revision-checked configuration worker. With no saved
+token, leaving it blank keeps local API authentication disabled. When a token is
+already configured, the blank touchscreen field preserves it; the browser
+Configuration page provides the authenticated explicit-clear control. A
+device without an SSID also
 serves the existing web app at `http://192.168.4.1/`. Only AP clients may use
 the scoped network scan/connect routes without an existing token; initial setup
 may include a write-only token in the same request. On recovery, that route
 cannot replace an existing token. Other browser mutations remain tokenless
-until a token is configured. An authenticated administrator may
+until a token is configured. A local administrator acting under the current
+conditional-authentication policy may
 rotate or explicitly clear it through the configuration PATCH. Credential
 values are never returned to the browser.
+
+The browser treats configuration as explicit `UNLOADED`, `LOADING`, `READY`, or
+`ERROR` state. Editing, save, redacted import, and export stay disabled until a
+successful allowlisted snapshot reaches `READY`; opening Configuration retries
+a failed or missing load and displays the transport/API reason. After a PATCH
+operation succeeds, the browser reloads and renders the persisted revision
+before reporting completion. Blank credential inputs preserve hidden values
+unless their explicit clear control is selected. A saved Wi-Fi password is
+preserved only while the SSID is unchanged. Changing SSID with a blank new
+password and no explicit clear is rejected instead of silently applying the old
+network's secret to the new network.

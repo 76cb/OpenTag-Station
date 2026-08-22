@@ -14,6 +14,7 @@
 #include <variant>
 
 #include "web/api_router.hpp"
+#include "web/local_access_policy.hpp"
 
 namespace {
 
@@ -38,13 +39,26 @@ using opentag::web::api::ToolheadAssignmentMutation;
 using opentag::web::api::ToolheadUnassignmentMutation;
 using opentag::web::api::UpdateControlMutation;
 
+void test_local_access_policy_keeps_tokenless_control_healthy_and_enabled() {
+  const auto tokenless = opentag::web::local_access_policy("");
+  TEST_ASSERT_FALSE(tokenless.authentication_enabled);
+  TEST_ASSERT_TRUE(tokenless.browser_mutations_enabled);
+  TEST_ASSERT_FALSE(tokenless.health_degraded);
+
+  const auto protected_mode =
+      opentag::web::local_access_policy("0123456789abcdef");
+  TEST_ASSERT_TRUE(protected_mode.authentication_enabled);
+  TEST_ASSERT_TRUE(protected_mode.browser_mutations_enabled);
+  TEST_ASSERT_FALSE(protected_mode.health_degraded);
+}
+
 class FakeContext final : public IApiContext {
  public:
   bool authorize_mutation(std::string_view bearer_token) override {
     ++authorization_calls;
     last_bearer_token = std::string(bearer_token);
     return tokenless_mutations_allowed ||
-        (authorization_configured && bearer_token == accepted_bearer_token);
+        (protected_authorization_accepts && bearer_token == accepted_bearer_token);
   }
 
   bool authorize_provisioning() override {
@@ -89,7 +103,7 @@ class FakeContext final : public IApiContext {
   std::size_t authorization_calls{0U};
   std::size_t provisioning_authorization_calls{0U};
   bool provisioning_authorized{false};
-  bool authorization_configured{true};
+  bool protected_authorization_accepts{true};
   bool tokenless_mutations_allowed{false};
   std::string accepted_bearer_token{"station-secret"};
   std::string last_bearer_token;
@@ -459,15 +473,15 @@ void test_mutation_authorization_is_fail_closed_and_precedes_parsing() {
   TEST_ASSERT_EQUAL_STRING("incorrect-secret", context.last_bearer_token.c_str());
   TEST_ASSERT_EQUAL_UINT(0U, context.submit_calls);
 
-  context.authorization_configured = false;
-  auto unconfigured = mutation_request(
+  context.protected_authorization_accepts = false;
+  auto rejected_by_context = mutation_request(
       Method::post, "/api/v1/scale/tare", "{}");
   assert_versioned_error(
-      router.handle(unconfigured), 401, "authentication_required");
+      router.handle(rejected_by_context), 401, "authentication_required");
   TEST_ASSERT_EQUAL_UINT(5U, context.authorization_calls);
   TEST_ASSERT_EQUAL_UINT(0U, context.submit_calls);
 
-  context.authorization_configured = true;
+  context.protected_authorization_accepts = true;
   response = router.handle(mutation_request(
       Method::post, "/api/v1/scale/tare", "{}"));
   TEST_ASSERT_EQUAL_INT(202, response.status);
@@ -693,6 +707,10 @@ void test_configuration_patch_is_typed_and_omitted_secrets_remain_omitted() {
         "toolheads":[{"backend_id":0,"display_name":"T1","nozzle_diameter_mm":0.4,"enabled":true,"nozzle_material":"brass","maximum_temperature_c":300,"notes":"primary"}]
       })"));
   TEST_ASSERT_EQUAL_INT(202, response.status);
+  TEST_ASSERT_TRUE(response.delivered_network_connect_operation.has_value());
+  TEST_ASSERT_EQUAL_UINT64(
+      context.next_operation_id,
+      *response.delivered_network_connect_operation);
   const auto& patch =
       std::get<ConfigurationPatchMutation>(context.last_mutation->payload);
   TEST_ASSERT_EQUAL_UINT64(7U, patch.expected_revision);
@@ -1069,7 +1087,24 @@ void test_update_owner_capabilities_and_safe_reboot_retry_are_fail_closed() {
   TEST_ASSERT_TRUE(source.find("capabilities[\"reboot_available\"] = owner_ready &&") != std::string::npos);
   TEST_ASSERT_TRUE(source.find("queues[\"ota\"]") != std::string::npos);
   TEST_ASSERT_TRUE(source.find("document[\"ota_owner_ready\"]") != std::string::npos);
-  TEST_ASSERT_TRUE(source.find("abort_upload(precondition, cleanup_now_ms)") != std::string::npos);
+  TEST_ASSERT_TRUE(source.find(
+      "abort_upload(\n          precondition, cleanup_now_ms, started.error())") !=
+      std::string::npos);
+  TEST_ASSERT_TRUE(source.find(
+      "const auto cleanup = ota_worker_.abort_upload(\n        precondition, millis(), error)") !=
+      std::string::npos);
+  TEST_ASSERT_FALSE(source.find(
+      "operations_.fail(operation_id, cleanup_now_ms, started.error())") !=
+      std::string::npos);
+
+  const auto server = read_project_source("src/web/local_web_server.cpp");
+  TEST_ASSERT_FALSE(server.empty());
+  TEST_ASSERT_FALSE(server.find(
+      "Firmware validation exceeded the 180 second absolute deadline") !=
+      std::string::npos);
+  TEST_ASSERT_TRUE(server.find(
+      "A successful finish is an authoritative, durable validation boundary") !=
+      std::string::npos);
 
   const auto worker = read_project_source("src/application/ota_worker.cpp");
   TEST_ASSERT_FALSE(worker.empty());
@@ -1081,7 +1116,136 @@ void test_update_owner_capabilities_and_safe_reboot_retry_are_fail_closed() {
   TEST_ASSERT_TRUE(candidate_branch != std::string::npos);
   TEST_ASSERT_TRUE(recovery_branch < candidate_branch);
   TEST_ASSERT_TRUE(worker.find(
-      "manager_.cancel(*abandoned_begin, millis())") != std::string::npos);
+      "reconcile_upload_cleanup(") != std::string::npos);
+  TEST_ASSERT_TRUE(worker.find(
+      "OTA begin timed out; the late upload was canceled") != std::string::npos);
+  TEST_ASSERT_TRUE(worker.find(
+      "command.cleanup_reason.has_value()") != std::string::npos);
+  TEST_ASSERT_TRUE(worker.find(
+      "pending_finish_cleanup_ = slot.precondition") != std::string::npos);
+  const auto late_finish_begin = worker.find(
+      "void OtaWorker::reconcile_late_finish(");
+  const auto late_finish_end = worker.find(
+      "core::Result<opentag::ota::UpdateSnapshot> OtaWorker::execute_sync(",
+      late_finish_begin);
+  TEST_ASSERT_TRUE(late_finish_begin != std::string::npos);
+  TEST_ASSERT_TRUE(late_finish_end != std::string::npos);
+  const auto late_finish = worker.substr(
+      late_finish_begin, late_finish_end - late_finish_begin);
+  TEST_ASSERT_TRUE(late_finish.find(
+      "manager_.cancel(precondition, now_ms)") != std::string::npos);
+  TEST_ASSERT_TRUE(late_finish.find(
+      "reconcile_upload_cleanup(") != std::string::npos);
+  TEST_ASSERT_TRUE(late_finish.find(
+      "operations_.succeed(") == std::string::npos);
+  TEST_ASSERT_TRUE(worker.find(
+      "Firmware upload operation already reached a terminal result") !=
+      std::string::npos);
+
+  const auto worker_header = read_project_source(
+      "src/application/ota_worker.hpp");
+  TEST_ASSERT_FALSE(worker_header.empty());
+  TEST_ASSERT_TRUE(worker_header.find(
+      "mutable std::mutex published_snapshot_mutex_") != std::string::npos);
+  TEST_ASSERT_TRUE(worker_header.find(
+      "opentag::ota::UpdateSnapshot published_snapshot_") !=
+      std::string::npos);
+  TEST_ASSERT_TRUE(worker_header.find(
+      "return manager_.snapshot()") == std::string::npos);
+
+  // The owner-only publisher is the sole UpdateManager snapshot caller. All
+  // public, timeout, rejection, cleanup, and control paths use the separately
+  // synchronized bounded copy instead of waiting behind flash/storage work.
+  const auto manager_snapshot = worker.find("manager_.snapshot()");
+  TEST_ASSERT_TRUE(manager_snapshot != std::string::npos);
+  TEST_ASSERT_TRUE(worker.find(
+      "manager_.snapshot()", manager_snapshot + 1U) == std::string::npos);
+  const auto public_snapshot_begin = worker.find(
+      "opentag::ota::UpdateSnapshot OtaWorker::snapshot() const");
+  const auto owner_snapshot_begin = worker.find(
+      "void OtaWorker::publish_owner_snapshot()");
+  const auto owner_snapshot_end = worker.find(
+      "void OtaWorker::reconcile_published_lifecycle()",
+      owner_snapshot_begin);
+  TEST_ASSERT_TRUE(public_snapshot_begin != std::string::npos);
+  TEST_ASSERT_TRUE(owner_snapshot_begin != std::string::npos);
+  TEST_ASSERT_TRUE(owner_snapshot_end != std::string::npos);
+  TEST_ASSERT_TRUE(public_snapshot_begin < owner_snapshot_begin);
+  TEST_ASSERT_TRUE(manager_snapshot > owner_snapshot_begin);
+  TEST_ASSERT_TRUE(manager_snapshot < owner_snapshot_end);
+  const auto public_snapshot = worker.substr(
+      public_snapshot_begin, owner_snapshot_begin - public_snapshot_begin);
+  TEST_ASSERT_TRUE(public_snapshot.find(
+      "published_snapshot_mutex_") != std::string::npos);
+  TEST_ASSERT_TRUE(public_snapshot.find(
+      "return published_snapshot_") != std::string::npos);
+  TEST_ASSERT_TRUE(public_snapshot.find(
+      "manager_.snapshot()") == std::string::npos);
+  const auto owner_snapshot = worker.substr(
+      owner_snapshot_begin, owner_snapshot_end - owner_snapshot_begin);
+  TEST_ASSERT_TRUE(owner_snapshot.find(
+      "void OtaWorker::publish_owner_snapshot()") != std::string::npos);
+  TEST_ASSERT_TRUE(owner_snapshot.find(
+      "const auto current = manager_.snapshot()") != std::string::npos);
+  TEST_ASSERT_TRUE(owner_snapshot.find("return current") == std::string::npos);
+
+  const auto process_begin = worker.find(
+      "core::Result<opentag::ota::UpdateSnapshot> OtaWorker::process(");
+  const auto process_end = worker.find(
+      "bool OtaWorker::process_boot_health(", process_begin);
+  TEST_ASSERT_TRUE(process_begin != std::string::npos);
+  TEST_ASSERT_TRUE(process_end != std::string::npos);
+  const auto process_path = worker.substr(
+      process_begin, process_end - process_begin);
+  TEST_ASSERT_TRUE(process_path.find(
+      "publish_owner_snapshot();") != std::string::npos);
+  TEST_ASSERT_TRUE(process_path.find(
+      "reconcile_published_lifecycle();") != std::string::npos);
+  TEST_ASSERT_TRUE(process_path.find(
+      "const auto current = publish_owner_snapshot()") ==
+      std::string::npos);
+  TEST_ASSERT_TRUE(process_path.find(
+      "const auto current = snapshot()") == std::string::npos);
+
+  const auto wait_begin = worker.find("OtaWorker::wait_for_slot(");
+  const auto wait_end = worker.find("void OtaWorker::complete_slot(", wait_begin);
+  TEST_ASSERT_TRUE(wait_begin != std::string::npos);
+  TEST_ASSERT_TRUE(wait_end != std::string::npos);
+  TEST_ASSERT_TRUE(worker.substr(wait_begin, wait_end - wait_begin).find(
+      "manager_.snapshot()") == std::string::npos);
+  const auto cleanup_begin = worker.find(
+      "void OtaWorker::reconcile_upload_cleanup(");
+  const auto cleanup_end = worker.find(
+      "void OtaWorker::reconcile_late_finish(", cleanup_begin);
+  TEST_ASSERT_TRUE(cleanup_begin != std::string::npos);
+  TEST_ASSERT_TRUE(cleanup_end != std::string::npos);
+  const auto cleanup_path = worker.substr(
+      cleanup_begin, cleanup_end - cleanup_begin);
+  TEST_ASSERT_TRUE(cleanup_path.find("this->snapshot()") != std::string::npos);
+  TEST_ASSERT_TRUE(cleanup_path.find(
+      "manager_.snapshot()") == std::string::npos);
+  const auto abort_begin = worker.find("OtaWorker::abort_upload(");
+  const auto abort_end = worker.find("CommandReceipt OtaWorker::submit_reboot(", abort_begin);
+  TEST_ASSERT_TRUE(abort_begin != std::string::npos);
+  TEST_ASSERT_TRUE(abort_end != std::string::npos);
+  TEST_ASSERT_TRUE(worker.substr(abort_begin, abort_end - abort_begin).find(
+      "manager_.snapshot()") == std::string::npos);
+  const auto control_begin = worker.find("CommandReceipt OtaWorker::submit_control(");
+  const auto control_end = worker.find("void OtaWorker::clear_control(", control_begin);
+  TEST_ASSERT_TRUE(control_begin != std::string::npos);
+  TEST_ASSERT_TRUE(control_end != std::string::npos);
+  const auto control_path = worker.substr(
+      control_begin, control_end - control_begin);
+  TEST_ASSERT_TRUE(control_path.find(
+      "const auto current = snapshot()") != std::string::npos);
+  TEST_ASSERT_TRUE(control_path.find(
+      "manager_.snapshot()") == std::string::npos);
+
+  const auto registry = read_project_source(
+      "src/application/operation_registry.cpp");
+  TEST_ASSERT_FALSE(registry.empty());
+  TEST_ASSERT_TRUE(registry.find(
+      "if (terminal(record.state)) return;") != std::string::npos);
 
   const auto application = read_project_source("src/application/application.cpp");
   TEST_ASSERT_FALSE(application.empty());
@@ -1197,8 +1361,50 @@ void test_tokenless_provisioning_connect_accepts_omitted_optional_token() {
   TEST_ASSERT_TRUE(response.delivered_network_connect_operation.has_value());
 }
 
+void test_router_stress_repeats_reads_snapshots_and_operation_polls() {
+  FakeContext context;
+  Router router(context);
+  const std::array<const char*, 8U> secondary_paths = {{
+      "/api/v1/device",
+      "/api/v1/health",
+      "/api/v1/network",
+      "/api/v1/status",
+      "/api/v1/spool",
+      "/api/v1/printers",
+      "/api/v1/toolheads",
+      "/api/v1/update",
+  }};
+
+  for (std::size_t index = 0U; index < 100U; ++index) {
+    TEST_ASSERT_EQUAL_INT(
+        200, router.handle(get_request("/api/v1/config")).status);
+    TEST_ASSERT_EQUAL_INT(
+        200, router.handle(get_request("/api/v1/scale")).status);
+  }
+  for (std::size_t index = 0U; index < 800U; ++index) {
+    const auto response = router.handle(get_request(
+        secondary_paths[index % secondary_paths.size()]));
+    TEST_ASSERT_EQUAL_INT(200, response.status);
+    TEST_ASSERT_NOT_EQUAL(
+        std::string::npos, response.body.find("\"api_version\":\"v1\""));
+  }
+  TEST_ASSERT_EQUAL_UINT(1000U, context.snapshot_calls);
+
+  for (std::size_t index = 0U; index < 100U; ++index) {
+    const auto response =
+        router.handle(get_request("/api/v1/operations/42"));
+    TEST_ASSERT_EQUAL_INT(200, response.status);
+    TEST_ASSERT_NOT_EQUAL(
+        std::string::npos, response.body.find("\"operation_id\":42"));
+  }
+  TEST_ASSERT_EQUAL_UINT(100U, context.operation_calls);
+  TEST_ASSERT_EQUAL_UINT(0U, context.submit_calls);
+}
+
 int main(int, char**) {
   UNITY_BEGIN();
+  RUN_TEST(
+      test_local_access_policy_keeps_tokenless_control_healthy_and_enabled);
   RUN_TEST(test_route_table_contains_the_complete_versioned_surface);
   RUN_TEST(test_snapshot_routes_return_versioned_bounded_envelopes);
   RUN_TEST(test_firmware_upload_is_declared_but_rejected_by_buffered_router);
@@ -1235,5 +1441,6 @@ int main(int, char**) {
   RUN_TEST(test_provisioning_transport_is_scoped_to_network_setup_routes);
   RUN_TEST(test_provisioning_connect_is_typed_and_does_not_echo_secrets);
   RUN_TEST(test_tokenless_provisioning_connect_accepts_omitted_optional_token);
+  RUN_TEST(test_router_stress_repeats_reads_snapshots_and_operation_polls);
   return UNITY_END();
 }

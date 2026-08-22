@@ -191,6 +191,8 @@ void test_initialization_loads_calibration_and_runs_internal_calibration() {
   TEST_ASSERT_EQUAL_UINT(1U, adc.calibration_calls);
   TEST_ASSERT_TRUE(service.status().adc_ready);
   TEST_ASSERT_TRUE(service.status().calibration_loaded);
+  TEST_ASSERT_TRUE(service.status().tare_ready);
+  TEST_ASSERT_EQUAL_INT32(1000, service.status().tare_zero_offset_counts);
   TEST_ASSERT_FLOAT_WITHIN(
       0.01F, 1000.0F, service.hardware_settings().rated_capacity_grams);
   TEST_ASSERT_EQUAL_INT(
@@ -327,7 +329,10 @@ void test_tare_and_reference_calibration_persist_and_compute_grams() {
   sample(service, adc, 1000, 0U);
   sample(service, adc, 1001, 10U);
   sample(service, adc, 999, 20U);
+  TEST_ASSERT_FALSE(service.status().tare_ready);
   TEST_ASSERT_TRUE(service.tare().ok());
+  TEST_ASSERT_TRUE(service.status().tare_ready);
+  TEST_ASSERT_EQUAL_INT32(1000, service.status().tare_zero_offset_counts);
 
   sample(service, adc, 2000, 30U);
   sample(service, adc, 2001, 40U);

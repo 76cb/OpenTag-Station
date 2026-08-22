@@ -10,7 +10,8 @@ The network owner starts a temporary access point when:
 
 - no Wi-Fi SSID is configured;
 - three consecutive saved-network connection attempts fail; or
-- an authenticated administrator selects **Start setup access point**.
+- a local administrator selects **Start setup access point** under the current
+  conditional-authentication policy.
 
 The SSID is `OpenTag-Setup-XXXX`, where `XXXX` is derived from a stable,
 non-secret portion of the ESP32-S3 hardware identifier. The AP uses
@@ -39,8 +40,11 @@ Use setup mode only in a physically controlled location.
 4. Select a result or enter an SSID manually.
 5. Enter the Wi-Fi password and hostname.
 6. Optionally enter a 16-128 character **Local API access token (optional)**.
-   Leaving it blank disables local API authentication. A configured token is
-   write-only and is never returned by the station.
+   During initial setup, when no token exists, leaving it blank keeps local API
+   authentication disabled. On a station that already has a token, a blank
+   setup field preserves that token; recovery provisioning cannot replace or
+   clear it. Use Configuration's explicit clear control after authenticating.
+   A configured token is write-only and is never returned by the station.
 7. Select **Save and connect**.
 
 The HTTP receipt is delivered before the configuration worker can persist the
@@ -62,13 +66,21 @@ After provisioning, open either:
 This is the same full administration UI. It retains scale raw/filtered counts,
 grams, stability, profile/capacity, calibration coefficients, tare, reference
 mass calibration, persisted result reporting, backend setup, diagnostics,
-device controls, and authenticated A/B OTA.
+device controls, and A/B OTA under the same conditional-authentication policy.
 
 When a local API token is configured, normal mutations require that exact
 bearer token. When the token is blank, local mutations are allowed without an
 `Authorization` header. Wi-Fi scanning and reconfiguration are available in
 the Configuration section; starting setup mode follows the same conditional
 authentication policy.
+
+The touchscreen and browser report this state directly. A blank token means
+**Local API authentication: DISABLED** and **Local browser control: ENABLED**.
+This trusted-LAN mode is complete and healthy: it does not degrade health, block
+setup completion, disable configuration/scale/backend mutations, or require the
+operator to create a credential. Setting a token reports **Local API
+authentication: ENABLED**; local browser control remains available but protected
+mutations require the token. Clearing it deliberately returns to trusted-LAN mode.
 
 ## On-device guidance and serial diagnostics
 
@@ -80,6 +92,14 @@ Serial diagnostics report bounded boot/stable stack margins, setup-AP and grace
 state, scan request/start/completion or actual failure code, connect receipt,
 configuration persistence, STA association state, SSID, and IP. Passwords, API
 tokens, authorization values, and backend credentials are never printed.
+
+In the pinned Arduino-ESP32 Wi-Fi wrapper, `WIFI_SCAN_FAILED` is `-2`. It is a
+generic wrapper result, not a count and not proof of one specific radio fault.
+Diagnostics therefore include whether `-2` occurred while starting a scan or
+after an asynchronous scan had started, plus elapsed time and a bounded reason.
+Scan requests remain pending while association or another radio-mode transition
+owns the radio; setup-AP changes, reconfiguration, reconnect, and scan cleanup
+are serialized rather than raced.
 
 ## Physical validation still required
 

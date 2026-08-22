@@ -41,15 +41,16 @@ class OtaWorker final {
         lifecycle_(lifecycle) {}
 
   [[nodiscard]] bool start(std::uint32_t now_ms);
+  [[nodiscard]] TaskHandle_t task_handle() const { return task_; }
   [[nodiscard]] bool ready() const {
     return ready_.load(std::memory_order_acquire);
   }
   [[nodiscard]] std::size_t pending() const {
     return pending_.load(std::memory_order_relaxed);
   }
-  [[nodiscard]] opentag::ota::UpdateSnapshot snapshot() const {
-    return manager_.snapshot();
-  }
+  // Returns a bounded copy published by the OTA owner task. This never
+  // acquires UpdateManager's mutex or waits for flash/storage work.
+  [[nodiscard]] opentag::ota::UpdateSnapshot snapshot() const;
 
   [[nodiscard]] core::Result<opentag::ota::UpdateSnapshot> begin_upload(
       const opentag::ota::BeginUploadRequest& request,
@@ -64,7 +65,8 @@ class OtaWorker final {
       std::uint32_t now_ms);
   [[nodiscard]] core::Result<opentag::ota::UpdateSnapshot> abort_upload(
       opentag::ota::OperationPrecondition precondition,
-      std::uint32_t now_ms);
+      std::uint32_t now_ms,
+      core::Error terminal_reason);
 
   [[nodiscard]] CommandReceipt submit_reboot(
       opentag::ota::OperationPrecondition precondition,
@@ -99,6 +101,7 @@ class OtaWorker final {
     std::uint64_t health_revision{0U};
     std::uint8_t health_attempt{0U};
     std::uint64_t control_operation_id{0U};
+    std::optional<core::Error> cleanup_reason;
     std::optional<core::Result<opentag::ota::UpdateSnapshot>> result;
     SemaphoreHandle_t completion{nullptr};
     bool in_use{false};
@@ -115,6 +118,22 @@ class OtaWorker final {
       core::Result<opentag::ota::UpdateSnapshot> result);
   [[nodiscard]] core::Result<opentag::ota::UpdateSnapshot> execute_sync(
       std::uint8_t index);
+  // Owner-task only: take UpdateManager's mutex after a manager transition has
+  // returned, then publish the fixed-size snapshot under an independent lock.
+  void publish_owner_snapshot();
+  void reconcile_published_lifecycle();
+  [[nodiscard]] bool reconcile_published_candidate_confirmation();
+  [[nodiscard]] bool reconcile_published_rollback(bool transition_ok);
+  void reconcile_upload_cleanup(
+      opentag::ota::OperationPrecondition precondition,
+      std::uint32_t now_ms,
+      const core::Error& terminal_reason,
+      const core::Result<opentag::ota::UpdateSnapshot>& cleanup,
+      bool authoritative_cleanup_attempt);
+  void reconcile_late_finish(
+      opentag::ota::OperationPrecondition precondition,
+      std::uint32_t now_ms,
+      const core::Result<opentag::ota::UpdateSnapshot>& result);
   void cleanup_pre_task_resources();
   [[nodiscard]] core::Result<void> acquire_lifecycle(
       DeviceLifecycleOwner owner);
@@ -152,6 +171,10 @@ class OtaWorker final {
   TaskHandle_t task_{nullptr};
   std::array<CommandSlot, queue_depth> slots_{};
   mutable std::mutex slots_mutex_;
+  std::optional<opentag::ota::OperationPrecondition>
+      pending_finish_cleanup_;
+  mutable std::mutex published_snapshot_mutex_;
+  opentag::ota::UpdateSnapshot published_snapshot_;
   mutable std::mutex lifecycle_mutex_;
   DeviceLifecycleLease lifecycle_lease_;
   mutable std::mutex control_mutex_;

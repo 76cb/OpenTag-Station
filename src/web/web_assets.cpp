@@ -61,7 +61,7 @@ const char index_html[] = R"HTML(<!doctype html>
           <h3>2. Name and secure the station</h3>
           <label for="setup-hostname">Hostname</label><input id="setup-hostname" type="text" maxlength="63" value="opentag-station">
           <label for="setup-token">Local API access token (optional)</label><input id="setup-token" type="password" minlength="16" maxlength="128" autocomplete="new-password">
-          <p class="hint">Leave blank to disable local API authentication. A configured token is write-only and never returned by the station.</p>
+          <p class="hint">No token enables trusted-LAN control. If a token already exists, blank preserves it; use Configuration to clear it. Tokens are write-only.</p>
           <button id="setup-connect" class="button primary" type="button">Save and connect</button>
           <p id="setup-connect-status" class="setup-status" aria-live="polite">Waiting for network details.</p>
         </article>
@@ -114,11 +114,12 @@ const char index_html[] = R"HTML(<!doctype html>
         <article class="card">
           <h3>Calibration controls</h3>
           <p class="muted"><strong>Tare:</strong> empty the platform, wait for Stable, then tare. <strong>Calibrate:</strong> tare first, place an accurate known mass, wait for Stable, enter its grams, then calibrate. The result is persisted through the existing calibration owner.</p>
-          <div class="action-row"><button id="tare-scale" class="button" type="button">Tare scale</button></div>
+          <p id="scale-action-status" class="setup-status" aria-live="polite">Waiting for the first scale snapshot.</p>
+          <div class="action-row"><button id="tare-scale" class="button" type="button" disabled>Tare scale</button></div>
           <form id="calibrate-form" class="stacked-form">
             <label for="reference-grams">Known reference weight (g)</label>
             <input id="reference-grams" name="reference_grams" type="number" min="1" max="5000" step="0.1" inputmode="decimal" required>
-            <button class="button primary" type="submit">Calibrate</button>
+            <button id="calibrate-scale" class="button primary" type="submit" disabled>Calibrate</button>
           </form>
         </article>
       </div>
@@ -166,44 +167,47 @@ const char index_html[] = R"HTML(<!doctype html>
     </section>
 
     <section id="configuration" class="section" aria-labelledby="configuration-title">
-      <div class="section-heading"><div><p class="eyebrow">PERSISTED SETTINGS</p><h2 id="configuration-title">Configuration</h2></div><span id="config-revision" class="badge neutral">Revision —</span></div>
+      <div class="section-heading"><div><p class="eyebrow">PERSISTED SETTINGS</p><h2 id="configuration-title">Configuration</h2></div><span id="config-revision" class="badge neutral">Not loaded</span></div>
+      <div class="card config-status-row"><p id="config-load-status" class="setup-status" aria-live="polite">Configuration has not loaded.</p><button id="retry-config" class="button quiet" type="button">Retry</button></div>
       <form id="config-form" class="config-form" autocomplete="off">
-        <fieldset class="card"><legend>Device</legend>
+        <fieldset class="card" disabled><legend>Device</legend>
           <label for="config-hostname">Hostname</label><input id="config-hostname" type="text" maxlength="63" pattern="[a-z0-9]([a-z0-9-]*[a-z0-9])?">
           <label for="config-brightness">Brightness (%)</label><input id="config-brightness" type="number" min="5" max="100" step="1">
         </fieldset>
-        <fieldset class="card"><legend>Wi-Fi</legend>
+        <fieldset class="card" disabled><legend>Wi-Fi</legend>
           <div class="action-row"><button id="config-scan" class="button quiet" type="button">Scan networks</button><span id="config-scan-status" class="hint">Not scanned yet</span></div>
           <label for="config-network-list">Nearby networks</label><select id="config-network-list"><option value="">Choose or enter manually</option></select>
           <label for="config-ssid">SSID</label><input id="config-ssid" type="text" maxlength="32" autocomplete="off">
           <label for="config-wifi-password">New password <span class="muted">(blank keeps current)</span></label><input id="config-wifi-password" type="password" maxlength="64" autocomplete="new-password">
           <label class="check"><input id="clear-wifi-password" type="checkbox"> Explicitly clear saved password</label>
         </fieldset>
-        <fieldset class="card"><legend>Local API security</legend>
-          <p class="hint">Authenticated commands ask for the current token once per tab and keep it only in memory.</p>
+        <fieldset class="card" disabled><legend>Local API security</legend>
+          <p id="config-auth-status"><strong>Local API authentication: CHECKING</strong></p>
+          <p id="config-control-status"><strong>Local browser control: ENABLED</strong></p>
+          <p class="hint">Trusted LAN mode allows local control without a token. Set an API token to require authentication; entered tokens stay in memory for this tab only.</p>
           <label for="config-api-token">New access token <span class="muted">(16–128 characters; blank keeps current)</span></label><input id="config-api-token" type="password" minlength="16" maxlength="128" autocomplete="off">
           <label class="check"><input id="clear-api-token" type="checkbox"> Explicitly clear saved access token</label>
         </fieldset>
-        <fieldset class="card"><legend>Spoolman</legend>
+        <fieldset class="card" disabled><legend>Spoolman</legend>
           <label for="config-spoolman-url">Base URL</label><input id="config-spoolman-url" type="url" maxlength="256" placeholder="https://spoolman.local">
           <label for="config-spoolman-token">New token <span class="muted">(blank keeps current)</span></label><input id="config-spoolman-token" type="password" maxlength="512" autocomplete="new-password">
           <label class="check"><input id="clear-spoolman-token" type="checkbox"> Explicitly clear saved token</label>
         </fieldset>
-        <fieldset class="card"><legend>FilaBridge</legend>
+        <fieldset class="card" disabled><legend>FilaBridge</legend>
           <label for="config-filabridge-url">Base URL</label><input id="config-filabridge-url" type="url" maxlength="256" placeholder="http://filabridge.local:5000">
           <label for="config-printer-id">Selected stable printer ID</label><input id="config-printer-id" type="text" maxlength="128">
           <label for="config-filabridge-token">New token <span class="muted">(blank keeps current)</span></label><input id="config-filabridge-token" type="password" maxlength="512" autocomplete="new-password">
           <label class="check"><input id="clear-filabridge-token" type="checkbox"> Explicitly clear saved token</label>
         </fieldset>
-        <fieldset class="card"><legend>Load-cell profile</legend>
+        <fieldset class="card" disabled><legend>Load-cell profile</legend>
           <label for="config-scale-profile">YZC-133 variant</label><select id="config-scale-profile"><option value="yzc-133-5kg">5 kg (actual station)</option><option value="yzc-133-2kg">2 kg</option></select>
           <label for="config-overload-ratio">Overload threshold ratio</label><input id="config-overload-ratio" type="number" min="1.01" max="2" step="0.01">
           <p id="profile-capacity-help" class="hint">Rated capacity: 5000 g</p>
         </fieldset>
-        <fieldset class="card wide-card"><legend>Toolhead profiles</legend><div id="profile-list" class="profile-list"><p class="muted">No local profiles configured.</p></div></fieldset>
-        <div class="form-actions wide-card"><button class="button primary" type="submit">Validate and save</button><button id="reload-config" class="button quiet" type="button">Discard edits</button></div>
+        <fieldset class="card wide-card" disabled><legend>Toolhead profiles</legend><div id="profile-list" class="profile-list"><p class="muted">No local profiles configured.</p></div></fieldset>
+        <div class="form-actions wide-card"><button id="config-save" class="button primary" type="submit" disabled>Validate and save</button><button id="reload-config" class="button quiet" type="button">Discard edits</button></div>
       </form>
-      <div class="card transfer-card"><h3>Redacted configuration transfer</h3><p class="muted">Exports never include stored credentials. Imported credentials are ignored unless explicitly entered above.</p><div class="action-row"><button id="export-config" class="button" type="button">Download redacted JSON</button><label class="button file-button" for="import-config">Choose JSON to import</label><input id="import-config" class="visually-hidden" type="file" accept="application/json,.json"></div></div>
+      <div class="card transfer-card"><h3>Redacted configuration transfer</h3><p class="muted">Exports never include stored credentials. Imported credentials are ignored unless explicitly entered above.</p><div class="action-row"><button id="export-config" class="button" type="button" disabled>Download redacted JSON</button><label id="import-config-label" class="button file-button" for="import-config" aria-disabled="true">Choose JSON to import</label><input id="import-config" class="visually-hidden" type="file" accept="application/json,.json" disabled></div></div>
     </section>
 
     <section id="diagnostics" class="section" aria-labelledby="diagnostics-title">
@@ -212,6 +216,7 @@ const char index_html[] = R"HTML(<!doctype html>
         <article class="card"><h3>System snapshot</h3><pre id="diagnostics-json" class="json-view tall" tabindex="0">Loading…</pre></article>
         <article class="card"><div class="card-title-row"><h3>Recent logs</h3><button id="refresh-logs" class="button tiny" type="button">Refresh</button></div><ol id="log-list" class="log-list"><li>No logs available.</li></ol></article>
       </div>
+      <article class="card self-test-card"><div class="card-title-row"><h3>Local interface transport self-test</h3><button id="run-self-test" class="button" type="button">Run Local Interface Self-Test</button></div><p id="self-test-status" class="hint" aria-live="polite">Read-only checks use the existing connection and never display response bodies or credentials.</p><div class="table-scroll"><table class="self-test-table"><thead><tr><th>Check</th><th>Result</th><th>HTTP</th><th>Latency</th><th>Detail</th></tr></thead><tbody id="self-test-results"><tr><td colspan="5">Not run.</td></tr></tbody></table></div></article>
     </section>
 
     <section id="maintenance" class="section" aria-labelledby="maintenance-title">
@@ -224,7 +229,7 @@ const char index_html[] = R"HTML(<!doctype html>
           <div class="action-row"><button id="upload-firmware" class="button primary" type="button" disabled>Upload and validate</button><button id="cancel-update" class="button" type="button" disabled>Cancel update</button><button id="reboot-update" class="button warning" type="button" disabled>Reboot into candidate</button></div>
           <ol id="update-stages" class="update-stages"><li data-stage="upload">Upload not started</li><li data-stage="validate">Image not validated</li><li data-stage="install">Inactive slot not installed</li><li data-stage="boot">Candidate not booted</li><li data-stage="confirm">Candidate not confirmed</li></ol><p id="update-error" class="hint" role="alert"></p>
         </article>
-        <article class="card danger-card"><h3>Device controls</h3><p class="muted">Commands require the current local API token and are queued only after explicit confirmation. The token stays in memory for this tab only.</p><div class="action-row"><button id="start-setup-mode" class="button" type="button">Start setup access point</button><button id="reboot-device" class="button warning" type="button">Reboot device</button></div><label for="factory-confirm">Type <strong>FACTORY RESET</strong> to enable reset</label><input id="factory-confirm" type="text" autocomplete="off"><button id="factory-reset" class="button danger" type="button" disabled>Factory reset</button></article>
+        <article class="card danger-card"><h3>Device controls</h3><p id="device-control-auth" class="muted">Local API authentication: CHECKING. Local browser control: ENABLED.</p><div class="action-row"><button id="start-setup-mode" class="button" type="button" disabled>Start setup access point</button><button id="reboot-device" class="button warning" type="button" disabled>Reboot device</button></div><label for="factory-confirm">Type <strong>FACTORY RESET</strong> to enable reset</label><input id="factory-confirm" type="text" autocomplete="off"><button id="factory-reset" class="button danger" type="button" disabled>Factory reset</button></article>
       </div>
     </section>
   </main>
@@ -368,6 +373,15 @@ footer { display: flex; justify-content: space-between; gap: 1rem; padding: 1.2r
 .setup-portal { padding: 1.4rem; margin-top: 1.5rem; border: 2px solid var(--accent); border-radius: var(--radius); background: rgba(16, 54, 58, .45); }
 .setup-portal[hidden] { display: none; }
 .setup-status { min-height: 3rem; margin: 1rem 0 0; padding: .7rem; border-left: 4px solid var(--accent); background: rgba(0, 0, 0, .2); }
+.config-status-row { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 1rem; }
+.config-status-row .setup-status { flex: 1; min-height: auto; margin: 0; }
+.self-test-card { margin-top: 1rem; }
+.table-scroll { overflow-x: auto; }
+.self-test-table { width: 100%; border-collapse: collapse; font-size: .82rem; }
+.self-test-table th, .self-test-table td { padding: .55rem; border-bottom: 1px solid var(--line); text-align: left; white-space: nowrap; }
+.self-test-table td:last-child { white-space: normal; overflow-wrap: anywhere; }
+.self-test-pass { color: var(--good); font-weight: 700; }
+.self-test-fail { color: var(--bad); font-weight: 700; }
 
 @media (max-width: 850px) {
   .site-header { align-items: start; flex-direction: column; }
@@ -397,16 +411,28 @@ const char application_javascript[] = R"JS((function () {
 
   const API = '/api/v1';
   const REQUEST_TIMEOUT_MS = 8000;
-  const LIVE_REFRESH_MIN_MS = 1000;
   const OPERATION_WAIT_MS = 45000;
+  const NETWORK_OPERATION_WAIT_MS = 90000;
+  const BACKEND_OPERATION_WAIT_MS = 120000;
   const MAX_IMPORT_BYTES = 16384;
   const MAX_FIRMWARE_IMAGE_BYTES = 0x500000;
-  const UPDATE_UPLOAD_TIMEOUT_MS = 180000;
+  const UPDATE_UPLOAD_TIMEOUT_MS = 190000;
+  const PRIORITY = Object.freeze({ CONTROL: 1, CORE: 2, SECONDARY: 3, BACKGROUND: 4 });
+  const CONFIG_STATE = Object.freeze({ UNLOADED: 'UNLOADED', LOADING: 'LOADING', READY: 'READY', ERROR: 'ERROR' });
+  const SELF_TEST_PATHS = Object.freeze([
+    '/device', '/health', '/network', '/config', '/scale', '/spool',
+    '/printers', '/toolheads', '/logs', '/diagnostics', '/update'
+  ]);
   const state = {
     apiToken: '',
-    apiTokenConfigured: true,
+    authMode: 'UNKNOWN',
+    authRevision: -1,
     config: null,
     configRevision: null,
+    configState: CONFIG_STATE.UNLOADED,
+    configError: '',
+    configDirty: false,
+    configRendering: false,
     network: null,
     provisioningActive: false,
     setupInitialized: false,
@@ -416,17 +442,27 @@ const char application_javascript[] = R"JS((function () {
     printers: [],
     toolheads: [],
     update: null,
+    scale: null,
+    scaleBusy: false,
+    scaleTareFallback: false,
     scaleRevision: null,
     updateRevision: null,
     requestEpochs: Object.create(null),
+    mutationLocks: Object.create(null),
+    uncertainMutations: Object.create(null),
     firmwareFile: null,
     firmwareSha256: '',
     firmwareHashRequest: 0,
+    firmwareUploadUncertain: null,
     uploadXhr: null,
-    socket: null,
-    reconnectMs: 1000,
-    reconnectTimer: 0,
-    liveRefreshTimer: 0,
+    maintenance: false,
+    live: null,
+    fallbackTimer: 0,
+    fallbackTick: 0,
+    fallbackActive: false,
+    selfTestGeneration: 0,
+    manualRefreshActive: false,
+    unloading: false,
     toastTimer: 0
   };
 
@@ -569,106 +605,478 @@ const char application_javascript[] = R"JS((function () {
     return sha256Bytes(new Uint8Array(bytes));
   }
 
-  function apiToken() {
-    if (!state.apiTokenConfigured) return '';
-    if (state.apiToken) return state.apiToken;
-    const value = window.prompt('Enter the 16–128 character local API token. It stays in memory for this tab only.');
-    if (value === null) throw new Error('Local API authentication was cancelled.');
-    if (value.length < 16 || value.length > 128) throw new Error('The local API token must contain 16–128 characters.');
-    return state.apiToken = value;
+  class ApiError extends Error {
+    constructor(message, detail) {
+      super(message);
+      this.name = 'ApiError';
+      Object.assign(this, {
+        kind: 'application', status: 0, code: 'request_failed', category: '',
+        retryable: false, uncertain: false, payload: null, idempotencyKey: ''
+      }, detail || {});
+    }
   }
 
-  async function api(path, options) {
-    const settings = Object.assign({ method: 'GET', mutation: false, provisioning: false }, options || {});
-    const token = settings.mutation && !settings.provisioning ? apiToken() : '';
+  class RequestScheduler {
+    constructor(options) {
+      const value = options || {};
+      this.maximumActive = value.maximumActive || 2;
+      this.maximumBackground = value.maximumBackground || 1;
+      this.maximumQueued = value.maximumQueued || 32;
+      this.active = 0;
+      this.activeBackground = 0;
+      this.sequence = 0;
+      this.pauseCount = 0;
+      this.queue = [];
+      this.shared = new Map();
+      this.maximumObserved = 0;
+      this.maximumQueueObserved = 0;
+    }
+
+    request(key, execute, options) {
+      const setting = Object.assign({
+        priority: PRIORITY.SECONDARY, dedupe: false, supersedeKey: '', group: ''
+      }, options || {});
+      if (setting.dedupe && this.shared.has(key)) return this.shared.get(key);
+      let resolve;
+      let reject;
+      const promise = new Promise(function (yes, no) { resolve = yes; reject = no; });
+      const job = {
+        key: key,
+        execute: execute,
+        priority: setting.priority,
+        background: setting.priority !== PRIORITY.CONTROL,
+        supersedeKey: setting.supersedeKey,
+        group: setting.group,
+        sequence: ++this.sequence,
+        promise: promise,
+        resolve: resolve,
+        reject: reject,
+        dedupe: setting.dedupe
+      };
+      if (job.supersedeKey) {
+        this.queue.slice().forEach(function (queued) {
+          if (queued.background && queued.supersedeKey === job.supersedeKey) {
+            this._removeQueued(queued, new ApiError('Superseded by a newer refresh.', {
+              kind: 'superseded', code: 'superseded', retryable: true
+            }));
+          }
+        }, this);
+      }
+      if (this.queue.length >= this.maximumQueued) {
+        if (!job.background) {
+          let victim = null;
+          this.queue.forEach(function (queued) {
+            if (!queued.background) return;
+            if (!victim || queued.priority > victim.priority ||
+                (queued.priority === victim.priority && queued.sequence < victim.sequence)) {
+              victim = queued;
+            }
+          });
+          if (victim) {
+            this._removeQueued(victim, new ApiError('Superseded by a control request.', {
+              kind: 'superseded', code: 'superseded', retryable: true
+            }));
+          }
+        }
+        if (this.queue.length >= this.maximumQueued) {
+          reject(new ApiError('The browser request queue is full.', {
+            kind: 'scheduler', code: 'queue_full', retryable: true
+          }));
+          return promise;
+        }
+      }
+      if (job.dedupe) this.shared.set(job.key, promise);
+      this.queue.push(job);
+      this.maximumQueueObserved = Math.max(this.maximumQueueObserved, this.queue.length);
+      this._pump();
+      return promise;
+    }
+
+    _removeQueued(job, error) {
+      const index = this.queue.indexOf(job);
+      if (index < 0) return;
+      this.queue.splice(index, 1);
+      if (job.dedupe && this.shared.get(job.key) === job.promise) this.shared.delete(job.key);
+      job.reject(error);
+    }
+
+    _next() {
+      const ordered = this.queue.slice().sort(function (left, right) {
+        return left.priority - right.priority || left.sequence - right.sequence;
+      });
+      for (let index = 0; index < ordered.length; index += 1) {
+        const job = ordered[index];
+        if (job.background &&
+            (this.pauseCount > 0 || this.activeBackground >= this.maximumBackground)) continue;
+        return job;
+      }
+      return null;
+    }
+
+    _pump() {
+      while (this.active < this.maximumActive) {
+        const job = this._next();
+        if (!job) return;
+        this.queue.splice(this.queue.indexOf(job), 1);
+        this.active += 1;
+        if (job.background) this.activeBackground += 1;
+        this.maximumObserved = Math.max(this.maximumObserved, this.active);
+        Promise.resolve().then(job.execute).then(job.resolve, job.reject).finally(function () {
+          this.active -= 1;
+          if (job.background) this.activeBackground -= 1;
+          if (job.dedupe && this.shared.get(job.key) === job.promise) this.shared.delete(job.key);
+          this._pump();
+        }.bind(this));
+      }
+    }
+
+    pauseBackground() { this.pauseCount += 1; }
+    resumeBackground() { this.pauseCount = Math.max(0, this.pauseCount - 1); this._pump(); }
+    cancelGroup(prefix) {
+      this.queue.slice().forEach(function (job) {
+        if (job.group.indexOf(prefix) === 0) {
+          this._removeQueued(job, new ApiError('Request group cancelled.', {
+            kind: 'cancelled', code: 'cancelled'
+          }));
+        }
+      }, this);
+    }
+    metrics() {
+      return {
+        active: this.active,
+        activeBackground: this.activeBackground,
+        queued: this.queue.length,
+        shared: this.shared.size,
+        maximumActive: this.maximumObserved,
+        maximumQueued: this.maximumQueueObserved,
+        paused: this.pauseCount
+      };
+    }
+  }
+
+  const scheduler = new RequestScheduler({
+    maximumActive: 2, maximumBackground: 1, maximumQueued: 32
+  });
+
+  function resourcePriority(path, mutation) {
+    if (mutation || path.indexOf('/operations/') === 0) return PRIORITY.CONTROL;
+    if (['/device', '/network', '/config', '/scale', '/health'].indexOf(path) >= 0) return PRIORITY.CORE;
+    if (['/status', '/spool', '/printers', '/toolheads', '/update'].indexOf(path) >= 0) return PRIORITY.SECONDARY;
+    return PRIORITY.BACKGROUND;
+  }
+
+  function isRetryableRead(error) {
+    if (!(error instanceof ApiError)) return false;
+    return error.kind === 'transport' || error.kind === 'timeout' ||
+      [404, 408, 425, 429].indexOf(Number(error.status)) >= 0 || Number(error.status) >= 500;
+  }
+
+  function apiToken() {
+    if (state.authMode !== "ENABLED") return "";
+    if (state.apiToken) return state.apiToken;
+    const value = window.prompt("Local API authentication is enabled. Enter the configured 16–128 character token; it stays in memory for this tab only.");
+    if (value === null) {
+      throw new ApiError("Local API authentication was cancelled.", {
+        kind: "authentication", code: "authentication_cancelled"
+      });
+    }
+    if (value.length < 16 || value.length > 128) {
+      throw new ApiError("The local API token must contain 16–128 characters.", {
+        kind: "authentication", code: "invalid_token_length"
+      });
+    }
+    state.apiToken = value;
+    return value;
+  }
+
+  function noteAuthenticationRequired() {
+    state.apiToken = "";
+    state.authMode = "ENABLED";
+    renderAuthState();
+  }
+
+  function isSetupApOrigin() {
+    return location.hostname === '192.168.4.1';
+  }
+
+  async function dispatchApi(path, settings) {
     const controller = new AbortController();
+    const started = Date.now();
     const timeout = Math.min(REQUEST_TIMEOUT_MS, settings.timeoutMs || REQUEST_TIMEOUT_MS);
     const timer = window.setTimeout(function () { controller.abort(); }, timeout);
-    const headers = Object.assign({ Accept: 'application/json' }, settings.headers || {});
-    if (settings.body !== undefined) {
-      headers['Content-Type'] = 'application/json';
-      headers['X-OpenTag-Request'] = 'web';
-      settings.body = JSON.stringify(settings.body);
-    }
-    if (settings.mutation) {
-      headers['X-OpenTag-Request'] = 'web';
-      headers['Idempotency-Key'] = requestId();
-      if (!settings.provisioning && token) headers.Authorization = 'Bearer ' + token;
-    }
     try {
       const response = await fetch(API + path, {
         method: settings.method,
-        headers: headers,
-        body: settings.body,
+        headers: Object.assign({}, settings.headers),
+        body: settings.serializedBody,
         cache: 'no-store',
         credentials: 'same-origin',
         signal: controller.signal
       });
-      if (response.status === 401) state.apiToken = '';
+      if (response.status === 401) noteAuthenticationRequired();
       const type = response.headers.get('content-type') || '';
-      const payload = response.status === 204 ? null : type.indexOf('application/json') >= 0 ? await response.json() : await response.text();
-      if (!response.ok) {
-        const detail = asObject(payload);
-        const failure = asObject(detail.error);
-        const message = first(failure.message, detail.message, typeof payload === 'string' ? payload : null, 'Request failed with HTTP ' + response.status);
-        const error = new Error(String(message));
-        error.status = response.status;
-        error.code = first(failure.code, detail.code, 'request_failed');
-        error.payload = payload;
-        throw error;
+      let payload = null;
+      try {
+        payload = response.status === 204 ? null :
+          type.indexOf('application/json') >= 0 ? await response.json() : await response.text();
+      } catch (error) {
+        throw new ApiError('The station returned an invalid response.', {
+          kind: 'envelope', status: response.status, code: 'invalid_response',
+          uncertain: settings.mutation === true && response.ok,
+          idempotencyKey: settings.idempotencyKey || ''
+        });
+      }
+      const envelope = asObject(payload);
+      const failure = asObject(envelope.error);
+      const envelopeOk = payload === null ||
+        (type.indexOf('application/json') >= 0 && envelope.api_version === 'v1' &&
+         typeof envelope.ok === 'boolean');
+      const detail = {
+        status: response.status,
+        latencyMs: Date.now() - started,
+        httpOk: response.ok,
+        envelopeOk: envelopeOk,
+        apiOk: payload === null || envelope.ok === true,
+        errorCode: first(failure.code, envelope.code, null)
+      };
+      if (settings.inspect) return detail;
+      if (!response.ok || failure.code || envelope.ok === false) {
+        throw new ApiError(String(first(
+          failure.message, envelope.message,
+          typeof payload === 'string' ? payload : null,
+          'Request failed with HTTP ' + response.status
+        )), {
+          kind: 'http',
+          status: response.status,
+          code: String(first(failure.code, envelope.code, 'request_failed')),
+          category: String(first(failure.category, '')),
+          retryable: failure.retryable === true,
+          uncertain: settings.mutation === true && response.ok,
+          payload: payload,
+          idempotencyKey: settings.idempotencyKey || ''
+        });
       }
       if (payload === null) return null;
-      if (type.indexOf('application/json') >= 0) {
-        const envelope = asObject(payload);
-        if (envelope.api_version !== 'v1' || envelope.ok !== true ||
-            !Object.prototype.hasOwnProperty.call(envelope, 'data')) {
-          const error = new Error('The station returned an invalid API envelope.');
-          error.code = 'invalid_api_envelope';
-          error.payload = payload;
-          throw error;
-        }
-        return envelope.data;
+      if (!envelopeOk || envelope.ok !== true ||
+          !Object.prototype.hasOwnProperty.call(envelope, 'data')) {
+        throw new ApiError('The station returned an invalid API envelope.', {
+          kind: 'envelope', status: response.status,
+          code: 'invalid_api_envelope', payload: payload,
+          uncertain: settings.mutation === true && response.ok,
+          idempotencyKey: settings.idempotencyKey || ''
+        });
       }
-      return payload;
+      return envelope.data;
     } catch (error) {
-      if (error && error.name === 'AbortError') throw new Error('The station did not respond before the request deadline.');
-      throw error;
+      if (error instanceof ApiError) throw error;
+      if (error && error.name === 'AbortError') {
+        throw new ApiError('The station did not respond before the request deadline.', {
+          kind: 'timeout', code: 'request_timeout', retryable: true,
+          uncertain: settings.mutation === true,
+          idempotencyKey: settings.idempotencyKey || ''
+        });
+      }
+      throw new ApiError('The connection to the station was interrupted.', {
+        kind: 'transport', code: 'transport_error', retryable: true,
+        uncertain: settings.mutation === true, payload: error,
+        idempotencyKey: settings.idempotencyKey || ''
+      });
     } finally {
       window.clearTimeout(timer);
     }
   }
 
-  function operationMessage(operation, fallback) { return String(first(asObject(operation.error).message, operation.message, fallback)); }
+  function api(path, options) {
+    const settings = Object.assign({
+      method: "GET", mutation: false, provisioning: false, inspect: false
+    }, options || {});
+    settings.method = String(settings.method).toUpperCase();
+    settings.priority = settings.priority || resourcePriority(path, settings.mutation);
+    settings.headers = Object.assign({ Accept: "application/json" }, settings.headers || {});
+    if (settings.body !== undefined && settings.serializedBody === undefined) {
+      settings.serializedBody = typeof settings.body === "string" ? settings.body : JSON.stringify(settings.body);
+    }
+    if (settings.serializedBody !== undefined) {
+      settings.headers["Content-Type"] = "application/json";
+      settings.headers["X-OpenTag-Request"] = "web";
+    }
+    const setupAuthenticationBypass = settings.mutation && settings.provisioning && isSetupApOrigin();
+    if (settings.mutation) {
+      settings.idempotencyKey = settings.idempotencyKey || requestId();
+      settings.headers["X-OpenTag-Request"] = "web";
+      settings.headers["Idempotency-Key"] = settings.idempotencyKey;
+      const token = setupAuthenticationBypass ? "" : apiToken();
+      if (token) settings.headers.Authorization = "Bearer " + token;
+    }
+    const isGet = settings.method === "GET";
+    return scheduler.request(settings.method + " " + path, async function () {
+      try {
+        return await dispatchApi(path, settings);
+      } catch (error) {
+        if (!settings.mutation || setupAuthenticationBypass ||
+            !(error instanceof ApiError) || Number(error.status) !== 401) {
+          throw error;
+        }
+        const retry = Object.assign({}, settings, {
+          headers: Object.assign({}, settings.headers)
+        });
+        delete retry.headers.Authorization;
+        const token = apiToken();
+        if (token) retry.headers.Authorization = "Bearer " + token;
+        return dispatchApi(path, retry);
+      }
+    }, {
+      priority: settings.priority,
+      dedupe: isGet && settings.dedupe !== false,
+      supersedeKey: settings.supersedeKey || "",
+      group: settings.group || ""
+    });
+  }
+
+  function operationMessage(operation, fallback) {
+    return String(first(asObject(operation.error).message, operation.message, fallback));
+  }
+
+  function sleep(milliseconds) {
+    return new Promise(function (resolve) { window.setTimeout(resolve, Math.max(0, milliseconds)); });
+  }
 
   async function submitMutationReceipt(path, options) {
-    const receipt = asObject(await api(path, Object.assign({}, options || {}, { mutation: true })));
-    const id = Number(receipt.operation_id);
-    if (!Number.isSafeInteger(id) || id <= 0) throw new Error('The station did not return a valid operation ID.');
-    return { receipt: receipt, id: id };
+    const setting = Object.assign({ method: 'POST' }, options || {});
+    setting.method = String(setting.method).toUpperCase();
+    const serializedBody = setting.serializedBody !== undefined ? setting.serializedBody :
+      setting.body === undefined ? undefined :
+        typeof setting.body === 'string' ? setting.body : JSON.stringify(setting.body);
+    const signature = setting.method + ' ' + path + '\n' + String(serializedBody || '');
+    const prior = state.uncertainMutations[signature];
+    if (prior) {
+      const operation = prior.id ? ' as operation #' + prior.id : '';
+      throw new ApiError('The prior request may already have been accepted' + operation +
+        ' as idempotency key ' + prior.key +
+        '. Check operation and station status before trying a different action.', {
+        kind: 'uncertain', code: 'mutation_receipt_uncertain', retryable: false,
+        uncertain: true, idempotencyKey: prior.key
+      });
+    }
+    const key = setting.idempotencyKey || requestId();
+    try {
+      const receipt = asObject(await api(path, Object.assign({}, setting, {
+        mutation: true,
+        priority: PRIORITY.CONTROL,
+        serializedBody: serializedBody,
+        idempotencyKey: key
+      })));
+      const id = Number(receipt.operation_id);
+      if (!Number.isSafeInteger(id) || id <= 0) {
+        throw new ApiError('The station did not return a valid operation ID.', {
+          kind: 'envelope', code: 'invalid_operation_receipt',
+          uncertain: true, idempotencyKey: key
+        });
+      }
+      delete state.uncertainMutations[signature];
+      return { receipt: receipt, id: id, key: key, signature: signature };
+    } catch (error) {
+      if (error instanceof ApiError && error.uncertain) {
+        state.uncertainMutations[signature] = { key: key, at: Date.now(), path: path };
+        error.idempotencyKey = key;
+      }
+      throw error;
+    }
   }
 
   async function submitMutation(path, options) {
-    const accepted = await submitMutationReceipt(path, options);
-    const id = accepted.id;
-    const deadline = Date.now() + OPERATION_WAIT_MS;
-    while (Date.now() < deadline) {
-      await new Promise(function (resolve) { window.setTimeout(resolve, Math.min(1000, deadline - Date.now())); });
-      const remaining = deadline - Date.now();
-      if (remaining <= 0) break;
-      const operation = asObject(await api('/operations/' + id, { timeoutMs: remaining }));
-      const status = String(operation.state || '').toLowerCase();
-      if (['succeeded', 'failed', 'confirmation_required'].indexOf(status) >= 0) {
-        scheduleLiveRefresh();
-        if (status !== 'succeeded') {
-          const failure = new Error(operationMessage(operation, status === 'failed' ? 'Operation failed.' : 'Additional confirmation is required.'));
-          failure.code = status;
-          throw failure;
+    const setting = Object.assign({}, options || {});
+    const scope = setting.scope || path;
+    if (state.maintenance) {
+      throw new ApiError('Firmware transfer is in progress; other station mutations are temporarily paused.', {
+        kind: 'precondition', code: 'maintenance_in_progress', retryable: true
+      });
+    }
+    if (state.mutationLocks[scope]) {
+      throw new ApiError('A ' + scope + ' operation is already in progress.', {
+        kind: 'precondition', code: 'operation_already_in_progress', retryable: true
+      });
+    }
+    state.mutationLocks[scope] = true;
+    let paused = false;
+    let accepted = null;
+    let terminal = false;
+    try {
+      accepted = await submitMutationReceipt(path, setting);
+      const id = accepted.id;
+      const waitMs = setting.operationTimeoutMs ||
+        (path === '/backends/test' ? BACKEND_OPERATION_WAIT_MS : OPERATION_WAIT_MS);
+      const pollMs = setting.pollIntervalMs || 1000;
+      const deadline = Date.now() + waitMs;
+      scheduler.pauseBackground();
+      paused = true;
+      if (setting.onProgress) setting.onProgress({ id: id, state: 'accepted', message: 'Operation accepted.' });
+      while (Date.now() < deadline) {
+        await sleep(Math.min(pollMs, Math.max(0, deadline - Date.now())));
+        if (Date.now() >= deadline) break;
+        let operation;
+        try {
+          operation = asObject(await api('/operations/' + id, {
+            priority: PRIORITY.CONTROL,
+            dedupe: false,
+            timeoutMs: Math.min(REQUEST_TIMEOUT_MS, Math.max(1, deadline - Date.now()))
+          }));
+        } catch (error) {
+          if (!isRetryableRead(error) || Date.now() >= deadline) throw error;
+          if (setting.onProgress) {
+            setting.onProgress({
+              id: id, state: 'retrying',
+              message: 'Connection interrupted while waiting for operation #' + id + '; retrying status.'
+            });
+          }
+          continue;
         }
+        const status = String(operation.state || '').toLowerCase();
+        if (setting.onProgress) {
+          setting.onProgress({ id: id, state: status || 'running', message: operationMessage(operation, 'Operation ' + normalizeState(status) + '.') });
+        }
+        if (['succeeded', 'failed', 'confirmation_required'].indexOf(status) < 0) continue;
+        terminal = true;
+        if (status !== 'succeeded') {
+          const domain = asObject(operation.error);
+          throw new ApiError(operationMessage(
+            operation,
+            status === 'failed' ? 'Operation failed.' : 'Additional confirmation is required.'
+          ), {
+            kind: 'operation',
+            status: 409,
+            code: String(first(domain.code, status)),
+            category: String(first(domain.category, 'operation')),
+            retryable: domain.retryable === true,
+            payload: operation,
+            idempotencyKey: accepted.key
+          });
+        }
+        scheduler.resumeBackground();
+        paused = false;
+        if (setting.refresh !== false) await refreshResourcesForMutation(path);
         return operation;
       }
+      throw new ApiError('Operation #' + id + ' did not finish within the bounded deadline. Check Diagnostics before retrying the action.', {
+        kind: 'timeout', code: 'operation_timeout', retryable: true,
+        idempotencyKey: accepted.key
+      });
+    } catch (error) {
+      if (accepted && !terminal) {
+        state.uncertainMutations[accepted.signature] = {
+          key: accepted.key, id: accepted.id, at: Date.now(), path: path
+        };
+        if (error instanceof ApiError) {
+          error.uncertain = true;
+          error.idempotencyKey = accepted.key;
+          error.operationId = accepted.id;
+        }
+      }
+      throw error;
+    } finally {
+      if (paused) scheduler.resumeBackground();
+      delete state.mutationLocks[scope];
     }
-    scheduleLiveRefresh();
-    throw new Error('Operation #' + id + ' did not finish within 45 seconds. Check diagnostics before retrying.');
   }
 
   function beginLoad(path) {
@@ -677,17 +1085,134 @@ const char application_javascript[] = R"JS((function () {
     return epoch;
   }
 
-  async function load(path, render, quiet) {
+  async function load(path, render, quiet, priority, options) {
     const epoch = beginLoad(path);
     try {
-      const payload = await api(path);
+      const payload = await api(path, Object.assign({
+        priority: priority || resourcePriority(path, false)
+      }, options || {}));
       if (state.requestEpochs[path] !== epoch) return null;
       render(asObject(payload));
       return payload;
     } catch (error) {
-      if (!quiet) showToast(error.message || String(error), true);
+      if (!quiet && (!error || ['superseded', 'cancelled'].indexOf(error.kind) < 0)) {
+        showToast(error.message || String(error), true);
+      }
       return null;
     }
+  }
+
+  function applyAuthState(configured, revision) {
+    const numeric = Number(revision);
+    if (Number.isSafeInteger(numeric)) {
+      if (numeric < state.authRevision) return false;
+      state.authRevision = numeric;
+    } else if (state.authRevision >= 0) {
+      return false;
+    }
+    state.authMode = configured === true ? 'ENABLED' : 'DISABLED';
+    if (state.authMode === 'DISABLED') state.apiToken = '';
+    renderAuthState();
+    return true;
+  }
+
+  function setAuthLocked(locked) {
+    locked = locked || state.maintenance;
+    ['start-setup-mode', 'reboot-device', 'test-backends'].forEach(function (id) {
+      const node = byId(id);
+      if (node) node.disabled = locked;
+    });
+    const reset = byId('factory-reset');
+    if (reset) reset.disabled = locked || valueOf('factory-confirm') !== 'FACTORY RESET';
+    updateScaleControls();
+    updateButtons();
+  }
+
+  function renderAuthState() {
+    const disabled = state.authMode === "DISABLED";
+    const unknown = state.authMode === "UNKNOWN";
+    setText("config-auth-status", "Local API authentication: " +
+      (unknown ? "CHECKING" : disabled ? "DISABLED" : "ENABLED"));
+    setText("config-control-status", "Local browser control: ENABLED");
+    setText("device-control-auth", unknown
+      ? "Local API authentication: CHECKING. Local browser control: ENABLED. A configured station will request its token after the first authentication challenge."
+      : disabled
+        ? "Local API authentication: DISABLED. Local browser control: ENABLED. Trusted LAN mode — set an API token in Configuration to require authentication."
+        : "Local API authentication: ENABLED. Local browser control: ENABLED. The current token is requested once per tab and kept only in memory.");
+    setAuthLocked(false);
+  }
+
+  function setConfigState(next, error) {
+    state.configState = next;
+    state.configError = error ? String(error.message || error) : '';
+    const ready = next === CONFIG_STATE.READY;
+    const editable = ready && !state.maintenance;
+    const loading = next === CONFIG_STATE.LOADING;
+    Array.from(document.querySelectorAll('#config-form fieldset')).forEach(function (fieldset) {
+      fieldset.disabled = !editable;
+    });
+    const save = byId('config-save');
+    const importNode = byId('import-config');
+    const exportNode = byId('export-config');
+    const importLabel = byId('import-config-label');
+    const retry = byId('retry-config');
+    if (save) save.disabled = !editable;
+    if (importNode) importNode.disabled = !editable;
+    if (exportNode) exportNode.disabled = !editable;
+    if (importLabel) importLabel.setAttribute('aria-disabled', String(!editable));
+    if (retry) retry.disabled = state.maintenance ||
+      (next !== CONFIG_STATE.UNLOADED && next !== CONFIG_STATE.ERROR);
+    setBadge('config-revision', ready ? 'Revision ' + state.configRevision :
+      next === CONFIG_STATE.UNLOADED ? 'Not loaded' : next,
+      next === CONFIG_STATE.ERROR ? 'bad' : loading ? 'warning' : 'neutral');
+    setText('config-load-status', ready
+      ? (state.configDirty ? 'Unsaved changes.' : 'Configuration ready.')
+      : loading
+        ? 'Loading configuration…'
+        : next === CONFIG_STATE.ERROR
+          ? 'Configuration failed to load: ' + state.configError
+          : 'Configuration has not loaded.');
+  }
+
+  async function loadConfig(quiet, force) {
+    if (state.configDirty && !force) {
+      setText('config-load-status', 'A newer configuration may be available. Save or discard your local edits before reloading.');
+      return null;
+    }
+    const epoch = beginLoad('/config');
+    setConfigState(CONFIG_STATE.LOADING);
+    try {
+      const payload = asObject(await api('/config', {
+        priority: PRIORITY.CORE,
+        supersedeKey: 'load:/config'
+      }));
+      if (state.requestEpochs['/config'] !== epoch) return null;
+      state.configRendering = true;
+      const rendered = renderConfig(payload);
+      state.configRendering = false;
+      if (rendered === false) {
+        state.configDirty = false;
+        setConfigState(CONFIG_STATE.READY);
+        return state.config;
+      }
+      state.configDirty = false;
+      setConfigState(CONFIG_STATE.READY);
+      return payload;
+    } catch (error) {
+      state.configRendering = false;
+      if (state.requestEpochs['/config'] === epoch) setConfigState(CONFIG_STATE.ERROR, error);
+      if (!quiet && (!error || error.kind !== 'superseded')) {
+        showToast(error.message || String(error), true);
+      }
+      return null;
+    }
+  }
+
+  function ensureConfigReady() {
+    if (state.configState === CONFIG_STATE.UNLOADED || state.configState === CONFIG_STATE.ERROR) {
+      return loadConfig(false, true);
+    }
+    return Promise.resolve(state.config);
   }
 
   function renderDevice(payload) {
@@ -702,6 +1227,9 @@ const char application_javascript[] = R"JS((function () {
   }
 
   function renderHealth(payload) {
+    if (typeof payload.local_api_authentication_enabled === 'boolean') {
+      applyAuthState(payload.local_api_authentication_enabled, first(payload.config_revision, payload.revision));
+    }
     const status = String(first(payload.status, payload.health, payload.state, 'unknown')).toLowerCase();
     const degraded = status === 'degraded' || status === 'warning';
     setBadge('health-badge', normalizeState(status), status === 'ok' || status === 'healthy' ? 'good' : degraded ? 'warning' : 'bad');
@@ -743,7 +1271,7 @@ const char application_javascript[] = R"JS((function () {
 
   function renderNetwork(payload) {
     state.network = payload;
-    state.apiTokenConfigured = payload.access_token_configured === true;
+    applyAuthState(payload.access_token_configured === true, payload.config_revision);
     const system = asObject(payload.system);
     const network = asObject(system.network);
     const provisioning = asObject(network.provisioning);
@@ -802,45 +1330,86 @@ const char application_javascript[] = R"JS((function () {
     setText(prefix + '-capabilities', 'Capabilities ' + (Array.isArray(capabilities) ? capabilities.join(', ') : first(capabilities, '—')));
   }
 
+  function updateScaleControls() {
+    const scale = asObject(state.scale);
+    const sample = asObject(first(scale.sample, scale));
+    const adcReady = scale.adc_ready === true;
+    const stable = first(sample.stable, scale.stable, false) === true;
+    const explicitTare = Object.prototype.hasOwnProperty.call(scale, 'tare_ready');
+    const tareReady = explicitTare ? scale.tare_ready === true : state.scaleTareFallback;
+    const reference = Number(valueOf('reference-grams'));
+    const maximumNode = byId('reference-grams');
+    const maximum = Number(maximumNode ? maximumNode.max : 0);
+    const referenceReady = Number.isFinite(reference) && reference > 0 && reference <= maximum;
+    const tare = byId('tare-scale');
+    const calibrate = byId('calibrate-scale');
+    if (tare) tare.disabled = !adcReady || !stable || state.scaleBusy || state.maintenance;
+    if (calibrate) calibrate.disabled = !adcReady || !stable || !tareReady || !referenceReady || state.scaleBusy || state.maintenance;
+    if (state.scaleBusy) {
+      setText('scale-action-status', state.scaleProgress || 'Scale operation in progress…');
+    } else if (!state.scale) {
+      setText('scale-action-status', 'Waiting for the first scale snapshot.');
+    } else if (!adcReady) {
+      setText('scale-action-status', 'Scale hardware is unavailable; tare and calibration are disabled.');
+    } else if (!stable) {
+      setText('scale-action-status', 'Waiting for stable reading. Keep the platform still.');
+    } else if (!tareReady) {
+      setText('scale-action-status', 'Empty the platform, wait for Stable, then Tare. Calibration remains disabled until tare completes.');
+    } else {
+      setText('scale-action-status', 'Tare complete at ' +
+        String(first(scale.tare_zero_offset_counts, asObject(scale.calibration).zero_offset_counts, 'the current zero')) +
+        ' counts. Place the reference weight, wait for Stable, then calibrate.');
+    }
+  }
+
   function renderScale(payload) {
     const scale = asObject(first(payload.scale, payload));
     const sample = asObject(first(scale.sample, scale));
     const revision = first(scale.revision, payload.revision);
     if (revision !== null && Number.isSafeInteger(Number(revision))) {
       const numericRevision = Number(revision);
-      if (state.scaleRevision !== null &&
-          numericRevision < state.scaleRevision) return;
+      if (state.scaleRevision !== null && numericRevision < state.scaleRevision) return;
       state.scaleRevision = numericRevision;
     }
+    state.scale = scale;
+    if (Object.prototype.hasOwnProperty.call(scale, 'tare_ready')) {
+      state.scaleTareFallback = scale.tare_ready === true;
+    }
     const profile = asObject(first(scale.profile, scale.scale_profile, {}));
-    const gross = first(sample.gross_grams, scale.gross_grams, Number.isFinite(Number(scale.gross_milligrams)) ? Number(scale.gross_milligrams) / 1000 : null);
+    const gross = first(sample.gross_grams, scale.gross_grams,
+      Number.isFinite(Number(scale.gross_milligrams)) ? Number(scale.gross_milligrams) / 1000 : null);
     setText('gross-weight', Number.isFinite(Number(gross)) ? Number(gross).toFixed(1) : null);
     const stable = first(sample.stable, scale.stable, false) === true;
     const overload = first(sample.overload, scale.overload, false) === true;
-    setText('weight-quality', overload ? 'OVERLOAD' : stable ? 'Stable' : gross === null ? 'No measurement' : 'Moving');
+    const adcReady = scale.adc_ready === true;
+    setText('weight-quality', !adcReady ? 'Scale hardware unavailable' :
+      overload ? 'OVERLOAD' : stable ? 'Stable' : gross === null ? 'No measurement' : 'Moving');
     const scaleState = normalizeState(first(scale.state, scale.status, 'unknown'));
     setBadge('scale-badge', scaleState, overload ? 'bad' : stable ? 'good' : 'neutral');
     setText('scale-profile', first(profile.display_name, profile.id, scale.load_cell_profile, scale.load_cell_model));
     setText('scale-capacity', formatGrams(first(profile.rated_capacity_grams, scale.rated_capacity_grams, scale.load_cell_capacity_grams)));
-    const calibrated = first(scale.calibrated, scale.calibration_loaded, asObject(scale.calibration).configured, false) === true;
-    setText('scale-calibration', calibrated ? 'Calibrated' : 'Required');
+    const calibrated = first(scale.calibrated, scale.calibration_loaded,
+      asObject(scale.calibration).configured, false) === true;
+    setText('scale-calibration', calibrated ? 'Calibrated' : 'Calibration required');
     const calibration = asObject(scale.calibration);
     setText('scale-raw', first(sample.raw_counts, scale.raw_counts));
     setText('scale-filtered', first(sample.filtered_counts, scale.filtered_counts));
-    setText('scale-zero', first(calibration.zero_offset_counts, scale.zero_offset_counts));
+    setText('scale-zero', first(scale.tare_zero_offset_counts, calibration.zero_offset_counts, scale.zero_offset_counts));
     setText('scale-factor', first(calibration.counts_per_gram, scale.counts_per_gram));
     setText('scale-reference', formatGrams(first(calibration.reference_grams, scale.reference_grams)));
+    updateScaleControls();
   }
 
   function renderNfc(payload) {
     const nfc = asObject(first(payload.nfc, payload));
     const available = first(nfc.available, nfc.reader_available, false) === true;
+    state.nfcAvailable = available;
     const stateText = normalizeState(first(nfc.state, nfc.reader_state, available ? 'ready' : 'unavailable'));
     setText('nfc-reader-state', stateText);
     setText('nfc-tag-state', normalizeState(first(nfc.tag_state, nfc.presence, 'no tag')));
     setBadge('nfc-badge', stateText, available ? 'good' : 'warning');
     const readButton = byId('read-tag');
-    if (readButton) readButton.disabled = !available;
+    if (readButton) readButton.disabled = !available || state.maintenance;
   }
 
   function renderTag(payload) {
@@ -938,9 +1507,9 @@ const char application_javascript[] = R"JS((function () {
         const actions = document.createElement('div');
         actions.className = 'toolhead-actions';
         const revision = first(printer.revision, printer.printer_revision, state.printerRevision);
-        const ready = Number.isInteger(backendId) && state.spool && first(state.spool.id, state.spool.spool_id) !== null && state.spoolGeneration !== null && revision !== null;
+        const ready = Number.isInteger(backendId) && state.spool && first(state.spool.id, state.spool.spool_id) !== null && state.spoolGeneration !== null && revision !== null && !state.maintenance;
         actions.appendChild(makeButton('Assign', 'button primary', function () { assignToolhead(printer, toolhead, revision); }, !ready));
-        actions.appendChild(makeButton('Unassign', 'button quiet', function () { unassignToolhead(printer, toolhead, revision); }, mapped === null || revision === null));
+        actions.appendChild(makeButton('Unassign', 'button quiet', function () { unassignToolhead(printer, toolhead, revision); }, mapped === null || revision === null || state.maintenance));
         item.append(name, spoolText, actions);
         grid.appendChild(item);
       });
@@ -1066,15 +1635,18 @@ const char application_javascript[] = R"JS((function () {
   }
 
   function renderConfig(payload) {
+    const revisionValue = first(payload.revision, payload.configuration_revision, 0);
+    const numericRevision = Number(revisionValue);
+    if (Number.isSafeInteger(numericRevision) && state.configRevision !== null &&
+        numericRevision < Number(state.configRevision)) return false;
     state.config = payload;
-    state.configRevision = first(payload.revision, payload.configuration_revision, 0);
-    setBadge('config-revision', 'Revision ' + state.configRevision, 'neutral');
+    state.configRevision = Number.isSafeInteger(numericRevision) ? numericRevision : revisionValue;
     const device = asObject(payload.device);
     const wifi = asObject(payload.wifi);
     const spoolman = asObject(payload.spoolman);
     const filabridge = asObject(payload.filabridge);
     const web = asObject(payload.web);
-    state.apiTokenConfigured = web.access_token_configured === true;
+    applyAuthState(web.access_token_configured === true, state.configRevision);
     const profile = asObject(first(payload.scale_profile, payload.scale && payload.scale.profile, {}));
     setValue('config-hostname', device.hostname);
     setValue('config-brightness', device.brightness_percent);
@@ -1082,17 +1654,29 @@ const char application_javascript[] = R"JS((function () {
     setValue('config-spoolman-url', spoolman.url);
     setValue('config-filabridge-url', filabridge.url);
     setValue('config-printer-id', filabridge.selected_printer_id);
-    const profileId = String(first(profile.id, profile.profile, Number(profile.rated_capacity_grams) === 2000 ? 'yzc-133-2kg' : 'yzc-133-5kg'));
+    const profileId = String(first(profile.id, profile.profile,
+      Number(profile.rated_capacity_grams) === 2000 ? 'yzc-133-2kg' : 'yzc-133-5kg'));
     setValue('config-scale-profile', profileId);
     setValue('config-overload-ratio', first(profile.overload_ratio, 1.1));
-    setValue('config-wifi-password', ''); setValue('config-spoolman-token', ''); setValue('config-filabridge-token', ''); setValue('config-api-token', '');
-    byId('clear-wifi-password').checked = false; byId('clear-spoolman-token').checked = false; byId('clear-filabridge-token').checked = false; byId('clear-api-token').checked = false;
-    byId('config-wifi-password').placeholder = configuredFlag(wifi, 'password') ? 'Configured — leave blank to keep' : 'Not configured';
-    byId('config-spoolman-token').placeholder = configuredFlag(spoolman, 'authentication_token') ? 'Configured — leave blank to keep' : 'Not configured';
-    byId('config-filabridge-token').placeholder = configuredFlag(filabridge, 'authentication_token') ? 'Configured — leave blank to keep' : 'Not configured';
-    byId('config-api-token').placeholder = web.access_token_configured === true ? 'Configured — leave blank to keep' : 'Not configured';
+    setValue('config-wifi-password', '');
+    setValue('config-spoolman-token', '');
+    setValue('config-filabridge-token', '');
+    setValue('config-api-token', '');
+    ['clear-wifi-password', 'clear-spoolman-token', 'clear-filabridge-token', 'clear-api-token'].forEach(function (id) {
+      const node = byId(id); if (node) node.checked = false;
+    });
+    byId('config-wifi-password').placeholder = configuredFlag(wifi, 'password')
+      ? 'Configured — leave blank to keep' : 'Not configured';
+    byId('config-spoolman-token').placeholder = configuredFlag(spoolman, 'authentication_token')
+      ? 'Configured — leave blank to keep' : 'Not configured';
+    byId('config-filabridge-token').placeholder = configuredFlag(filabridge, 'authentication_token')
+      ? 'Configured — leave blank to keep' : 'Not configured';
+    byId('config-api-token').placeholder = web.access_token_configured === true
+      ? 'Authentication enabled — leave blank to keep'
+      : 'Trusted LAN mode — blank keeps authentication disabled';
     renderProfiles(first(payload.toolheads, []));
     updateCapacityHelp();
+    return true;
   }
 
   function collectProfiles() {
@@ -1161,10 +1745,59 @@ const char application_javascript[] = R"JS((function () {
     return applyEnteredCredentials(patch);
   }
 
+  function configurationPatchChangesNetwork(patch) {
+    const current = asObject(state.config);
+    const currentDevice = asObject(current.device);
+    const currentWifi = asObject(current.wifi);
+    const device = asObject(asObject(patch).device);
+    const wifi = asObject(asObject(patch).wifi);
+    if (Object.prototype.hasOwnProperty.call(device, 'hostname') &&
+        String(device.hostname) !== String(
+          currentDevice.hostname === undefined || currentDevice.hostname === null
+            ? '' : currentDevice.hostname)) {
+      return true;
+    }
+    const comparable = [
+      'ssid', 'auto_reconnect', 'connect_timeout_ms',
+      'reconnect_initial_ms', 'reconnect_max_ms'
+    ];
+    if (comparable.some(function (key) {
+      return Object.prototype.hasOwnProperty.call(wifi, key) &&
+        String(wifi[key]) !== String(
+          currentWifi[key] === undefined || currentWifi[key] === null
+            ? '' : currentWifi[key]);
+    })) return true;
+    return Object.prototype.hasOwnProperty.call(wifi, 'password');
+  }
+
+  function configurationOperationWaitMs(patch) {
+    return configurationPatchChangesNetwork(patch)
+      ? NETWORK_OPERATION_WAIT_MS : OPERATION_WAIT_MS;
+  }
+
+  function applySubmittedApiToken(enteredToken, clearToken) {
+    if (clearToken) {
+      state.apiToken = '';
+      state.authMode = 'DISABLED';
+    } else if (enteredToken) {
+      state.apiToken = enteredToken;
+      state.authMode = 'ENABLED';
+    }
+  }
+
+  async function reloadPersistedNetworkConfiguration(enteredToken, clearToken) {
+    applySubmittedApiToken(enteredToken, clearToken);
+    state.configDirty = false;
+    const verified = await loadConfig(true, true);
+    await load('/network', renderNetwork, true, PRIORITY.CORE);
+    return verified;
+  }
+
   function updateCapacityHelp() {
     const capacity = valueOf('config-scale-profile') === 'yzc-133-2kg' ? 2000 : 5000;
     byId('reference-grams').max = String(capacity);
     setText('profile-capacity-help', 'Rated capacity: ' + capacity + ' g');
+    updateScaleControls();
   }
 
   function renderDiagnostics(payload) { const node = byId('diagnostics-json'); if (node) node.textContent = pretty(payload); }
@@ -1246,9 +1879,9 @@ const char application_javascript[] = R"JS((function () {
     const mayUpload = updateCapability(capabilities, 'upload_available', legacyUpload);
     const mayCancel = updateCapability(capabilities, 'cancel_available', legacyControl);
     const mayReboot = updateCapability(capabilities, 'reboot_available', legacyControl);
-    byId('upload-firmware').disabled = !fileReady || !mayUpload || !!state.uploadXhr;
-    byId('cancel-update').disabled = !state.uploadXhr && !mayCancel;
-    byId('reboot-update').disabled = !!state.uploadXhr || !mayReboot;
+    byId('upload-firmware').disabled = state.maintenance || !fileReady || !mayUpload || !!state.uploadXhr;
+    byId('cancel-update').disabled = (!state.uploadXhr && (state.maintenance || !mayCancel));
+    byId('reboot-update').disabled = state.maintenance || !!state.uploadXhr || !mayReboot;
   }
 
   function renderUpdate(payload) {
@@ -1337,39 +1970,88 @@ const char application_javascript[] = R"JS((function () {
     updateButtons();
   }
 
-  function uploadFirmwareRequest(file, digest, generation, token) {
+  function uploadFirmwareRequest(file, digest, generation, token, idempotencyKey) {
     return new Promise(function (resolve, reject) {
       const xhr = new XMLHttpRequest();
       state.uploadXhr = xhr;
-      xhr.open('POST', API + '/update/upload');
+      xhr.open("POST", API + "/update/upload");
       xhr.timeout = UPDATE_UPLOAD_TIMEOUT_MS;
-      xhr.setRequestHeader('Accept', 'application/json');
-      xhr.setRequestHeader('Content-Type', 'application/octet-stream');
-      xhr.setRequestHeader('X-OpenTag-Request', 'web');
-      xhr.setRequestHeader('Idempotency-Key', requestId());
-      if (token) xhr.setRequestHeader('Authorization', 'Bearer ' + token);
-      xhr.setRequestHeader('X-OpenTag-Image-SHA256', digest);
-      xhr.setRequestHeader('X-OpenTag-Expected-Generation', String(generation));
-      xhr.upload.addEventListener('progress', function (event) {
+      xhr.setRequestHeader("Accept", "application/json");
+      xhr.setRequestHeader("Content-Type", "application/octet-stream");
+      xhr.setRequestHeader("X-OpenTag-Request", "web");
+      xhr.setRequestHeader("Idempotency-Key", idempotencyKey);
+      if (token) xhr.setRequestHeader("Authorization", "Bearer " + token);
+      xhr.setRequestHeader("X-OpenTag-Image-SHA256", digest);
+      xhr.setRequestHeader("X-OpenTag-Expected-Generation", String(generation));
+      xhr.upload.addEventListener("progress", function (event) {
         const percent = file.size > 0 ? Math.min(100, event.loaded * 100 / file.size) : 0;
-        byId('update-progress').value = percent;
-        setText('update-progress-detail', formatBytes(event.loaded) + ' / ' + formatBytes(file.size) + ' sent; device validation is still pending.');
+        byId("update-progress").value = percent;
+        setText("update-progress-detail", formatBytes(event.loaded) + " / " +
+          formatBytes(file.size) + " sent; device validation is still pending.");
       });
-      xhr.addEventListener('load', function () {
-        if (xhr.status === 401) state.apiToken = '';
+      xhr.addEventListener("load", function () {
+        const httpOk = xhr.status >= 200 && xhr.status < 300;
+        if (xhr.status === 401) noteAuthenticationRequired();
         let envelope;
         try { envelope = JSON.parse(xhr.responseText); }
-        catch (error) { reject(new Error('The station returned an invalid upload response.')); return; }
-        const failure = asObject(asObject(envelope).error);
-        if (xhr.status < 200 || xhr.status >= 300 || envelope.api_version !== 'v1' || envelope.ok !== true) {
-          reject(new Error(String(first(failure.message, 'Upload failed with HTTP ' + xhr.status))));
+        catch (error) {
+          reject(new ApiError("The station returned an invalid upload response.", {
+            kind: "envelope", status: xhr.status, code: "invalid_upload_response",
+            uncertain: httpOk, idempotencyKey: idempotencyKey
+          }));
           return;
         }
-        resolve(asObject(envelope.data));
+        const response = asObject(envelope);
+        const failure = asObject(response.error);
+        if (!httpOk || failure.code || response.ok === false) {
+          reject(new ApiError(String(first(
+            failure.message, response.message, "Upload failed with HTTP " + xhr.status
+          )), {
+            kind: "http", status: xhr.status,
+            code: String(first(failure.code, response.code, "upload_failed")),
+            category: String(first(failure.category, "update")),
+            retryable: failure.retryable === true, uncertain: httpOk,
+            idempotencyKey: idempotencyKey
+          }));
+          return;
+        }
+        if (response.api_version !== "v1" || response.ok !== true ||
+            !Object.prototype.hasOwnProperty.call(response, "data")) {
+          reject(new ApiError("The station returned an invalid upload API envelope.", {
+            kind: "envelope", status: xhr.status, code: "invalid_upload_envelope",
+            uncertain: httpOk, idempotencyKey: idempotencyKey
+          }));
+          return;
+        }
+        const receipt = asObject(response.data);
+        const id = Number(receipt.operation_id);
+        if (!Number.isSafeInteger(id) || id <= 0) {
+          reject(new ApiError("The station did not return a valid upload operation ID.", {
+            kind: "envelope", status: xhr.status, code: "invalid_operation_receipt",
+            uncertain: true, idempotencyKey: idempotencyKey
+          }));
+          return;
+        }
+        resolve(receipt);
       });
-      xhr.addEventListener('error', function () { reject(new Error('The firmware upload connection failed.')); });
-      xhr.addEventListener('timeout', function () { reject(new Error('The firmware upload exceeded its bounded deadline.')); });
-      xhr.addEventListener('abort', function () { reject(new Error('The firmware upload was cancelled; the device will abort the incomplete image.')); });
+      xhr.addEventListener("error", function () {
+        reject(new ApiError("The firmware upload connection was interrupted. The station may have received the image; inspect update status before retrying.", {
+          kind: "transport", code: "upload_transport_error", retryable: true,
+          uncertain: true, idempotencyKey: idempotencyKey
+        }));
+      });
+      xhr.addEventListener("timeout", function () {
+        reject(new ApiError("The firmware upload exceeded its bounded deadline. The station may have accepted it; inspect update status before retrying.", {
+          kind: "timeout", code: "upload_timeout", retryable: true,
+          uncertain: true, idempotencyKey: idempotencyKey
+        }));
+      });
+      xhr.addEventListener("abort", function () {
+        reject(new ApiError("The firmware upload was cancelled before its receipt was verified. The station may have accepted the image; inspect update status before retrying.", {
+          kind: "cancelled", code: "upload_cancelled", uncertain: true,
+          idempotencyKey: idempotencyKey
+        }));
+      });
       xhr.send(file);
       updateButtons();
     });
@@ -1384,18 +2066,51 @@ const char application_javascript[] = R"JS((function () {
       showToast('Select and hash an image, then reload update status before uploading.', true);
       return;
     }
+    const signature = digest + ':' + file.size + ':' + generation;
+    if (state.firmwareUploadUncertain && state.firmwareUploadUncertain.signature === signature) {
+      showToast('The prior upload may already have been accepted as idempotency key ' +
+        state.firmwareUploadUncertain.key + '. Reload update status before another upload.', true);
+      return;
+    }
     if (!window.confirm('Upload this image to the inactive slot? Upload completion does not activate or confirm the firmware.')) return;
+    let token;
+    try { token = apiToken(); }
+    catch (error) { showToast(error.message || String(error), true); return; }
+    const key = requestId();
     button.disabled = true;
+    state.maintenance = true;
+    scheduler.pauseBackground();
+    renderAuthState();
+    setConfigState(state.configState, state.configError);
+    if (state.live) state.live.beginMaintenance();
     try {
-      await uploadFirmwareRequest(file, digest, generation, apiToken());
+      try {
+        await uploadFirmwareRequest(file, digest, generation, token, key);
+      } catch (error) {
+        if (!(error instanceof ApiError) || Number(error.status) !== 401) throw error;
+        const retryToken = apiToken();
+        await uploadFirmwareRequest(file, digest, generation, retryToken, key);
+      }
+      state.firmwareUploadUncertain = null;
       showToast('Upload completed. Reading device validation and inactive-slot status…');
-      await load('/update', renderUpdate, false);
     } catch (error) {
+      if (error && error.uncertain) {
+        state.firmwareUploadUncertain = { signature: signature, key: key, at: Date.now() };
+      }
       showToast(error.message || String(error), true);
-      await load('/update', renderUpdate, true);
     } finally {
       state.uploadXhr = null;
+      state.maintenance = false;
+      scheduler.resumeBackground();
+      if (state.live) state.live.endMaintenance();
       updateButtons();
+      if (!state.unloading) {
+        await load('/update', renderUpdate, true, PRIORITY.CORE);
+        await load('/device', renderDevice, true, PRIORITY.CORE);
+        await load('/health', renderHealth, true, PRIORITY.CORE);
+        renderAuthState();
+        setConfigState(state.configState, state.configError);
+      }
     }
   }
 
@@ -1426,29 +2141,18 @@ const char application_javascript[] = R"JS((function () {
   async function scanNetworks(button, provisioning) {
     const prior = button.disabled;
     button.disabled = true;
-    const currentNetwork =
-      asObject(asObject(asObject(state.network).system).network);
-    const previous = Number(first(currentNetwork.scan_generation, 0));
     try {
-      await submitMutation('/network/scan', {
+      const operation = await submitMutation('/network/scan', {
         method: 'POST',
         body: {},
-        provisioning: provisioning
+        provisioning: provisioning,
+        operationTimeoutMs: NETWORK_OPERATION_WAIT_MS
       });
-      const deadline = Date.now() + 12000;
-      while (Date.now() < deadline) {
-        await new Promise(function (resolve) { window.setTimeout(resolve, 750); });
-        const payload = await api('/network');
-        renderNetwork(asObject(payload));
-        const network = asObject(asObject(payload.system).network);
-        if (network.scan_running !== true &&
-            Number(first(network.scan_generation, 0)) > previous) return;
-      }
-      throw new Error('Wi-Fi scan did not finish before the display timeout.');
+      showToast(operationMessage(operation, 'Wi-Fi scan completed.'));
     } catch (error) {
       showToast(error.message || String(error), true);
     } finally {
-      button.disabled = prior;
+      button.disabled = prior || state.maintenance;
     }
   }
 
@@ -1473,194 +2177,709 @@ const char application_javascript[] = R"JS((function () {
     if (token) body.access_token = token;
     try {
       setText('setup-connect-status', 'Saving settings. The setup AP will remain available while the station connects...');
-      await submitMutation('/network/connect', {
+      const operation = await submitMutation('/network/connect', {
         method: 'POST',
         body: body,
-        provisioning: true
+        provisioning: true,
+        refresh: false,
+        operationTimeoutMs: NETWORK_OPERATION_WAIT_MS
       });
       setValue('setup-password', '');
       setValue('setup-token', '');
-      const deadline = Date.now() + 60000;
-      while (Date.now() < deadline) {
-        await new Promise(function (resolve) { window.setTimeout(resolve, 1000); });
-        const payload = await api('/network');
-        renderNetwork(asObject(payload));
-        const network = asObject(asObject(payload.system).network);
-        if (network.connected === true) {
-          showToast('Wi-Fi connected. The setup AP will close after its grace period.');
-          load('/config', renderConfig, true);
-          return;
-        }
-      }
-      throw new Error('The station did not connect within 60 seconds. The setup AP remains available; verify the password and try again.');
+      applySubmittedApiToken(token, false);
+      await load('/network', renderNetwork, true, PRIORITY.CORE);
+      await loadConfig(true, true);
+      showToast(operationMessage(
+        operation,
+        'Wi-Fi connected. The setup AP will close after its grace period.'));
     } catch (error) {
-      setText('setup-connect-status', (error.message || String(error)) + ' The setup AP remains available.');
+      const persistedNetworkFailure = error && error.kind === 'operation' &&
+        error.category === 'network';
+      let suffix = ' The setup AP remains available.';
+      if (persistedNetworkFailure) {
+        setValue('setup-password', '');
+        setValue('setup-token', '');
+        const persisted = await reloadPersistedNetworkConfiguration(
+          token, false);
+        suffix += persisted
+          ? ' Persisted settings were reloaded; correct them in Configuration or try Save & Connect again.'
+          : ' Settings were persisted, but their verification reload failed.';
+      }
+      setText('setup-connect-status', (error.message || String(error)) + suffix);
+      showToast((error.message || String(error)) + suffix, true);
+    } finally {
+      button.disabled = state.maintenance;
+    }
+  }
+
+  async function refreshSecondary(quiet) {
+    await load('/health', renderHealth, quiet, PRIORITY.CORE);
+    await load('/status', renderStatus, quiet, PRIORITY.SECONDARY);
+    await load('/spool', renderSpool, quiet, PRIORITY.SECONDARY);
+    await refreshPrinters(quiet);
+    await load('/update', renderUpdate, true, PRIORITY.SECONDARY);
+    await load('/nfc', renderNfc, true, PRIORITY.BACKGROUND);
+    if (state.nfcAvailable) await load('/nfc/tag', renderTag, true, PRIORITY.BACKGROUND);
+    await load('/diagnostics', renderDiagnostics, true, PRIORITY.BACKGROUND);
+    await load('/logs', renderLogs, true, PRIORITY.BACKGROUND);
+  }
+
+  async function refreshCritical(quiet) {
+    await load('/device', renderDevice, quiet, PRIORITY.CORE);
+    await load('/network', renderNetwork, quiet, PRIORITY.CORE);
+    await loadConfig(quiet, false);
+    await load('/scale', renderScale, quiet, PRIORITY.CORE);
+  }
+
+  function refreshAll(quiet) {
+    if (state.manualRefreshPromise) return state.manualRefreshPromise;
+    const button = byId('refresh-all');
+    if (button) button.disabled = true;
+    state.manualRefreshPromise = (async function () {
+      await refreshCritical(quiet);
+      await refreshSecondary(quiet);
+    }()).finally(function () {
+      state.manualRefreshPromise = null;
+      if (button) button.disabled = false;
+    });
+    return state.manualRefreshPromise;
+  }
+
+  async function refreshResourcesForMutation(path) {
+    if (path.indexOf('/scale/') === 0) {
+      await load('/scale', renderScale, true, PRIORITY.CORE);
+      await loadConfig(true, false);
+    } else if (path === '/config') {
+      await loadConfig(true, true);
+      await load('/network', renderNetwork, true, PRIORITY.CORE);
+      await load('/device', renderDevice, true, PRIORITY.CORE);
+    } else if (path.indexOf('/toolheads/') === 0) {
+      await load('/spool', renderSpool, true, PRIORITY.SECONDARY);
+      await refreshPrinters(true);
+    } else if (path.indexOf('/network/') === 0) {
+      await load('/network', renderNetwork, true, PRIORITY.CORE);
+    } else if (path === '/backends/test') {
+      await load('/status', renderStatus, true, PRIORITY.SECONDARY);
+      await refreshPrinters(true);
+      await load('/spool', renderSpool, true, PRIORITY.SECONDARY);
+    } else if (path.indexOf('/nfc/') === 0) {
+      await load('/nfc', renderNfc, true, PRIORITY.BACKGROUND);
+      if (state.nfcAvailable) await load('/nfc/tag', renderTag, true, PRIORITY.BACKGROUND);
+    } else if (path.indexOf('/update/') === 0) {
+      await load('/update', renderUpdate, true, PRIORITY.CORE);
+    }
+  }
+
+  function refreshResource(resource) {
+    const name = String(resource || '').toLowerCase();
+    if (name === 'scale') return load('/scale', renderScale, true, PRIORITY.CORE, { supersedeKey: 'live:/scale' });
+    if (name === 'update') return load('/update', renderUpdate, true, PRIORITY.SECONDARY, { supersedeKey: 'live:/update' });
+    if (name === 'health') return load('/health', renderHealth, true, PRIORITY.CORE, { supersedeKey: 'live:/health' });
+    if (name === 'network') return load('/network', renderNetwork, true, PRIORITY.CORE, { supersedeKey: 'live:/network' });
+    if (name === 'logs') return load('/logs', renderLogs, true, PRIORITY.BACKGROUND, { supersedeKey: 'live:/logs' });
+    if (name === 'configuration' || name === 'config') {
+      if (state.configDirty) {
+        setText('config-load-status', 'The station configuration changed, but unsaved local edits were preserved. Save or discard to reload.');
+        return Promise.resolve(null);
+      }
+      return loadConfig(true, false);
+    }
+    return Promise.resolve(null);
+  }
+
+  class LiveConnection {
+    constructor(options) {
+      this.makeSocket = options.createSocket;
+      this.setTimer = options.setTimer;
+      this.clearTimer = options.clearTimer;
+      this.now = options.now;
+      this.random = options.random;
+      this.onStatus = options.onStatus;
+      this.onEvent = options.onEvent;
+      this.onFallback = options.onFallback;
+      this.connectDeadlineMs = options.connectDeadlineMs || 8000;
+      this.staleMs = options.staleMs || 35000;
+      this.socket = null;
+      this.timer = 0;
+      this.generation = 0;
+      this.retryMs = 1000;
+      this.lastMessageMs = 0;
+      this.status = 'stopped';
+      this.stopped = true;
+      this.suspended = false;
+      this.maintenance = false;
+      this.online = true;
+    }
+
+    _setStatus(status, text) {
+      this.status = status;
+      this.onStatus(status, text);
+    }
+    _clearTimer() {
+      if (this.timer) this.clearTimer(this.timer);
+      this.timer = 0;
+    }
+    _arm(delay, callback) {
+      this._clearTimer();
+      this.timer = this.setTimer(function () {
+        this.timer = 0;
+        callback();
+      }.bind(this), delay);
+    }
+    _closeSocket() {
+      const socket = this.socket;
+      this.socket = null;
+      this.generation += 1;
+      if (socket) {
+        try { socket.close(); } catch (error) { /* best effort */ }
+      }
+    }
+    _mayConnect() {
+      return !this.stopped && !this.suspended && !this.maintenance && this.online;
+    }
+    start() {
+      if (!this.stopped && (this.socket || this.timer)) return;
+      this.stopped = false;
+      if (this._mayConnect()) this.connect();
+    }
+    stop() {
+      this.stopped = true;
+      this._clearTimer();
+      this._closeSocket();
+      this.onFallback(false);
+      this._setStatus('stopped', 'Live updates stopped');
+    }
+    suspend() {
+      this.suspended = true;
+      this._clearTimer();
+      this._closeSocket();
+      this.onFallback(false);
+    }
+    resume() {
+      this.suspended = false;
+      if (this._mayConnect()) this.connect();
+    }
+    setOnline(online) {
+      this.online = online;
+      if (!online) {
+        this._clearTimer();
+        this._closeSocket();
+        this.onFallback(false);
+        this._setStatus('offline', 'Offline — waiting for network');
+      } else if (this._mayConnect()) {
+        this.connect();
+      }
+    }
+    beginMaintenance() {
+      this.maintenance = true;
+      this._clearTimer();
+      this._closeSocket();
+      this.onFallback(false);
+      this._setStatus('maintenance', 'Firmware transfer in progress — live updates paused');
+    }
+    endMaintenance() {
+      this.maintenance = false;
+      if (this._mayConnect()) this.connect();
+    }
+    connect() {
+      if (!this._mayConnect()) return;
+      this._clearTimer();
+      this._closeSocket();
+      const generation = ++this.generation;
+      let socket;
+      try { socket = this.makeSocket(); }
+      catch (error) {
+        this._lost('Live updates unavailable — using polling', 'fallback');
+        return;
+      }
+      this.socket = socket;
+      this._setStatus('connecting', 'Connecting…');
+      const current = function () {
+        return this.socket === socket && this.generation === generation;
+      }.bind(this);
+      socket.addEventListener('open', function () {
+        if (!current()) return;
+        this.retryMs = 1000;
+        this.lastMessageMs = this.now();
+        this.onFallback(false);
+        this._setStatus('connected', 'Connected');
+        this._arm(this.staleMs, function () {
+          if (current()) this._lost('Live updates unavailable — using polling', 'fallback');
+        }.bind(this));
+      }.bind(this));
+      socket.addEventListener('message', function (event) {
+        if (!current()) return;
+        let message;
+        try { message = JSON.parse(event.data); }
+        catch (error) { return; }
+        if (!message || typeof message !== 'object' || Array.isArray(message)) return;
+        this.lastMessageMs = this.now();
+        this._arm(this.staleMs, function () {
+          if (current()) this._lost('Live updates unavailable — using polling', 'fallback');
+        }.bind(this));
+        this.onEvent(message);
+      }.bind(this));
+      socket.addEventListener('close', function () {
+        if (current()) this._lost('Disconnected — retrying', 'retrying');
+      }.bind(this));
+      socket.addEventListener('error', function () {
+        if (current()) this._lost('Disconnected — retrying', 'retrying');
+      }.bind(this));
+      this._arm(this.connectDeadlineMs, function () {
+        if (current()) this._lost('Live updates unavailable — using polling', 'fallback');
+      }.bind(this));
+    }
+    _lost(text, status) {
+      this._clearTimer();
+      this._closeSocket();
+      if (!this._mayConnect()) return;
+      this.onFallback(true);
+      this._setStatus(status || 'fallback', text);
+      const wait = Math.round(this.retryMs * (0.8 + this.random() * 0.4));
+      this.retryMs = Math.min(30000, this.retryMs * 2);
+      this._arm(wait, function () { this.connect(); }.bind(this));
+    }
+    snapshot() {
+      return {
+        state: this.status,
+        open: !!this.socket && this.socket.readyState === 1,
+        lastMessageAgeMs: this.lastMessageMs ? Math.max(0, this.now() - this.lastMessageMs) : null,
+        reconnectScheduled: !!this.timer && (this.status === 'fallback' || this.status === 'retrying')
+      };
+    }
+  }
+
+  function setLiveStatus(status, text) {
+    setText('live-status', text);
+    const indicator = byId('live-indicator');
+    if (indicator) {
+      indicator.className = 'status-dot ' +
+        (status === 'connected' ? 'online' : status === 'connecting' || status === 'maintenance' ? 'pending' : 'offline');
+    }
+  }
+
+  async function fallbackStep() {
+    state.fallbackTimer = 0;
+    if (!state.fallbackActive || state.unloading || state.maintenance) return;
+    state.fallbackTick += 1;
+    await load('/scale', renderScale, true, PRIORITY.CORE, {
+      supersedeKey: 'fallback:/scale', group: 'fallback:'
+    });
+    if (state.fallbackTick % 5 === 0 && state.fallbackActive) {
+      await load('/health', renderHealth, true, PRIORITY.CORE, {
+        supersedeKey: 'fallback:/health', group: 'fallback:'
+      });
+      await load('/network', renderNetwork, true, PRIORITY.CORE, {
+        supersedeKey: 'fallback:/network', group: 'fallback:'
+      });
+      await load('/update', renderUpdate, true, PRIORITY.SECONDARY, {
+        supersedeKey: 'fallback:/update', group: 'fallback:'
+      });
+    }
+    if (state.fallbackActive && !state.unloading && !state.maintenance) {
+      state.fallbackTimer = window.setTimeout(fallbackStep, 2000);
+    }
+  }
+
+  function setFallbackPolling(active) {
+    state.fallbackActive = active === true;
+    if (!state.fallbackActive) {
+      if (state.fallbackTimer) window.clearTimeout(state.fallbackTimer);
+      state.fallbackTimer = 0;
+      state.fallbackTick = 0;
+      scheduler.cancelGroup('fallback:');
+      return;
+    }
+    if (!state.fallbackTimer) state.fallbackTimer = window.setTimeout(fallbackStep, 0);
+  }
+
+  function handleLiveEvent(message) {
+    const type = String(first(message.type, message.event, '')).toLowerCase();
+    const payload = asObject(first(message.data, message.payload, message.snapshot, {}));
+    if (type === 'heartbeat') return;
+    if (type === 'scale') {
+      beginLoad('/scale');
+      renderScale(payload);
+      return;
+    }
+    if (type === 'update') {
+      beginLoad('/update');
+      renderUpdate(payload);
+      return;
+    }
+    if (type === 'invalidate') {
+      refreshResource(payload.resource);
+      return;
+    }
+    if (type === 'health') {
+      beginLoad('/health');
+      renderHealth(payload);
+      return;
+    }
+    if (type === 'logs') refreshResource('logs');
+    if (type === 'configuration') refreshResource('configuration');
+  }
+
+  function createLiveConnection() {
+    const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    return new LiveConnection({
+      createSocket: function () { return new WebSocket(protocol + '//' + location.host + API + '/events'); },
+      setTimer: window.setTimeout.bind(window),
+      clearTimer: window.clearTimeout.bind(window),
+      now: Date.now,
+      random: Math.random,
+      onStatus: setLiveStatus,
+      onEvent: handleLiveEvent,
+      onFallback: setFallbackPolling
+    });
+  }
+
+  async function mutateButton(button, path, body, success, options) {
+    const prior = button.disabled;
+    button.disabled = true;
+    try {
+      const operation = await submitMutation(path, Object.assign({
+        method: 'POST', body: body || {}
+      }, options || {}));
+      showToast(operationMessage(operation, success));
+      return operation;
+    } catch (error) {
+      showToast(error.message || String(error), true);
+      return null;
+    } finally {
+      button.disabled = prior || state.maintenance;
+    }
+  }
+
+  async function runScaleMutation(button, path, body, success) {
+    const scale = asObject(state.scale);
+    const sample = asObject(first(scale.sample, scale));
+    const stable = first(sample.stable, scale.stable, false) === true;
+    const tareReady = Object.prototype.hasOwnProperty.call(scale, 'tare_ready')
+      ? scale.tare_ready === true : state.scaleTareFallback;
+    if (scale.adc_ready !== true) {
+      showToast('Scale hardware is unavailable.', true);
+      return;
+    }
+    if (!stable) {
+      showToast('Waiting for stable reading. Keep the platform still before sending this command.', true);
+      return;
+    }
+    if (path === '/scale/calibrate' && !tareReady) {
+      showToast('Tare must complete before calibration.', true);
+      return;
+    }
+    state.scaleBusy = true;
+    state.scaleProgress = 'Sending scale command…';
+    updateScaleControls();
+    try {
+      const operation = await submitMutation(path, {
+        method: 'POST',
+        body: body || {},
+        scope: 'scale',
+        refresh: false,
+        onProgress: function (progress) {
+          state.scaleProgress = 'Operation #' + progress.id + ': ' +
+            String(first(progress.message, normalizeState(progress.state)));
+          updateScaleControls();
+        }
+      });
+      if (path === '/scale/tare' &&
+          !Object.prototype.hasOwnProperty.call(asObject(state.scale), 'tare_ready')) {
+        state.scaleTareFallback = true;
+      }
+      await load('/scale', renderScale, false, PRIORITY.CORE);
+      await loadConfig(true, false);
+      showToast(operationMessage(operation, success));
+    } catch (error) {
       showToast(error.message || String(error), true);
     } finally {
-      button.disabled = false;
+      state.scaleBusy = false;
+      state.scaleProgress = '';
+      updateScaleControls();
     }
-  }
-
-  async function refreshLive(quiet) {
-    await Promise.allSettled([
-      load('/status', renderStatus, quiet),
-      load('/network', renderNetwork, quiet),
-      load('/scale', renderScale, quiet),
-      load('/nfc', renderNfc, quiet),
-      load('/nfc/tag', renderTag, true),
-      load('/spool', renderSpool, quiet),
-      refreshPrinters(quiet)
-    ]);
-  }
-
-  async function refreshAll(quiet) {
-    await Promise.allSettled([load('/device', renderDevice, quiet), load('/health', renderHealth, quiet), refreshLive(quiet)]);
-    await Promise.allSettled([load('/config', renderConfig, quiet), load('/diagnostics', renderDiagnostics, quiet), load('/logs', renderLogs, true), load('/update', renderUpdate, true)]);
-  }
-
-  function scheduleLiveRefresh() {
-    if (state.liveRefreshTimer) return;
-    state.liveRefreshTimer = window.setTimeout(function () {
-      state.liveRefreshTimer = 0;
-      refreshLive(true);
-    }, LIVE_REFRESH_MIN_MS);
-  }
-
-  function connectEvents() {
-    window.clearTimeout(state.reconnectTimer);
-    if (state.socket) { state.socket.onclose = null; state.socket.close(); }
-    const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const socket = new WebSocket(protocol + '//' + location.host + API + '/events');
-    state.socket = socket;
-    setText('live-status', 'Connecting to live updates…'); byId('live-indicator').className = 'status-dot pending';
-    socket.addEventListener('open', function () {
-      if (state.socket !== socket) return;
-      state.scaleRevision = null;
-      state.updateRevision = null;
-      beginLoad('/scale');
-      state.reconnectMs = 1000;
-      setText('live-status', 'Live updates connected'); byId('live-indicator').className = 'status-dot online';
-      load('/update', renderUpdate, true);
-      load('/device', renderDevice, true);
-      load('/health', renderHealth, true);
-    });
-    socket.addEventListener('message', function (event) {
-      if (state.socket !== socket) return;
-      try {
-        const message = JSON.parse(event.data);
-        const type = String(first(message.type, message.event, 'snapshot'));
-        const payload = asObject(first(message.data, message.payload, message.snapshot, message));
-        if (type === 'scale') {
-          beginLoad('/scale');
-          renderScale(payload);
-        }
-        else if (type === 'update') {
-          beginLoad('/update');
-          renderUpdate(payload);
-        }
-        else if (type === 'invalidate' && payload.resource === 'update') {
-          load('/update', renderUpdate, true);
-        }
-        else if (type === 'health') { beginLoad('/health'); renderHealth(payload); }
-        else if (type === 'logs') load('/logs', renderLogs, true);
-        else if (type === 'configuration') load('/config', renderConfig, true);
-        else scheduleLiveRefresh();
-      } catch (error) { scheduleLiveRefresh(); }
-    });
-    socket.addEventListener('close', function () {
-      if (state.socket !== socket) return;
-      setText('live-status', 'Live updates disconnected; reconnecting…'); byId('live-indicator').className = 'status-dot offline';
-      const wait = state.reconnectMs;
-      state.reconnectMs = Math.min(30000, state.reconnectMs * 2);
-      state.reconnectTimer = window.setTimeout(connectEvents, wait);
-    });
-    socket.addEventListener('error', function () { socket.close(); });
-  }
-
-  async function mutateButton(button, path, body, success) {
-    const prior = button.disabled; button.disabled = true;
-    try {
-      const operation = await submitMutation(path, { method: 'POST', body: body || {} });
-      if (path === '/scale/tare' || path === '/scale/calibrate') {
-        await load('/config', renderConfig, true);
-      }
-      showToast(operationMessage(operation, success));
-    }
-    catch (error) { showToast(error.message, true); }
-    finally { button.disabled = prior; }
   }
 
   async function submitRestartButton(button, path, body, action) {
-    const prior = button.disabled; button.disabled = true;
+    const prior = button.disabled;
+    button.disabled = true;
     try {
-      const accepted = await submitMutationReceipt(path, {
-        method: 'POST',
-        body: body
-      });
-      showToast(action + ' accepted as operation #' + accepted.id + '. The station will disconnect and the page will reconnect.');
-      setText('live-status', action + ' accepted; waiting for the station to restart…');
-      byId('live-indicator').className = 'status-dot pending';
+      const accepted = await submitMutationReceipt(path, { method: 'POST', body: body });
+      showToast(action + ' accepted as operation #' + accepted.id +
+        '. The station will disconnect and this page will reconnect.');
+      setLiveStatus('connecting', action + ' accepted; waiting for the station to restart…');
       return true;
     } catch (error) {
-      showToast(error.message, true);
+      showToast(error.message || String(error), true);
       return false;
+    } finally {
+      button.disabled = prior || state.maintenance;
     }
-    finally { button.disabled = prior; }
+  }
+
+  function appendSelfTestRow(check, passed, status, latency, detail) {
+    const body = byId('self-test-results');
+    if (!body) return;
+    const row = document.createElement('tr');
+    const values = [
+      check,
+      passed ? 'PASS' : 'FAIL',
+      status === null || status === undefined ? '—' : status,
+      latency === null || latency === undefined ? '—' : latency + ' ms',
+      detail
+    ];
+    values.forEach(function (value, index) {
+      const cell = document.createElement('td');
+      cell.textContent = String(value);
+      if (index === 1) cell.className = passed ? 'self-test-pass' : 'self-test-fail';
+      row.appendChild(cell);
+    });
+    body.appendChild(row);
+  }
+
+  async function runSelfTest() {
+    if (state.maintenance) {
+      showToast('The local interface self-test is paused during firmware transfer.', true);
+      return;
+    }
+    const generation = ++state.selfTestGeneration;
+    const button = byId('run-self-test');
+    const body = byId('self-test-results');
+    if (button) button.disabled = true;
+    if (body) body.replaceChildren();
+    setText('self-test-status', 'Running read-only local interface checks…');
+    let passed = 0;
+    for (let index = 0; index < SELF_TEST_PATHS.length; index += 1) {
+      const path = SELF_TEST_PATHS[index];
+      if (generation !== state.selfTestGeneration || state.unloading) break;
+      try {
+        const detail = await api(path, {
+          inspect: true,
+          dedupe: false,
+          priority: PRIORITY.BACKGROUND,
+          group: 'selftest:' + generation
+        });
+        const ok = detail.httpOk && detail.envelopeOk && detail.apiOk;
+        if (ok) passed += 1;
+        appendSelfTestRow(path, ok, detail.status, detail.latencyMs,
+          ok ? 'v1 envelope OK' : String(first(detail.errorCode, 'HTTP or envelope failure')));
+      } catch (error) {
+        appendSelfTestRow(path, false, null, null,
+          String(first(error.kind, 'error')) + ': ' + String(first(error.code, error.message, 'request_failed')));
+      }
+    }
+    const live = state.live ? state.live.snapshot() : {
+      open: false, lastMessageAgeMs: null, state: 'not_started'
+    };
+    const liveOk = live.open === true && live.lastMessageAgeMs !== null && live.lastMessageAgeMs < 35000;
+    appendSelfTestRow('WebSocket', liveOk, null, live.lastMessageAgeMs,
+      liveOk ? 'Existing live socket verified' : 'No recently verified live socket (' + live.state + ')');
+    setText('self-test-status', passed + ' of ' + SELF_TEST_PATHS.length +
+      ' REST checks passed; WebSocket ' + (liveOk ? 'passed.' : 'failed.'));
+    if (button) button.disabled = false;
+  }
+
+  function configCredentialsAreSafe(nextSsid, patch) {
+    const originalSsid = String(first(asObject(asObject(state.config).wifi).ssid, ''));
+    const targetSsid = nextSsid === undefined ? rawValueOf('config-ssid') : String(nextSsid);
+    const wifiPatch = asObject(asObject(patch).wifi);
+    const explicitChoice = patch
+      ? Object.prototype.hasOwnProperty.call(wifiPatch, 'password')
+      : !!rawValueOf('config-wifi-password') || checked('clear-wifi-password');
+    if (targetSsid !== originalSsid && !explicitChoice) {
+      throw new ApiError('Enter the new network password, or explicitly clear it for an open network.', {
+        kind: 'precondition', code: 'new_ssid_requires_password_choice'
+      });
+    }
+  }
+
+  function markConfigDirty() {
+    if (state.configState !== CONFIG_STATE.READY || state.configRendering) return;
+    state.configDirty = true;
+    setConfigState(CONFIG_STATE.READY);
   }
 
   function wireActions() {
     byId('refresh-all').addEventListener('click', function () { refreshAll(false); });
-    byId('tare-scale').addEventListener('click', function (event) { if (window.confirm('Tare the scale now? The platform must be empty and stable.')) mutateButton(event.currentTarget, '/scale/tare', {}, 'Tare complete.'); });
-    byId('calibrate-form').addEventListener('submit', async function (event) {
-      event.preventDefault(); const reference = Number(valueOf('reference-grams'));
-      const maximum = Number(byId('reference-grams').max);
-      if (!Number.isFinite(reference) || reference <= 0 || reference > maximum) { showToast('Reference weight exceeds the selected load-cell capacity.', true); return; }
-      if (!window.confirm('Calibrate using ' + reference + ' g and the saved load-cell profile?')) return;
-      const button = event.currentTarget.querySelector('button[type="submit"]');
-      await mutateButton(button, '/scale/calibrate', { reference_grams: reference }, 'Calibration complete.');
+    byId('tare-scale').addEventListener('click', function (event) {
+      if (window.confirm('Tare the scale now? The platform must be empty and stable.')) {
+        runScaleMutation(event.currentTarget, '/scale/tare', {}, 'Tare complete.');
+      }
     });
-    byId('read-tag').addEventListener('click', function (event) { mutateButton(event.currentTarget, '/nfc/read', {}, 'NFC read complete.'); });
-    byId('test-backends').addEventListener('click', function (event) { mutateButton(event.currentTarget, '/backends/test', {}, 'Backend connection tests complete.'); });
-    byId('reload-config').addEventListener('click', function () { load('/config', renderConfig, false); });
-    byId('config-scale-profile').addEventListener('change', updateCapacityHelp);
-    byId('setup-network-list').addEventListener('change', function (event) { if (event.currentTarget.value) setValue('setup-ssid', event.currentTarget.value); });
-    byId('config-network-list').addEventListener('change', function (event) { if (event.currentTarget.value) setValue('config-ssid', event.currentTarget.value); });
-    byId('setup-scan').addEventListener('click', function (event) { scanNetworks(event.currentTarget, true); });
-    byId('config-scan').addEventListener('click', function (event) { scanNetworks(event.currentTarget, false); });
-    byId('setup-connect').addEventListener('click', function (event) { saveAndConnect(event.currentTarget); });
-    byId('config-form').addEventListener('submit', async function (event) {
+    byId('reference-grams').addEventListener('input', updateScaleControls);
+    byId('calibrate-form').addEventListener('submit', async function (event) {
       event.preventDefault();
-      if (!state.config) { showToast('Load configuration before saving.', true); return; }
-      const button = event.currentTarget.querySelector('button[type="submit"]'); button.disabled = true;
+      const reference = Number(valueOf('reference-grams'));
+      const maximum = Number(byId('reference-grams').max);
+      if (!Number.isFinite(reference) || reference <= 0 || reference > maximum) {
+        showToast('Enter a reference weight within the selected load-cell capacity.', true);
+        return;
+      }
+      if (!window.confirm('Calibrate using ' + reference + ' g and the saved load-cell profile?')) return;
+      await runScaleMutation(byId('calibrate-scale'), '/scale/calibrate', {
+        reference_grams: reference
+      }, 'Calibration complete.');
+    });
+    byId('read-tag').addEventListener('click', function (event) {
+      mutateButton(event.currentTarget, '/nfc/read', {}, 'NFC read complete.');
+    });
+    byId('test-backends').addEventListener('click', function (event) {
+      mutateButton(event.currentTarget, '/backends/test', {}, 'Backend connection tests complete.', {
+        operationTimeoutMs: BACKEND_OPERATION_WAIT_MS
+      });
+    });
+    byId('retry-config').addEventListener('click', function () {
+      if (state.configDirty && !window.confirm('Discard unsaved configuration edits and retry loading?')) return;
+      state.configDirty = false;
+      loadConfig(false, true);
+    });
+    byId('reload-config').addEventListener('click', function () {
+      if (state.configDirty && !window.confirm('Discard unsaved configuration edits and reload?')) return;
+      state.configDirty = false;
+      loadConfig(false, true);
+    });
+    byId('config-scale-profile').addEventListener('change', updateCapacityHelp);
+    const configForm = byId('config-form');
+    configForm.addEventListener('input', markConfigDirty);
+    configForm.addEventListener('change', markConfigDirty);
+    byId('setup-network-list').addEventListener('change', function (event) {
+      if (event.currentTarget.value) setValue('setup-ssid', event.currentTarget.value);
+    });
+    byId('config-network-list').addEventListener('change', function (event) {
+      if (event.currentTarget.value) {
+        setValue('config-ssid', event.currentTarget.value);
+        markConfigDirty();
+      }
+    });
+    byId('setup-scan').addEventListener('click', function (event) {
+      scanNetworks(event.currentTarget, true);
+    });
+    byId('config-scan').addEventListener('click', function (event) {
+      scanNetworks(event.currentTarget, false);
+    });
+    byId('setup-connect').addEventListener('click', function (event) {
+      saveAndConnect(event.currentTarget);
+    });
+    configForm.addEventListener('submit', async function (event) {
+      event.preventDefault();
+      if (state.configState !== CONFIG_STATE.READY) {
+        showToast('Configuration has not loaded. Retrying now…', true);
+        await ensureConfigReady();
+        return;
+      }
+      const button = byId('config-save');
+      const enteredToken = rawValueOf('config-api-token');
+      const clearToken = checked('clear-api-token');
+      let patch;
       try {
-        const operation = await submitMutation('/config', { method: 'PATCH', body: configPatch() });
-        showToast(operationMessage(operation, 'Configuration updated. Hidden credentials were preserved unless explicitly changed.'));
-        load('/config', renderConfig, true);
-      } catch (error) { showToast(error.message, true); }
-      finally { button.disabled = false; }
+        configCredentialsAreSafe();
+        patch = configPatch();
+      } catch (error) {
+        showToast(error.message || String(error), true);
+        return;
+      }
+      button.disabled = true;
+      try {
+        const operation = await submitMutation('/config', {
+          method: 'PATCH', body: patch, scope: 'configuration', refresh: false,
+          operationTimeoutMs: configurationOperationWaitMs(patch)
+        });
+        applySubmittedApiToken(enteredToken, clearToken);
+        state.configDirty = false;
+        const verified = await loadConfig(true, true);
+        if (verified) {
+          showToast(operationMessage(operation,
+            'Configuration updated and verified. Hidden credentials were preserved unless explicitly changed.'));
+        } else {
+          showToast('Configuration was saved, but its verification reload failed. Use Retry before making more edits.', true);
+        }
+      } catch (error) {
+        if (error && error.kind === 'operation' && error.category === 'network') {
+          const verified = await reloadPersistedNetworkConfiguration(
+            enteredToken, clearToken);
+          showToast((error.message || String(error)) + (verified
+            ? ' Persisted configuration was reloaded so the failed network settings can be corrected.'
+            : ' Configuration was persisted, but its verification reload failed.'), true);
+        } else {
+          showToast(error.message || String(error), true);
+        }
+      } finally {
+        setConfigState(state.configState, state.configError);
+        renderAuthState();
+      }
     });
     byId('export-config').addEventListener('click', async function () {
+      if (state.configState !== CONFIG_STATE.READY) {
+        showToast('Configuration must be ready before export.', true);
+        return;
+      }
       try {
-        const payload = await api('/config');
+        const payload = await api('/config', { priority: PRIORITY.CORE });
         const blob = new Blob([pretty(payload) + '\n'], { type: 'application/json' });
-        const url = URL.createObjectURL(blob); const link = document.createElement('a'); link.href = url; link.download = 'opentag-station-redacted.json'; document.body.appendChild(link); link.click(); link.remove(); window.setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
-      } catch (error) { showToast(error.message, true); }
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = 'opentag-station-redacted.json';
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        window.setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+      } catch (error) {
+        showToast(error.message || String(error), true);
+      }
     });
     byId('import-config').addEventListener('change', async function (event) {
-      const file = event.currentTarget.files && event.currentTarget.files[0]; event.currentTarget.value = '';
-      if (!file) return; if (file.size <= 0 || file.size > MAX_IMPORT_BYTES) { showToast('Configuration import must be between 1 byte and 16 KiB.', true); return; }
+      const file = event.currentTarget.files && event.currentTarget.files[0];
+      event.currentTarget.value = '';
+      if (!file) return;
+      if (state.configState !== CONFIG_STATE.READY) {
+        showToast('Configuration must be ready before import.', true);
+        return;
+      }
+      if (file.size <= 0 || file.size > MAX_IMPORT_BYTES) {
+        showToast('Configuration import must be between 1 byte and 16 KiB.', true);
+        return;
+      }
+      let enteredToken = '';
+      let clearToken = false;
       try {
         const parsed = JSON.parse(await file.text());
         if (!window.confirm('Validate and apply this redacted configuration? Existing hidden credentials will be preserved.')) return;
-        const body = Object.assign(stripImportedCredentials(parsed), { expected_revision: Number(state.configRevision) });
+        const body = Object.assign(stripImportedCredentials(parsed), {
+          expected_revision: Number(state.configRevision)
+        });
         applyEnteredCredentials(body);
-        const operation = await submitMutation('/config', { method: 'PATCH', body: body });
-        showToast(operationMessage(operation, 'Configuration import completed.'));
-        load('/config', renderConfig, true);
-      } catch (error) { showToast(error.message || 'The selected file is not valid JSON.', true); }
+        configCredentialsAreSafe(first(asObject(body.wifi).ssid, asObject(asObject(state.config).wifi).ssid), body);
+        enteredToken = rawValueOf('config-api-token');
+        clearToken = checked('clear-api-token');
+        const operation = await submitMutation('/config', {
+          method: 'PATCH', body: body, scope: 'configuration', refresh: false,
+          operationTimeoutMs: configurationOperationWaitMs(body)
+        });
+        applySubmittedApiToken(enteredToken, clearToken);
+        state.configDirty = false;
+        const verified = await loadConfig(true, true);
+        showToast(verified ? operationMessage(operation, 'Configuration import completed and verified.')
+          : 'Configuration import completed, but verification reload failed.', !verified);
+      } catch (error) {
+        if (error && error.kind === 'operation' && error.category === 'network') {
+          const verified = await reloadPersistedNetworkConfiguration(
+            enteredToken, clearToken);
+          showToast((error.message || String(error)) + (verified
+            ? ' Persisted configuration was reloaded so the failed network settings can be corrected.'
+            : ' Configuration was persisted, but its verification reload failed.'), true);
+        } else {
+          showToast(error.message || 'The selected file is not valid JSON.', true);
+        }
+      }
     });
-    byId('refresh-diagnostics').addEventListener('click', function () { load('/diagnostics', renderDiagnostics, false); });
-    byId('refresh-logs').addEventListener('click', function () { load('/logs', renderLogs, false); });
+    byId('refresh-diagnostics').addEventListener('click', function () {
+      load('/diagnostics', renderDiagnostics, false, PRIORITY.BACKGROUND);
+    });
+    byId('refresh-logs').addEventListener('click', function () {
+      load('/logs', renderLogs, false, PRIORITY.BACKGROUND);
+    });
+    byId('run-self-test').addEventListener('click', runSelfTest);
     byId('firmware-file').addEventListener('change', function (event) {
       const file = event.currentTarget.files && event.currentTarget.files[0];
       selectFirmwareFile(file || null);
@@ -1674,34 +2893,131 @@ const char application_javascript[] = R"JS((function () {
     byId('reboot-update').addEventListener('click', function (event) {
       rebootIntoUpdate(event.currentTarget);
     });
-    byId('reboot-device').addEventListener('click', function (event) { if (window.confirm('Reboot OpenTag Station now?')) submitRestartButton(event.currentTarget, '/device/reboot', { confirmation: 'REBOOT' }, 'Reboot'); });
+    byId('reboot-device').addEventListener('click', function (event) {
+      if (window.confirm('Reboot OpenTag Station now?')) {
+        submitRestartButton(event.currentTarget, '/device/reboot', { confirmation: 'REBOOT' }, 'Reboot');
+      }
+    });
     byId('start-setup-mode').addEventListener('click', async function (event) {
       if (!window.confirm('Start the temporary setup access point? Normal Wi-Fi remains active.')) return;
-      await mutateButton(event.currentTarget, '/network/setup-mode', {}, 'Setup access point is starting.');
-      load('/network', renderNetwork, true);
+      await mutateButton(
+        event.currentTarget,
+        '/network/setup-mode',
+        {},
+        'Setup access point is running.',
+        { operationTimeoutMs: NETWORK_OPERATION_WAIT_MS });
     });
-    byId('factory-confirm').addEventListener('input', function (event) { byId('factory-reset').disabled = event.currentTarget.value !== 'FACTORY RESET'; });
+    byId('factory-confirm').addEventListener('input', function (event) {
+      byId('factory-reset').disabled = state.maintenance ||
+        event.currentTarget.value !== 'FACTORY RESET';
+    });
     byId('factory-reset').addEventListener('click', async function (event) {
       if (valueOf('factory-confirm') !== 'FACTORY RESET') return;
       if (!window.confirm('Factory reset erases local configuration and calibration, then reboots. This cannot be undone. Continue?')) return;
-      await submitRestartButton(event.currentTarget, '/device/factory-reset', { confirmation: 'FACTORY RESET' }, 'Factory reset');
+      await submitRestartButton(event.currentTarget, '/device/factory-reset', {
+        confirmation: 'FACTORY RESET'
+      }, 'Factory reset');
     });
   }
 
-  function start() {
+  async function start() {
     wireActions();
+    renderAuthState();
+    setConfigState(CONFIG_STATE.UNLOADED);
+    updateScaleControls();
     setText('footer-clock', new Date().toLocaleString());
-    window.setInterval(function () { setText('footer-clock', new Date().toLocaleString()); }, 60000);
-    refreshAll(true);
-    connectEvents();
-    window.addEventListener('beforeunload', function () {
-      if (state.uploadXhr) state.uploadXhr.abort();
-      if (state.socket) state.socket.close();
-      window.clearTimeout(state.reconnectTimer);
+    window.setInterval(function () {
+      setText('footer-clock', new Date().toLocaleString());
+    }, 60000);
+
+    await load('/device', renderDevice, true, PRIORITY.CORE);
+    await load('/network', renderNetwork, true, PRIORITY.CORE);
+    await loadConfig(true, true);
+    await load('/scale', renderScale, true, PRIORITY.CORE);
+
+    state.live = createLiveConnection();
+    state.live.online = navigator.onLine !== false;
+    state.live.suspended = document.hidden === true;
+    state.live.start();
+    refreshSecondary(true);
+
+    window.addEventListener('online', function () {
+      if (state.live) state.live.setOnline(true);
     });
+    window.addEventListener('offline', function () {
+      if (state.live) state.live.setOnline(false);
+    });
+    document.addEventListener('visibilitychange', function () {
+      if (!state.live) return;
+      if (document.hidden) state.live.suspend(); else state.live.resume();
+    });
+    window.addEventListener('hashchange', function () {
+      if (location.hash === '#configuration') ensureConfigReady();
+    });
+    window.addEventListener('pagehide', function () {
+      state.unloading = true;
+      state.selfTestGeneration += 1;
+      scheduler.cancelGroup('selftest:');
+      scheduler.cancelGroup('fallback:');
+      setFallbackPolling(false);
+      if (state.uploadXhr) state.uploadXhr.abort();
+      if (state.live) state.live.stop();
+    });
+    window.addEventListener('pageshow', function () {
+      state.unloading = false;
+      if (state.live) {
+        state.live.online = navigator.onLine !== false;
+        state.live.suspended = document.hidden === true;
+        state.live.start();
+      }
+      if (location.hash === '#configuration') ensureConfigReady();
+    });
+    if (location.hash === '#configuration') ensureConfigReady();
   }
 
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start, { once: true }); else start();
+  if (window.__OPENTAG_TEST__) {
+    window.__OpenTagTest = {
+      ApiError: ApiError,
+      RequestScheduler: RequestScheduler,
+      LiveConnection: LiveConnection,
+      PRIORITY: PRIORITY,
+      CONFIG_STATE: CONFIG_STATE,
+      SELF_TEST_PATHS: SELF_TEST_PATHS,
+      state: state,
+      scheduler: scheduler,
+      api: api,
+      submitMutationReceipt: submitMutationReceipt,
+      submitMutation: submitMutation,
+      configurationOperationWaitMs: configurationOperationWaitMs,
+      reloadPersistedNetworkConfiguration: reloadPersistedNetworkConfiguration,
+      scanNetworks: scanNetworks,
+      saveAndConnect: saveAndConnect,
+      setConfigState: setConfigState,
+      loadConfig: loadConfig,
+      applyAuthState: applyAuthState,
+      renderAuthState: renderAuthState,
+      handleLiveEvent: handleLiveEvent,
+      resourcePriority: resourcePriority,
+      updateScaleControls: updateScaleControls,
+      renderScale: renderScale,
+      renderNfc: renderNfc,
+      renderPrinters: renderPrinters,
+      updateButtons: updateButtons,
+      runScaleMutation: runScaleMutation,
+      runSelfTest: runSelfTest,
+      createLiveConnection: createLiveConnection,
+      refreshAll: refreshAll,
+      uploadSelectedFirmware: uploadSelectedFirmware
+    };
+    return;
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', start, { once: true });
+  } else {
+    start();
+  }
+
 }());
 )JS";
 

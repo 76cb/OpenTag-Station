@@ -8,6 +8,8 @@
 
 #include "application/boot_health_policy.hpp"
 #include "application/device_lifecycle_gate.hpp"
+#include "application/operation_registry.hpp"
+#include "ota/upload_operation_policy.hpp"
 
 using opentag::application::BootHealthPolicy;
 using opentag::application::BootHealthRequirement;
@@ -15,6 +17,16 @@ using opentag::application::BootHealthSignals;
 using opentag::application::BootHealthState;
 using opentag::application::DeviceLifecycleGate;
 using opentag::application::DeviceLifecycleOwner;
+using opentag::application::OperationKind;
+using opentag::application::OperationRegistry;
+using opentag::application::OperationState;
+using opentag::ota::OperationPrecondition;
+using opentag::ota::UpdateSnapshot;
+using opentag::ota::UpdateState;
+using opentag::ota::UploadCleanupDisposition;
+using opentag::ota::UploadOperationResolution;
+using opentag::ota::classify_upload_cleanup;
+using opentag::ota::resolve_upload_operation;
 
 namespace {
 
@@ -222,6 +234,187 @@ void test_factory_reset_recovery_is_not_classified_as_ota_failure() {
   TEST_ASSERT_TRUE(result.missing(BootHealthRequirement::storage));
 }
 
+
+void test_upload_cleanup_requires_authoritative_terminal_state() {
+  const OperationPrecondition owner{41U, 7U};
+  UpdateSnapshot snapshot;
+  snapshot.operation_id = owner.operation_id;
+  snapshot.generation = owner.generation;
+  snapshot.state = UpdateState::writing;
+
+  const auto ambiguous_timeout = classify_upload_cleanup(
+      owner, snapshot, false);
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(UploadCleanupDisposition::unresolved),
+      static_cast<int>(ambiguous_timeout));
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(UploadOperationResolution::running),
+      static_cast<int>(resolve_upload_operation(
+          ambiguous_timeout, true, false)));
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(UploadCleanupDisposition::aborted),
+      static_cast<int>(classify_upload_cleanup(owner, snapshot, true)));
+}
+
+void test_upload_cleanup_recognizes_exact_failed_cleared_and_validated_states() {
+  const OperationPrecondition owner{41U, 7U};
+  UpdateSnapshot snapshot;
+  snapshot.operation_id = owner.operation_id;
+  snapshot.generation = owner.generation;
+  snapshot.state = UpdateState::failed;
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(UploadCleanupDisposition::failed),
+      static_cast<int>(classify_upload_cleanup(owner, snapshot, false)));
+
+  snapshot.operation_id = 0U;
+  snapshot.state = UpdateState::idle;
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(UploadCleanupDisposition::aborted),
+      static_cast<int>(classify_upload_cleanup(owner, snapshot, false)));
+
+  snapshot.operation_id = owner.operation_id;
+  snapshot.state = UpdateState::ready_to_reboot;
+  snapshot.validation_passed = true;
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(UploadCleanupDisposition::validated),
+      static_cast<int>(classify_upload_cleanup(owner, snapshot, false)));
+}
+
+void test_upload_cleanup_rejects_stale_or_mismatched_generation_evidence() {
+  const OperationPrecondition owner{41U, 7U};
+  UpdateSnapshot snapshot;
+  snapshot.operation_id = owner.operation_id;
+  snapshot.generation = owner.generation + 1U;
+  snapshot.state = UpdateState::failed;
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(UploadCleanupDisposition::unresolved),
+      static_cast<int>(classify_upload_cleanup(owner, snapshot, false)));
+
+  snapshot.operation_id = 0U;
+  snapshot.state = UpdateState::idle;
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(UploadCleanupDisposition::unresolved),
+      static_cast<int>(classify_upload_cleanup(owner, snapshot, false)));
+}
+
+void test_cleared_generation_persist_failure_is_terminal_and_monotonic() {
+  OperationRegistry operations;
+  const auto operation_id = operations.begin(
+      OperationKind::firmware_upload, 1U, "Stopping firmware upload");
+  TEST_ASSERT_NOT_EQUAL_UINT64(0U, operation_id);
+  operations.mark_running(operation_id, 2U, "Persisting OTA cleanup");
+  const OperationPrecondition owner{operation_id, 9U};
+
+  UpdateSnapshot persist_failed;
+  persist_failed.operation_id = 0U;
+  persist_failed.generation = owner.generation;
+  persist_failed.state = UpdateState::failed;
+  TEST_ASSERT_TRUE(persist_failed.last_error.assign(
+      "Failed to persist cleared OTA state"));
+  const auto disposition = classify_upload_cleanup(
+      owner, persist_failed, false);
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(UploadCleanupDisposition::failed),
+      static_cast<int>(disposition));
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(UploadOperationResolution::failed),
+      static_cast<int>(resolve_upload_operation(
+          disposition, true, true)));
+
+  opentag::core::Error error{
+      opentag::core::ErrorCategory::firmware_update,
+      "Fallback cleanup failure",
+      true,
+  };
+  if (!persist_failed.last_error.empty()) {
+    error.message = std::string(persist_failed.last_error.view());
+  }
+  operations.fail(operation_id, 3U, std::move(error));
+  const auto terminal_revision = operations.revision();
+  operations.mark_running(operation_id, 4U, "Stale cleanup callback");
+  operations.succeed(operation_id, 5U, "Stale finish callback");
+
+  const auto terminal = operations.get(operation_id);
+  TEST_ASSERT_TRUE(terminal.has_value());
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(OperationState::failed),
+      static_cast<int>(terminal->state));
+  TEST_ASSERT_EQUAL_STRING(
+      "Failed to persist cleared OTA state", terminal->message.c_str());
+  TEST_ASSERT_EQUAL_UINT64(terminal_revision, operations.revision());
+
+  persist_failed.generation = owner.generation + 1U;
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(UploadCleanupDisposition::unresolved),
+      static_cast<int>(classify_upload_cleanup(
+          owner, persist_failed, false)));
+}
+
+void test_finish_timeout_late_validation_then_queued_abort_is_monotonic() {
+  OperationRegistry operations;
+  const auto operation_id = operations.begin(
+      OperationKind::firmware_upload, 10U, "Firmware upload accepted");
+  TEST_ASSERT_NOT_EQUAL_UINT64(0U, operation_id);
+  operations.mark_running(operation_id, 11U, "Validating firmware");
+  const OperationPrecondition owner{operation_id, 7U};
+
+  UpdateSnapshot validated;
+  validated.operation_id = owner.operation_id;
+  validated.generation = owner.generation;
+  validated.state = UpdateState::ready_to_reboot;
+  validated.validation_passed = true;
+  const auto late_finish = classify_upload_cleanup(owner, validated, false);
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(UploadCleanupDisposition::validated),
+      static_cast<int>(late_finish));
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(UploadOperationResolution::running),
+      static_cast<int>(resolve_upload_operation(
+          late_finish, true, false)));
+
+  // No observer can see success while the finish-timeout cleanup is pending.
+  operations.mark_running(operation_id, 12U, "Canceling late candidate");
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(OperationState::running),
+      static_cast<int>(operations.get(operation_id)->state));
+
+  UpdateSnapshot canceled;
+  canceled.operation_id = 0U;
+  canceled.generation = owner.generation;
+  canceled.state = UpdateState::idle;
+  const auto owner_cleanup = classify_upload_cleanup(owner, canceled, true);
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(UploadOperationResolution::failed),
+      static_cast<int>(resolve_upload_operation(
+          owner_cleanup, true, true)));
+  operations.fail(
+      operation_id,
+      13U,
+      {opentag::core::ErrorCategory::firmware_update,
+       "Late candidate canceled after finish timeout",
+       true});
+
+  // The already-queued HTTP abort and any stale late-finish callback cannot
+  // replace the authoritative failed outcome.
+  const auto terminal_revision = operations.revision();
+  operations.fail(
+      operation_id,
+      14U,
+      {opentag::core::ErrorCategory::firmware_update,
+       "Redundant queued abort",
+       true});
+  operations.succeed(operation_id, 15U, "Stale late validation");
+  const auto terminal = operations.get(operation_id);
+  TEST_ASSERT_TRUE(terminal.has_value());
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(OperationState::failed),
+      static_cast<int>(terminal->state));
+  TEST_ASSERT_EQUAL_STRING(
+      "Late candidate canceled after finish timeout",
+      terminal->message.c_str());
+  TEST_ASSERT_EQUAL_UINT64(terminal_revision, operations.revision());
+}
+
 }  // namespace
 
 int main(int, char**) {
@@ -237,5 +430,14 @@ int main(int, char**) {
   RUN_TEST(test_health_does_not_depend_on_backends_network_link_or_nfc);
   RUN_TEST(test_fatal_initialization_fails_before_the_window);
   RUN_TEST(test_factory_reset_recovery_is_not_classified_as_ota_failure);
+  RUN_TEST(test_upload_cleanup_requires_authoritative_terminal_state);
+  RUN_TEST(
+      test_upload_cleanup_recognizes_exact_failed_cleared_and_validated_states);
+  RUN_TEST(
+      test_upload_cleanup_rejects_stale_or_mismatched_generation_evidence);
+  RUN_TEST(
+      test_cleared_generation_persist_failure_is_terminal_and_monotonic);
+  RUN_TEST(
+      test_finish_timeout_late_validation_then_queued_abort_is_monotonic);
   return UNITY_END();
 }

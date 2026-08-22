@@ -57,11 +57,21 @@ available with one PSRAM buffer if the second allocation fails, or a 480 ×
 diagnostics screen reports the actual allocation path.
 
 NVS stores boot count, boot-pending health, and a saturated crash streak. A
-factory-blank LittleFS partition is mounted by its explicit `littlefs` partition
-label, formatted once if needed, and marked provisioned in NVS; later mount failures are reported without automatic reformatting. The
-firmware detects the coredump partition and displays reset reason, uptime, heap,
-minimum heap, and PSRAM totals. These behaviors are compiled, not yet physically
-verified.
+LittleFS partition is always mounted first with formatting disabled and by its
+explicit `littlefs` partition label. If that mount fails, a first format is
+authorized only when the station has no provisioning/reset marker and a complete
+read of the labeled partition proves every byte is erased (`0xFF`). Before
+formatting, the station durably writes `fsFormatPending` in the separate control
+NVS namespace, so power loss during the first format can retry without weakening
+the guard. After a successful mount it durably records `fsProvisioned`, then
+clears the pending intent.
+
+Any mount failure after provisioning, or on a partition that is not proven fully
+erased, preserves the data and never triggers automatic formatting. Factory
+reset removes only station configuration documents and restores the no-format
+guard; it does not format LittleFS. The firmware also detects the coredump
+partition and displays reset reason, uptime, heap, minimum heap, and PSRAM
+totals. These behaviors are compiled, not yet physically verified.
 
 ## Known board signals
 

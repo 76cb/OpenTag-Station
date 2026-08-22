@@ -65,8 +65,9 @@ twenty suites. This is the runner result after the final safety fixes:
   and ingestion-time sensitive-token redaction;
 - bounded operation correlation, newest-first ordering, expiration, and bounded
   status/error text;
-- a 16-entry idempotency ledger with same-payload reuse, conflict detection,
-  wrap-safe TTL expiration, deterministic overwrite, and concurrent access;
+- a 32-entry idempotency ledger with ten-minute retention, same-payload reuse,
+  conflict detection, wrap-safe expiry, expire-only capacity reuse, full-ledger
+  rejection before side effects, and concurrent access;
 - the complete versioned web route table, global/per-route request and response
   bounds, strict JSON shapes/types, conditional bearer authorization, required
   mutation headers, stable structured errors, and destructive confirmations;
@@ -173,11 +174,44 @@ Phase 11 originally contained 225 host cases across the same twenty suites and a
 deterministic counter saturation and OpenPrintTag mutation cases,
 embedded-JavaScript syntax validation, and compiler stack-frame reporting. The
 WT32 build remains warning-free at 167,152 RAM bytes and 1,948,105 flash bytes.
+
+## Local stabilization gate result — 2026-08-22 pre-commit
+
+The final local stabilization run passes 262/262 native cases across twenty
+suites in 00:06:27.085 and 33/33 deterministic browser-transport cases.
+Embedded JavaScript syntax validation passes for the 119,132-byte shipped
+source. The pinned WT32 build is warning-free at 170,752/327,680 RAM bytes
+(52.1%) and 2,090,973/5,242,880 flash bytes (39.9%).
+
+The stack analyzer parses 8,192 frames across 413 files. Its largest project
+frames are 7,936 bytes for `Codec::decode` (behind the disabled NFC gate),
+6,512 for `OtaWorker::process`, 6,512 for `OtaWorker::run`, 5,312 for OTA
+pre-task cleanup, 5,264 for the firmware descriptor, 5,024 to begin streaming
+upload, 4,224 for API `snapshot_json`, and 3,232 for the upload handler. Eleven
+project frames report dynamic use; the largest estimate is 240
+bytes. Frame sizes are individual compiler estimates, not cumulative call-chain
+proof.
+
+The final local pre-commit factory bundle passes validation at 2,156,880 bytes,
+with embedded version `0.1.0-dev+296d8a47c13d` and SHA-256
+`578cb70758d9364bef5684b4e59fd4c0b2644c6df3660e16b641e61498f51b73`.
+This bundle predates the final stabilization commit, so it is not the final
+release or deployed artifact and no final embedded Git SHA, final artifact
+digest, Pages status, or public HTTP result is claimed.
+
+These passing results supersede the temporary pre-run registration estimate but
+do not erase the historical Phase 9, Phase 10, Phase 11, or provisioning-hotfix
+records above. They also do not execute the physical station: all target
+browser/LAN,
+scale, Wi-Fi, heap/stack soak, power-loss, backend, OTA/bootloader, and factory
+flash checks remain UNVERIFIED.
+
 Run the release checks with:
 
 ```bash
 git diff --check
 python3 tools/check_web_assets.py
+node --test tools/test_web_transport.mjs
 python3 tools/web_flasher.py validate-source --page web-flasher/index.html --manifest web-flasher/manifest.json
 .venv/bin/pio test --environment native
 .venv/bin/pio run --environment wt32-sc01-plus
@@ -194,6 +228,36 @@ release or tag and do not prove a physical USB flash; follow
 
 The final count/build measurements and all-UNVERIFIED hardware/soak matrix are
 maintained in [release-validation.md](release-validation.md).
+
+## Embedded browser transport tests
+
+`tools/test_web_transport.mjs` executes the scheduler and live-connection
+logic extracted from the shipped embedded JavaScript. Its deterministic fake
+transport covers slow responses, dropped GETs, WebSocket reconnects,
+configuration GET failure, a mutation during background refresh, duplicate
+refreshes, transient operation-poll failure, API 401/409/500, socket exhaustion,
+and a stale response arriving after newer state.
+
+The harness must prove:
+
+- ordinary REST concurrency never exceeds two and background work occupies at
+  most one slot;
+- priority-one mutation/receipt polling is not starved, while identical GETs
+  deduplicate and old queued background reads may be superseded;
+- one mutation uses one exact body/idempotency key and is never automatically
+  replayed after uncertain receipt delivery;
+- configuration reaches `READY` or a visible `ERROR`, retries deterministically,
+  preserves dirty edits/hidden credentials, and leaves no stuck controls;
+- each tab has one WebSocket and one reconnect timer, heartbeat performs no
+  refresh, stale/offline/hidden/page-unload transitions clean up correctly, and
+  fallback polling ends after recovery;
+- tokenless mode reports authentication disabled and local control enabled
+  without degraded health or mutation blocking; and
+- 100 refresh cycles keep queue/concurrency/resource counters bounded.
+
+This host test validates JavaScript policy and state transitions. It does not
+execute a browser TCP stack, ESP-IDF HTTPD, Wi-Fi radio, or heap allocator, so
+the one-tab and two-tab hardware procedures below remain release gates.
 
 ## Host unit tests
 
@@ -326,9 +390,11 @@ has visibly returned to the previous known-good partition.
 
 Flash a real board on an isolated test LAN and verify:
 
-1. Before a local API token exists, verify read-only snapshots and local
-   mutations work without `Authorization`. Provision a valid token through the
-   masked touchscreen field, verify missing/wrong credentials now fail, then
+1. With a blank local API token, verify health is not degraded, setup can
+   complete, the UI says authentication DISABLED and browser control ENABLED,
+   and scale/config/backend/device/update mutations work without
+   `Authorization`. Provision a valid token through the masked touchscreen
+   field, verify the UI changes to ENABLED and missing/wrong credentials fail, then
    confirm `GET /api/v1/config` reports only
    `web.access_token_configured: true` and never the token.
 2. Inspect the configuration response and logs over the wire for Wi-Fi
@@ -343,11 +409,12 @@ Flash a real board on an isolated test LAN and verify:
    current toolhead spool.
 5. Retry an identical idempotency key/body and receive the same operation;
    reuse the key with a different body and receive a conflict. Verify bounded
-   operation history and behavior after the 60-second volatile ledger TTL.
-6. Open, close, reload, and reconnect multiple browser/WebSocket clients
-   repeatedly. Verify disconnected sockets are reclaimed, updates remain
-   coherent, and HTTP handling does not starve the UI, scale, network, or
-   backend owners.
+   operation history and behavior after the ten-minute volatile ledger TTL.
+6. Open, close, F5-reload, and reconnect one tab repeatedly; verify it owns
+   exactly one WebSocket and one timer. Then operate two tabs and attempt an
+   excess live client. Verify graceful fallback/rejection, disconnected socket
+   reclamation, coherent state, and no starvation of UI, scale, network,
+   configuration, mutation receipts, or backend owners.
 7. Render backend/printer/spool/log strings containing HTML metacharacters and
    confirm they remain text, not markup or executable script. Exercise desktop
    and narrow/mobile layouts in each supported browser.
@@ -358,7 +425,8 @@ Flash a real board on an isolated test LAN and verify:
 9. Generate enough logs and operations to force bounded rollover, then confirm
    cursor/drop/history-gap reporting and ingestion-time redaction remain
    correct on the real endpoint.
-10. Exercise update upload with absent/wrong/correct token, missing/malformed
+10. Exercise tokenless update upload without Authorization; then configure a
+    token and exercise missing/wrong/correct values, plus missing/malformed
     headers, stale generation/digest, repeated and conflicting idempotency keys,
     concurrent uploads, slow receive, disconnect, and short/oversized bodies.
     Separately characterize duplicate headers: pinned ESP-IDF exposes only the
@@ -367,6 +435,21 @@ Flash a real board on an isolated test LAN and verify:
 11. Verify the Update panel distinguishes upload, validation, inactive install,
     reboot acceptance, candidate boot, confirmation, rollback, and failure;
     aborting an XHR must clean up the owner and reconnect must restore status.
+12. Run **Local Interface Self-Test** and capture every REST endpoint's HTTP
+    result, latency, API envelope result/error, and the existing WebSocket
+    state. Confirm it performs no mutation, opens no second WebSocket, displays
+    no body, and exposes no secret.
+13. Exercise navigation away/back, setup-AP to LAN transition, LAN loss/rejoin,
+    WebSocket loss, and station reboot. Confirm the UI moves through Connecting,
+    Connected, Disconnected/retrying, and polling fallback as appropriate,
+    resumes live updates, and never carries stale JavaScript state forward.
+14. Record free/minimum/largest internal heap block, free/minimum/largest PSRAM
+    block, active/maximum HTTP sockets, WebSocket clients, operation/REST queue
+    depths, and all task stack margins at boot, HTTP start, first WebSocket,
+    initial load, 10 and 100 refreshes, config save, tare, calibration, Wi-Fi
+    scan, backend test, and after a 30-minute connected-browser soak. Repeated
+    equivalent cycles must not show an unexplained monotonic memory decline or
+    stack-margin collapse.
 
 ## V0.1 end-to-end acceptance
 

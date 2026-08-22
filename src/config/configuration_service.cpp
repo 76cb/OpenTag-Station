@@ -709,6 +709,12 @@ Configuration ConfigurationService::snapshot() const {
   return configuration_;
 }
 
+LocalInterfaceSettingsSnapshot
+ConfigurationService::local_interface_settings_snapshot() const {
+  const std::lock_guard<std::mutex> lock(mutex_);
+  return {configuration_.device.hostname, configuration_.web, revision_};
+}
+
 VersionedConfiguration ConfigurationService::versioned_snapshot() const {
   const std::lock_guard<std::mutex> lock(mutex_);
   return {configuration_, revision_};

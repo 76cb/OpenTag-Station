@@ -159,6 +159,8 @@ core::Result<void> ScaleService::initialize(
             calibration_->load_cell_capacity_grams;
       }
       pending_zero_offset_counts_ = calibration_->zero_offset_counts;
+      status_.tare_ready = true;
+      status_.tare_zero_offset_counts = calibration_->zero_offset_counts;
       status_.calibration_loaded = true;
     } else {
       status_.persistence_available = false;
@@ -311,6 +313,8 @@ core::Result<void> ScaleService::tare() {
   }
   pending_zero_offset_counts_ =
       static_cast<std::int32_t>(std::llround(status_.sample.filtered_raw_counts));
+  status_.tare_ready = true;
+  status_.tare_zero_offset_counts = *pending_zero_offset_counts_;
   if (calibration_.has_value()) {
     calibration_->zero_offset_counts = *pending_zero_offset_counts_;
     const auto saved = store_.save_scale_calibration(*calibration_);
@@ -355,6 +359,8 @@ core::Result<ScaleCalibration> ScaleService::calibrate(
   }
   ScaleCalibration proposed;
   proposed.zero_offset_counts = *pending_zero_offset_counts_;
+  status_.tare_ready = true;
+  status_.tare_zero_offset_counts = *pending_zero_offset_counts_;
   proposed.counts_per_gram = delta / reference_grams;
   proposed.reference_grams = reference_grams;
   proposed.load_cell_capacity_grams = load_cell_capacity_grams;

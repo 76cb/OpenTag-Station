@@ -25,6 +25,7 @@ class DeviceControlWorker final {
   [[nodiscard]] bool start();
   [[nodiscard]] CommandReceipt submit_reboot(std::uint32_t now_ms);
   [[nodiscard]] CommandReceipt submit_factory_reset(std::uint32_t now_ms);
+  [[nodiscard]] TaskHandle_t task_handle() const { return task_; }
   [[nodiscard]] std::size_t pending() const {
     return pending_.load(std::memory_order_relaxed);
   }
