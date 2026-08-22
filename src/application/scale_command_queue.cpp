@@ -16,6 +16,7 @@ CommandReceipt ScaleCommandQueue::submit(Command command, OperationKind kind) {
       command.enqueued_at_ms,
       kind == OperationKind::scale_tare ? "Scale tare queued"
                                         : "Scale calibration queued");
+  if (command.operation_id == 0U) return {false, 0U};
   pending_.fetch_add(1U, std::memory_order_relaxed);
   if (queue_ == nullptr || xQueueSend(queue_, &command, 0U) != pdTRUE) {
     pending_.fetch_sub(1U, std::memory_order_relaxed);
@@ -52,6 +53,7 @@ CommandReceipt ScaleCommandQueue::submit_calibration(
         OperationKind::scale_calibration,
         now_ms,
         "Scale calibration rejected");
+    if (operation_id == 0U) return {false, 0U};
     operations_.fail(
         operation_id,
         now_ms,

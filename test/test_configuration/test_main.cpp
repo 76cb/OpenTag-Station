@@ -763,6 +763,37 @@ void test_web_access_token_validation_is_fail_closed_and_ascii_only() {
   TEST_ASSERT_FALSE(configuration.validate().ok());
 }
 
+void test_local_interface_snapshot_is_narrow_current_and_independent() {
+  MemoryDocumentStore documents;
+  LegacyScaleStore legacy;
+  ConfigurationService service(documents, legacy);
+  TEST_ASSERT_TRUE(service.initialize().ok());
+  const auto initial = service.local_interface_settings_snapshot();
+  TEST_ASSERT_EQUAL_STRING("opentag-station", initial.hostname.c_str());
+  TEST_ASSERT_TRUE(initial.web.access_token.empty());
+  TEST_ASSERT_EQUAL_UINT64(service.revision(), initial.revision);
+
+  auto configured = service.snapshot();
+  configured.device.hostname = "low-heap-station";
+  configured.spoolman.ca_certificate_pem = std::string(4096U, 'S');
+  configured.filabridge.ca_certificate_pem = std::string(4096U, 'F');
+  configured.web.access_token = "LocalApiToken-0123456789";
+  TEST_ASSERT_TRUE(service.replace(configured).ok());
+
+  auto local = service.local_interface_settings_snapshot();
+  TEST_ASSERT_EQUAL_STRING("low-heap-station", local.hostname.c_str());
+  TEST_ASSERT_EQUAL_STRING(
+      "LocalApiToken-0123456789", local.web.access_token.c_str());
+  TEST_ASSERT_EQUAL_UINT64(service.revision(), local.revision);
+  local.hostname.clear();
+  local.web.access_token.clear();
+
+  const auto current = service.local_interface_settings_snapshot();
+  TEST_ASSERT_EQUAL_STRING("low-heap-station", current.hostname.c_str());
+  TEST_ASSERT_EQUAL_STRING(
+      "LocalApiToken-0123456789", current.web.access_token.c_str());
+}
+
 void test_complete_toolhead_profile_round_trips() {
   MemoryDocumentStore documents;
   LegacyScaleStore legacy;
@@ -810,11 +841,12 @@ void test_confirmed_spool_mapping_round_trips_and_conflicts_are_rejected() {
       1U, reader.load_spool_identity_mappings().value().size());
 }
 
-void test_first_run_navigation_allows_incomplete_steps_and_persists_progress() {
+void test_first_run_navigation_allows_tokenless_setup_completion() {
   MemoryDocumentStore documents;
   LegacyScaleStore legacy;
   ConfigurationService configuration(documents, legacy);
   TEST_ASSERT_TRUE(configuration.initialize().ok());
+  TEST_ASSERT_TRUE(configuration.snapshot().web.access_token.empty());
   FirstRunSetup setup(configuration);
 
   TEST_ASSERT_TRUE(setup.go_to(SetupStep::scale_calibration).ok());
@@ -827,6 +859,8 @@ void test_first_run_navigation_allows_incomplete_steps_and_persists_progress() {
   TEST_ASSERT_TRUE(setup.go_to(SetupStep::ready).ok());
   TEST_ASSERT_TRUE(setup.mark_complete(SetupStep::ready).ok());
   TEST_ASSERT_TRUE(setup.complete());
+  TEST_ASSERT_TRUE(configuration.snapshot().web.access_token.empty());
+  TEST_ASSERT_TRUE(configuration.snapshot().validate().ok());
   TEST_ASSERT_FALSE(setup.next().ok());
 }
 
@@ -857,8 +891,9 @@ int main(int, char**) {
   RUN_TEST(test_validation_rejects_invalid_urls_and_duplicate_toolheads);
   RUN_TEST(test_validation_rejects_invalid_scale_hardware_settings);
   RUN_TEST(test_web_access_token_validation_is_fail_closed_and_ascii_only);
+  RUN_TEST(test_local_interface_snapshot_is_narrow_current_and_independent);
   RUN_TEST(test_complete_toolhead_profile_round_trips);
   RUN_TEST(test_confirmed_spool_mapping_round_trips_and_conflicts_are_rejected);
-  RUN_TEST(test_first_run_navigation_allows_incomplete_steps_and_persists_progress);
+  RUN_TEST(test_first_run_navigation_allows_tokenless_setup_completion);
   return UNITY_END();
 }

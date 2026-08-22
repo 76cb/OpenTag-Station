@@ -186,7 +186,8 @@ Response operation_response(MutationKind kind, std::uint64_t operation_id) {
   std::string body;
   serializeJson(document, body);
   auto response = base_response(202, std::move(body));
-  if (kind == MutationKind::network_connect) {
+  if (kind == MutationKind::network_connect ||
+      kind == MutationKind::configuration_patch) {
     response.delivered_network_connect_operation = operation_id;
   }
   return response;
@@ -247,12 +248,16 @@ Response payload_response(
         "unsafe_configuration_snapshot",
         "The configuration view contained a forbidden credential field");
   }
-  JsonDocument document;
-  document["api_version"] = version;
-  document["ok"] = true;
-  document["data"].set(source.as<JsonVariantConst>());
+  // The application already serialized the bounded payload. Once it has been
+  // parsed for validity/redaction, wrap those exact bytes rather than copying
+  // the full tree into a second JsonDocument and serializing it again.
   std::string body;
-  serializeJson(document, body);
+  body.reserve(payload.size() + 48U);
+  body += R"({"api_version":")";
+  body += version;
+  body += R"(","ok":true,"data":)";
+  body += payload;
+  body += '}';
   if (body.size() > maximum_response_body_bytes) {
     return error_response(
         500,

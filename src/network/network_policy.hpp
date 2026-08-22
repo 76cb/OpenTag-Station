@@ -100,6 +100,20 @@ struct WifiNetwork {
 };
 
 inline constexpr std::int16_t wifi_scan_running_result = -1;
+inline constexpr std::int16_t wifi_scan_failed_result = -2;
+
+inline constexpr std::uint32_t setup_ap_ipv4_host_order = 0xC0A80401UL;
+inline constexpr std::uint32_t setup_ap_subnet_mask_host_order =
+    0xFFFFFF00UL;
+
+[[nodiscard]] constexpr bool is_setup_ap_transport(
+    std::uint32_t peer_ipv4_host_order,
+    std::uint32_t local_ipv4_host_order) {
+  return local_ipv4_host_order == setup_ap_ipv4_host_order &&
+      (peer_ipv4_host_order & setup_ap_subnet_mask_host_order) ==
+          (setup_ap_ipv4_host_order & setup_ap_subnet_mask_host_order) &&
+      peer_ipv4_host_order != setup_ap_ipv4_host_order;
+}
 
 enum class WifiScanOutcome : std::uint8_t {
   idle,
@@ -113,6 +127,43 @@ struct WifiScanTransition {
   std::int16_t result_code{0};
 };
 
+// WiFiScanClass::scanComplete() in the pinned Arduino framework reports -2
+// when its wrapper timeout expires, but the ESP-IDF scan-done callback may
+// still be allocating or filling the shared result array. Only a nonnegative
+// result proves that callback has published WIFI_SCAN_DONE_BIT and is
+// quiescent. Keep this classifier platform-free so that the lifetime contract
+// is covered by native tests rather than hardware-only mocks.
+enum class WifiScanDriverPollAction : std::uint8_t {
+  wait,
+  request_stop,
+  collect_results,
+  discard_stopped_results,
+};
+
+struct WifiScanDriverPollDecision {
+  WifiScanDriverPollAction action{WifiScanDriverPollAction::wait};
+  std::int16_t result_code{wifi_scan_failed_result};
+};
+
+[[nodiscard]] constexpr WifiScanDriverPollDecision
+classify_wifi_scan_driver_poll(
+    std::int16_t result_code,
+    std::uint32_t elapsed_ms,
+    std::uint32_t deadline_ms,
+    bool stop_requested) {
+  if (result_code >= 0) {
+    return {
+        stop_requested
+            ? WifiScanDriverPollAction::discard_stopped_results
+            : WifiScanDriverPollAction::collect_results,
+        result_code};
+  }
+  if (!stop_requested && elapsed_ms >= deadline_ms) {
+    return {WifiScanDriverPollAction::request_stop, result_code};
+  }
+  return {WifiScanDriverPollAction::wait, result_code};
+}
+
 // Transport-independent bookkeeping for the Arduino Wi-Fi asynchronous scan
 // contract. A request received while a scan is running is coalesced into one
 // follow-up scan instead of being lost or forcing scanDelete() mid-scan.
@@ -120,25 +171,49 @@ class AsyncWifiScanState {
  public:
   void request() { requested_.store(true, std::memory_order_release); }
 
-  [[nodiscard]] bool start_due() {
-    if (running_) return false;
+  // A caller may defer a pending request without consuming it while the radio
+  // is associating or changing mode. This prevents a later reconnect or
+  // reconfiguration from invalidating an in-flight asynchronous scan.
+  [[nodiscard]] bool start_due(bool start_allowed = true) {
+    if (running_ || !start_allowed) return false;
     return requested_.exchange(false, std::memory_order_acq_rel);
   }
 
+  [[nodiscard]] bool requested() const {
+    return requested_.load(std::memory_order_acquire);
+  }
   [[nodiscard]] bool running() const { return running_; }
   [[nodiscard]] std::uint32_t generation() const { return generation_; }
+  [[nodiscard]] std::uint32_t attempt_generation() const {
+    return attempt_generation_;
+  }
   [[nodiscard]] std::optional<std::int16_t> last_failure_code() const {
     return last_failure_code_;
   }
 
   [[nodiscard]] WifiScanTransition accept_start_result(
       std::int16_t result_code) {
+    attempt_generation_ = core::saturating_increment(attempt_generation_);
     return accept_result(result_code);
   }
 
   [[nodiscard]] WifiScanTransition accept_poll_result(
       std::int16_t result_code) {
+    // After an accepted asynchronous start, every negative wrapper result is
+    // nonterminal. In particular, -2 does not prove that the ESP scan-done
+    // callback has stopped touching its shared result storage.
+    if (running_ && result_code < 0) {
+      return {WifiScanOutcome::running, result_code};
+    }
     return accept_result(result_code);
+  }
+
+  [[nodiscard]] WifiScanTransition accept_stopped_result(
+      std::int16_t failure_code = wifi_scan_failed_result) {
+    if (!running_) return {WifiScanOutcome::idle, failure_code};
+    running_ = false;
+    last_failure_code_ = failure_code;
+    return {WifiScanOutcome::failed, failure_code};
   }
 
  private:
@@ -160,7 +235,35 @@ class AsyncWifiScanState {
   std::atomic_bool requested_{false};
   bool running_{false};
   std::uint32_t generation_{0U};
+  std::uint32_t attempt_generation_{0U};
   std::optional<std::int16_t> last_failure_code_;
+};
+
+// A fixed, allocation-free claim used to correlate one browser-visible
+// operation with one network-owner action. Overlapping callers are rejected
+// deterministically instead of being silently coalesced onto an unrelated
+// hardware attempt.
+class CorrelatedOperationClaim final {
+ public:
+  [[nodiscard]] bool try_claim(std::uint64_t operation_id) {
+    if (operation_id == 0U) return false;
+    std::uint64_t empty = 0U;
+    return operation_id_.compare_exchange_strong(
+        empty, operation_id, std::memory_order_acq_rel);
+  }
+
+  [[nodiscard]] std::uint64_t operation_id() const {
+    return operation_id_.load(std::memory_order_acquire);
+  }
+
+  [[nodiscard]] bool release(std::uint64_t operation_id) {
+    if (operation_id == 0U) return false;
+    return operation_id_.compare_exchange_strong(
+        operation_id, 0U, std::memory_order_acq_rel);
+  }
+
+ private:
+  std::atomic<std::uint64_t> operation_id_{0U};
 };
 
 // Save & Connect commands may not touch persistence or the radio until the

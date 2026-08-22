@@ -7,11 +7,32 @@ Versioning once releases begin.
 
 ### Fixed
 
+- Stabilize the physical LAN control path with an ordered, priority-aware
+  browser request scheduler, a single recoverable WebSocket per tab, explicit
+  configuration load state, targeted operation polling, and read-only local
+  interface self-test coverage.
+- Restore the pinned HTTP server's seven-client/five-backlog socket budget,
+  disable LRU purging of useful sessions, and retain five-second socket waits so
+  normal browser traffic cannot evict live updates or mutation receipts.
+- Serialize Wi-Fi scan and association/radio-mode transitions, and distinguish
+  an Arduino `WIFI_SCAN_FAILED` (`-2`) start rejection from a scan whose wrapper
+  state was lost after asynchronous start.
+- Treat an empty local API token consistently as trusted-LAN mode: local API
+  authentication is disabled, local browser control remains enabled, and the
+  missing optional credential does not degrade health or block setup.
+- Extend runtime diagnostics with internal-heap largest-block/minimum history,
+  PSRAM minimum/largest-block history, transport ownership, and stack margins
+  for backend, control, OTA, network, UI, configuration, scale, loop, and HTTPD
+  tasks.
 - Correct the LVGL-to-LovyanGFX RGB565 byte-order boundary on WT32-SC01 Plus,
   increase on-device text hierarchy and contrast, remove the workflow toolhead
   overlap, and add an opt-in color/geometry/touch display self-test build.
-- Explicitly mount and first-use-format the custom `littlefs` partition by label;
-  post-provisioning mount failures remain fail-safe and never auto-format data.
+- Mount the custom `littlefs` partition by label with formatting disabled;
+  authorize its first format only after a complete-partition `0xFF` proof and a
+  durable `fsFormatPending` control-NVS intent. Successful mount records the
+  no-format guard before clearing that intent, power loss may safely retry the
+  first format, and provisioned or non-erased mount failures preserve data
+  without destructive automatic formatting.
 - Isolate the NAU7802 on `Wire` from the touchscreen on `Wire1`, and add a
   one-shot bounded GPIO10/11 startup scan with diagnostic-only reversed-wire
   detection that always restores the production pin assignment.
@@ -82,8 +103,8 @@ Versioning once releases begin.
 - Wi-Fi scan/connect/reconnect ownership with stored credentials, bounded
   connection attempts, exponential backoff, DHCP/RSSI/IP/DNS/mDNS/NTP status,
   and on-device diagnostics.
-- Bounded HTTP transport with strict URL/header/body/response limits,
-  redirects disabled, explicit DNS errors, and CA-verified HTTPS only.
+- Bounded outbound backend HTTP transport with strict URL/header/body/response
+  limits, redirects disabled, explicit DNS errors, and CA verification for HTTPS.
 - Phase 7 Spoolman adapter pinned to the revalidated v0.26.1/current-master
   contract with health/version and per-operation capability probes, bounded
   normalized parsing, explicit create, location/field discovery, and guarded
@@ -126,10 +147,11 @@ Versioning once releases begin.
 - Credential-redacted configuration reads and allowlisted imports plus typed
   partial PATCH updates guarded by an expected configuration revision. Omitted
   credentials are preserved and explicit empty values clear them.
-- Local API mutation authentication using a 16–128 character bearer token whose
-  initial value is provisioned on the physical touchscreen. The browser keeps
-  the entered command token only in memory for the current tab and clears it
-  after an unauthorized response.
+- Optional local API mutation authentication using a 16–128 character bearer
+  token that may be provisioned on the physical touchscreen or through setup.
+  With no token, local browser control remains enabled in trusted-LAN mode. The
+  browser keeps a configured command token only in memory for the current tab
+  and clears it after an unauthorized response.
 - Persistent YZC-133 hardware profiles corrected to the actual/default 5 kg
   cell while retaining the 2 kg variant and legacy-calibration inference.
 - Phase 9 explicit NFC-unavailable responses for the wiring/RFAL-gated build,
@@ -165,12 +187,34 @@ Versioning once releases begin.
   outages and deliberately unavailable NFC do not block confirmation.
 - A generation-token device lifecycle gate that makes generic reboot, factory
   reset, OTA upload/activation, and candidate validation mutually exclusive.
-- A 26-route API inventory, update WebSocket snapshots, and an embedded Update
-  panel with browser-side hashing, upload progress, explicit reboot confirmation,
-  bounded validation/rollback errors, and reconnect/resume status after restart.
+- A Phase 10 26-route API inventory, update WebSocket snapshots, and an
+  embedded Update panel with browser-side hashing, upload progress, explicit
+  reboot confirmation, bounded validation/rollback errors, and reconnect/resume
+  status after restart.
 
 ### Verified
 
+- The 2026-08-22 pre-commit hardware-stabilization software gates pass 262/262
+  native cases across twenty suites in 00:06:27.085 and 33/33 deterministic
+  browser-transport cases. Embedded JavaScript syntax validation passes for the
+  119,132-byte shipped source.
+- The stabilization WT32-SC01 Plus build completes without compiler warnings at
+  170,752/327,680 RAM bytes (52.1%) and 2,090,973/5,242,880 flash bytes
+  (39.9%).
+- Stabilization stack analysis parses 8,192 frames across 413 files. The largest
+  project frames are 7,936 bytes for the OpenPrintTag codec (NFC remains
+  disabled), 6,512 for OTA process, 6,512 for OTA run, 5,312 for OTA pre-task
+  cleanup, 5,264 for the firmware descriptor, 5,024 to begin streaming upload,
+  4,224 for API `snapshot_json`, and 3,232 for the upload handler. Eleven
+  project frames report dynamic use; the largest estimate is 240 bytes.
+- The final pre-commit factory bundle validation passes at 2,156,880 bytes with
+  embedded version `0.1.0-dev+296d8a47c13d` and SHA-256
+  `578cb70758d9364bef5684b4e59fd4c0b2644c6df3660e16b641e61498f51b73`.
+  This is local bundle-size/structure evidence only; it is not a final committed
+  or deployed image, and no final Git SHA, final artifact digest, or deployment
+  result is claimed.
+- All physical hardware/browser, soak, power-loss, backend, and bootloader
+  validation remains explicitly UNVERIFIED.
 - The complete Phase 9 native run passes all 163 cases across eighteen suites.
 - The final Phase 10 native run passes all 223 cases across twenty suites.
 - The pinned Phase 10 WT32-SC01 Plus firmware build succeeds without compiler

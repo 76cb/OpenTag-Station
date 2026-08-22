@@ -26,6 +26,40 @@ build from physical evidence that does not yet exist.
 - The provisioning stack hotfix passes 240/240 native cases and its warning-free
   WT32 build uses 167,912 RAM bytes and 2,017,881 flash bytes: +72/-288 bytes
   versus the PR #5 base at `e33bf97cceca0d1246317d38c892ecd9c71d5cfe`.
+
+#### LOCAL STABILIZATION RESULT — 2026-08-22 PRE-COMMIT
+
+- The complete native suite passes **262/262 cases across 20 suites** in
+  **00:06:27.085**.
+- The deterministic embedded-browser transport suite passes **33/33 cases**.
+- Embedded JavaScript syntax validation passes for the **119,132-byte** shipped
+  JavaScript source.
+- The pinned `wt32-sc01-plus` build completes with zero compiler warnings and
+  uses **170,752/327,680 RAM bytes (52.1%)** and
+  **2,090,973/5,242,880 flash bytes (39.9%)**.
+- Stack analysis parses **8,192 frames across 413 files**. Largest project frames,
+  in bytes and not cumulative call-chain use, are:
+  - 7,936 — `Codec::decode`; NFC remains disabled and no NFC owner task runs;
+  - 6,512 — `OtaWorker::process`;
+  - 6,512 — `OtaWorker::run`;
+  - 5,312 — `OtaWorker::cleanup_pre_task_resources`;
+  - 5,264 — firmware descriptor;
+  - 5,024 — begin streaming upload;
+  - 4,224 — API `snapshot_json`; and
+  - 3,232 — upload handler.
+- Eleven project frames report dynamic stack use; their largest analyzer
+  estimate is **240 bytes**.
+- The final pre-commit factory bundle passes local source/bundle validation at
+  **2,156,880 bytes**, with embedded version `0.1.0-dev+296d8a47c13d` and
+  SHA-256
+  `578cb70758d9364bef5684b4e59fd4c0b2644c6df3660e16b641e61498f51b73`.
+  It was generated before the final stabilization commit, so this records local
+  structure/size evidence only. It does not claim a final embedded Git SHA,
+  final artifact digest, Pages artifact, deployment, or public HTTP result.
+- These are host/build artifacts, not physical evidence. Target browser/LAN,
+  scale, Wi-Fi, memory/stack soak, power-loss, backend, OTA/bootloader, and
+  factory-flash validation remain **UNVERIFIED**.
+
 - No statement in this document is evidence of electrical, RF, mechanical,
   browser-on-target, live-backend, or bootloader-on-target behavior.
 
@@ -41,7 +75,7 @@ are recorded. A successful firmware build is not physical validation.
 | --- | --- | --- |
 | Application lifecycle | Arduino `setup()/loop()` constructs static services; `DeviceLifecycleGate` serializes reboot, reset, OTA, and candidate validation | Owner tasks expose snapshots and bounded receipts |
 | Web/API server | Network task starts/stops/publishes; ESP-IDF HTTP task executes handlers | Router is transport-neutral; handlers never own backend or flash state |
-| WebSocket publishing | Network task builds events; one fixed asynchronous batch owns payloads until callbacks complete | At most 2 WebSocket clients and 4 total sockets |
+| WebSocket publishing | Network task builds events; one fixed asynchronous batch owns payloads until callbacks complete | At most 2 WebSocket clients and 7 total sockets; LRU purge disabled |
 | Configuration | `ConfigurationWorker` owns UI/API writes; `ConfigurationService` mutex serializes persistence and snapshots | Scale calibration and confirmed spool mapping use the same service |
 | Storage | `StorageService` owns station NVS/LittleFS operations behind one mutex and reset gate | OTA metadata uses a separate `Esp32UpdateRecordStore` namespace |
 | Scale | Scale task owns NAU7802 calls and executes the fixed scale command queue | UI/API/diagnostics read coherent snapshots |
@@ -65,6 +99,17 @@ Confirmed Phase 11 fixes:
   saturate instead of wrapping to misleading low values;
 - browser resource epochs, payload revisions, and socket identity prevent older
   REST/WebSocket work from overwriting newer scale, update, or printer state.
+- the previous browser startup could issue roughly 25 REST transactions plus a
+  WebSocket, then repeat an eight-read burst for each heartbeat; the bounded
+  two-request scheduler now orders critical startup, deduplicates/supersedes
+  reads, reserves priority for mutations, and treats heartbeat as liveness only;
+- the HTTP server now uses the pinned environment's seven-socket, five-backlog,
+  LRU-disabled policy and five-second receive/send waits instead of allowing a
+  useful live connection or mutation receipt to be evicted under normal load;
+- one tab owns one stale-detected WebSocket and one reconnect timer, with
+  exponential retry and scheduler-driven fallback polling; and
+- an empty API token is explicit trusted-LAN mode. Authentication is disabled,
+  browser control stays enabled, and health/setup are not degraded or blocked.
 
 No use-after-free was found in fixed WebSocket batches or OTA slots. HTTP server
 shutdown waits for queued callbacks. Timed-out OTA slots remain reserved until
@@ -126,6 +171,35 @@ high-water mark and the system minimum free heap. Any unobserved task, declining
 minimum across repeated cycles, or margin below the release threshold blocks
 signoff.
 
+The confirmed pre-stabilization hardware margins, in bytes free, are:
+`loopTask ~= 10728`, `opentag-network ~= 13136`, `opentag-ui ~= 9092`,
+`opentag-config ~= 5824`, `opentag-scale ~= 3056` at boot and about `2944`
+stable, plus `httpd ~= 19392` once the server is running. These values are a
+non-regression baseline, not proof for unmeasured call chains. The stabilization
+build also reports backend, control, and OTA margins. Capture loop, network, UI,
+configuration, scale, backend, control, OTA, and HTTPD after each owner's
+worst expected operation; investigate any margin below an appropriate
+task-specific threshold or any unexplained decline across identical cycles.
+
+## Internal heap and fragmentation interpretation
+
+Physical evidence shows free internal heap falling from about 104 KiB during
+boot to a fluctuating 22–32 KiB after Wi-Fi/web startup. A large one-time drop is
+plausible because the enumerated owner/HTTPD stack reservations total 104,448
+bytes, the loop reserves another 16 KiB, and Wi-Fi/LwIP, HTTP server, LVGL,
+queues, and TLS-capable owners allocate persistent state. That observation does
+not by
+itself prove either a leak or safety.
+
+Diagnostics and serial milestones must record free internal heap, minimum free
+heap, largest free internal block, free/minimum/largest PSRAM block, active and
+maximum-observed HTTP sockets, WebSocket clients, queued operations, and the
+browser scheduler's queued/active REST counts. Interpret a post-start plateau as
+expected permanent allocation; a temporary dip that recovers as transient
+allocation; stable total free heap with a shrinking largest block as
+fragmentation; and repeated same-workload decreases in both available memory and
+largest block as a suspected leak.
+
 Static-resource notes:
 
 - OTA uses four fixed 4 KiB command buffers and never buffers a whole image.
@@ -133,17 +207,57 @@ Static-resource notes:
   4096-byte WebSocket batch.
 - LVGL draw buffers allocate PSRAM first and fall back to a smaller internal
   buffer; allocation failure is explicit.
-- Operations (24), idempotency entries (16), and logs (32) are fixed rings.
+- Operations (24), idempotency entries (32), and logs (32) use fixed-capacity
+  storage; live idempotency entries are never overwritten.
 - Integration responses are capped at 64 KiB and collection counts are bounded.
 - Configuration and API JSON documents are bounded at 16/24/32 KiB boundaries.
 - Dynamic `String`/vector/JSON allocations remain a fragmentation risk that
   must be observed in the long-run hardware soak.
 
+Capture the same fields at these named milestones:
+
+1. boot before service owners;
+2. immediately before and after HTTP server start;
+3. first WebSocket connection;
+4. completed initial page load;
+5. after 10 manual refresh cycles;
+6. after 100 scheduler-harness refresh cycles;
+7. after configuration save plus persisted reload;
+8. after tare;
+9. after calibration;
+10. after Wi-Fi scan;
+11. after backend test; and
+12. after the 30-minute connected-browser soak.
+
+For each milestone paste the firmware Git SHA, uptime, free/minimum/largest
+internal heap, free/minimum/largest PSRAM block, current/maximum HTTP sockets,
+WebSocket client count, operation/REST queue depths, every task's stack margin,
+reset reason, and any watchdog/scan/WebSocket error. A monotonically declining
+heap or largest block requires a root-cause explanation before signoff.
+
+## Wi-Fi scan lifecycle
+
+In the pinned Arduino-ESP32 wrapper, `WIFI_SCAN_FAILED` equals `-2`. The
+wrapper uses that generic value both when the driver rejects/cannot start a scan
+and when a previously asynchronous scan later ends without a result. A bare
+`code=-2` therefore did not identify whether association, AP/STA mode change,
+`scanDelete`, wrapper timeout, or lost scan state was responsible.
+
+The network owner now keeps a scan request pending until start is allowed,
+records start versus poll phase and elapsed time for `-2`, and serializes scan
+with STA association/reconnect, saved-network reconfiguration, setup-AP
+start/stop, and result cleanup. An active scan finishes before a radio-mode
+transition is applied; reconnect does not begin while scan owns the radio.
+Validate this lifecycle ten times in setup AP mode and ten times after a normal
+LAN connection. Any remaining `-2` report must include phase, elapsed time,
+radio/setup state, and bounded reason; passwords and tokens must remain absent.
+
 ## Long-run behavior
 
 All millisecond deadline comparisons use unsigned subtraction or signed
 deadline comparison and are safe across the 32-bit `millis()` rollover.
-Idempotency entries expire after 60 seconds using wrap-safe subtraction.
+Idempotency entries expire after ten minutes using wrap-safe subtraction and
+only expired slots are reused.
 Destructive backend commands expire after 15 seconds. Operation and log history
 are bounded rings. Wi-Fi backoff saturates at the configured maximum and its
 attempt counter now saturates. Backend periodic probes are scheduled from
@@ -158,12 +272,13 @@ has been performed.
 
 | State | Durable order and recovery |
 | --- | --- |
+| LittleFS first mount | Mount the explicit `littlefs` partition with formatting disabled. Only if no provision/reset marker exists and a complete partition read proves every byte is `0xFF`, durably write control-NVS `fsFormatPending` before the one-time format. After a successful mount, durably set `fsProvisioned` before clearing the pending intent. Power loss may retry that authorized first format; a provisioned or non-erased mount failure always preserves data. |
 | Configuration | Write `configuration.new`, flush/readback verify, remove old backup, rename primary to backup, rename staging to primary. Boot accepts only a decoded/validated primary or backup; corrupt/truncated data enters fail-closed persistence-degraded defaults. |
 | Configuration migration | Decode and migrate in memory, validate, then persist through the same staged commit. Unknown fields are preserved; supported schema 1/2 migrates deterministically to schema 3. |
 | Scale calibration/profile | CRC-protected legacy mirror and central document are validated. Profile/model/capacity change clears incompatible calibration before the central commit; the old central document remains authoritative if the commit fails. |
 | Spool identity mappings | Central configuration transaction; conflicts and malformed identities are rejected before persistence. |
 | Boot health/crash streak | Persist count/streak and authoritative `bootPending=true`; healthy confirmation clears streak first and pending marker last. Interrupted confirmation remains fail closed. Counters saturate. |
-| Factory reset | Persist `resetPending` in separate control NVS, remove backup/staging/primary, clear station application NVS, restore no-format guard, then clear intent. Any cut before the last step replays idempotent early-boot recovery. |
+| Factory reset | Persist `resetPending` in separate control NVS, remove backup/staging/primary, clear station application NVS, restore no-format guard, then clear intent. It never formats LittleFS. Any cut before the last step replays idempotent early-boot recovery. |
 | OTA record | Checksum-protected record with monotonic generation; progress is checkpointed at fixed milestones. Corrupt/unavailable records never authorize a pending candidate. |
 | OTA activation | Persist activation intent before selecting the boot slot, then persist activated/reboot state. Boot topology reconciles each cut point; ambiguity retains lifecycle exclusion. |
 | Candidate confirmation | Local boot marker is confirmed only after the full health window; ESP-IDF candidate confirmation follows. Failure retains rollback authority. |
@@ -245,9 +360,10 @@ All steps are UNVERIFIED.
 
 ## Spoolman, FilaBridge, and Prusa XL findings
 
-Adapters use fixed connect/read timeouts, bounded bodies/collections, no
-redirects, explicit DNS errors, and CA-required HTTPS. Malformed/missing fields,
-HTTP errors, unknown versions, and backend outages degrade to structured
+Outbound backend adapters use fixed connect/read timeouts, bounded
+bodies/collections, never follow redirects, report explicit DNS errors, and
+require CA verification for HTTPS. Malformed/missing fields, HTTP errors,
+unknown versions, and backend outages degrade to structured
 read-only/offline states. FilaBridge map/unmap is single-shot and independently
 read back. Stale spool generation, expected spool, printer revision/state,
 current mapping, and 15-second queue expiry prevent an old operation assigning
@@ -261,7 +377,10 @@ UNVERIFIED.
 All responses use the versioned structured envelope documented in
 [web.md](web.md). All GET routes are public. Every mutation requires
 `X-OpenTag-Request: web` and a valid idempotency key; the exact bearer token is
-also required when a nonempty token is configured. Buffered mutations require JSON. Upload requires
+also required when a nonempty token is configured. With an empty token,
+authentication is disabled, browser mutations remain enabled, and health/setup
+do not become degraded or incomplete solely because authentication is optional.
+Buffered mutations require JSON. Upload requires
 `application/octet-stream`, exact length/digest/generation headers, a
 five-second no-progress deadline, and a 180-second absolute deadline.
 
@@ -269,7 +388,7 @@ five-second no-progress deadline, and a 180-second absolute deadline.
 | --- | --- | --- |
 | `GET status,device,health,scale,nfc,nfc/tag,spool,printers,toolheads,config,diagnostics,logs,update` | 0 bytes | Snapshot; config is allowlisted/redacted |
 | `GET operations/{id}` | 0 bytes | Canonical positive ID; 404 after bounded eviction |
-| `POST scale/tare,nfc/read,backends/test` | 256-byte exact `{}` | Volatile 60-second/16-entry idempotency |
+| `POST scale/tare,nfc/read,backends/test` | 256-byte exact `{}` | Volatile ten-minute/32-entry idempotency |
 | `POST scale/calibrate` | 512-byte strict JSON | Reference within selected capacity |
 | `POST toolheads/{id}/assign` | 2,048-byte strict JSON | Spool generation, printer revision/state, current spool, confirmations |
 | `POST toolheads/{id}/unassign` | 2,048-byte strict JSON | Same stale guards and exact current spool |
@@ -298,8 +417,9 @@ date.
 CI uses Ubuntu 24.04 and Python 3.12, pins the official checkout/setup-python
 actions to immutable v4.4.0/v5.6.0 commits, installs only the pinned development
 requirement, checks the complete tree for whitespace errors, syntax-checks the
-embedded dependency-free JavaScript, runs all native suites, builds the WT32
-target, and emits the stack report under a 30-minute timeout. No third-party CI
+embedded dependency-free JavaScript, runs the deterministic Node browser
+transport harness and all native suites, builds the WT32 target, and emits the
+stack report under a 30-minute timeout. No third-party CI
 service was added.
 
 The runner image label and host operating-system packages are managed external
@@ -309,16 +429,26 @@ table, and build metadata behavior are pinned and reviewable.
 
 ## Security review and remaining limitations
 
-Implemented controls include fail-closed bearer matching, authentication before
-body parsing, strict body/header/path bounds, no HTTP redirects, credential-free
-URLs, CA-required HTTPS backends, same-origin browser requests, restrictive
+Implemented controls include constant-time bearer matching when authentication
+is enabled, authorization policy before body parsing, explicit healthy
+trusted-LAN control when the token is blank, strict body/header/path bounds,
+disabled outbound backend HTTP redirects, credential-free URLs, CA verification
+for HTTPS backends, same-origin browser requests, restrictive
 static response headers, no external frontend dependency, bounded WebSocket
 clients, fixed operation/idempotency/log registries, exact destructive
 confirmations, lifecycle exclusion, inactive-slot-only OTA, digest/image/target
 validation, and log/config redaction.
 
+The redirect prohibition applies to outbound Spoolman/FilaBridge HTTP clients.
+During setup AP mode, captive-portal handling deliberately sends a same-origin
+redirect from an unknown safe GET path to the station root. It does not redirect
+API mutations, carry credentials, or weaken the outbound backend policy.
+
 Remaining limitations:
 
+- a blank token deliberately provides no API access control to clients on the
+  trusted LAN; set a token to enable authentication, but remember the bearer
+  value still traverses local HTTP in plaintext;
 - local HTTP and `ws://` are plaintext; bearer tokens and data can be observed
   or modified by an attacker on the LAN;
 - read-only API/WebSocket data is unauthenticated and includes operational,
@@ -335,6 +465,80 @@ Remaining limitations:
 
 Use only on a trusted isolated WPA2/WPA3 LAN; do not port-forward the station.
 
+## Next physical stabilization run
+
+Run this concise checklist on the WT32-SC01 Plus before marking the LAN control
+path stable. Every item starts **UNVERIFIED**.
+
+### Boot
+
+- [ ] 10 minutes idle without reset.
+- [ ] Stack margins remain stable.
+- [ ] Heap reaches a stable band.
+
+### Web
+
+- [ ] Page load completes progressively.
+- [ ] WebSocket connects.
+- [ ] Diagnostics local interface self-test is all green.
+- [ ] 20 manual refreshes complete without stuck controls or generic fetch loss.
+
+### Scale
+
+- [ ] Empty platform is stable.
+- [ ] Tare succeeds and reports its stored/current zero offset.
+- [ ] Calibrate with a known reference mass.
+- [ ] Unload returns to zero.
+- [ ] Reloading the reference returns the expected mass.
+- [ ] Repeat unload/reload 10 times.
+
+### Configuration
+
+- [ ] Save hostname and brightness.
+- [ ] Save Spoolman and FilaBridge URLs.
+- [ ] Reload the page.
+- [ ] Reboot the station.
+- [ ] Confirm every saved value persisted without exposing or clearing hidden credentials.
+
+### Wi-Fi
+
+- [ ] Scan 10 times.
+- [ ] No unexplained `-2`; retain phase/elapsed/reason for any failure.
+- [ ] Disconnect/reconnect the access point or router once.
+- [ ] Verify mDNS when the client network supports it.
+
+### Backends
+
+- [ ] Run a Spoolman test.
+- [ ] Run a FilaBridge test.
+
+### Reboot
+
+- [ ] Perform a normal reboot.
+- [ ] Confirm the page and its single WebSocket reconnect.
+- [ ] Confirm configuration and calibration persist.
+
+### Soak
+
+- [ ] Keep a browser connected for at least 30 minutes.
+- [ ] No downward heap/largest-block trend.
+- [ ] No stack-margin collapse.
+- [ ] No task/watchdog reset.
+
+Paste back one dated evidence record containing:
+
+- firmware Git SHA, board identity, browser/version, LAN/setup-AP topology, and
+  test start/end uptime;
+- the complete memory/stack/transport milestone table defined above, including
+  all tracked task margins, active/maximum sockets, WebSocket clients, and
+  operation/REST queue depths;
+- every self-test row with HTTP result, latency, envelope result, and error;
+- all ten Wi-Fi scan results and any full `-2` phase/elapsed/reason log;
+- tare zero offset, counts/gram, reference grams, rated capacity, and all ten
+  unload/reload readings; and
+- reset reason, watchdog/crash count, and the browser live-status transitions
+  observed during reload, LAN loss/recovery, two-tab exercise, and reboot.
+
 ## Physical hardware validation matrix
 
 Every item below starts and remains **UNVERIFIED** until real evidence is added.
@@ -345,10 +549,13 @@ Every item below starts and remains **UNVERIFIED** until real evidence is added.
 - [ ] **UNVERIFIED** — ST7796 display orientation, color, refresh, sleep/wake.
 - [ ] **UNVERIFIED** — touchscreen mapping, edges, keyboard/focus actions.
 - [ ] **UNVERIFIED** — PSRAM allocation/fallback behavior.
-- [ ] **UNVERIFIED** — Wi-Fi association, DHCP, DNS, reconnect/backoff.
+- [ ] **UNVERIFIED** — Wi-Fi association, DHCP, DNS, reconnect/backoff and ten
+  serialized scans in setup-AP and connected-LAN modes without unexplained `-2`.
 - [ ] **UNVERIFIED** — mDNS and NTP behavior.
-- [ ] **UNVERIFIED** — Web UI/API, bearer failures, malformed responses.
-- [ ] **UNVERIFIED** — WebSocket loss/reconnect and stale-response exclusion.
+- [ ] **UNVERIFIED** — Web UI/API self-test, tokenless trusted-LAN mutations,
+  configured-token failures, and malformed responses.
+- [ ] **UNVERIFIED** — one/two-tab WebSocket loss, fallback, reconnect, reload,
+  socket reclamation, and stale-response exclusion.
 
 ### Scale
 
@@ -401,7 +608,10 @@ Every item below starts and remains **UNVERIFIED** until real evidence is added.
 ### Resource and soak validation
 
 - [ ] **UNVERIFIED** — all project and framework task stack high-water marks.
-- [ ] **UNVERIFIED** — minimum free internal heap and PSRAM under peak workflows.
+- [ ] **UNVERIFIED** — free/minimum/largest internal heap block and
+  free/minimum/largest PSRAM block at every named milestone.
 - [ ] **UNVERIFIED** — repeated UI/config/backend/assignment/update cycles.
-- [ ] **UNVERIFIED** — socket/client cleanup and Wi-Fi/backend reconnect cycles.
-- [ ] **UNVERIFIED** — multi-day stability with no declining memory margin.
+- [ ] **UNVERIFIED** — active/maximum HTTP sockets, WebSocket clients,
+  scheduler/operation queues, cleanup, and Wi-Fi/backend reconnect cycles.
+- [ ] **UNVERIFIED** — 30-minute connected-browser soak and multi-day stability
+  with no declining memory or stack margin.

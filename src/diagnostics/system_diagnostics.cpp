@@ -1,6 +1,7 @@
 #include "diagnostics/system_diagnostics.hpp"
 
 #include <Arduino.h>
+#include <esp_heap_caps.h>
 #include <esp_system.h>
 
 #include <utility>
@@ -34,11 +35,23 @@ SystemSnapshot SystemDiagnostics::snapshot(std::uint32_t now_ms) const {
   result.uptime_ms = now_ms;
   result.free_heap_bytes = ESP.getFreeHeap();
   result.minimum_free_heap_bytes = ESP.getMinFreeHeap();
+  result.largest_free_internal_block_bytes =
+      heap_caps_get_largest_free_block(
+          MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
   result.psram_total_bytes = ESP.getPsramSize();
   result.psram_free_bytes = ESP.getFreePsram();
+  result.minimum_free_psram_bytes =
+      result.psram_total_bytes == 0U
+          ? 0U
+          : heap_caps_get_minimum_free_size(MALLOC_CAP_SPIRAM);
+  result.largest_free_psram_block_bytes =
+      result.psram_total_bytes == 0U
+          ? 0U
+          : heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM);
   result.boot_count = storage.boot_count;
   result.crash_streak = storage.crash_streak;
   result.task_stacks = task_stack_margins();
+  result.transport = transport_diagnostics_.snapshot();
   result.display_ready = display_.initialized();
   result.touch_configured = display_.touch_configured();
   result.nvs_ready = storage.nvs_ready;
@@ -72,6 +85,10 @@ SystemSnapshot SystemDiagnostics::snapshot(std::uint32_t now_ms) const {
     result.setup_ap_ssid = network_status_.setup_ap_ssid;
     result.setup_ap_ip = network_status_.setup_ap_ip;
     result.wifi_scan_generation = network_status_.scan_generation;
+    result.wifi_scan_attempt_generation =
+        network_status_.scan_attempt_generation;
+    result.wifi_scan_result_attempt_generation =
+        network_status_.scan_result_attempt_generation;
     result.wifi_scan_error = network_status_.scan_error;
     result.wifi_last_error = network_status_.last_error;
   }

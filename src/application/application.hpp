@@ -74,7 +74,7 @@ class Application {
        boards::Wt32Sc01PlusRevA::scale_scl}};
   services::ScaleService scale_{scale_adc_, configuration_};
   services::FirstRunSetup first_run_setup_{configuration_};
-  network::WifiService network_;
+  network::WifiService network_{operations_};
   network::HttpTransport http_transport_;
   integrations::spoolman::SpoolmanAdapter spoolman_{http_transport_, {}};
   integrations::filabridge::FilaBridgeAdapter filabridge_{http_transport_, {}};

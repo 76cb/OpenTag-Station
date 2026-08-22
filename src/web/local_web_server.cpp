@@ -12,6 +12,7 @@
 #include <string_view>
 #include <utility>
 
+#include "network/network_policy.hpp"
 #include "web/web_assets.hpp"
 
 #if !defined(CONFIG_HTTPD_WS_SUPPORT) || CONFIG_HTTPD_WS_SUPPORT != 1
@@ -43,7 +44,7 @@ httpd_uri_t make_uri(
   route.handler = handler;
   route.user_ctx = context;
   route.is_websocket = websocket;
-  route.handle_ws_control_frames = websocket;
+  route.handle_ws_control_frames = false;
   route.supported_subprotocol = nullptr;
   return route;
 }
@@ -281,15 +282,21 @@ bool provisioning_peer(
   const auto socket = httpd_req_to_sockfd(request);
   sockaddr_storage peer{};
   socklen_t peer_length = sizeof(peer);
+  sockaddr_storage local{};
+  socklen_t local_length = sizeof(local);
   if (socket < 0 ||
       getpeername(
           socket, reinterpret_cast<sockaddr*>(&peer), &peer_length) != 0 ||
-      peer.ss_family != AF_INET) {
+      getsockname(
+          socket, reinterpret_cast<sockaddr*>(&local), &local_length) != 0 ||
+      peer.ss_family != AF_INET || local.ss_family != AF_INET) {
     return false;
   }
-  const auto& ipv4 = reinterpret_cast<const sockaddr_in&>(peer);
-  const auto address = ntohl(ipv4.sin_addr.s_addr);
-  return (address & 0xFFFFFF00UL) == 0xC0A80400UL;
+  const auto& peer_ipv4 = reinterpret_cast<const sockaddr_in&>(peer);
+  const auto& local_ipv4 = reinterpret_cast<const sockaddr_in&>(local);
+  return network::is_setup_ap_transport(
+      ntohl(peer_ipv4.sin_addr.s_addr),
+      ntohl(local_ipv4.sin_addr.s_addr));
 }
 
 }  // namespace
@@ -313,15 +320,27 @@ esp_err_t LocalWebServer::start() {
       static_cast<std::uint16_t>(maximum_open_sockets);
   configuration.max_uri_handlers = 13U;
   configuration.max_resp_headers = 10U;
-  configuration.backlog_conn = 2U;
-  configuration.lru_purge_enable = true;
-  configuration.recv_wait_timeout = 1U;
-  configuration.send_wait_timeout = 1U;
+  // Match the pinned ESP-IDF server's defensible LAN defaults. Seven client
+  // slots cover one live WebSocket, two scheduled REST requests, one critical
+  // operation/upload connection, one transient browser connection, and two
+  // maintenance slots. LRU purge must stay off: useful WebSockets and mutation
+  // receipts are never sacrificial capacity under ordinary single-tab load.
+  configuration.backlog_conn = 5U;
+  configuration.lru_purge_enable = false;
+  configuration.recv_wait_timeout = 5U;
+  configuration.send_wait_timeout = 5U;
+  configuration.global_user_ctx = this;
+  // The server does not own this application-lifetime object.
+  configuration.global_user_ctx_free_fn =
+      &LocalWebServer::preserve_global_context;
+  configuration.open_fn = &LocalWebServer::session_open_handler;
+  configuration.close_fn = &LocalWebServer::session_close_handler;
   configuration.uri_match_fn = httpd_uri_match_wildcard;
 
   auto result = httpd_start(&server_, &configuration);
   if (result != ESP_OK) {
     server_ = nullptr;
+    api_context_.transport_diagnostics().set_http_server_running(false);
     return result;
   }
 
@@ -362,10 +381,12 @@ esp_err_t LocalWebServer::start() {
     if (result != ESP_OK) {
       (void)httpd_stop(server_);
       server_ = nullptr;
+      api_context_.transport_diagnostics().set_http_server_running(false);
       return result;
     }
   }
 
+  api_context_.transport_diagnostics().set_http_server_running(true);
   scale_published_ = false;
   heartbeat_published_ = false;
   update_published_ = false;
@@ -389,12 +410,100 @@ esp_err_t LocalWebServer::stop() {
   // httpd_stop waits for the HTTP task and its queued transfer callbacks, so
   // the stable handle remains valid until every concurrent user has exited.
   server_ = nullptr;
+  api_context_.transport_diagnostics().set_http_server_running(false);
   scale_published_ = false;
   heartbeat_published_ = false;
   update_published_ = false;
   websocket_send_.remaining.store(0U, std::memory_order_relaxed);
   websocket_send_.busy.store(false, std::memory_order_release);
+  for (auto& client : websocket_clients_) {
+    client.pending_reason.store(
+        diagnostics::WebsocketDisconnectReason::none,
+        std::memory_order_relaxed);
+    client.socket.store(-1, std::memory_order_relaxed);
+  }
   return ESP_OK;
+}
+
+esp_err_t LocalWebServer::session_open_handler(
+    httpd_handle_t server,
+    int socket) {
+  auto* owner =
+      static_cast<LocalWebServer*>(httpd_get_global_user_ctx(server));
+  if (owner == nullptr || socket < 0) return ESP_ERR_INVALID_ARG;
+  owner->api_context_.transport_diagnostics().http_session_opened();
+  return ESP_OK;
+}
+
+void LocalWebServer::session_close_handler(
+    httpd_handle_t server,
+    int socket) {
+  auto* owner =
+      static_cast<LocalWebServer*>(httpd_get_global_user_ctx(server));
+  if (owner != nullptr) owner->handle_session_close(socket);
+  if (socket >= 0) (void)lwip_close(socket);
+}
+
+void LocalWebServer::preserve_global_context(void*) {}
+
+void LocalWebServer::handle_session_close(int socket) {
+  auto& transport = api_context_.transport_diagnostics();
+  diagnostics::WebsocketDisconnectReason reason =
+      diagnostics::WebsocketDisconnectReason::none;
+  if (release_websocket_client(socket, reason)) {
+    if (reason == diagnostics::WebsocketDisconnectReason::none) {
+      reason = stopping_.load(std::memory_order_acquire)
+          ? diagnostics::WebsocketDisconnectReason::server_stopped
+          : diagnostics::WebsocketDisconnectReason::peer_or_network_closed;
+    }
+    transport.websocket_disconnected(reason);
+  }
+  transport.http_session_closed();
+}
+
+bool LocalWebServer::track_websocket_client(int socket) {
+  for (auto& client : websocket_clients_) {
+    if (client.socket.load(std::memory_order_acquire) == socket) return true;
+  }
+  for (auto& client : websocket_clients_) {
+    int empty = -1;
+    if (client.socket.compare_exchange_strong(
+            empty, socket, std::memory_order_acq_rel)) {
+      client.pending_reason.store(
+          diagnostics::WebsocketDisconnectReason::none,
+          std::memory_order_release);
+      api_context_.transport_diagnostics().websocket_opened();
+      return true;
+    }
+  }
+  return false;
+}
+
+bool LocalWebServer::release_websocket_client(
+    int socket,
+    diagnostics::WebsocketDisconnectReason& reason) {
+  for (auto& client : websocket_clients_) {
+    int expected = socket;
+    if (client.socket.compare_exchange_strong(
+            expected, -1, std::memory_order_acq_rel)) {
+      reason = client.pending_reason.exchange(
+          diagnostics::WebsocketDisconnectReason::none,
+          std::memory_order_acq_rel);
+      return true;
+    }
+  }
+  return false;
+}
+
+void LocalWebServer::mark_websocket_disconnect(
+    int socket,
+    diagnostics::WebsocketDisconnectReason reason) {
+  for (auto& client : websocket_clients_) {
+    if (client.socket.load(std::memory_order_acquire) == socket) {
+      client.pending_reason.store(reason, std::memory_order_release);
+      return;
+    }
+  }
 }
 
 esp_err_t LocalWebServer::static_asset_handler(httpd_req_t* request) {
@@ -716,21 +825,9 @@ esp_err_t LocalWebServer::handle_update_upload(httpd_req_t* request) {
     const auto response = api::response_for_context_error(finished.error());
     return send_router_response(request, response);
   }
-  if (esp_timer_get_time() - receive_started_us >
-      static_cast<std::int64_t>(maximum_upload_receive_ms) * 1000LL) {
-    const core::Error error{
-        core::ErrorCategory::firmware_update,
-        "Firmware validation exceeded the 180 second absolute deadline",
-        true,
-    };
-    api_context_.abort_streaming_upload(session, error);
-    return reject_unread(
-        408,
-        "upload_timeout",
-        error.message.c_str(),
-        received,
-        true);
-  }
+  // A successful finish is an authoritative, durable validation boundary.
+  // Never attempt to cancel that candidate merely because validation crossed
+  // the transport deadline while the owner was completing it.
   const auto response = upload_receipt(session, &finished.value());
   return send_router_response(request, response);
 }
@@ -797,6 +894,7 @@ esp_err_t LocalWebServer::handle_api(httpd_req_t* request) {
         request,
         api_request.body.data() + received,
         request->content_len - received);
+    if (count == HTTPD_SOCK_ERR_TIMEOUT) continue;
     if (count <= 0) {
       const auto sent = send_json_error(
           request,
@@ -833,12 +931,15 @@ esp_err_t LocalWebServer::handle_websocket(httpd_req_t* request) {
     if (socket < 0 || websocket_client_count(socket) >= maximum_websocket_clients) {
       return ESP_FAIL;
     }
-    return ESP_OK;
+    return track_websocket_client(socket) ? ESP_OK : ESP_FAIL;
   }
 
-  // This is a server-push channel, not a bidirectional API. Reject data and
-  // control frames before reading their payload so an unauthenticated client
-  // cannot slow-drip a frame while monopolizing the single HTTP server task.
+  // This is a server-push channel, not a bidirectional API. The pinned HTTPD
+  // handles bounded PING/PONG/CLOSE frames internally; reject application data
+  // before reading its payload so a client cannot slow-drip a frame while
+  // monopolizing the single HTTP server task.
+  mark_websocket_disconnect(
+      socket, diagnostics::WebsocketDisconnectReason::protocol_rejected);
   return ESP_FAIL;
 }
 
@@ -886,12 +987,15 @@ void LocalWebServer::websocket_send_complete(
     void* context) {
   auto* batch = static_cast<WebsocketSendBatch*>(context);
   if (batch == nullptr) return;
-  const auto* owner = batch->owner;
+  auto* owner = batch->owner;
   if (batch->server != nullptr && owner != nullptr &&
       !owner->stopping_.load(std::memory_order_acquire)) {
     if (error == ESP_OK) {
       (void)httpd_sess_update_lru_counter(batch->server, socket);
     } else {
+      owner->api_context_.transport_diagnostics().websocket_send_failed();
+      owner->mark_websocket_disconnect(
+          socket, diagnostics::WebsocketDisconnectReason::send_failure);
       (void)httpd_sess_trigger_close(batch->server, socket);
     }
   }
@@ -922,6 +1026,10 @@ std::size_t LocalWebServer::send_to_websocket_clients(
       continue;
     }
     if (client_count >= maximum_websocket_clients) {
+      api_context_.transport_diagnostics().websocket_event_dropped();
+      mark_websocket_disconnect(
+          socket,
+          diagnostics::WebsocketDisconnectReason::protocol_rejected);
       (void)httpd_sess_trigger_close(server_, socket);
       continue;
     }
@@ -967,6 +1075,9 @@ std::size_t LocalWebServer::send_to_websocket_clients(
 
 void LocalWebServer::publish(std::uint32_t now_ms) {
   if (server_ == nullptr || websocket_client_count() == 0U) return;
+  // The network task is the sole publisher. Avoid constructing JSON while the
+  // HTTPD task still owns the reusable batch payload for a prior socket send.
+  if (websocket_send_.busy.load(std::memory_order_acquire)) return;
 
   const auto current_update_revision = api_context_.update_revision();
   if ((!update_published_ ||
@@ -983,6 +1094,7 @@ void LocalWebServer::publish(std::uint32_t now_ms) {
       last_update_revision_ = published_revision;
       last_update_publish_ms_ = now_ms;
       update_published_ = true;
+      return;
     }
   }
 
@@ -995,6 +1107,7 @@ void LocalWebServer::publish(std::uint32_t now_ms) {
     if (queued > 0U) {
       last_scale_publish_ms_ = now_ms;
       scale_published_ = true;
+      return;
     }
   }
   if (due(

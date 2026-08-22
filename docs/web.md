@@ -9,16 +9,20 @@ actions, and the validated A/B firmware-update workflow.
 ## Validation status
 
 The current firmware preserves the Phase 11 routes and adds four bounded
-network provisioning routes, for 30 metadata-declared routes. Browser request epochs,
-payload revision guards, and socket identity checks so stale REST/WebSocket
-responses cannot replace newer state. The grouped contract/security review and
-physical browser/LAN matrix are in
+network provisioning routes, for 30 metadata-declared routes. The hardware
+stabilization pass adds bounded browser scheduling, explicit configuration
+state, one managed live connection per tab, fallback polling, and a read-only
+transport self-test. Browser request epochs, payload revision guards, and socket
+identity checks prevent stale REST/WebSocket responses from replacing newer
+state. The grouped contract/security review and physical browser/LAN matrix are in
 [release-validation.md](release-validation.md).
 
-The final serialized validation passed all 223 native cases across twenty
-suites and successfully built the pinned `wt32-sc01-plus` firmware without
-compiler warnings. Final usage is 167,152/327,680 RAM bytes (51.0%) and
-1,946,637/5,242,880 flash bytes (37.1%).
+The 2026-08-22 pre-commit stabilization gates pass 262/262 native cases across
+twenty suites in 00:06:27.085 and 33/33 deterministic browser-transport cases.
+Embedded JavaScript syntax validation passes for the 119,132-byte shipped
+source, and the warning-free WT32 build uses 170,752/327,680 RAM bytes (52.1%)
+and 2,090,973/5,242,880 flash bytes (39.9%). Stack and pre-commit factory-bundle
+measurements are recorded in [release-validation.md](release-validation.md).
 Portable router, parser, patch, and bounded-ledger logic executes in host tests;
 the embedded browser, production context, HTTP/WebSocket transport, and
 device-control integration compile and link but were not executed on target. No
@@ -35,9 +39,13 @@ untrusted clients can capture or alter traffic.
 
 All read-only `GET` routes are public, including operation status and the
 read-only WebSocket event stream. When the station has a nonempty local API
-token, every mutation requires an exact `Authorization: Bearer <token>` value.
-When the token is blank, local mutations are allowed without bearer
-authentication. Even when a token is configured, `POST /api/v1/network/scan`
+token, protected mutations require an exact `Authorization: Bearer <token>`
+value. When the token is blank, local mutations are allowed without bearer
+authentication: **Local API authentication: DISABLED** and **Local browser
+control: ENABLED**. This trusted-LAN mode is healthy and complete; the empty
+optional token does not degrade health, block setup completion, or disable
+scale, configuration, backend, device-control, or update mutations. Even when a
+token is configured, `POST /api/v1/network/scan`
 and `POST /api/v1/network/connect` are also authorized for a socket whose peer
 is verified as an active `192.168.4.0/24` setup-AP client. That authority is
 never accepted from a request header and cannot reach any other mutation.
@@ -45,9 +53,11 @@ Authentication policy is checked before mutation JSON is parsed or work is
 submitted.
 
 The optional token may be created through the physically local setup AP or the
-masked touchscreen field; leaving it blank disables local API authentication.
-Recovery provisioning cannot replace an existing token. Once configured, an authenticated
-`PATCH /api/v1/config` can rotate it or explicitly clear it. The browser prompts
+masked touchscreen field. With no saved token, leaving the field blank keeps
+local API authentication disabled without prompting or generating a credential.
+When a token already exists, a blank touchscreen field preserves it. Recovery
+provisioning cannot replace it. Once configured, an
+authenticated `PATCH /api/v1/config` can rotate it or explicitly clear it. The browser prompts
 for the current token only when a mutation needs it, retains it only in
 JavaScript memory for that tab, clears it after HTTP 401, and never stores it in
 local storage, session storage, cookies, a URL, or a prefilled form.
@@ -69,12 +79,12 @@ separate WebSocket transport endpoint and is not included in that count.
 | ---: | --- | --- |
 | 1 | `GET /api/v1/status` | Combined system, backend, spool-generation, printer-revision, and operation-revision status. |
 | 2 | `GET /api/v1/device` | Device identity, local address, and firmware/build metadata. |
-| 3 | `GET /api/v1/health` | Local-service health, backend degradation, and NFC availability. |
+| 3 | `GET /api/v1/health` | Local-service health, backend degradation, optional-authentication/control state, and NFC availability. |
 | 3a | `GET /api/v1/network` | Safe connection, setup AP, scan progress/results, hostname, and configuration revision. |
-| 3b | `POST /api/v1/network/scan` | Start one asynchronous bounded scan; AP clients or bearer authentication. |
-| 3c | `POST /api/v1/network/connect` | Revision-checked SSID/password/hostname and optional-token provisioning; AP clients or conditional bearer authentication. |
-| 3d | `POST /api/v1/network/setup-mode` | Authenticated deliberate setup-AP activation. |
-| 4 | `GET /api/v1/diagnostics` | System, scale, backend, queue, operation, and NFC diagnostics. |
+| 3b | `POST /api/v1/network/scan` | Start one asynchronous bounded scan; setup-AP clients or normal conditional-authentication policy. |
+| 3c | `POST /api/v1/network/connect` | Revision-checked SSID/password/hostname and optional-token provisioning; setup-AP clients or normal conditional-authentication policy. |
+| 3d | `POST /api/v1/network/setup-mode` | Deliberate setup-AP activation under normal conditional-authentication policy. |
+| 4 | `GET /api/v1/diagnostics` | System, memory/stack/transport, scale, backend, queue, operation, and NFC diagnostics. |
 | 5 | `GET /api/v1/logs` | Bounded redacted log history, cursors, drop count, and history-gap state. |
 
 ### Scale
@@ -158,7 +168,7 @@ message. The principal statuses are:
 | `200` | Read succeeded. |
 | `202` | Mutation was accepted into an owner queue, or an idempotent retry reused the original operation. This is not completion. |
 | `400` | Invalid path shape, headers, JSON, field set, type, value, or operation ID. |
-| `401` | Bearer authentication is missing, malformed, unconfigured, or wrong. |
+| `401` | Authentication is enabled and the bearer credential is missing, malformed, or wrong. A blank configured token does not produce 401. |
 | `404` | Route/version is unavailable, or an operation is no longer in bounded history. |
 | `405` | The path exists but does not support that method; `Allow` is returned. |
 | `408` | The complete request body was not received within the bounded transport deadline. |
@@ -214,17 +224,77 @@ reset are receipt-only in the browser: it reports acceptance and enters its
 reconnect flow instead of polling across the intentional restart. A polling
 timeout does not prove that the owner task failed.
 
-Operation history is a volatile 24-record ring. A missing or overwritten ID
-returns 404. Reboot also clears that history, and reboot/reset operations
-naturally interrupt the connection before a terminal result can be observed.
+Operation history is a volatile 24-record bounded registry. It never overwrites
+a queued or running record; an empty or terminal slot may be reused, and a
+registry containing 24 nonterminal operations rejects new work with a retryable
+503 instead of losing an active receipt. A missing or reused ID returns 404.
+Reboot clears the history, and reboot/reset operations naturally interrupt the
+connection before a terminal result can be observed.
 
-Idempotency is a volatile 16-entry ledger with a 60-second TTL. The digest
+Idempotency is a volatile 32-entry ledger with a ten-minute TTL. The digest
 covers mutation kind, path, and the exact validated request body. Reusing the
 same key for the same payload during retention returns the original operation
 ID; using it for a different payload returns HTTP 409 `state_conflict`. More
-than 16 unique accepted mutations can overwrite an earlier entry before 60
-seconds, and restart clears the ledger. Clients must not treat it as durable
-deduplication.
+than 32 unique mutations inside the retention window cannot evict a live key:
+the station rejects new work before creating side effects until a slot expires.
+Expired slots are reused deterministically, and restart clears the ledger.
+Clients must not treat it as durable deduplication.
+
+## Browser request and configuration lifecycle
+
+Before hardware stabilization, one tab could begin with nine concurrent reads,
+start further phase-two reads, repeat three reads when the WebSocket opened, and
+treat the first heartbeat as an unknown event that requested eight more reads.
+That produced roughly 25 startup REST transactions plus the WebSocket, then
+another eight-read burst on each 15-second heartbeat. It competed against a
+four-socket, two-backlog server with LRU purging and one-second socket waits.
+
+The embedded client now uses one bounded queue with these priorities:
+
+| Priority | Work |
+| ---: | --- |
+| 1 | Mutation receipts, operation polling, configuration save, scale/device/update controls |
+| 2 | `device`, `network`, `config`, `scale`, and `health` reads |
+| 3 | `status`, `spool`, `printers`, `toolheads`, and `update` reads |
+| 4 | Logs, diagnostics, and unavailable NFC reads |
+
+At most two ordinary REST requests dispatch at once, and at most one background
+request may occupy those slots so priority-one work retains headroom. Identical
+pending GETs share one result; there cannot be concurrent `GET /scale` or
+`GET /config` requests. A newer refresh may supersede its older queued
+background read, but never a mutation. The queue is bounded and dispatch
+timeouts begin only when a request actually leaves it.
+
+Startup is progressive and ordered: load `device`, `network`, `config`, and
+`scale`; establish the WebSocket; then load secondary resources through the
+scheduler. Heartbeats only prove liveness and do not trigger REST. Manual
+refresh is also sequenced rather than issued as a large `Promise.all`.
+
+Configuration has explicit `UNLOADED`, `LOADING`, `READY`, and `ERROR`
+states. Fields, Save, import, and export remain disabled until `READY`.
+Opening Configuration automatically retries a missing/failed load and displays
+the actual transport, HTTP, or API error. Dirty edits are not overwritten by a
+late background response. A successful PATCH is not reported as persisted until
+its operation completes and a forced `GET /config` returns the new revision.
+
+Each mutation creates one idempotency key and one exact body, submits once, and
+polls only a known receipt. An interrupted receipt is treated as uncertain and
+is not blindly replayed; the matching control remains protected from a duplicate
+manual submission. Transient polling GET failures retry without replaying the
+mutation. Priority-one operation work pauses/yields background refresh and
+reports transport, HTTP, API, operation, and domain/precondition failures
+separately. Firmware upload enters a maintenance mode that pauses background
+REST and the live/fallback loop until the upload finishes or aborts.
+
+## Diagnostics local interface self-test
+
+**Run Local Interface Self-Test** performs sequential, read-only checks of
+`/device`, `/health`, `/network`, `/config`, `/scale`, `/spool`,
+`/printers`, `/toolheads`, `/logs`, `/diagnostics`, and `/update`, then
+reports the existing WebSocket's connectivity. Each row shows endpoint, HTTP
+result, latency, API-envelope result, and a bounded error. Response bodies are
+not rendered or retained by the report, it does not open a second WebSocket,
+and it performs no mutation or secret-bearing request.
 
 ## Live WebSocket events
 
@@ -239,7 +309,7 @@ not routed through the REST router.
   health state whenever the WebSocket reconnects after a reboot.
 - If a scale snapshot cannot be encoded safely, the server emits a bounded
   `invalidate` event so the client can refresh the resource.
-- The server permits at most two WebSocket clients within four total open HTTP
+- The server permits at most two WebSocket clients within seven total open HTTP
   sockets. It enumerates current descriptors for each publication and uses one
   fixed shared asynchronous batch with at most two in-flight sends. Publications
   coalesce while that batch is busy; queue/send failures and excess sessions are
@@ -248,11 +318,25 @@ not routed through the REST router.
   rejected and the session is closed without reading its payload. Outgoing event
   JSON is at most 4096 bytes.
 
-The embedded browser reconnects after one second, doubles the delay after each
-close up to 30 seconds, and resets the delay when a connection opens. Unknown,
-invalid, or invalidate events schedule a coalesced read refresh no more often
-than once per second. WebSocket loss does not disable REST reads or targeted
-operation polling.
+Each tab owns exactly one WebSocket object and one reconnect timer. Connection
+attempts have an eight-second deadline; a connection with no heartbeat or event
+for 35 seconds is stale and is replaced. Retry delay grows exponentially from
+one to 30 seconds with bounded jitter and resets after verified traffic. The
+client cancels stale timers/sockets across visibility changes, offline/online
+events, page navigation, reload, and station reboot, so an obsolete socket
+cannot update current state.
+
+Scale and update events update only their relevant resource. A heartbeat updates
+liveness only; an invalid/invalidate event requests only the named or required
+resource. If live updates remain unavailable, a single scheduler-driven fallback
+loop polls scale every two seconds and rotates health/network/update reads at a
+lower rate. The UI distinguishes **Connecting**, **Connected**,
+**Disconnected — retrying**, and **Live updates unavailable — using polling**.
+WebSocket loss never disables REST controls or targeted operation polling.
+
+Two simultaneous tabs fit the server's documented WebSocket limit and socket
+budget. Excess live clients are closed and must fall back to REST rather than
+crashing the station; each tab still obeys its own two-request scheduler.
 
 ## Revisioned and redacted configuration
 
@@ -437,13 +521,13 @@ confirmation, or rollback.
 | Request headers | 16 headers, 1024 bytes total; collected value at most 512 bytes |
 | JSON nesting | 8 levels |
 | Application snapshot / complete response body | 24 KiB / 32 KiB |
-| HTTP sockets / WebSocket clients | 4 / 2 |
+| HTTP sockets / WebSocket clients | 7 / 2; LRU purge disabled |
 | WebSocket post-handshake input / output | rejected / 4096 bytes |
-| HTTP server task stack / backlog | 20,480 bytes / 2 connections |
-| Receive / send wait; JSON body deadline | 1 second / 1 second; 5 seconds |
+| HTTP server task stack / backlog | 20,480 bytes / 5 connections |
+| Receive / send wait; buffered JSON body deadline | 5 seconds / 5 seconds; 5 seconds absolute |
 | Firmware upload buffers / deadlines | one 4096-byte HTTP receive buffer plus four 4096-byte OTA command-slot buffers; 5 seconds without receive progress / 180 seconds absolute through validation |
-| Idempotency / operation / log history | 16 / 24 / 32 entries |
-| Embedded HTML / CSS / JavaScript | 16 / 24 / 60 KiB, 88 KiB combined; Phase 10 actual 15,976 / 10,772 / 59,798 bytes, 86,546 total |
+| Idempotency / operation / log history | 32 / 24 / 32 entries |
+| Embedded HTML / CSS / JavaScript | Compile-time bounded by `web_assets.hpp`; `tools/check_web_assets.py` extracts, syntax-checks, and reports the JavaScript byte count |
 
 GET routes accept no body. The transport reads the declared body exactly and
 rejects incomplete, oversized, or over-deadline input. Route limits are enforced
@@ -452,24 +536,32 @@ owner allocates an unbounded request queue for browser clients.
 
 ## Physical validation and known limitations
 
-Before Phase 10 can be called target-validated, exercise the assembled firmware
+Before this stabilization can be called target-validated, exercise the assembled firmware
 on the WT32-SC01 Plus over an isolated encrypted LAN:
 
-1. Verify tokenless first-run setup and local mutations, then optional token
-   provisioning, missing/wrong/correct authentication, rotation, explicit
-   clear, and both setup-AP and touchscreen recovery.
-2. Inspect wire traffic, configuration snapshots, logs, and browser state for
+1. Verify blank-token health, setup completion, scale/config/backend/device
+   mutations, and the displayed DISABLED/ENABLED authentication state. Then set
+   an optional token and test missing/wrong/correct authentication, rotation,
+   explicit clear, setup-AP recovery, and touchscreen recovery.
+2. Run the Diagnostics local interface self-test; every REST row and the
+   existing WebSocket must pass without exposing a response body or secret.
+3. Inspect wire traffic, configuration snapshots, logs, and browser state for
    secret leakage; remember that HTTP traffic itself remains plaintext.
-3. Race two configuration editors and stale assignment snapshots; confirm CAS,
+4. Race two configuration editors and stale assignment snapshots; confirm CAS,
    confirmation, expiry, and exact FilaBridge readback behavior.
-4. Open/close/reload more than two browsers and stress four-socket exhaustion,
-   reconnect backoff, failed sends, and owner-task responsiveness.
-5. Verify scale events/tare/calibration against real hardware without starving
+5. With one tab, perform 20 manual refreshes, F5, navigate away/back, transition
+   setup AP to LAN, disconnect/reconnect LAN, and reboot the station. Confirm one
+   WebSocket, bounded REST concurrency, fallback polling, and recovery without
+   stale state or stuck controls.
+6. Run two tabs long enough to cover both WebSockets and simultaneous controls;
+   then attempt an excess client. Confirm graceful fallback/rejection, socket
+   reclamation, and no device reset, watchdog, or task starvation.
+7. Verify scale events/tare/calibration against real hardware without starving
    LVGL, network, configuration, or backend work.
-6. Confirm all NFC routes stay explicitly unavailable on the wiring-gated build.
-7. Exercise reboot and factory reset, including power interruption at each erase
+8. Confirm all NFC routes stay explicitly unavailable on the wiring-gated build.
+9. Exercise reboot and factory reset, including power interruption at each erase
    stage, exact-scope retention, durable recovery, and return to first-run.
-8. Confirm responsive/accessibility behavior and safe rendering of backend,
+10. Confirm responsive/accessibility behavior and safe rendering of backend,
    printer, spool, and log strings in supported desktop and mobile browsers.
 
 Known limitations include plain HTTP with public reads, small connection and

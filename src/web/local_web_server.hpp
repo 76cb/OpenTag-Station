@@ -19,7 +19,7 @@ namespace opentag::web {
 // stop(), and publish() are intended to be called by the network owner.
 class LocalWebServer final {
  public:
-  static constexpr std::size_t maximum_open_sockets = 4U;
+  static constexpr std::size_t maximum_open_sockets = 7U;
   static constexpr std::size_t maximum_websocket_clients = 2U;
   static constexpr std::uint32_t http_task_stack_bytes = 20480U;
   static constexpr std::size_t maximum_websocket_message_bytes = 4096U;
@@ -47,6 +47,12 @@ class LocalWebServer final {
   void publish(std::uint32_t now_ms);
 
  private:
+  struct WebsocketClientSlot {
+    std::atomic_int socket{-1};
+    std::atomic<diagnostics::WebsocketDisconnectReason> pending_reason{
+        diagnostics::WebsocketDisconnectReason::none};
+  };
+
   struct WebsocketSendBatch {
     LocalWebServer* owner{nullptr};
     httpd_handle_t server{nullptr};
@@ -57,6 +63,9 @@ class LocalWebServer final {
     std::array<int, maximum_websocket_clients> sockets{};
   };
 
+  static esp_err_t session_open_handler(httpd_handle_t server, int socket);
+  static void session_close_handler(httpd_handle_t server, int socket);
+  static void preserve_global_context(void* context);
   static esp_err_t static_asset_handler(httpd_req_t* request);
   static esp_err_t update_upload_handler(httpd_req_t* request);
   static esp_err_t api_handler(httpd_req_t* request);
@@ -70,6 +79,13 @@ class LocalWebServer final {
   esp_err_t handle_update_upload(httpd_req_t* request);
   esp_err_t handle_api(httpd_req_t* request);
   esp_err_t handle_websocket(httpd_req_t* request);
+  void handle_session_close(int socket);
+  [[nodiscard]] bool track_websocket_client(int socket);
+  [[nodiscard]] bool release_websocket_client(
+      int socket,
+      diagnostics::WebsocketDisconnectReason& reason);
+  void mark_websocket_disconnect(
+      int socket, diagnostics::WebsocketDisconnectReason reason);
 
   [[nodiscard]] std::string make_scale_event();
   [[nodiscard]] std::string make_update_event(std::uint64_t& revision);
@@ -82,6 +98,8 @@ class LocalWebServer final {
   ApplicationApiContext& api_context_;
   httpd_handle_t server_{nullptr};
   std::atomic_bool stopping_{false};
+  std::array<WebsocketClientSlot, maximum_websocket_clients>
+      websocket_clients_{};
   WebsocketSendBatch websocket_send_{};
   std::array<std::uint8_t, opentag::ota::maximum_upload_chunk_bytes>
       upload_buffer_{};

@@ -9,11 +9,14 @@
 
 using opentag::network::ExponentialReconnectBackoff;
 using opentag::network::AsyncWifiScanState;
+using opentag::network::CorrelatedOperationClaim;
 using opentag::network::NetworkConnectReceiptGate;
 using opentag::network::ProvisioningPolicy;
 using opentag::network::ProvisioningReason;
 using opentag::network::WifiNetwork;
+using opentag::network::WifiScanDriverPollAction;
 using opentag::network::WifiScanOutcome;
+using opentag::network::classify_wifi_scan_driver_poll;
 using opentag::network::normalize_scan_results;
 using opentag::network::parse_http_url;
 
@@ -121,6 +124,34 @@ void test_provisioning_grace_deadline_is_millis_wrap_safe() {
   TEST_ASSERT_FALSE(policy.active());
 }
 
+void test_setup_provisioning_authority_requires_peer_and_local_ap_addresses() {
+  TEST_ASSERT_TRUE(opentag::network::is_setup_ap_transport(
+      0xC0A80402UL, 0xC0A80401UL));
+  TEST_ASSERT_TRUE(opentag::network::is_setup_ap_transport(
+      0xC0A804FEUL, 0xC0A80401UL));
+
+  // A similarly numbered normal LAN must not inherit setup authority when the
+  // accepted socket was addressed to a different local interface.
+  TEST_ASSERT_FALSE(opentag::network::is_setup_ap_transport(
+      0xC0A80402UL, 0xC0A80122UL));
+  TEST_ASSERT_FALSE(opentag::network::is_setup_ap_transport(
+      0xC0A80122UL, 0xC0A80401UL));
+  TEST_ASSERT_FALSE(opentag::network::is_setup_ap_transport(
+      0xC0A80401UL, 0xC0A80401UL));
+}
+
+void test_correlated_operation_claim_rejects_overlap_and_exactly_releases() {
+  CorrelatedOperationClaim claim;
+  TEST_ASSERT_TRUE(claim.try_claim(41U));
+  TEST_ASSERT_EQUAL_UINT64(41U, claim.operation_id());
+  TEST_ASSERT_FALSE(claim.try_claim(42U));
+  TEST_ASSERT_FALSE(claim.release(42U));
+  TEST_ASSERT_EQUAL_UINT64(41U, claim.operation_id());
+  TEST_ASSERT_TRUE(claim.release(41U));
+  TEST_ASSERT_EQUAL_UINT64(0U, claim.operation_id());
+  TEST_ASSERT_FALSE(claim.try_claim(0U));
+}
+
 void test_scan_results_dedupe_strongest_sort_and_bound() {
   const std::vector<WifiNetwork> observed = {
       {"weak", -80, true},
@@ -144,6 +175,7 @@ void test_async_scan_tracks_start_completion_and_coalesced_request() {
   TEST_ASSERT_TRUE(scan.start_due());
   scan.request();
   auto transition = scan.accept_start_result(-1);
+  TEST_ASSERT_EQUAL_UINT32(1U, scan.attempt_generation());
   TEST_ASSERT_EQUAL_INT(
       static_cast<int>(WifiScanOutcome::running),
       static_cast<int>(transition.outcome));
@@ -161,6 +193,27 @@ void test_async_scan_tracks_start_completion_and_coalesced_request() {
       static_cast<int>(transition.outcome));
   TEST_ASSERT_EQUAL_UINT32(1U, scan.generation());
   TEST_ASSERT_TRUE(scan.start_due());
+  transition = scan.accept_start_result(-1);
+  TEST_ASSERT_EQUAL_UINT32(2U, scan.attempt_generation());
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(WifiScanOutcome::running),
+      static_cast<int>(transition.outcome));
+}
+
+void test_async_scan_defer_does_not_consume_pending_radio_work() {
+  AsyncWifiScanState scan;
+  scan.request();
+  TEST_ASSERT_TRUE(scan.requested());
+  TEST_ASSERT_FALSE(scan.start_due(false));
+  TEST_ASSERT_TRUE(scan.requested());
+  TEST_ASSERT_TRUE(scan.start_due(true));
+  TEST_ASSERT_FALSE(scan.requested());
+
+  const auto transition = scan.accept_start_result(-1);
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(WifiScanOutcome::running),
+      static_cast<int>(transition.outcome));
+  TEST_ASSERT_FALSE(scan.start_due(false));
 }
 
 void test_async_scan_failure_preserves_actual_result_code() {
@@ -175,6 +228,95 @@ void test_async_scan_failure_preserves_actual_result_code() {
   TEST_ASSERT_FALSE(scan.running());
   TEST_ASSERT_TRUE(scan.last_failure_code().has_value());
   TEST_ASSERT_EQUAL_INT16(-2, *scan.last_failure_code());
+  TEST_ASSERT_EQUAL_UINT32(1U, scan.attempt_generation());
+  TEST_ASSERT_EQUAL_UINT32(0U, scan.generation());
+}
+
+void test_async_scan_wrapper_failure_is_nonterminal_until_driver_done() {
+  AsyncWifiScanState scan;
+  scan.request();
+  TEST_ASSERT_TRUE(scan.start_due());
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(WifiScanOutcome::running),
+      static_cast<int>(scan.accept_start_result(-1).outcome));
+  scan.request();
+
+  const auto wrapper_timeout = scan.accept_poll_result(-2);
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(WifiScanOutcome::running),
+      static_cast<int>(wrapper_timeout.outcome));
+  TEST_ASSERT_TRUE(scan.running());
+  TEST_ASSERT_FALSE(scan.start_due());
+  TEST_ASSERT_FALSE(scan.last_failure_code().has_value());
+
+  const auto stopped = scan.accept_stopped_result(-2);
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(WifiScanOutcome::failed),
+      static_cast<int>(stopped.outcome));
+  TEST_ASSERT_FALSE(scan.running());
+  TEST_ASSERT_TRUE(scan.last_failure_code().has_value());
+  TEST_ASSERT_EQUAL_INT16(-2, *scan.last_failure_code());
+  // The coalesced request is consumed only after cleanup is authoritative.
+  TEST_ASSERT_TRUE(scan.start_due());
+}
+
+void test_scan_driver_poll_classifier_stops_once_and_awaits_done() {
+  constexpr std::uint32_t deadline_ms = 15000U;
+  auto decision = classify_wifi_scan_driver_poll(
+      -2, 2401U, deadline_ms, false);
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(WifiScanDriverPollAction::wait),
+      static_cast<int>(decision.action));
+  decision = classify_wifi_scan_driver_poll(
+      -2, deadline_ms - 1U, deadline_ms, false);
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(WifiScanDriverPollAction::wait),
+      static_cast<int>(decision.action));
+  decision = classify_wifi_scan_driver_poll(
+      -2, deadline_ms, deadline_ms, false);
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(WifiScanDriverPollAction::request_stop),
+      static_cast<int>(decision.action));
+
+  // Once stop has been requested, neither Arduino negative sentinel can
+  // request another stop or release serialized radio ownership.
+  decision = classify_wifi_scan_driver_poll(
+      -2, deadline_ms + 5000U, deadline_ms, true);
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(WifiScanDriverPollAction::wait),
+      static_cast<int>(decision.action));
+  decision = classify_wifi_scan_driver_poll(
+      -1, deadline_ms + 5000U, deadline_ms, true);
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(WifiScanDriverPollAction::wait),
+      static_cast<int>(decision.action));
+
+  decision = classify_wifi_scan_driver_poll(
+      0, deadline_ms + 5001U, deadline_ms, true);
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(WifiScanDriverPollAction::discard_stopped_results),
+      static_cast<int>(decision.action));
+  decision = classify_wifi_scan_driver_poll(
+      7, 1000U, deadline_ms, false);
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(WifiScanDriverPollAction::collect_results),
+      static_cast<int>(decision.action));
+}
+
+void test_async_scan_state_survives_repeated_replacement_cycles() {
+  AsyncWifiScanState scan;
+  for (std::uint32_t cycle = 1U; cycle <= 100U; ++cycle) {
+    scan.request();
+    TEST_ASSERT_TRUE(scan.start_due());
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(WifiScanOutcome::running),
+        static_cast<int>(scan.accept_start_result(-1).outcome));
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(WifiScanOutcome::complete),
+        static_cast<int>(scan.accept_poll_result(
+            static_cast<std::int16_t>(cycle % 12U)).outcome));
+    TEST_ASSERT_EQUAL_UINT32(cycle, scan.generation());
+  }
 }
 
 void test_connect_receipt_gate_blocks_reconfigure_until_exact_ack() {
@@ -200,9 +342,18 @@ int main(int, char**) {
   RUN_TEST(test_diagnostic_counters_saturate_instead_of_wrapping);
   RUN_TEST(test_provisioning_policy_covers_first_boot_fallback_and_ap_grace);
   RUN_TEST(test_provisioning_grace_deadline_is_millis_wrap_safe);
+  RUN_TEST(
+      test_setup_provisioning_authority_requires_peer_and_local_ap_addresses);
+  RUN_TEST(
+      test_correlated_operation_claim_rejects_overlap_and_exactly_releases);
   RUN_TEST(test_scan_results_dedupe_strongest_sort_and_bound);
   RUN_TEST(test_async_scan_tracks_start_completion_and_coalesced_request);
+  RUN_TEST(
+      test_async_scan_wrapper_failure_is_nonterminal_until_driver_done);
+  RUN_TEST(test_scan_driver_poll_classifier_stops_once_and_awaits_done);
+  RUN_TEST(test_async_scan_defer_does_not_consume_pending_radio_work);
   RUN_TEST(test_async_scan_failure_preserves_actual_result_code);
+  RUN_TEST(test_async_scan_state_survives_repeated_replacement_cycles);
   RUN_TEST(test_connect_receipt_gate_blocks_reconfigure_until_exact_ack);
   return UNITY_END();
 }

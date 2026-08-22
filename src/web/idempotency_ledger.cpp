@@ -30,16 +30,12 @@ IdempotencyLookupResult IdempotencyLedger::lookup(
     std::string_view key,
     std::uint64_t payload_digest,
     std::uint32_t now_ms) {
-  if (key.size() > maximum_key_bytes) return {};
+  if (key.empty() || key.size() > maximum_key_bytes) return {};
 
   const std::lock_guard<std::mutex> lock(mutex_);
   expire_entries(now_ms);
 
-  // Search newest-to-oldest so a later insert wins deterministically even if
-  // a caller inserts the same key more than once without first looking it up.
-  for (std::size_t offset = 0U; offset < capacity; ++offset) {
-    const auto index = (next_slot_ + capacity - 1U - offset) % capacity;
-    const auto& entry = entries_[index];
+  for (const auto& entry : entries_) {
     if (!entry.occupied || !matches_key(entry, key)) continue;
     return {
         entry.payload_digest == payload_digest
@@ -52,15 +48,44 @@ IdempotencyLookupResult IdempotencyLedger::lookup(
   return {};
 }
 
+bool IdempotencyLedger::has_capacity(std::uint32_t now_ms) {
+  const std::lock_guard<std::mutex> lock(mutex_);
+  expire_entries(now_ms);
+  return std::any_of(
+      entries_.begin(), entries_.end(), [](const Entry& entry) {
+        return !entry.occupied;
+      });
+}
+
 bool IdempotencyLedger::insert(
     std::string_view key,
     std::uint64_t payload_digest,
     std::uint64_t operation_id,
     std::uint32_t accepted_at_ms) {
-  if (key.size() > maximum_key_bytes) return false;
+  if (key.empty() || key.size() > maximum_key_bytes || operation_id == 0U) {
+    return false;
+  }
 
   const std::lock_guard<std::mutex> lock(mutex_);
-  auto& entry = entries_[next_slot_];
+  expire_entries(accepted_at_ms);
+
+  for (const auto& entry : entries_) {
+    if (!entry.occupied || !matches_key(entry, key)) continue;
+    return entry.payload_digest == payload_digest &&
+        entry.operation_id == operation_id;
+  }
+
+  std::size_t available = capacity;
+  for (std::size_t offset = 0U; offset < capacity; ++offset) {
+    const auto index = (next_slot_ + offset) % capacity;
+    if (!entries_[index].occupied) {
+      available = index;
+      break;
+    }
+  }
+  if (available == capacity) return false;
+
+  auto& entry = entries_[available];
   entry = {};
   entry.occupied = true;
   std::copy(key.begin(), key.end(), entry.key.begin());
@@ -69,7 +94,7 @@ bool IdempotencyLedger::insert(
   entry.payload_digest = payload_digest;
   entry.operation_id = operation_id;
   entry.accepted_at_ms = accepted_at_ms;
-  next_slot_ = (next_slot_ + 1U) % capacity;
+  next_slot_ = (available + 1U) % capacity;
   return true;
 }
 

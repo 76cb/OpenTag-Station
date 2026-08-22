@@ -3,6 +3,7 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 
 #include <freertos/FreeRTOS.h>
 #include <freertos/queue.h>
@@ -27,10 +28,11 @@ class ConfigurationWorker {
 
   [[nodiscard]] bool start();
   [[nodiscard]] CommandReceipt submit_replace(
-      const config::Configuration& configuration,
+      config::Configuration configuration,
       std::uint64_t expected_revision,
       std::uint32_t now_ms,
-      OperationKind operation_kind = OperationKind::configuration);
+      OperationKind operation_kind = OperationKind::configuration,
+      bool require_http_receipt = false);
   [[nodiscard]] bool submit_setup_completion(services::SetupStep step);
   [[nodiscard]] bool acknowledge_network_connect_receipt(
       std::uint64_t operation_id) {
@@ -52,11 +54,12 @@ class ConfigurationWorker {
 
   struct Command {
     CommandType type{CommandType::replace};
-    config::Configuration configuration;
+    std::optional<config::Configuration> configuration;
     services::SetupStep setup_step{services::SetupStep::welcome};
     OperationKind operation_kind{OperationKind::configuration};
     std::uint64_t expected_revision{0U};
     std::uint64_t operation_id{0U};
+    bool receipt_required{false};
   };
 
   static void task_entry(void* context);

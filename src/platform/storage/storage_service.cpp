@@ -1,8 +1,11 @@
 #include "platform/storage/storage_service.hpp"
 
+#include <Arduino.h>
 #include <LittleFS.h>
 #include <esp_partition.h>
 
+#include <algorithm>
+#include <array>
 #include <cstddef>
 #include <mutex>
 #include <string>
@@ -17,6 +20,7 @@ constexpr char application_preferences_namespace[] = "opentag";
 constexpr char control_preferences_namespace[] = "opentagCtl";
 constexpr char factory_reset_pending_key[] = "resetPending";
 constexpr char filesystem_provisioned_key[] = "fsProvisioned";
+constexpr char filesystem_format_pending_key[] = "fsFormatPending";
 constexpr char filesystem_base_path[] = "/littlefs";
 constexpr char filesystem_partition_label[] = "littlefs";
 constexpr std::uint8_t filesystem_max_open_files = 10U;
@@ -53,6 +57,28 @@ std::uint32_t crc32(const void* data, std::size_t size) {
 
 core::Error storage_error(const char* message) {
   return {core::ErrorCategory::storage, message, false};
+}
+
+bool filesystem_partition_is_fully_erased() {
+  const auto* partition = esp_partition_find_first(
+      ESP_PARTITION_TYPE_DATA,
+      ESP_PARTITION_SUBTYPE_DATA_SPIFFS,
+      filesystem_partition_label);
+  if (partition == nullptr || partition->size == 0U) return false;
+
+  std::array<std::uint8_t, 512U> block{};
+  for (std::size_t offset = 0U; offset < partition->size;
+       offset += block.size()) {
+    const auto length = std::min(block.size(), partition->size - offset);
+    if (esp_partition_read(partition, offset, block.data(), length) != ESP_OK ||
+        std::any_of(
+            block.begin(),
+            block.begin() + static_cast<std::ptrdiff_t>(length),
+            [](std::uint8_t byte) { return byte != 0xFFU; })) {
+      return false;
+    }
+  }
+  return true;
 }
 
 core::Result<std::optional<std::string>> read_document_file(const char* path) {
@@ -111,6 +137,9 @@ bool StorageService::initialize(std::uint32_t now_ms) {
     reset_in_progress_.store(true, std::memory_order_release);
   }
 
+  Serial.printf(
+      "littlefs_mount=attempt label=%s format=disabled\n",
+      filesystem_partition_label);
   status_.filesystem_ready = LittleFS.begin(
       false,
       filesystem_base_path,
@@ -122,15 +151,49 @@ bool StorageService::initialize(std::uint32_t now_ms) {
        control_preferences_.getBool(filesystem_provisioned_key, false)) ||
       (application_nvs_ready &&
        preferences_.getBool(filesystem_provisioned_key, false));
+  bool filesystem_format_authorized =
+      control_nvs_ready &&
+      control_preferences_.getBool(filesystem_format_pending_key, false);
+  const bool filesystem_is_factory_blank =
+      !status_.filesystem_ready && !filesystem_was_provisioned &&
+      !filesystem_format_authorized &&
+      filesystem_partition_is_fully_erased();
+  if (filesystem_is_factory_blank && status_.nvs_ready) {
+    filesystem_format_authorized = control_preferences_.putBool(
+        filesystem_format_pending_key, true);
+  }
+
+  bool filesystem_format_attempted = false;
   if (!status_.filesystem_ready && status_.nvs_ready &&
-      !filesystem_was_provisioned) {
-    // A factory-blank partition needs one initial format. Once provisioned, a
-    // mount failure is surfaced instead of silently destroying recoverable data.
+      !filesystem_was_provisioned && filesystem_format_authorized) {
+    // The durable intent is created only after the whole partition is proven
+    // erased. If power is lost during the first format, the same intent safely
+    // authorizes a retry without weakening protection for provisioned data.
+    Serial.println(
+        "littlefs_mount=unprovisioned performing=one-time-guarded-format");
+    filesystem_format_attempted = true;
     status_.filesystem_ready = LittleFS.begin(
         true,
         filesystem_base_path,
         filesystem_max_open_files,
         filesystem_partition_label);
+  }
+  if (status_.filesystem_ready) {
+    Serial.printf(
+        "littlefs_mount=ready label=%s provisioned_before=%s\n",
+        filesystem_partition_label,
+        filesystem_was_provisioned ? "yes" : "no");
+  } else {
+    Serial.printf(
+        "littlefs_mount=ERROR label=%s action=data-preserved format=%s\n",
+        filesystem_partition_label,
+        filesystem_was_provisioned
+            ? "blocked-provisioned"
+            : filesystem_format_attempted
+                  ? "format-failed-retry-authorized"
+                  : filesystem_is_factory_blank
+                        ? "blocked-format-intent-not-durable"
+                        : "blocked-not-confirmed-erased");
   }
 
   if (reset_pending) {
@@ -145,6 +208,12 @@ bool StorageService::initialize(std::uint32_t now_ms) {
     reset_in_progress_.store(false, std::memory_order_release);
   } else if (status_.filesystem_ready && status_.nvs_ready) {
     if (!control_preferences_.putBool(filesystem_provisioned_key, true)) return false;
+  }
+  if (status_.filesystem_ready && status_.nvs_ready &&
+      filesystem_format_authorized &&
+      control_preferences_.isKey(filesystem_format_pending_key) &&
+      !control_preferences_.remove(filesystem_format_pending_key)) {
+    return false;
   }
 
   if (status_.nvs_ready) {

@@ -92,6 +92,8 @@ struct ScaleStatus {
   bool adc_ready{false};
   bool calibration_loaded{false};
   bool persistence_available{true};
+  bool tare_ready{false};
+  std::int32_t tare_zero_offset_counts{0};
   std::size_t samples_in_filter{0};
   ScaleSample sample;
   std::optional<core::Error> last_error;

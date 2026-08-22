@@ -22,17 +22,23 @@ struct IdempotencyLookupResult {
 
 class IdempotencyLedger final {
  public:
-  static constexpr std::size_t capacity = 16U;
+  static constexpr std::size_t capacity = 32U;
   static constexpr std::size_t maximum_key_bytes = 64U;
-  static constexpr std::uint32_t ttl_ms = 60000U;
+  static constexpr std::uint32_t ttl_ms = 10U * 60U * 1000U;
 
   [[nodiscard]] IdempotencyLookupResult lookup(
       std::string_view key,
       std::uint64_t payload_digest,
       std::uint32_t now_ms);
 
-  // Returns false instead of truncating when the caller violates the key-size
-  // contract. Each successful insert advances the deterministic ring cursor.
+  // Call after a miss and before starting an operation. The application
+  // context serializes this preflight and insert under its transaction mutex,
+  // preventing capacity from changing while side effects are created.
+  [[nodiscard]] bool has_capacity(std::uint32_t now_ms);
+
+  // Returns false for an oversized key, a conflicting duplicate key, or when
+  // every slot holds a live entry. An exact duplicate is accepted without
+  // changing the original operation or extending its retention window.
   [[nodiscard]] bool insert(
       std::string_view key,
       std::uint64_t payload_digest,

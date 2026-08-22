@@ -1,5 +1,6 @@
 #include <unity.h>
 
+#include <array>
 #include <atomic>
 #include <cmath>
 #include <cstdint>
@@ -9,6 +10,8 @@
 #include "diagnostics/system_diagnostics.hpp"
 
 using opentag::diagnostics::ScaleDiagnosticStore;
+using opentag::diagnostics::TransportDiagnosticStore;
+using opentag::diagnostics::WebsocketDisconnectReason;
 using opentag::services::ScaleCalibration;
 using opentag::services::ScaleHardwareSettings;
 using opentag::services::ScaleState;
@@ -159,11 +162,98 @@ void test_concurrent_snapshots_never_mix_two_scale_updates() {
   TEST_ASSERT_TRUE(coherent.load(std::memory_order_relaxed));
 }
 
+void test_transport_diagnostics_track_lifecycle_failures_and_live_gauges() {
+  TransportDiagnosticStore store;
+  auto snapshot = store.snapshot();
+  TEST_ASSERT_FALSE(snapshot.http_server_running);
+  TEST_ASSERT_EQUAL_UINT32(0U, snapshot.active_http_sessions);
+  TEST_ASSERT_EQUAL_STRING(
+      "none",
+      opentag::diagnostics::to_string(
+          snapshot.last_websocket_disconnect_reason));
+
+  store.set_http_server_running(true);
+  store.http_session_opened();
+  store.http_session_opened();
+  store.http_session_opened();
+  store.websocket_opened();
+  store.websocket_opened();
+  store.websocket_send_failed();
+  store.websocket_event_dropped();
+  store.websocket_disconnected(WebsocketDisconnectReason::send_failure);
+  store.http_session_closed();
+
+  snapshot = store.snapshot();
+  TEST_ASSERT_TRUE(snapshot.http_server_running);
+  TEST_ASSERT_EQUAL_UINT32(2U, snapshot.active_http_sessions);
+  TEST_ASSERT_EQUAL_UINT32(3U, snapshot.maximum_observed_http_sessions);
+  TEST_ASSERT_EQUAL_UINT32(3U, snapshot.http_session_open_count);
+  TEST_ASSERT_EQUAL_UINT32(1U, snapshot.http_session_close_count);
+  TEST_ASSERT_EQUAL_UINT32(1U, snapshot.websocket_clients);
+  TEST_ASSERT_EQUAL_UINT32(2U, snapshot.websocket_open_count);
+  TEST_ASSERT_EQUAL_UINT32(1U, snapshot.websocket_disconnect_count);
+  TEST_ASSERT_EQUAL_UINT32(1U, snapshot.websocket_send_failure_count);
+  TEST_ASSERT_EQUAL_UINT32(2U, snapshot.websocket_dropped_event_count);
+  TEST_ASSERT_EQUAL_STRING(
+      "send-failure",
+      opentag::diagnostics::to_string(
+          snapshot.last_websocket_disconnect_reason));
+
+  store.websocket_disconnected(WebsocketDisconnectReason::server_stopped);
+  store.http_session_closed();
+  store.http_session_closed();
+  store.set_http_server_running(false);
+  snapshot = store.snapshot();
+  TEST_ASSERT_FALSE(snapshot.http_server_running);
+  TEST_ASSERT_EQUAL_UINT32(0U, snapshot.active_http_sessions);
+  TEST_ASSERT_EQUAL_UINT32(0U, snapshot.websocket_clients);
+  TEST_ASSERT_EQUAL_UINT32(3U, snapshot.http_session_close_count);
+  TEST_ASSERT_EQUAL_UINT32(2U, snapshot.websocket_disconnect_count);
+  TEST_ASSERT_EQUAL_STRING(
+      "server-stopped",
+      opentag::diagnostics::to_string(
+          snapshot.last_websocket_disconnect_reason));
+}
+
+void test_transport_diagnostics_are_atomic_under_parallel_session_churn() {
+  TransportDiagnosticStore store;
+  constexpr std::size_t worker_count = 4U;
+  constexpr std::size_t cycles_per_worker = 2500U;
+  std::array<std::thread, worker_count> workers;
+  store.set_http_server_running(true);
+  for (auto& worker : workers) {
+    worker = std::thread([&store]() {
+      for (std::size_t cycle = 0U; cycle < cycles_per_worker; ++cycle) {
+        store.http_session_opened();
+        store.http_session_closed();
+      }
+    });
+  }
+  for (auto& worker : workers) worker.join();
+
+  const auto snapshot = store.snapshot();
+  TEST_ASSERT_EQUAL_UINT32(0U, snapshot.active_http_sessions);
+  TEST_ASSERT_EQUAL_UINT32(
+      worker_count * cycles_per_worker,
+      snapshot.http_session_open_count);
+  TEST_ASSERT_EQUAL_UINT32(
+      worker_count * cycles_per_worker,
+      snapshot.http_session_close_count);
+  TEST_ASSERT_GREATER_OR_EQUAL_UINT32(
+      1U, snapshot.maximum_observed_http_sessions);
+  TEST_ASSERT_LESS_OR_EQUAL_UINT32(
+      worker_count, snapshot.maximum_observed_http_sessions);
+}
+
 int main(int, char**) {
   UNITY_BEGIN();
   RUN_TEST(
       test_scale_diagnostics_expose_coherent_hardware_and_calibration_state);
   RUN_TEST(test_missing_calibration_clears_every_calibration_derived_field);
   RUN_TEST(test_concurrent_snapshots_never_mix_two_scale_updates);
+  RUN_TEST(
+      test_transport_diagnostics_track_lifecycle_failures_and_live_gauges);
+  RUN_TEST(
+      test_transport_diagnostics_are_atomic_under_parallel_session_churn);
   return UNITY_END();
 }

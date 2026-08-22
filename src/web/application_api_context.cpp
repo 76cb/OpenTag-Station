@@ -13,6 +13,7 @@
 #include "boards/wt32_sc01_plus_rev_a.hpp"
 #include "diagnostics/build_info.hpp"
 #include "web/configuration_patch.hpp"
+#include "web/local_access_policy.hpp"
 
 namespace opentag::web {
 namespace {
@@ -159,7 +160,14 @@ void add_optional(JsonObject destination, const char* key, const std::optional<T
 }
 
 core::Result<std::string> serialized(JsonDocument& document) {
+  const auto measured = measureJson(document);
+  if (measured == 0U || measured > api::maximum_snapshot_json_bytes) {
+    return core::Result<std::string>::failure(unavailable(
+        core::ErrorCategory::storage,
+        "API snapshot exceeded its bounded serialization buffer"));
+  }
   std::string result;
+  result.reserve(measured);
   serializeJson(document, result);
   if (result.empty() || result.size() > api::maximum_snapshot_json_bytes) {
     return core::Result<std::string>::failure(unavailable(
@@ -187,8 +195,13 @@ void write_system(JsonObject object, const diagnostics::SystemSnapshot& value) {
   object["uptime_ms"] = value.uptime_ms;
   object["free_heap_bytes"] = value.free_heap_bytes;
   object["minimum_free_heap_bytes"] = value.minimum_free_heap_bytes;
+  object["largest_free_internal_block_bytes"] =
+      value.largest_free_internal_block_bytes;
   object["psram_total_bytes"] = value.psram_total_bytes;
   object["psram_free_bytes"] = value.psram_free_bytes;
+  object["minimum_free_psram_bytes"] = value.minimum_free_psram_bytes;
+  object["largest_free_psram_block_bytes"] =
+      value.largest_free_psram_block_bytes;
   object["boot_count"] = value.boot_count;
   object["crash_streak"] = value.crash_streak;
   auto stacks = object["stack_high_water_free_bytes"].to<JsonObject>();
@@ -196,8 +209,31 @@ void write_system(JsonObject object, const diagnostics::SystemSnapshot& value) {
   stacks["opentag-network"] = value.task_stacks.network_free_bytes;
   stacks["opentag-ui"] = value.task_stacks.ui_free_bytes;
   stacks["opentag-config"] = value.task_stacks.configuration_free_bytes;
+  stacks["opentag-backend"] = value.task_stacks.backend_free_bytes;
   stacks["opentag-scale"] = value.task_stacks.scale_free_bytes;
+  stacks["opentag-control"] = value.task_stacks.device_control_free_bytes;
+  stacks["opentag-ota"] = value.task_stacks.ota_free_bytes;
   stacks["httpd"] = value.task_stacks.httpd_free_bytes;
+  auto transport = object["transport"].to<JsonObject>();
+  transport["http_server_running"] = value.transport.http_server_running;
+  transport["active_http_sessions"] = value.transport.active_http_sessions;
+  transport["maximum_observed_http_sessions"] =
+      value.transport.maximum_observed_http_sessions;
+  transport["http_session_open_count"] =
+      value.transport.http_session_open_count;
+  transport["http_session_close_count"] =
+      value.transport.http_session_close_count;
+  transport["websocket_clients"] = value.transport.websocket_clients;
+  transport["websocket_open_count"] = value.transport.websocket_open_count;
+  transport["websocket_disconnect_count"] =
+      value.transport.websocket_disconnect_count;
+  transport["websocket_send_failure_count"] =
+      value.transport.websocket_send_failure_count;
+  transport["websocket_dropped_event_count"] =
+      value.transport.websocket_dropped_event_count;
+  transport["last_websocket_disconnect_reason"] =
+      diagnostics::to_string(
+          value.transport.last_websocket_disconnect_reason);
   object["reset_reason"] = value.reset_reason;
   object["display_ready"] = value.display_ready;
   object["touch_configured"] = value.touch_configured;
@@ -229,6 +265,10 @@ void write_system(JsonObject object, const diagnostics::SystemSnapshot& value) {
   provisioning["ap_ip"] = value.setup_ap_ip;
   network["scan_running"] = value.wifi_scan_running;
   network["scan_generation"] = value.wifi_scan_generation;
+  network["scan_attempt_generation"] =
+      value.wifi_scan_attempt_generation;
+  network["scan_result_attempt_generation"] =
+      value.wifi_scan_result_attempt_generation;
   if (value.wifi_scan_error.has_value()) {
     add_error(network["scan_error"].to<JsonObject>(), value.wifi_scan_error);
   }
@@ -237,7 +277,9 @@ void write_system(JsonObject object, const diagnostics::SystemSnapshot& value) {
   }
 }
 
-void write_scale(JsonObject scale, const diagnostics::SystemSnapshot& value) {
+void write_scale(
+    JsonObject scale,
+    const diagnostics::ScaleDiagnosticSnapshot& value) {
   scale["revision"] = value.scale_revision;
   scale["state"] = services::to_string(value.scale_state);
   scale["adc_ready"] = value.scale_adc_ready;
@@ -246,6 +288,10 @@ void write_scale(JsonObject scale, const diagnostics::SystemSnapshot& value) {
   scale["calibration_matches_hardware"] =
       value.scale_calibration_matches_hardware;
   scale["persistence_available"] = value.scale_persistence_available;
+  scale["tare_ready"] = value.scale_tare_ready;
+  if (value.scale_tare_ready) {
+    scale["tare_zero_offset_counts"] = value.scale_tare_zero_offset_counts;
+  }
   auto sample = scale["sample"].to<JsonObject>();
   if (value.scale_weight_available) {
     sample["gross_grams"] =
@@ -677,8 +723,12 @@ std::uint64_t streaming_upload_digest(const StreamingUploadRequest& request) {
 
 bool ApplicationApiContext::authorize_mutation(
     std::string_view bearer_token) {
-  const auto configured = configuration_.snapshot().web.access_token;
-  if (configured.empty()) return true;
+  const auto local_interface =
+      configuration_.local_interface_settings_snapshot();
+  const auto& configured = local_interface.web.access_token;
+  const auto policy = local_access_policy(configured);
+  if (!policy.browser_mutations_enabled) return false;
+  if (!policy.authentication_enabled) return true;
   return constant_time_token_match(bearer_token, configured);
 }
 
@@ -697,7 +747,7 @@ core::Result<std::string> ApplicationApiContext::scale_event_json() {
   document["type"] = "scale";
   write_scale(
       document["data"].to<JsonObject>(),
-      diagnostics_.snapshot(millis()));
+      diagnostics_.scale_snapshot());
   return serialized(document);
 }
 
@@ -715,13 +765,13 @@ core::Result<std::string> ApplicationApiContext::update_event_json(
 core::Result<std::string> ApplicationApiContext::snapshot_json(
     api::Resource resource) {
   const auto now_ms = millis();
-  const auto system = diagnostics_.snapshot(now_ms);
-  const auto workflow = workflow_.snapshot();
-  const auto backends = backend_worker_.snapshot();
 
   JsonDocument document;
   switch (resource) {
     case api::Resource::status: {
+      const auto system = diagnostics_.snapshot(now_ms);
+      const auto workflow = workflow_.snapshot();
+      const auto backends = backend_worker_.snapshot();
       write_system(document["system"].to<JsonObject>(), system);
       auto encoded_backends = document["backends"].to<JsonObject>();
       write_backend(encoded_backends["spoolman"].to<JsonObject>(), backends.spoolman);
@@ -733,9 +783,11 @@ core::Result<std::string> ApplicationApiContext::snapshot_json(
       break;
     }
     case api::Resource::device: {
-      const auto configured = configuration_.snapshot();
+      const auto system = diagnostics_.snapshot(now_ms);
+      const auto configured =
+          configuration_.local_interface_settings_snapshot();
       auto device = document["device"].to<JsonObject>();
-      device["hostname"] = configured.device.hostname;
+      device["hostname"] = configured.hostname;
       device["hardware_id"] = boards::Wt32Sc01PlusRevA::id;
       device["ip_address"] = system.ip_address;
       if (!system.ip_address.empty()) {
@@ -751,6 +803,12 @@ core::Result<std::string> ApplicationApiContext::snapshot_json(
       break;
     }
     case api::Resource::health: {
+      const auto system = diagnostics_.snapshot(now_ms);
+      const auto workflow = workflow_.snapshot();
+      const auto configured =
+          configuration_.local_interface_settings_snapshot();
+      const auto local_access = local_access_policy(
+          configured.web.access_token);
       const bool essential_ok = system.nvs_ready && system.filesystem_ready &&
           system.display_ready && system.ui_task_running &&
           system.scale_task_running && system.network_task_running;
@@ -758,13 +816,22 @@ core::Result<std::string> ApplicationApiContext::snapshot_json(
           workflow.spoolman == services::BackendAvailability::offline ||
           workflow.filabridge == services::BackendAvailability::offline;
       document["status"] =
-          !essential_ok ? "unhealthy" : backend_degraded ? "degraded" : "healthy";
+          !essential_ok
+              ? "unhealthy"
+              : (backend_degraded || local_access.health_degraded)
+                  ? "degraded"
+                  : "healthy";
       document["local_services_ready"] = essential_ok;
       document["backend_degraded"] = backend_degraded;
+      document["local_api_authentication_enabled"] =
+          local_access.authentication_enabled;
+      document["local_browser_control_enabled"] =
+          local_access.browser_mutations_enabled;
       document["nfc_available"] = false;
       break;
     }
     case api::Resource::network: {
+      const auto system = diagnostics_.snapshot(now_ms);
       write_system(document["system"].to<JsonObject>(), system);
       auto networks = document["networks"].to<JsonArray>();
       for (const auto& candidate : network_.scan_results()) {
@@ -773,23 +840,32 @@ core::Result<std::string> ApplicationApiContext::snapshot_json(
         encoded["rssi_dbm"] = candidate.rssi_dbm;
         encoded["secured"] = candidate.secured;
       }
-      const auto configured = configuration_.versioned_snapshot();
+      const auto configured =
+          configuration_.local_interface_settings_snapshot();
       document["config_revision"] = configured.revision;
-      document["hostname"] = configured.configuration.device.hostname;
+      document["hostname"] = configured.hostname;
+      const auto local_access = local_access_policy(
+          configured.web.access_token);
       document["access_token_configured"] =
-          !configured.configuration.web.access_token.empty();
+          local_access.authentication_enabled;
+      document["local_browser_control_enabled"] =
+          local_access.browser_mutations_enabled;
       break;
     }
-    case api::Resource::scale:
-      write_scale(document["scale"].to<JsonObject>(), system);
+    case api::Resource::scale: {
+      write_scale(
+          document["scale"].to<JsonObject>(),
+          diagnostics_.scale_snapshot());
       document["command_queue_depth"] = scale_commands_.pending();
       break;
+    }
     case api::Resource::nfc:
     case api::Resource::nfc_tag:
       return core::Result<std::string>::failure(unavailable(
           core::ErrorCategory::nfc_communication,
           "NFC reader is unavailable: ST25R3916B transport is disabled in this build"));
     case api::Resource::spool: {
+      const auto workflow = workflow_.snapshot();
       auto encoded = document["workflow"].to<JsonObject>();
       encoded["stage"] = workflow_stage_name(workflow.stage);
       encoded["spool_generation"] = workflow.spool_generation;
@@ -804,6 +880,7 @@ core::Result<std::string> ApplicationApiContext::snapshot_json(
       break;
     }
     case api::Resource::printers: {
+      const auto workflow = workflow_.snapshot();
       document["revision"] = workflow.printer_revision;
       auto printers = document["printers"].to<JsonArray>();
       for (const auto& printer : workflow.printers) {
@@ -813,6 +890,7 @@ core::Result<std::string> ApplicationApiContext::snapshot_json(
       break;
     }
     case api::Resource::toolheads: {
+      const auto workflow = workflow_.snapshot();
       document["revision"] = workflow.printer_revision;
       const auto configured = configuration_.snapshot();
       auto toolheads = document["toolheads"].to<JsonArray>();
@@ -847,6 +925,8 @@ core::Result<std::string> ApplicationApiContext::snapshot_json(
       write_configuration(document, configuration_.versioned_snapshot());
       break;
     case api::Resource::diagnostics: {
+      const auto system = diagnostics_.snapshot(now_ms);
+      const auto backends = backend_worker_.snapshot();
       write_system(document["system"].to<JsonObject>(), system);
       write_scale(document["scale"].to<JsonObject>(), system);
       auto encoded_backends = document["backends"].to<JsonObject>();
@@ -859,8 +939,17 @@ core::Result<std::string> ApplicationApiContext::snapshot_json(
       queues["scale"] = scale_commands_.pending();
       queues["device_control"] = device_control_.pending();
       queues["ota"] = ota_worker_.pending();
+      const auto operation_statistics = operations_.statistics();
+      auto operation_counts = document["operations"].to<JsonObject>();
+      operation_counts["used"] = operation_statistics.used;
+      operation_counts["queued"] = operation_statistics.queued;
+      operation_counts["running"] = operation_statistics.running;
+      operation_counts["terminal"] = operation_statistics.terminal;
+      operation_counts["confirmation_required"] =
+          operation_statistics.confirmation_required;
       document["ota_owner_ready"] = ota_worker_.ready();
-      document["operation_registry_revision"] = operations_.revision();
+      document["operation_registry_revision"] =
+          operation_statistics.revision;
       document["nfc_available"] = false;
       document["nfc_reason"] =
           "ST25R3916B transport disabled at compile time";
@@ -999,34 +1088,60 @@ core::Result<api::OperationReceipt> ApplicationApiContext::submit_fresh(
     case api::MutationKind::configuration_patch: {
       const auto& patch =
           std::get<api::ConfigurationPatchMutation>(mutation.payload);
-      const auto proposed = apply_configuration_patch(
+      auto proposed = apply_configuration_patch(
           configuration_.versioned_snapshot(), patch);
       if (!proposed.ok()) {
         return core::Result<api::OperationReceipt>::failure(proposed.error());
       }
       return receipt_result(
           configuration_worker_.submit_replace(
-              proposed.value(), patch.expected_revision, now_ms),
+              std::move(proposed.value()),
+              patch.expected_revision,
+              now_ms,
+              application::OperationKind::configuration,
+              true),
           "Configuration command queue is unavailable");
     }
     case api::MutationKind::network_scan: {
-      network_.request_scan();
       const auto operation_id = operations_.begin(
           application::OperationKind::network_scan,
           now_ms,
           "Wi-Fi scan requested");
-      operations_.succeed(
-          operation_id, now_ms, "Wi-Fi scan started asynchronously");
+      if (operation_id == 0U) {
+        return core::Result<api::OperationReceipt>::failure(unavailable(
+            core::ErrorCategory::configuration,
+            "Operation registry is full",
+            true));
+      }
+      if (!network_.request_scan(operation_id)) {
+        operations_.fail(
+            operation_id,
+            now_ms,
+            {core::ErrorCategory::network,
+             "Wi-Fi scan is unavailable or another scan operation is already active",
+             true});
+      }
       return core::Result<api::OperationReceipt>::success({operation_id});
     }
     case api::MutationKind::network_setup_mode: {
-      network_.request_setup_mode();
       const auto operation_id = operations_.begin(
           application::OperationKind::network_setup_mode,
           now_ms,
           "Setup access point requested");
-      operations_.succeed(
-          operation_id, now_ms, "Setup access point is starting");
+      if (operation_id == 0U) {
+        return core::Result<api::OperationReceipt>::failure(unavailable(
+            core::ErrorCategory::configuration,
+            "Operation registry is full",
+            true));
+      }
+      if (!network_.request_setup_mode(operation_id)) {
+        operations_.fail(
+            operation_id,
+            now_ms,
+            {core::ErrorCategory::network,
+             "Setup access point control is unavailable or already active",
+             true});
+      }
       return core::Result<api::OperationReceipt>::success({operation_id});
     }
     case api::MutationKind::network_connect: {
@@ -1064,12 +1179,12 @@ core::Result<api::OperationReceipt> ApplicationApiContext::submit_fresh(
         web.access_token = payload.access_token;
         patch.web = std::move(web);
       }
-      const auto proposed = apply_configuration_patch(current, patch);
+      auto proposed = apply_configuration_patch(current, patch);
       if (!proposed.ok()) {
         return core::Result<api::OperationReceipt>::failure(proposed.error());
       }
       const auto receipt = configuration_worker_.submit_replace(
-          proposed.value(),
+          std::move(proposed.value()),
           patch.expected_revision,
           now_ms,
           application::OperationKind::network_connect);
@@ -1150,6 +1265,11 @@ core::Result<api::OperationReceipt> ApplicationApiContext::submit_fresh(
 
 core::Result<api::OperationReceipt> ApplicationApiContext::submit(
     const api::Mutation& mutation) {
+  if (!valid_idempotency_key(mutation.idempotency_key)) {
+    return core::Result<api::OperationReceipt>::failure(unavailable(
+        core::ErrorCategory::configuration,
+        "Idempotency-Key is missing or invalid"));
+  }
   const auto now_ms = millis();
   const std::lock_guard<std::mutex> lock(idempotency_mutex_);
   const auto existing = idempotency_.lookup(
@@ -1162,6 +1282,12 @@ core::Result<api::OperationReceipt> ApplicationApiContext::submit(
     return core::Result<api::OperationReceipt>::failure(unavailable(
         core::ErrorCategory::conflict,
         "Idempotency-Key was already used with a different request payload"));
+  }
+  if (!idempotency_.has_capacity(now_ms)) {
+    return core::Result<api::OperationReceipt>::failure(unavailable(
+        core::ErrorCategory::conflict,
+        "Idempotency ledger is full; wait for a retained request key to expire",
+        true));
   }
 
   const auto submitted = submit_fresh(mutation, now_ms);
@@ -1214,11 +1340,21 @@ ApplicationApiContext::begin_streaming_upload(
     return core::Result<StreamingUploadSession>::failure(conflict_error(
         "Idempotency-Key was already used with different firmware metadata"));
   }
+  if (!idempotency_.has_capacity(now_ms)) {
+    return core::Result<StreamingUploadSession>::failure(unavailable(
+        core::ErrorCategory::conflict,
+        "Idempotency ledger is full; wait for a retained request key to expire",
+        true));
+  }
 
   const auto operation_id = operations_.begin(
       application::OperationKind::firmware_upload,
       now_ms,
       "Firmware upload accepted");
+  if (operation_id == 0U) {
+    return core::Result<StreamingUploadSession>::failure(update_error(
+        "Operation registry is full", true));
+  }
   opentag::ota::BeginUploadRequest begin;
   begin.operation_id = operation_id;
   begin.expected_generation = request.expected_generation;
@@ -1231,14 +1367,25 @@ ApplicationApiContext::begin_streaming_upload(
     if (current.operation_id == operation_id &&
         current.generation != 0U &&
         (current.state == opentag::ota::UpdateState::upload_receiving ||
-         current.state == opentag::ota::UpdateState::writing)) {
+         current.state == opentag::ota::UpdateState::writing ||
+         current.state == opentag::ota::UpdateState::validating)) {
       const opentag::ota::OperationPrecondition precondition{
           current.operation_id,
           current.generation,
       };
-      (void)ota_worker_.abort_upload(precondition, cleanup_now_ms);
+      const auto cleanup = ota_worker_.abort_upload(
+          precondition, cleanup_now_ms, started.error());
+      if (!cleanup.ok()) {
+        logs_.append(
+            cleanup_now_ms,
+            logging::LogSeverity::warning,
+            logging::LogComponent::web,
+            "OTA begin cleanup remains unresolved");
+      }
     }
-    operations_.fail(operation_id, cleanup_now_ms, started.error());
+    // The OTA owner publishes only an authoritative terminal result. A timed
+    // out begin remains nonterminal until its late completion is canceled or
+    // proven failed.
     return core::Result<StreamingUploadSession>::failure(started.error());
   }
   const opentag::ota::OperationPrecondition precondition{
@@ -1252,8 +1399,15 @@ ApplicationApiContext::begin_streaming_upload(
           now_ms)) {
     const auto error = update_error(
         "Idempotency-Key exceeded the bounded ledger limit");
-    (void)ota_worker_.abort_upload(precondition, now_ms);
-    operations_.fail(operation_id, now_ms, error);
+    const auto cleanup = ota_worker_.abort_upload(
+        precondition, millis(), error);
+    if (!cleanup.ok()) {
+      logs_.append(
+          millis(),
+          logging::LogSeverity::warning,
+          logging::LogComponent::web,
+          "OTA idempotency rollback remains unresolved");
+    }
     return core::Result<StreamingUploadSession>::failure(error);
   }
   operations_.mark_running(
@@ -1298,7 +1452,8 @@ ApplicationApiContext::finish_streaming_upload(
   const auto finished = ota_worker_.finish_and_activate(
       session.precondition, now_ms);
   if (!finished.ok()) {
-    operations_.fail(session.operation_id, now_ms, finished.error());
+    // The caller performs correlated cleanup. A worker timeout can complete
+    // later, so failure is not terminal until the OTA owner reconciles it.
     return finished;
   }
   const auto& update = finished.value();
@@ -1306,7 +1461,6 @@ ApplicationApiContext::finish_streaming_upload(
       !update.validation_passed || update.activated) {
     const auto error = update_error(
         "Validated firmware did not reach the safe inactive-slot reboot boundary");
-    operations_.fail(session.operation_id, now_ms, error);
     return core::Result<opentag::ota::UpdateSnapshot>::failure(error);
   }
   operations_.succeed(
@@ -1321,13 +1475,15 @@ void ApplicationApiContext::abort_streaming_upload(
     const core::Error& reason) {
   if (session.duplicate || session.operation_id == 0U) return;
   const auto now_ms = millis();
-  (void)ota_worker_.abort_upload(session.precondition, now_ms);
-  operations_.fail(session.operation_id, now_ms, reason);
+  const auto cleanup = ota_worker_.abort_upload(
+      session.precondition, now_ms, reason);
   logs_.append(
       now_ms,
       logging::LogSeverity::warning,
       logging::LogComponent::web,
-      std::string("Aborted firmware upload operation #") +
+      std::string(cleanup.ok()
+                      ? "Aborted firmware upload operation #"
+                      : "Firmware upload cleanup is unresolved for operation #") +
           std::to_string(session.operation_id));
 }
 

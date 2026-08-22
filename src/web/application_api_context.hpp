@@ -96,6 +96,10 @@ class ApplicationApiContext final : public api::IApiContext {
   [[nodiscard]] std::uint64_t update_revision() const {
     return ota_worker_.snapshot().revision;
   }
+  [[nodiscard]] diagnostics::TransportDiagnosticStore&
+  transport_diagnostics() noexcept {
+    return diagnostics_.transport_diagnostics();
+  }
 
  private:
   [[nodiscard]] core::Result<api::OperationReceipt> submit_fresh(

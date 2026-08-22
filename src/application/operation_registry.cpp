@@ -5,6 +5,16 @@
 #include <utility>
 
 namespace opentag::application {
+namespace {
+
+bool terminal(OperationState state) {
+  return state == OperationState::succeeded ||
+      state == OperationState::failed ||
+      state == OperationState::confirmation_required;
+}
+
+}  // namespace
+
 
 const char* to_string(OperationKind kind) {
   switch (kind) {
@@ -56,8 +66,20 @@ std::uint64_t OperationRegistry::begin(
     std::uint32_t now_ms,
     std::string message) {
   std::lock_guard<std::mutex> lock(mutex_);
+  std::size_t selected = capacity;
+  for (std::size_t offset = 0U; offset < capacity; ++offset) {
+    const auto index = (next_slot_ + offset) % capacity;
+    const auto& candidate = records_[index];
+    if (candidate.id == 0U || terminal(candidate.state)) {
+      selected = index;
+      break;
+    }
+  }
+  if (selected == capacity || next_id_ == 0U) return 0U;
+
   const auto id = next_id_++;
-  auto& record = records_[next_slot_];
+  auto& record = records_[selected];
+  const bool empty_slot = record.id == 0U;
   record = {};
   record.id = id;
   record.kind = kind;
@@ -65,8 +87,8 @@ std::uint64_t OperationRegistry::begin(
   record.created_at_ms = now_ms;
   record.updated_at_ms = now_ms;
   record.message = bounded(std::move(message));
-  next_slot_ = (next_slot_ + 1U) % capacity;
-  count_ = std::min(count_ + 1U, capacity);
+  next_slot_ = (selected + 1U) % capacity;
+  if (empty_slot) count_ = std::min(count_ + 1U, capacity);
   ++revision_;
   return id;
 }
@@ -88,6 +110,9 @@ void OperationRegistry::update(
   std::lock_guard<std::mutex> lock(mutex_);
   for (auto& record : records_) {
     if (record.id != id) continue;
+    // Receipts are externally observable and may be polled concurrently with
+    // late worker callbacks. Once terminal, their outcome is immutable.
+    if (terminal(record.state)) return;
     record.state = state;
     record.updated_at_ms = now_ms;
     record.message = bounded(std::move(message));
@@ -152,11 +177,40 @@ std::vector<OperationRecord> OperationRegistry::snapshot(
   std::lock_guard<std::mutex> lock(mutex_);
   limit = std::min({limit, count_, capacity});
   std::vector<OperationRecord> result;
-  result.reserve(limit);
-  for (std::size_t offset = 0U; offset < limit; ++offset) {
-    const auto index =
-        (next_slot_ + capacity - 1U - offset) % capacity;
-    if (records_[index].id != 0U) result.push_back(records_[index]);
+  result.reserve(count_);
+  for (const auto& record : records_) {
+    if (record.id != 0U) result.push_back(record);
+  }
+  std::sort(result.begin(), result.end(), [](const auto& left, const auto& right) {
+    return left.id > right.id;
+  });
+  if (result.size() > limit) result.resize(limit);
+  return result;
+}
+
+OperationRegistryStatistics OperationRegistry::statistics() const {
+  std::lock_guard<std::mutex> lock(mutex_);
+  OperationRegistryStatistics result;
+  result.revision = revision_;
+  for (const auto& record : records_) {
+    if (record.id == 0U) continue;
+    ++result.used;
+    switch (record.state) {
+      case OperationState::queued:
+        ++result.queued;
+        break;
+      case OperationState::running:
+        ++result.running;
+        break;
+      case OperationState::succeeded:
+      case OperationState::failed:
+        ++result.terminal;
+        break;
+      case OperationState::confirmation_required:
+        ++result.terminal;
+        ++result.confirmation_required;
+        break;
+    }
   }
   return result;
 }
