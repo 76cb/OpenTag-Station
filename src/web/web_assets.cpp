@@ -31,7 +31,7 @@ const char index_html[] = R"HTML(<!doctype html>
   </aside>
   <div class="app-frame">
     <header class="site-header">
-      <div><p class="eyebrow">OPEN TAG STATION</p><h1 id="page-title">Home</h1></div>
+      <div><p id="page-eyebrow" class="eyebrow">OPEN TAG STATION</p><h1 id="page-title">Home</h1></div>
       <div class="connection-strip"><span id="health-badge" class="badge neutral">Checking</span><button id="refresh-all" class="button quiet" type="button">Refresh</button></div>
     </header>
 
@@ -78,8 +78,8 @@ const char index_html[] = R"HTML(<!doctype html>
       <p id="home-weight-state" class="home-state">Scale snapshot pending</p>
     </section>
 
-    <section id="scale" class="section product-page scale-page" data-page="scale" aria-labelledby="scale-title" hidden>
-      <div class="section-heading"><div><p class="eyebrow">FILAMENT SCALE</p><h2 id="scale-title">Scale</h2></div><span id="scale-badge" class="badge neutral">Idle</span></div>
+    <section id="scale" class="section product-page scale-page" data-page="scale" aria-labelledby="page-title" hidden>
+      <div class="scale-state-row"><span id="scale-badge" class="badge neutral">Idle</span></div>
       <div class="scale-stage">
         <article class="spool-panel" aria-live="polite">
           <div id="scale-visual" class="spool-visual" data-state="idle">
@@ -93,19 +93,24 @@ const char index_html[] = R"HTML(<!doctype html>
               </div>
             </div>
           </div>
+          <p id="weight-captured" class="spool-meta">No captured measurement</p>
         </article>
         <aside class="scale-actions">
           <button id="weigh-scale" class="action-card weigh-action" type="button" disabled><span class="action-icon">◌</span><span><strong id="weigh-action-label">Weigh</strong><small>Capture stable weight</small></span><span>›</span></button>
           <button id="tare-scale" class="action-card" type="button" disabled><span class="action-icon">↔</span><span><strong id="tare-action-label">Tare</strong><small>Zero the empty scale</small></span><span>›</span></button>
-          <form id="calibrate-form" class="calibration-card">
-            <button id="calibrate-scale" class="action-card" type="submit" disabled><span class="action-icon">◎</span><span><strong id="calibrate-action-label">Calibrate</strong><small>Use a known reference</small></span><span>›</span></button>
-            <label for="reference-grams">Known reference weight (g)</label>
-            <input id="reference-grams" name="reference_grams" type="number" min="1" max="5000" step="0.1" inputmode="decimal" placeholder="Enter weight">
-          </form>
+          <button id="calibrate-scale" class="action-card" type="button" aria-expanded="false" aria-controls="calibration-panel" disabled><span class="action-icon">◎</span><span><strong>Calibrate</strong><small>Use a known reference</small></span><span>›</span></button>
           <p id="scale-action-status" class="scale-guide-status" aria-live="polite">Waiting for the first scale snapshot.</p>
-          <ol id="calibration-steps" class="calibration-steps">
-            <li id="cal-step-empty" data-cal-step="empty">Empty platform</li><li id="cal-step-tare" data-cal-step="tare">Tare</li><li id="cal-step-reference" data-cal-step="reference">Place reference</li><li id="cal-step-stable" data-cal-step="stable">Stable signal</li><li id="cal-step-calibrate" data-cal-step="calibrate">Calibrate</li>
-          </ol>
+          <section id="calibration-panel" class="calibration-drawer" aria-labelledby="calibration-title" hidden>
+            <div class="drawer-heading"><div><p class="eyebrow">GUIDED SETUP</p><h3 id="calibration-title">Calibrate scale</h3></div><button id="close-calibration" class="drawer-close" type="button" aria-label="Close calibration">×</button></div>
+            <form id="calibrate-form" class="calibration-card">
+              <label for="reference-grams">Known reference weight (g)</label>
+              <input id="reference-grams" name="reference_grams" type="number" min="1" max="5000" step="0.1" inputmode="decimal" placeholder="Enter weight">
+              <ol id="calibration-steps" class="calibration-steps">
+                <li id="cal-step-empty" data-cal-step="empty">Empty platform</li><li id="cal-step-tare" data-cal-step="tare">Tare</li><li id="cal-step-reference" data-cal-step="reference">Place reference</li><li id="cal-step-stable" data-cal-step="stable">Stable signal</li><li id="cal-step-calibrate" data-cal-step="calibrate">Calibrate</li>
+              </ol>
+              <button id="confirm-calibration" class="button primary calibration-submit" type="submit" disabled><span id="calibrate-action-label">Run calibration</span></button>
+            </form>
+          </section>
         </aside>
       </div>
     </section>
@@ -416,46 +421,68 @@ main { width: min(1280px, 100%); min-height: calc(100vh - 9.6rem); padding: 0 cl
 .section { padding-top: 2rem; }
 .section-heading { align-items: center; margin-bottom: 1.35rem; }
 .card { border-color: var(--line); background: linear-gradient(145deg, rgba(24, 38, 55, .9), rgba(13, 24, 35, .96)); box-shadow: 0 18px 50px rgba(0, 0, 0, .2); }
-.home-hero { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(18rem, .85fr); gap: 1.25rem; align-items: stretch; min-height: 19rem; }
-.home-copy { display: flex; flex-direction: column; justify-content: center; padding: clamp(2rem, 6vw, 5rem); border: 1px solid var(--line); border-radius: 24px; background: radial-gradient(circle at 80% 20%, rgba(22, 217, 194, .18), transparent 18rem), linear-gradient(145deg, #10202e, #09131d); }
+.home-hero { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(18rem, .85fr); gap: 1.5rem; align-items: stretch; min-height: 19rem; }
+.home-copy { display: flex; flex-direction: column; justify-content: center; padding: clamp(2.25rem, 5vw, 4.5rem); border: 1px solid var(--line); border-radius: 24px; background: radial-gradient(circle at 80% 20%, rgba(22, 217, 194, .18), transparent 18rem), linear-gradient(145deg, #10202e, #09131d); }
 .home-copy h2 { margin-bottom: .7rem; font-size: clamp(2.1rem, 5vw, 4rem); }
 .home-prompt { margin-bottom: .45rem; color: var(--text); font-size: clamp(1.45rem, 3vw, 2.2rem); font-weight: 750; }
-.home-action { display: grid; grid-template-columns: 4rem 1fr auto; align-items: center; gap: 1rem; padding: 1.4rem; border: 1px solid var(--accent); border-radius: 24px; background: linear-gradient(135deg, #087c74, #0dafa1); color: white; cursor: pointer; text-align: left; box-shadow: 0 18px 55px rgba(13, 148, 136, .2); }
+.home-action { display: grid; grid-template-columns: 4rem 1fr auto; align-items: center; gap: 1rem; min-height: 12rem; padding: 1.5rem; border: 1px solid var(--accent); border-radius: 24px; background: linear-gradient(135deg, #087c74, #0dafa1); color: white; cursor: pointer; text-align: left; box-shadow: 0 18px 55px rgba(13, 148, 136, .2); }
 .home-action:hover:not(:disabled) { transform: translateY(-2px); filter: brightness(1.08); }
 .home-action:disabled { opacity: .48; cursor: not-allowed; }
 .home-action strong, .home-action small { display: block; }
 .home-action strong { font-size: 1.25rem; letter-spacing: .03em; }
 .home-action small { margin-top: .35rem; color: #d5fffa; }
 .home-action-icon { display: grid; width: 4rem; height: 4rem; place-items: center; border: 2px solid rgba(255,255,255,.72); border-radius: 50%; font-size: 2.5rem; }
-.home-state { margin: 1rem .25rem 0; color: var(--muted); }
-.home-support { padding-top: 1.5rem; }
-.scale-stage { display: grid; grid-template-columns: minmax(26rem, 1fr) minmax(18rem, 22rem); gap: clamp(1rem, 3vw, 2.5rem); align-items: center; }
-.spool-panel { display: grid; min-height: 37rem; place-items: center; overflow: hidden; border: 1px solid #172b3b; border-radius: 24px; background: radial-gradient(circle, rgba(7, 115, 108, .18), transparent 47%), linear-gradient(145deg, #07121c, #050a10); }
-.spool-visual { --state: var(--accent); position: relative; width: min(35rem, 90%); aspect-ratio: 1; border-radius: 50%; filter: drop-shadow(0 24px 24px rgba(0,0,0,.45)); }
+.home-state { display: inline-flex; width: fit-content; margin: 1rem .25rem 0; padding: .45rem .75rem; border: 1px solid rgba(74, 94, 116, .45); border-radius: 999px; background: rgba(13, 24, 35, .65); color: var(--muted); }
+.home-support { padding-top: 1.75rem; }
+.home-support .card-grid { align-items: stretch; }
+.scale-page { padding-top: 1.25rem; }
+.scale-state-row { display: flex; min-height: 2rem; align-items: center; justify-content: flex-end; margin-bottom: .65rem; }
+.scale-stage { display: grid; grid-template-columns: minmax(32rem, 1.2fr) minmax(18rem, 20rem); gap: clamp(1.25rem, 2.5vw, 2rem); align-items: stretch; }
+.spool-panel { display: grid; min-height: 35rem; grid-template-rows: minmax(0, 1fr) auto; place-items: center; overflow: hidden; padding: 1.25rem; border: 1px solid #1a3343; border-radius: 24px; background: radial-gradient(circle at 50% 48%, rgba(7, 115, 108, .2), transparent 43%), linear-gradient(145deg, #07121c, #050a10); box-shadow: inset 0 0 80px rgba(0,0,0,.28); }
+.spool-visual { --state: #506a77; position: relative; width: min(32rem, 92%); aspect-ratio: 1; border-radius: 50%; filter: drop-shadow(0 24px 24px rgba(0,0,0,.45)); }
+.spool-visual[data-state="measuring"] { --state: var(--accent); }
 .spool-visual[data-state="settling"] { --state: var(--warn); }
 .spool-visual[data-state="stable"], .spool-visual[data-state="completed"] { --state: var(--good); }
 .spool-visual[data-state="error"], .spool-visual[data-state="timed_out"], .spool-visual[data-state="failed"] { --state: var(--bad); }
-.spool-ticks { position: absolute; inset: 0; border-radius: 50%; background: repeating-conic-gradient(from -1deg, var(--state) 0 1.5deg, transparent 1.5deg 5deg); -webkit-mask: radial-gradient(circle, transparent 0 83%, #000 84% 88%, transparent 89%); mask: radial-gradient(circle, transparent 0 83%, #000 84% 88%, transparent 89%); opacity: .78; }
-.spool-rim { position: absolute; inset: 7%; overflow: hidden; border: 2px solid #42586b; border-radius: 50%; background: radial-gradient(circle, #071019 0 29%, transparent 30%), repeating-conic-gradient(from 0deg, #1d2b3b 0 7deg, #09121d 8deg 51deg, #354456 52deg 59deg); box-shadow: inset 0 0 0 14px #101c28, inset 0 0 35px #02060a, 0 0 34px color-mix(in srgb, var(--state) 24%, transparent); }
-.spool-rim i { display: none; }
-.spool-hub { position: absolute; inset: 29%; display: flex; flex-direction: column; align-items: center; justify-content: center; border: 2px solid #314658; border-radius: 50%; background: radial-gradient(circle at 50% 38%, #132331, #050a10 70%); box-shadow: 0 0 28px rgba(0,0,0,.8), inset 0 -2px 24px color-mix(in srgb, var(--state) 13%, transparent); text-align: center; }
+.spool-ticks { position: absolute; inset: 0; border-radius: 50%; background: repeating-conic-gradient(from -1deg, var(--state) 0 1deg, transparent 1deg 4deg); -webkit-mask: radial-gradient(circle, transparent 0 84%, #000 84.5% 88%, transparent 88.5%); mask: radial-gradient(circle, transparent 0 84%, #000 84.5% 88%, transparent 88.5%); opacity: .5; }
+.spool-ticks::before { position: absolute; inset: 2%; border: 1px solid color-mix(in srgb, var(--state) 46%, transparent); border-radius: 50%; content: ""; }
+.spool-ticks::after { position: absolute; top: .2%; left: 50%; width: 4px; height: 2.3rem; border-radius: 999px; background: var(--state); box-shadow: 0 0 14px var(--state); content: ""; opacity: .55; transform: translateX(-50%); }
+.spool-visual:not([data-state="idle"]) .spool-ticks { opacity: .88; }
+.spool-visual:not([data-state="idle"]) .spool-ticks::after { opacity: 1; }
+.spool-rim { position: absolute; inset: 8%; overflow: hidden; border: 10px solid #2c4052; border-radius: 50%; background: repeating-radial-gradient(circle, transparent 0 10px, rgba(105, 128, 146, .13) 11px 12px, transparent 13px 16px), radial-gradient(circle at 42% 34%, #34485a, #152331 62%, #0a131d 100%); box-shadow: inset 0 0 0 2px #617587, inset 0 0 0 16px #101c27, inset 0 0 45px #03070b, 0 0 36px color-mix(in srgb, var(--state) 24%, transparent); }
+.spool-rim i { position: absolute; z-index: 2; display: block; width: 20%; height: 9%; border: 2px solid #4d6172; border-radius: 999px; background: linear-gradient(#050a10, #0a121b); box-shadow: inset 0 3px 8px #020406; }
+.spool-rim i:nth-child(1) { top: 17%; left: 40%; }
+.spool-rim i:nth-child(2) { top: 31%; right: 14%; transform: rotate(58deg); }
+.spool-rim i:nth-child(3) { right: 14%; bottom: 31%; transform: rotate(-58deg); }
+.spool-rim i:nth-child(4) { bottom: 17%; left: 40%; }
+.spool-rim i:nth-child(5) { bottom: 31%; left: 14%; transform: rotate(58deg); }
+.spool-rim i:nth-child(6) { top: 31%; left: 14%; transform: rotate(-58deg); }
+.spool-hub { position: absolute; z-index: 3; inset: 29%; display: flex; flex-direction: column; align-items: center; justify-content: center; border: 7px solid #263b4c; border-radius: 50%; background: radial-gradient(circle at 50% 38%, #172938, #050a10 72%); box-shadow: 0 0 0 2px #657789, 0 0 28px rgba(0,0,0,.8), inset 0 -2px 24px color-mix(in srgb, var(--state) 13%, transparent); text-align: center; }
 .spool-reading { display: flex; align-items: baseline; gap: .45rem; margin: .25rem 0 .55rem; }
-.weight-value { font: 800 clamp(3.5rem, 7vw, 6.6rem)/.82 ui-sans-serif, system-ui, sans-serif; letter-spacing: -.07em; }
+.weight-value { font: 800 clamp(3.2rem, 6vw, 5.8rem)/.84 ui-sans-serif, system-ui, sans-serif; letter-spacing: -.07em; }
 .spool-hub .unit { color: var(--state); font-size: clamp(1.1rem, 2vw, 1.5rem); }
 .spool-hub .quality { margin: 0; color: var(--state); font-size: 1.05rem; }
-.scale-actions { display: grid; gap: .85rem; }
+.spool-meta { align-self: start; margin: -.2rem 0 .15rem; color: var(--muted); font-size: .82rem; letter-spacing: .02em; }
+.scale-actions { display: grid; align-content: center; gap: .85rem; }
 .action-card { display: grid; width: 100%; min-height: 5.4rem; grid-template-columns: 3.4rem 1fr auto; align-items: center; gap: .8rem; padding: 1rem; border: 1px solid var(--line); border-radius: 15px; background: linear-gradient(130deg, #122231, #0d1824); color: var(--text); cursor: pointer; text-align: left; }
 .action-card:hover:not(:disabled) { border-color: var(--accent); transform: translateX(2px); }
-.action-card:disabled { opacity: .42; cursor: not-allowed; }
+.action-card:disabled { border-color: #28394a; background: #101a26; color: #9aaabd; opacity: .62; cursor: not-allowed; }
 .action-card strong, .action-card small { display: block; }
 .action-card strong { font-size: 1.12rem; }
 .action-card small { margin-top: .18rem; color: var(--muted); }
 .action-icon { color: var(--accent); font-size: 2.2rem; text-align: center; }
-.weigh-action { border-color: var(--accent); background: linear-gradient(135deg, #087d74, #07554f); }
+.weigh-action { min-height: 6.15rem; border-color: var(--accent); background: linear-gradient(135deg, #0b8b81, #07554f); box-shadow: 0 14px 32px rgba(8, 125, 116, .16); }
 .weigh-action .action-icon, .weigh-action small { color: white; }
-.calibration-card { display: grid; gap: .55rem; padding: 0; }
+.calibration-drawer { min-width: 0; padding: 1rem; border: 1px solid #315564; border-radius: 16px; background: linear-gradient(145deg, #122332, #0b151f); box-shadow: 0 16px 40px rgba(0,0,0,.25); }
+.calibration-drawer[hidden] { display: none; }
+.drawer-heading { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: .85rem; }
+.drawer-heading h3, .drawer-heading .eyebrow { margin: 0; }
+.drawer-close { width: 2.75rem; min-width: 2.75rem; height: 2.75rem; border: 1px solid var(--line); border-radius: 50%; background: #0b151f; color: var(--text); cursor: pointer; font-size: 1.5rem; }
+.drawer-close:hover { border-color: var(--accent); color: var(--accent); }
+.calibration-card { display: grid; gap: .7rem; padding: 0; }
 .calibration-card label { color: var(--muted); font-size: .75rem; letter-spacing: .04em; text-transform: uppercase; }
-.scale-guide-status { min-height: 2.6rem; margin: 0; padding: .7rem .85rem; border-left: 3px solid var(--accent); border-radius: 6px; background: rgba(17, 28, 41, .75); color: var(--muted); font-size: .85rem; }
+.calibration-submit { width: 100%; }
+.scale-guide-status { min-height: 2.8rem; margin: 0; padding: .75rem .9rem; border-left: 3px solid var(--accent); border-radius: 7px; background: rgba(17, 28, 41, .82); color: #afbecd; font-size: .86rem; line-height: 1.4; }
 .calibration-steps { display: flex; flex-wrap: wrap; gap: .45rem; margin: 0; padding: 0; list-style: none; }
 .calibration-steps li { padding: .28rem .5rem; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); font-size: .7rem; }
 .calibration-steps li.active { border-color: var(--warn); color: var(--warn); }
@@ -496,22 +523,26 @@ details summary { cursor: pointer; color: var(--accent); }
   .spool-panel { min-height: 30rem; }
   .spool-visual { width: min(29rem, 92%); }
 }
+@media (max-width: 900px) {
+  .status-strip { display: none; }
+}
 @media (max-width: 780px) {
-  :root { --rail: 88px; }
-  .product-rail { padding: .8rem .55rem; }
+  :root { --rail: 96px; }
+  .product-rail { padding: .8rem .5rem; }
   .brand-block { justify-content: center; padding: .2rem 0 .8rem; }
-  .brand-name, .rail-live span:not(.status-dot) { display: none; }
-  .section-nav { gap: .45rem; }
-  .section-nav a { min-height: 4.2rem; grid-template-columns: 1fr; justify-items: center; gap: .12rem; padding: .35rem .2rem; font-size: .67rem; }
-  .nav-icon { width: 2rem; height: 2rem; font-size: 1.45rem; }
+  .brand-name, .rail-live { display: none; }
+  .section-nav { gap: .5rem; }
+  .section-nav a { min-height: 4.55rem; grid-template-columns: 1fr; justify-items: center; gap: .08rem; padding: .4rem .2rem; font-size: .72rem; }
+  .section-nav a.active { box-shadow: inset 4px 0 var(--accent), 0 0 22px rgba(22, 217, 194, .16); }
+  .nav-icon { width: 2.2rem; height: 2.2rem; font-size: 1.65rem; }
   .site-header { min-height: 4.4rem; padding: .7rem 1rem; }
   .site-header .eyebrow { display: none; }
   main { padding: 0 1rem 2rem; }
   .scale-stage { grid-template-columns: 1fr; }
-  .spool-panel { min-height: 27rem; }
-  .spool-visual { width: min(26rem, 92%); }
+  .spool-panel { min-height: 26rem; }
+  .spool-visual { width: min(24rem, 92%); }
   .scale-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .weigh-action, .calibration-card, .scale-guide-status, .calibration-steps { grid-column: 1 / -1; }
+  .weigh-action, .scale-guide-status, .calibration-drawer { grid-column: 1 / -1; }
   .settings-grid, .home-hero { grid-template-columns: 1fr; }
   .home-copy { padding: 2.2rem; }
   .status-strip { display: none; }
@@ -519,12 +550,15 @@ details summary { cursor: pointer; color: var(--accent); }
 @media (max-width: 520px) {
   .connection-strip #health-badge { display: none; }
   .section-heading { flex-direction: row; align-items: center; }
-  .spool-panel { min-height: 22rem; }
-  .weight-value { font-size: clamp(2.7rem, 14vw, 4.4rem); }
+  .spool-panel { min-height: 21rem; padding: .8rem; }
+  .spool-visual { width: min(20rem, 94%); }
+  .weight-value { font-size: clamp(2.5rem, 14vw, 4rem); }
   .action-card { min-height: 4.7rem; grid-template-columns: 2.6rem 1fr auto; }
   .action-icon { font-size: 1.7rem; }
   .scale-actions { grid-template-columns: 1fr; }
   .scale-actions > * { grid-column: auto; }
+  .calibration-drawer { padding: .85rem; }
+  .calibration-steps { gap: .35rem; }
   .status-strip { display: none; }
 }
 
@@ -563,6 +597,10 @@ const char application_javascript[] = R"JS((function () {
   const PRODUCT_TITLES = Object.freeze({
     home: 'Home', scale: 'Scale', printer: 'Printer', tags: 'Tags', settings: 'Settings'
   });
+  const PRODUCT_EYEBROWS = Object.freeze({
+    home: 'OPEN TAG STATION', scale: 'FILAMENT SCALE', printer: 'PRINTER CONTROL',
+    tags: 'OPENPRINTTAG', settings: 'STATION SETTINGS'
+  });
   const state = {
     apiToken: '',
     authMode: 'UNKNOWN',
@@ -586,6 +624,7 @@ const char application_javascript[] = R"JS((function () {
     scaleBusy: false,
     scaleTareFallback: false,
     scaleRevision: null,
+    calibrationOpen: false,
     updateRevision: null,
     requestEpochs: Object.create(null),
     mutationLocks: Object.create(null),
@@ -679,6 +718,8 @@ const char application_javascript[] = R"JS((function () {
     });
     state.currentPage = selected;
     setText('page-title', PRODUCT_TITLES[selected]);
+    setText('page-eyebrow', PRODUCT_EYEBROWS[selected]);
+    if (selected !== 'scale' && state.calibrationOpen) setCalibrationPanel(false);
     if (selected === 'settings') ensureConfigReady();
     return selected;
   }
@@ -1514,6 +1555,19 @@ const char application_javascript[] = R"JS((function () {
     if (step) step.className = status || '';
   }
 
+  function setCalibrationPanel(open) {
+    const panel = byId('calibration-panel');
+    const trigger = byId('calibrate-scale');
+    state.calibrationOpen = open === true;
+    if (panel) panel.hidden = !state.calibrationOpen;
+    if (trigger) trigger.setAttribute('aria-expanded', String(state.calibrationOpen));
+    if (state.calibrationOpen) {
+      const input = byId('reference-grams');
+      if (input && typeof input.focus === 'function') input.focus();
+    }
+    updateScaleControls();
+  }
+
   function updateScaleControls() {
     const scale = asObject(state.scale);
     const sample = asObject(first(scale.sample, scale));
@@ -1537,10 +1591,12 @@ const char application_javascript[] = R"JS((function () {
     const homeWeigh = byId('home-weigh');
     const tare = byId('tare-scale');
     const calibrate = byId('calibrate-scale');
+    const confirmCalibration = byId('confirm-calibration');
     if (weigh) weigh.disabled = !weighReady;
     if (homeWeigh) homeWeigh.disabled = !weighReady;
     if (tare) tare.disabled = !adcReady || !rawStable || blocked;
-    if (calibrate) calibrate.disabled =
+    if (calibrate) calibrate.disabled = !adcReady || blocked;
+    if (confirmCalibration) confirmCalibration.disabled =
       !adcReady || !tareReady || !rawStable || !referenceReady || blocked;
     setText('tare-action-label', measurementActive && purpose === 'tare' ? 'Taring…' : 'Tare');
     setText('calibrate-action-label',
@@ -1615,10 +1671,15 @@ const char application_javascript[] = R"JS((function () {
     const activeLabel = stable ? 'Stable' : samplesInFilter < 3 ? 'Measuring…' : 'Settling…';
     const quality = !adcReady ? 'Scale hardware unavailable' : overload ? 'OVERLOAD' :
       measurementActive ? activeLabel : Number.isFinite(completed)
-        ? '✓ Stable · Captured at ' + capturedTime
+        ? '✓ Stable'
         : measurementState === 'timed_out' ? 'Timed out — retry' :
           measurementState === 'failed' ? 'Measurement failed — retry' : 'Press Weigh';
     setText('weight-quality', quality);
+    setText('weight-captured', Number.isFinite(completed)
+      ? 'Captured at ' + capturedTime
+      : measurementActive ? 'Capturing live measurement'
+        : measurementState === 'timed_out' || measurementState === 'failed'
+          ? 'No new measurement captured' : 'No captured measurement');
     setText('weigh-action-label', measurementActive ? activeLabel :
       Number.isFinite(completed) ? 'Weigh Again' :
         measurementState === 'timed_out' || measurementState === 'failed' ? 'Retry' : 'Weigh');
@@ -3003,6 +3064,12 @@ const char application_javascript[] = R"JS((function () {
         runScaleMutation(event.currentTarget, '/scale/tare', {}, 'Tare complete.');
       }
     });
+    byId('calibrate-scale').addEventListener('click', function () {
+      setCalibrationPanel(true);
+    });
+    byId('close-calibration').addEventListener('click', function () {
+      setCalibrationPanel(false);
+    });
     byId('reference-grams').addEventListener('input', updateScaleControls);
     byId('calibrate-form').addEventListener('submit', async function (event) {
       event.preventDefault();
@@ -3013,7 +3080,7 @@ const char application_javascript[] = R"JS((function () {
         return;
       }
       if (!window.confirm('Calibrate using ' + reference + ' g and the saved load-cell profile?')) return;
-      await runScaleMutation(byId('calibrate-scale'), '/scale/calibrate', {
+      await runScaleMutation(byId('confirm-calibration'), '/scale/calibrate', {
         reference_grams: reference
       }, 'Calibration complete.');
     });
@@ -3299,6 +3366,7 @@ const char application_javascript[] = R"JS((function () {
       setFallbackPolling: setFallbackPolling,
       resourcePriority: resourcePriority,
       updateScaleControls: updateScaleControls,
+      setCalibrationPanel: setCalibrationPanel,
       renderScale: renderScale,
       renderNfc: renderNfc,
       productPageFromHash: productPageFromHash,

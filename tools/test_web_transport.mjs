@@ -1503,6 +1503,54 @@ test('product navigation exposes exactly five primary destinations and preserves
   assert.equal(context.location.hash, '#scale');
 });
 
+test('Scale visual contract is spool-like, responsive, and keeps calibration collapsed', async () => {
+  const source = readFileSync(ASSET_PATH, 'utf8');
+  assert.equal(source.includes('id="scale-title"'), false,
+    'Scale must not repeat its page heading');
+  assert.ok(source.includes('id="page-eyebrow"'));
+  assert.ok(source.includes('.spool-rim i:nth-child(6)'));
+  assert.ok(source.includes('repeating-radial-gradient(circle'));
+  assert.ok(source.includes('@media (max-width: 900px)'));
+  assert.ok(source.includes('.brand-name, .rail-live { display: none; }'));
+
+  const { T, document } = loadApplication();
+  T.setCalibrationPanel(false);
+  assert.equal(document.getElementById('calibration-panel').hidden, true);
+  T.renderScale({
+    revision: 1, adc_ready: true, calibrated: false, tare_ready: true,
+    raw_stable: true, samples_in_filter: 3,
+    measurement: { state: 'idle', active: false },
+  });
+  assert.equal(document.getElementById('calibrate-scale').disabled, false,
+    'the normal Calibrate action opens guidance');
+  assert.equal(document.getElementById('confirm-calibration').disabled, true,
+    'submission still requires a valid reference mass');
+  T.setCalibrationPanel(true);
+  assert.equal(document.getElementById('calibration-panel').hidden, false);
+  document.getElementById('reference-grams').value = '250';
+  T.updateScaleControls();
+  assert.equal(document.getElementById('confirm-calibration').disabled, false);
+  T.activateProductPage('home');
+  assert.equal(document.getElementById('calibration-panel').hidden, true);
+
+  const pages = ['home', 'scale', 'printer', 'tags', 'settings', 'home'];
+  for (const page of pages) T.activateProductPage(page);
+  await drainScheduler(T.scheduler);
+  const nodeCount = document.nodes.size;
+  for (let cycle = 0; cycle < 20; cycle += 1) {
+    for (const page of pages) T.activateProductPage(page);
+  }
+  await drainScheduler(T.scheduler);
+  assert.equal(document.nodes.size, nodeCount,
+    'repeated navigation must reuse the fixed DOM');
+  const metrics = T.scheduler.metrics();
+  assert.equal(metrics.active, 0);
+  assert.equal(metrics.activeBackground, 0);
+  assert.equal(metrics.queued, 0);
+  assert.equal(metrics.shared, 0);
+  assert.ok(metrics.maximumActive <= 1);
+});
+
 test('Home Weigh opens Scale and submits one bounded measurement', async () => {
   const clock = new FakeClock();
   const app = loadApplication({
@@ -1561,7 +1609,8 @@ test('on-demand scale renders only settling or retained results and gates Weigh'
     sample: { gross_grams: 1127.4, raw_stable: true, stable: true },
   });
   assert.equal(document.getElementById('gross-weight').textContent, '1115');
-  assert.match(document.getElementById('weight-quality').textContent, /Captured at /);
+  assert.equal(document.getElementById('weight-quality').textContent, '✓ Stable');
+  assert.match(document.getElementById('weight-captured').textContent, /Captured at /);
   assert.equal(document.getElementById('weigh-scale').disabled, false);
 
   T.renderScale({
@@ -1579,6 +1628,7 @@ test('fresh calibration actions automatically wait for raw-stable windows', () =
   const { T, document } = loadApplication();
   const tare = document.getElementById('tare-scale');
   const calibrate = document.getElementById('calibrate-scale');
+  const confirmCalibration = document.getElementById('confirm-calibration');
   const status = document.getElementById('scale-action-status');
   const reference = document.getElementById('reference-grams');
   reference.max = '5000';
@@ -1590,7 +1640,8 @@ test('fresh calibration actions automatically wait for raw-stable windows', () =
     samples_in_filter: 2, tare_ready: false, measurement: { state: 'idle', active: false },
   });
   assert.equal(tare.disabled, true, 'tare waits for raw stability');
-  assert.equal(calibrate.disabled, true);
+  assert.equal(calibrate.disabled, false, 'calibrate opens the guided panel');
+  assert.equal(confirmCalibration.disabled, true);
   assert.equal(status.textContent,
     'Remove all weight. Waiting for a stable empty platform.');
 
@@ -1599,6 +1650,7 @@ test('fresh calibration actions automatically wait for raw-stable windows', () =
     samples_in_filter: 3, tare_ready: false, measurement: { state: 'idle', active: false },
   });
   assert.equal(tare.disabled, false);
+  assert.equal(confirmCalibration.disabled, true);
   assert.equal(status.textContent, 'Empty platform is stable. Ready to tare.');
 
   T.renderScale({
@@ -1606,7 +1658,7 @@ test('fresh calibration actions automatically wait for raw-stable windows', () =
     samples_in_filter: 0, tare_ready: true, tare_zero_offset_counts: 1234,
     measurement: { state: 'completed', active: false },
   });
-  assert.equal(calibrate.disabled, true,
+  assert.equal(confirmCalibration.disabled, true,
     'calibrate waits for a new raw reference window');
   assert.equal(status.textContent, 'Tare complete — place the reference weight.');
 
@@ -1615,7 +1667,7 @@ test('fresh calibration actions automatically wait for raw-stable windows', () =
     samples_in_filter: 2, tare_ready: true, tare_zero_offset_counts: 1234,
     measurement: { state: 'idle', active: false },
   });
-  assert.equal(calibrate.disabled, true);
+  assert.equal(confirmCalibration.disabled, true);
   assert.equal(status.textContent,
     'Reference placed. Waiting for a stable signal.');
 
@@ -1624,7 +1676,7 @@ test('fresh calibration actions automatically wait for raw-stable windows', () =
     samples_in_filter: 3, tare_ready: true, tare_zero_offset_counts: 1234,
     measurement: { state: 'idle', active: false },
   });
-  assert.equal(calibrate.disabled, false);
+  assert.equal(confirmCalibration.disabled, false);
   assert.equal(status.textContent,
     'Reference is stable. Ready to calibrate.');
 
@@ -1635,6 +1687,7 @@ test('fresh calibration actions automatically wait for raw-stable windows', () =
   });
   assert.equal(tare.disabled, true);
   assert.equal(calibrate.disabled, true);
+  assert.equal(confirmCalibration.disabled, true);
 });
 
 test("scale mutation completion keeps controls gated by the authoritative latest snapshot", async () => {
@@ -1645,7 +1698,7 @@ test("scale mutation completion keeps controls gated by the authoritative latest
       body: {},
       finalScale: { revision: 2, adc_ready: false, stable: true, raw_stable: true, samples_in_filter: 3, tare_ready: true },
       target: "tare-scale",
-      disabled: ["tare-scale", "calibrate-scale"],
+      disabled: ["tare-scale", "calibrate-scale", "confirm-calibration"],
     },
     {
       name: "active measurement",
@@ -1653,15 +1706,15 @@ test("scale mutation completion keeps controls gated by the authoritative latest
       body: {},
       finalScale: { revision: 2, adc_ready: true, stable: false, raw_stable: false, samples_in_filter: 2, tare_ready: true, measurement: { state: "settling", active: true } },
       target: "tare-scale",
-      disabled: ["tare-scale", "calibrate-scale"],
+      disabled: ["tare-scale", "calibrate-scale", "confirm-calibration"],
     },
     {
       name: "tare not ready",
       path: "/scale/calibrate",
       body: { reference_grams: 250 },
       finalScale: { revision: 2, adc_ready: true, stable: true, raw_stable: true, samples_in_filter: 3, tare_ready: false },
-      target: "calibrate-scale",
-      disabled: ["calibrate-scale"],
+      target: "confirm-calibration",
+      disabled: ["confirm-calibration"],
     },
   ];
 
