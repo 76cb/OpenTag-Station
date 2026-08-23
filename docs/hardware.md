@@ -15,7 +15,7 @@ in [release-validation.md](release-validation.md).
 | Flash/PSRAM | 16 MB flash, QSPI PSRAM configuration | Diagnostics/buffer policy compiled; hardware test pending |
 | Scale ADC | NAU7802 at I2C `0x2A` | Driver/service implemented, compiled, and host-tested; hardware test pending |
 | Load cell | YZC-133, 5 kg actual/default profile; 2 kg supported | Software implemented and host-tested; physical validation pending |
-| NFC frontend | ST25R3916B, SPI, IRQ, reset/control | Direct identity/IRQ backend host-tested; module/wiring/RFAL unresolved |
+| NFC frontend | ELECHOUSE NFC_ST25R3916B; 5 V module, 3.3 V logic, integrated antenna, SPI/I2C | Control-line contract host-tested; shared-I2C/RFAL implementation and physical wiring remain gated |
 | Tag technology | NFC-V / ISO15693 | Confirmed by current OpenPrintTag specification |
 
 The built-in display/touch and external scale pins are centralized in
@@ -98,11 +98,11 @@ high-output antenna drive. RFAL requires software-controlled chip select,
 interrupt handling, reset/control, monotonic timers, and protected bus/IRQ
 access in a multithreaded system.
 
-Those ESP32 primitives are implemented with injected pins, clock, SPI mode, and
-signal polarities. The implementation refuses incomplete configuration and uses
-a bounded recursive bus mutex plus an IRQ latch/acknowledgement path. No
-electrical defaults are instantiated because those values depend on the exact
-module checkpoint below.
+The existing ESP32 SPI primitives remain available for boards that expose that
+transport. Reset and power control are now explicit capabilities: a board that
+declares either external line must provide a real GPIO, while the ELECHOUSE
+module declares neither and uses the chip's Set Default command. No fake pin is
+accepted. The recommended shared-I2C path is not implemented or enabled yet.
 
 The concrete direct-register backend now validates the ST25R3916B product and
 revision register and requires a real oscillator-stable IRQ transition before
@@ -116,24 +116,32 @@ parallel and approximately concentric with the spool. A breakout board that only
 proves register communication is not enough; the antenna/module must meet the
 physical read-distance use case around the scale and LCD.
 
-## Required NFC hardware checkpoint
+## Remaining NFC enable checkpoint
 
-Before assigning pins or enabling `OPENTAG_ENABLE_ST25R3916B`, provide or verify:
+The module checkpoint is resolved: ELECHOUSE `NFC_ST25R3916B`, 5 V module
+power, 3.3 V host logic, integrated PCB antenna/matching, active-high IRQ,
+active-low SPI CS, SPI default, I2C after the documented solder bridge, and no
+external reset or power-enable lines.
 
-1. exact module/board manufacturer and revision;
-2. schematic and connector pinout;
-3. supply and I/O voltage requirements;
-4. SPI/I2C selection strapping and any MCU/bus-select pin;
-5. CS, SCK, MOSI, MISO, IRQ, reset, and power/enable behavior;
-6. IRQ polarity/electrical type and required pull resistor;
-7. oscillator and antenna/matching network already present on the module;
-8. safe unused WT32-SC01 Plus header GPIOs for the exact board revision;
-9. measured antenna tuning with the final enclosure, load cell, display, and
-   representative spools.
+The WT32 EXT connector exposes only 5 V, GND, GPIO10, GPIO11, GPIO12, GPIO13,
+GPIO14, and GPIO21. GPIO10/11 already carry the NAU7802 I2C bus. A dedicated NFC
+SPI connection needs five signals and cannot fit on the four remaining GPIOs.
+The on-board SD SPI signals (GPIO39/38/40 with SD CS GPIO41) are not exposed on
+EXT and have no documented safe NFC access point.
 
-Until then, all NFC pins remain `-1`, RFAL is not vendored, and the boot firmware
-reports NFC disabled. No opt-in NFC image is produced because enabling it with
-unproven pins would correctly fail the existing wiring static assertion.
+Before assigning pins or enabling `OPENTAG_ENABLE_ST25R3916B`:
+
+1. acquire and pin the authoritative ST RFAL delivery and license record;
+2. implement the RFAL I2C platform path and one bounded bus-arbitration contract
+   shared with the NAU7802 owner;
+3. verify the module's I2C solder bridge, fixed address `0x50`, combined pull-up
+   resistance/rise time, 5 V input, 3.3 V bus levels, and GPIO12 IRQ proposal;
+4. measure antenna behavior in the final enclosure with the load cell, display,
+   and representative spools.
+
+Until then, all NFC transport pins remain `-1`, RFAL is not vendored, and the
+factory firmware reports NFC disabled. The detailed option comparison and
+blocked procedure are in [nfc-hardware-bringup.md](nfc-hardware-bringup.md).
 
 ## Scale assumptions
 

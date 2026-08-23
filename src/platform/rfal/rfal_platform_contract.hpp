@@ -18,8 +18,10 @@ class IRfalPlatform {
       std::uint8_t* receive,
       std::size_t length) = 0;
   virtual void select(bool active) = 0;
-  virtual void power(bool active) = 0;
-  virtual void reset(bool active) = 0;
+  [[nodiscard]] virtual bool external_power_control_available() const = 0;
+  [[nodiscard]] virtual bool external_reset_available() const = 0;
+  virtual void set_external_power(bool active) = 0;
+  virtual void set_external_reset(bool active) = 0;
   [[nodiscard]] virtual bool interrupt_pending() const = 0;
   [[nodiscard]] virtual bool interrupt_line_active() const = 0;
   [[nodiscard]] virtual bool interrupt_latched() const = 0;

@@ -21,10 +21,16 @@ struct Esp32RfalPins {
   std::int8_t interrupt{-1};
   std::int8_t reset{-1};
   std::int8_t power_enable{-1};
+  bool external_reset_required{true};
+  bool external_power_control_required{false};
 
   [[nodiscard]] bool complete() const {
     return sck >= 0 && mosi >= 0 && miso >= 0 && chip_select >= 0 &&
-           interrupt >= 0 && reset >= 0;
+           interrupt >= 0 &&
+           (external_reset_required ? reset >= 0 : reset < 0) &&
+           (external_power_control_required
+                ? power_enable >= 0
+                : power_enable < 0);
   }
 };
 
@@ -51,8 +57,10 @@ class Esp32RfalPlatform final : public IRfalPlatform {
       std::uint8_t* receive,
       std::size_t length) override;
   void select(bool active) override;
-  void power(bool active) override;
-  void reset(bool active) override;
+  [[nodiscard]] bool external_power_control_available() const override;
+  [[nodiscard]] bool external_reset_available() const override;
+  void set_external_power(bool active) override;
+  void set_external_reset(bool active) override;
   [[nodiscard]] bool interrupt_pending() const override;
   [[nodiscard]] bool interrupt_line_active() const override;
   [[nodiscard]] bool interrupt_latched() const override;

@@ -327,7 +327,7 @@ full spools without NFC field interference.
 ### ST25R3916B / NFC-V
 
 1. Verify supply and clock electrically before RF.
-2. Read the IC identity over SPI and exercise IRQ/reset recovery.
+2. Read the IC identity over the selected RFAL transport and exercise IRQ/Set Default recovery.
 3. Initialize RFAL and field-on guard time.
 4. Inventory a known NFC-V tag and normalize UID.
 5. Read geometry, single/multiple blocks, and a full official tag.

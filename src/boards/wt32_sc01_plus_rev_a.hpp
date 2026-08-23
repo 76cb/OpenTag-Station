@@ -13,10 +13,16 @@ struct St25r3916bPins {
   std::int8_t interrupt;
   std::int8_t reset;
   std::int8_t power_enable;
+  bool external_reset_required{true};
+  bool external_power_control_required{false};
 
   [[nodiscard]] constexpr bool complete() const {
     return spi_sck >= 0 && spi_mosi >= 0 && spi_miso >= 0 &&
-           chip_select >= 0 && interrupt >= 0 && reset >= 0;
+           chip_select >= 0 && interrupt >= 0 &&
+           (external_reset_required ? reset >= 0 : reset < 0) &&
+           (external_power_control_required
+                ? power_enable >= 0
+                : power_enable < 0);
   }
 };
 
@@ -59,9 +65,11 @@ struct Wt32Sc01PlusRevA {
   static constexpr std::int8_t scale_scl = 11;
   static constexpr std::uint8_t nau7802_address = 0x2A;
 
-  // The selected ST25R3916B module and its wiring are not yet specified.
-  // Keeping every signal unassigned makes accidental hardware enablement fail.
-  static constexpr St25r3916bPins nfc = {-1, -1, -1, -1, -1, -1, -1};
+  // ELECHOUSE NFC_ST25R3916B has neither an external reset nor a power-enable
+  // signal. Transport pins remain deliberately unassigned until the shared-I2C
+  // owner/locking contract and authoritative ST RFAL adapter are implemented.
+  static constexpr St25r3916bPins nfc = {
+      -1, -1, -1, -1, -1, -1, -1, false, false};
 };
 
 }  // namespace opentag::boards

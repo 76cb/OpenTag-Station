@@ -318,7 +318,8 @@ See [Architecture](docs/architecture.md).
 ## Known limitations
 
 - ST RFAL is selected but not yet acquired/pinned/vendored.
-- ST25R3916B physical wiring and antenna integration remain unresolved.
+- The ELECHOUSE `NFC_ST25R3916B` module and integrated antenna are identified;
+  shared-I2C/RFAL integration, pin activation, and physical validation remain unresolved.
 - NFC-V/OpenPrintTag behavior is host-tested but not yet physically validated through RFAL.
 - Scale calibration accuracy, repeatability, drift, and persistence still require complete physical validation.
 - Wi-Fi provisioning and reconnect behavior are still undergoing physical hardware validation.
