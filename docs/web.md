@@ -65,8 +65,9 @@ local storage, session storage, cookies, a URL, or a prefilled form.
 
 A nonempty token is 16–128 ASCII characters drawn from letters, digits, `-`,
 `.`, `_`, and `~`. Static responses apply a restrictive policy for
-self-hosted scripts and styles, `nosniff`, no-referrer, frame denial, and
-`no-store`. The UI connects events to the current `location.host` and inserts
+self-hosted scripts and styles, `nosniff`, no-referrer, and frame denial. HTML
+revalidates; firmware-versioned CSS/JS are served as build-time gzip with
+immutable caching. The UI connects events to the current `location.host` and inserts
 remote and device text with DOM text nodes rather than HTML parsing.
 
 ## Route catalog
@@ -523,17 +524,17 @@ confirmation, or rollback.
 | Request headers | 16 headers, 1024 bytes total; collected value at most 512 bytes |
 | JSON nesting | 8 levels |
 | Application snapshot / complete response body | 24 KiB / 32 KiB |
-| HTTP sockets / WebSocket clients | 7 / 2; LRU purge disabled |
+| HTTP sockets / WebSocket clients | 5 / 2; LRU purge disabled |
 | WebSocket post-handshake input / output | rejected / 4096 bytes |
-| HTTP server task stack / backlog | 20,480 bytes / 5 connections |
+| HTTP server task stack / backlog | 12,288 bytes / 5 connections; 9,344-byte worst-route budget leaves 2,944 bytes |
 | Receive / send wait; buffered JSON body deadline | 5 seconds / 5 seconds; 5 seconds absolute |
 | Firmware upload buffers / deadlines | one 4096-byte HTTP receive buffer plus four 4096-byte OTA command-slot buffers; 5 seconds without receive progress / 180 seconds absolute through validation |
 | Idempotency / operation / log history | 32 / 24 / 32 entries |
-| Embedded HTML / CSS / JavaScript | Compile-time bounded by `web_assets.hpp`; `tools/check_web_assets.py` extracts, syntax-checks, and reports the JavaScript byte count |
+| Embedded HTML / CSS / JavaScript | Compile-time bounded by `web_assets.hpp`; `tools/check_web_assets.py` syntax-checks JavaScript and reports raw/precompressed CSS and JavaScript sizes |
 
 GET routes accept no body. The transport reads the declared body exactly and
 rejects incomplete, oversized, or over-deadline input. Route limits are enforced
-again by the transport-neutral router. Responses are `no-store`, and no API
+again by the transport-neutral router. API responses are `no-store`, and no API
 owner allocates an unbounded request queue for browser clients.
 
 ## Physical validation and known limitations

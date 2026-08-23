@@ -12,6 +12,7 @@
 
 #include "boards/wt32_sc01_plus_rev_a.hpp"
 #include "diagnostics/build_info.hpp"
+#include "ui/weight_format.hpp"
 #include "web/local_access_policy.hpp"
 
 namespace opentag::ui {
@@ -636,8 +637,8 @@ void UiService::build_scale_page() {
       : std::min(1000.0F, scale.scale_rated_capacity_grams);
   char reference_text[16]{};
   std::snprintf(
-      reference_text, sizeof(reference_text), "%.0f",
-      static_cast<double>(reference));
+      reference_text, sizeof(reference_text), "%ld",
+      static_cast<long>(reference + 0.5F));
   lv_textarea_set_text(workflow_reference_input_, reference_text);
   lv_obj_add_event_cb(
       workflow_reference_input_, scale_textarea_callback,
@@ -1700,13 +1701,14 @@ void UiService::refresh_workflow() {
     if (label == nullptr) return;
     if (measurement_active && scale.scale_weight_available) {
       lv_label_set_text_fmt(
-          label, "%.0f g",
-          static_cast<double>(scale.scale_gross_milligrams) / 1000.0);
+          label, "%ld g",
+          static_cast<long>(rounded_grams_from_milligrams(
+              scale.scale_gross_milligrams)));
     } else if (scale.scale_last_completed_available) {
       lv_label_set_text_fmt(
-          label, "%.0f g",
-          static_cast<double>(
-              scale.scale_last_completed_milligrams) / 1000.0);
+          label, "%ld g",
+          static_cast<long>(rounded_grams_from_milligrams(
+              scale.scale_last_completed_milligrams)));
     } else {
       lv_label_set_text(label, "-- g");
     }

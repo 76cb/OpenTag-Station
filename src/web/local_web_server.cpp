@@ -12,6 +12,7 @@
 #include <string_view>
 #include <utility>
 
+#include "diagnostics/build_info.hpp"
 #include "network/network_policy.hpp"
 #include "web/web_assets.hpp"
 
@@ -29,6 +30,19 @@ constexpr char invalid_scale_event[] =
     R"({"type":"invalidate","data":{"resource":"scale"}})";
 constexpr char invalid_update_event[] =
     R"({"type":"invalidate","data":{"resource":"update"}})";
+constexpr char html_cache_control[] =
+    "no-cache, max-age=0, must-revalidate";
+constexpr char immutable_asset_cache_control[] =
+    "public, max-age=31536000, immutable";
+constexpr char html_etag[] = "\"" OPENTAG_GIT_SHA "-html\"";
+constexpr char stylesheet_gzip_etag[] =
+    "\"" OPENTAG_GIT_SHA "-css-gzip\"";
+constexpr char stylesheet_identity_etag[] =
+    "\"" OPENTAG_GIT_SHA "-css-identity\"";
+constexpr char javascript_gzip_etag[] =
+    "\"" OPENTAG_GIT_SHA "-js-gzip\"";
+constexpr char javascript_identity_etag[] =
+    "\"" OPENTAG_GIT_SHA "-js-identity\"";
 
 using UriHandler = esp_err_t (*)(httpd_req_t* request);
 
@@ -74,8 +88,10 @@ const char* status_line(std::int32_t status) {
   }
 }
 
-esp_err_t set_security_headers(httpd_req_t* request) {
-  static constexpr std::array<std::pair<const char*, const char*>, 5U> headers = {{
+esp_err_t set_security_headers(
+    httpd_req_t* request,
+    const char* cache_control = "no-store") {
+  static constexpr std::array<std::pair<const char*, const char*>, 4U> headers = {{
       {"Content-Security-Policy",
        "default-src 'self'; script-src 'self'; style-src 'self'; "
        "img-src 'self' data:; connect-src 'self' ws: wss:; object-src "
@@ -83,14 +99,49 @@ esp_err_t set_security_headers(httpd_req_t* request) {
       {"X-Content-Type-Options", "nosniff"},
       {"Referrer-Policy", "no-referrer"},
       {"X-Frame-Options", "DENY"},
-      {"Cache-Control", "no-store"},
   }};
   for (const auto& header : headers) {
     const auto result =
         httpd_resp_set_hdr(request, header.first, header.second);
     if (result != ESP_OK) return result;
   }
-  return ESP_OK;
+  return httpd_resp_set_hdr(request, "Cache-Control", cache_control);
+}
+
+bool request_accepts_gzip(httpd_req_t* request) {
+  constexpr std::size_t maximum_encoding_bytes = 128U;
+  const auto length = httpd_req_get_hdr_value_len(request, "Accept-Encoding");
+  if (length == 0U || length > maximum_encoding_bytes) return false;
+  std::array<char, maximum_encoding_bytes + 1U> value{};
+  if (httpd_req_get_hdr_value_str(
+          request, "Accept-Encoding", value.data(), length + 1U) != ESP_OK) {
+    return false;
+  }
+  std::transform(
+      value.begin(), value.begin() + static_cast<std::ptrdiff_t>(length),
+      value.begin(),
+      [](unsigned char character) {
+        return static_cast<char>(std::tolower(character));
+      });
+  return std::string_view(value.data(), length).find("gzip") !=
+      std::string_view::npos;
+}
+
+bool request_etag_matches(httpd_req_t* request, const char* etag) {
+  constexpr std::size_t maximum_etag_bytes = 80U;
+  const auto length = httpd_req_get_hdr_value_len(request, "If-None-Match");
+  const auto expected = std::strlen(etag);
+  if (length == 0U || length != expected || length > maximum_etag_bytes) {
+    return false;
+  }
+  std::array<char, maximum_etag_bytes + 1U> value{};
+  return httpd_req_get_hdr_value_str(
+             request, "If-None-Match", value.data(), length + 1U) == ESP_OK &&
+      std::memcmp(value.data(), etag, length) == 0;
+}
+
+bool time_reached(std::uint32_t now_ms, std::uint32_t deadline_ms) {
+  return static_cast<std::int32_t>(now_ms - deadline_ms) >= 0;
 }
 
 esp_err_t send_json_error(
@@ -320,11 +371,11 @@ esp_err_t LocalWebServer::start() {
       static_cast<std::uint16_t>(maximum_open_sockets);
   configuration.max_uri_handlers = 13U;
   configuration.max_resp_headers = 10U;
-  // Match the pinned ESP-IDF server's defensible LAN defaults. Seven client
-  // slots cover one live WebSocket, two scheduled REST requests, one critical
-  // operation/upload connection, one transient browser connection, and two
-  // maintenance slots. LRU purge must stay off: useful WebSockets and mutation
-  // receipts are never sacrificial capacity under ordinary single-tab load.
+  // One browser uses at most one scheduled REST request beside its WebSocket.
+  // Five slots retain room for the two static-asset transfers during cold load,
+  // one mutation/upload, and one maintenance connection without reserving the
+  // seven-session table used before cold-load serialization. LRU purge stays
+  // off so useful WebSockets and mutation receipts are not sacrificed.
   configuration.backlog_conn = 5U;
   configuration.lru_purge_enable = false;
   configuration.recv_wait_timeout = 5U;
@@ -394,6 +445,7 @@ esp_err_t LocalWebServer::start() {
   last_scale_publish_ms_ = 0U;
   last_update_publish_ms_ = 0U;
   last_heartbeat_ms_ = 0U;
+  next_publish_check_ms_ = 0U;
   last_update_revision_ = 0U;
   return ESP_OK;
 }
@@ -416,6 +468,7 @@ esp_err_t LocalWebServer::stop() {
   scale_session_was_active_ = false;
   heartbeat_published_ = false;
   update_published_ = false;
+  next_publish_check_ms_ = 0U;
   websocket_send_.remaining.store(0U, std::memory_order_relaxed);
   websocket_send_.busy.store(false, std::memory_order_release);
   for (auto& client : websocket_clients_) {
@@ -556,18 +609,38 @@ esp_err_t LocalWebServer::handle_static_asset(httpd_req_t* request) {
   const char* body = nullptr;
   std::size_t size = 0U;
   const char* content_type = nullptr;
+  const char* cache_control = html_cache_control;
+  const char* etag = html_etag;
+  bool content_varies_by_encoding = false;
+  bool compressed = false;
   if (path == "/") {
     body = assets::index_html;
     size = assets::index_html_size;
     content_type = "text/html; charset=utf-8";
   } else if (path == "/assets/app.css") {
-    body = assets::application_css;
-    size = assets::application_css_size;
+    compressed = request_accepts_gzip(request);
+    body = compressed
+        ? reinterpret_cast<const char*>(assets::application_css_gzip)
+        : assets::application_css;
+    size = compressed
+        ? assets::application_css_gzip_size
+        : assets::application_css_size;
     content_type = "text/css; charset=utf-8";
+    cache_control = immutable_asset_cache_control;
+    etag = compressed ? stylesheet_gzip_etag : stylesheet_identity_etag;
+    content_varies_by_encoding = true;
   } else if (path == "/assets/app.js") {
-    body = assets::application_javascript;
-    size = assets::application_javascript_size;
+    compressed = request_accepts_gzip(request);
+    body = compressed
+        ? reinterpret_cast<const char*>(assets::application_javascript_gzip)
+        : assets::application_javascript;
+    size = compressed
+        ? assets::application_javascript_gzip_size
+        : assets::application_javascript_size;
     content_type = "application/javascript; charset=utf-8";
+    cache_control = immutable_asset_cache_control;
+    etag = compressed ? javascript_gzip_etag : javascript_identity_etag;
+    content_varies_by_encoding = true;
   } else {
     if (provisioning_peer(request, api_context_)) {
       auto result = httpd_resp_set_status(request, "302 Found");
@@ -587,8 +660,25 @@ esp_err_t LocalWebServer::handle_static_asset(httpd_req_t* request) {
   if (result != ESP_OK) return result;
   result = httpd_resp_set_type(request, content_type);
   if (result != ESP_OK) return result;
-  result = set_security_headers(request);
+  result = set_security_headers(request, cache_control);
   if (result != ESP_OK) return result;
+  result = httpd_resp_set_hdr(request, "ETag", etag);
+  if (result != ESP_OK) return result;
+  result = httpd_resp_set_hdr(request, "Connection", "close");
+  if (result != ESP_OK) return result;
+  if (content_varies_by_encoding) {
+    result = httpd_resp_set_hdr(request, "Vary", "Accept-Encoding");
+    if (result != ESP_OK) return result;
+  }
+  if (compressed) {
+    result = httpd_resp_set_hdr(request, "Content-Encoding", "gzip");
+    if (result != ESP_OK) return result;
+  }
+  if (request_etag_matches(request, etag)) {
+    result = httpd_resp_set_status(request, "304 Not Modified");
+    if (result != ESP_OK) return result;
+    return httpd_resp_send(request, nullptr, 0U);
+  }
   return httpd_resp_send(request, body, static_cast<ssize_t>(size));
 }
 
@@ -1078,8 +1168,14 @@ std::size_t LocalWebServer::send_to_websocket_clients(
 void LocalWebServer::publish(std::uint32_t now_ms) {
   if (server_ == nullptr || websocket_client_count() == 0U) {
     scale_session_was_active_ = false;
+    next_publish_check_ms_ = 0U;
     return;
   }
+  if (next_publish_check_ms_ != 0U &&
+      !time_reached(now_ms, next_publish_check_ms_)) {
+    return;
+  }
+  next_publish_check_ms_ = now_ms + publish_check_interval_ms;
   // The network task is the sole publisher. Avoid constructing JSON while the
   // HTTPD task still owns the reusable batch payload for a prior socket send.
   if (websocket_send_.busy.load(std::memory_order_acquire)) return;
