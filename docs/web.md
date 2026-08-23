@@ -410,11 +410,12 @@ already absent). Local workflow state is not advanced on failed verification.
 ## NFC behavior in Phase 9
 
 The ST25R3916B transport remains compile-time disabled until the exact module,
-wiring, and RFAL binding are resolved. All three NFC API routes exist, but
-`GET /api/v1/nfc`, `GET /api/v1/nfc/tag`, and authenticated
-`POST /api/v1/nfc/read` explicitly return HTTP 503 `nfc_unavailable`. The UI
-shows the reader as unavailable rather than simulating a tag or silently
-returning an empty result.
+wiring, and RFAL binding are resolved. `GET /api/v1/nfc` returns a bounded 200
+diagnostic snapshot that explicitly reports `available=false`, the incomplete
+wiring/vendor gates, zero IRQ activity, and no tag. `GET /api/v1/nfc/tag` and
+authenticated `POST /api/v1/nfc/read` return HTTP 503 `nfc_unavailable`. The UI
+shows the reader as disabled rather than simulating a tag or silently treating a
+hardware error as no tag.
 
 ## Reboot and factory reset
 

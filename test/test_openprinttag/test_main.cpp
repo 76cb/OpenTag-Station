@@ -20,6 +20,9 @@ using opentag::core::ByteView;
 using opentag::core::Error;
 using opentag::core::ErrorCategory;
 using opentag::core::Result;
+using opentag::nfc::nfcv::InventoryResult;
+using opentag::nfc::nfcv::InventoryTracker;
+using opentag::nfc::nfcv::TagPresenceChange;
 using opentag::nfc::nfcv::ITagTransport;
 using opentag::nfc::nfcv::Reader;
 using opentag::nfc::nfcv::TagGeometry;
@@ -82,6 +85,7 @@ class MemoryTransport final : public ITagTransport {
   std::vector<std::uint8_t> memory;
   bool corrupt_readback{false};
   bool inventory_fails{false};
+  bool truncate_multiple_read{false};
   std::size_t inventory_calls{0U};
   std::size_t write_calls{0U};
   std::size_t field_resets{0U};
@@ -120,9 +124,11 @@ class MemoryTransport final : public ITagTransport {
       std::uint32_t) override {
     const auto offset = static_cast<std::size_t>(first_block) * expected_block_size;
     const auto size = static_cast<std::size_t>(block_count) * expected_block_size;
-    return Result<std::vector<std::uint8_t>>::success({
+    std::vector<std::uint8_t> result{
         memory.begin() + static_cast<std::ptrdiff_t>(offset),
-        memory.begin() + static_cast<std::ptrdiff_t>(offset + size)});
+        memory.begin() + static_cast<std::ptrdiff_t>(offset + size)};
+    if (truncate_multiple_read && !result.empty()) result.pop_back();
+    return Result<std::vector<std::uint8_t>>::success(std::move(result));
   }
 
   Result<std::vector<bool>> read_block_locks(
@@ -380,6 +386,104 @@ void test_reader_rejects_multiple_tags() {
       static_cast<int>(result.error().category));
 }
 
+void test_inventory_tracker_distinguishes_presence_removal_and_replacement() {
+  InventoryTracker tracker;
+  const auto empty = Result<std::vector<Uid>>::success({});
+  const auto& no_tag = tracker.observe(empty, 1U);
+  TEST_ASSERT_TRUE(no_tag.inventory_valid);
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(InventoryResult::no_tag),
+      static_cast<int>(no_tag.result));
+  TEST_ASSERT_FALSE(no_tag.present);
+
+  const auto one = Result<std::vector<Uid>>::success({test_uid()});
+  const auto& appeared = tracker.observe(one, 10U);
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(TagPresenceChange::appeared),
+      static_cast<int>(appeared.change));
+  TEST_ASSERT_TRUE(appeared.present);
+  TEST_ASSERT_EQUAL_STRING("E0040108662F6FBC", appeared.uid->hex().c_str());
+
+  const auto& unchanged = tracker.observe(one, 20U);
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(TagPresenceChange::unchanged),
+      static_cast<int>(unchanged.change));
+  TEST_ASSERT_EQUAL_UINT32(20U, unchanged.last_seen_ms);
+
+  auto replacement_uid = test_uid();
+  replacement_uid.bytes[2] ^= 0x01U;
+  const auto replacement =
+      Result<std::vector<Uid>>::success({replacement_uid});
+  const auto& replaced = tracker.observe(replacement, 30U);
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(TagPresenceChange::replaced),
+      static_cast<int>(replaced.change));
+  TEST_ASSERT_TRUE(replaced.uid.has_value());
+  TEST_ASSERT_TRUE(*replaced.uid == replacement_uid);
+
+  const auto failed = Result<std::vector<Uid>>::failure({
+      ErrorCategory::nfc_communication, "inventory timeout", true});
+  const auto& error = tracker.observe(failed, 40U);
+  TEST_ASSERT_FALSE(error.inventory_valid);
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(InventoryResult::transport_error),
+      static_cast<int>(error.result));
+  TEST_ASSERT_TRUE(error.present);
+  TEST_ASSERT_TRUE(error.uid.has_value());
+  TEST_ASSERT_TRUE(*error.uid == replacement_uid);
+  TEST_ASSERT_EQUAL_UINT32(30U, error.last_seen_ms);
+
+  const auto& removed = tracker.observe(empty, 50U);
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(TagPresenceChange::removed),
+      static_cast<int>(removed.change));
+  TEST_ASSERT_FALSE(removed.present);
+  TEST_ASSERT_FALSE(removed.uid.has_value());
+
+  const auto multiple =
+      Result<std::vector<Uid>>::success({test_uid(), replacement_uid});
+  const auto& many = tracker.observe(multiple, 60U);
+  TEST_ASSERT_EQUAL_UINT(2U, many.tag_count);
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(InventoryResult::multiple_tags),
+      static_cast<int>(many.result));
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(TagPresenceChange::multiple),
+      static_cast<int>(many.change));
+}
+
+void test_reader_rejects_zero_tags_oversized_geometry_and_truncated_memory() {
+  MemoryTransport no_tag_transport;
+  no_tag_transport.present_tags.clear();
+  Reader no_tag_reader(no_tag_transport);
+  const auto no_tag = no_tag_reader.detect_one(100U);
+  TEST_ASSERT_FALSE(no_tag.ok());
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(ErrorCategory::tag_removed),
+      static_cast<int>(no_tag.error().category));
+
+  MemoryTransport oversized_transport;
+  oversized_transport.geometry = {64U, 65U};
+  Reader oversized_reader(oversized_transport);
+  const auto oversized = oversized_reader.detect_one(100U);
+  TEST_ASSERT_FALSE(oversized.ok());
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(ErrorCategory::unsupported_tag),
+      static_cast<int>(oversized.error().category));
+
+  MemoryTransport truncated_transport;
+  truncated_transport.memory.resize(16U);
+  truncated_transport.truncate_multiple_read = true;
+  Reader truncated_reader(truncated_transport);
+  const auto detected = truncated_reader.detect_one(100U);
+  TEST_ASSERT_TRUE(detected.ok());
+  const auto truncated = truncated_reader.read_image(detected.value(), 100U);
+  TEST_ASSERT_FALSE(truncated.ok());
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(ErrorCategory::nfc_communication),
+      static_cast<int>(truncated.error().category));
+}
+
 int main(int, char**) {
   UNITY_BEGIN();
   RUN_TEST(test_decodes_official_openprinttag_fixture);
@@ -393,5 +497,7 @@ int main(int, char**) {
   RUN_TEST(test_verified_writer_aborts_if_tag_changes);
   RUN_TEST(test_reader_discovers_geometry_locks_and_full_image);
   RUN_TEST(test_reader_rejects_multiple_tags);
+  RUN_TEST(test_inventory_tracker_distinguishes_presence_removal_and_replacement);
+  RUN_TEST(test_reader_rejects_zero_tags_oversized_geometry_and_truncated_memory);
   return UNITY_END();
 }

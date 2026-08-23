@@ -12,6 +12,7 @@
 
 #include "boards/wt32_sc01_plus_rev_a.hpp"
 #include "diagnostics/build_info.hpp"
+#include "hardware/nfc/st25r3916b/wiring_guard.hpp"
 #include "web/configuration_patch.hpp"
 #include "web/local_access_policy.hpp"
 
@@ -886,11 +887,36 @@ core::Result<std::string> ApplicationApiContext::snapshot_json(
       document["command_queue_depth"] = scale_commands_.pending();
       break;
     }
-    case api::Resource::nfc:
+    case api::Resource::nfc: {
+      document["available"] = false;
+      document["enabled"] = false;
+      document["wiring_complete"] =
+          hardware::nfc::st25r3916b_wiring_complete;
+      document["bringup_state"] = "off";
+      document["spi_ok"] = false;
+      document["irq_configured"] = false;
+      document["irq_line_state"] = false;
+      document["irq_latched"] = false;
+      document["irq_count"] = 0U;
+      document["last_irq_at_ms"] = 0U;
+      document["rfal_initialized"] = false;
+      document["rf_field_enabled"] = false;
+      document["rfal_revision"] = diagnostics::build_info.rfal_revision;
+      auto inventory = document["inventory"].to<JsonObject>();
+      inventory["tag_count"] = 0U;
+      inventory["present"] = false;
+      inventory["technology"] = "NFC-V / ISO15693";
+      inventory["last_seen_ms"] = 0U;
+      inventory["inventory_result"] = "disabled";
+      document["recovery_count"] = 0U;
+      document["last_error"] =
+          "NFC wiring is incomplete and authoritative ST RFAL is not vendored";
+      break;
+    }
     case api::Resource::nfc_tag:
       return core::Result<std::string>::failure(unavailable(
           core::ErrorCategory::nfc_communication,
-          "NFC reader is unavailable: ST25R3916B transport is disabled in this build"));
+          "No NFC-V tag data is available while the reader is disabled"));
     case api::Resource::spool: {
       const auto workflow = workflow_.snapshot();
       auto encoded = document["workflow"].to<JsonObject>();

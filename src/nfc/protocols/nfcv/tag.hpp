@@ -3,6 +3,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -29,6 +30,47 @@ struct TagGeometry {
 
   [[nodiscard]] std::size_t capacity() const { return block_size * block_count; }
   [[nodiscard]] core::Result<void> validate() const;
+};
+
+enum class InventoryResult : std::uint8_t {
+  idle,
+  no_tag,
+  one_tag,
+  multiple_tags,
+  transport_error,
+};
+
+enum class TagPresenceChange : std::uint8_t {
+  none,
+  appeared,
+  unchanged,
+  removed,
+  replaced,
+  multiple,
+  error,
+};
+
+struct InventorySnapshot {
+  bool inventory_valid{false};
+  std::size_t tag_count{0U};
+  bool present{false};
+  std::optional<Uid> uid;
+  std::uint32_t last_seen_ms{0U};
+  InventoryResult result{InventoryResult::idle};
+  TagPresenceChange change{TagPresenceChange::none};
+};
+
+// Converts bounded RFAL inventory rounds into a stable domain snapshot without
+// conflating a transport failure with a valid zero-tag result.
+class InventoryTracker {
+ public:
+  [[nodiscard]] const InventorySnapshot& observe(
+      const core::Result<std::vector<Uid>>& inventory,
+      std::uint32_t now_ms);
+  [[nodiscard]] const InventorySnapshot& snapshot() const { return snapshot_; }
+
+ private:
+  InventorySnapshot snapshot_;
 };
 
 struct BlockWrite {

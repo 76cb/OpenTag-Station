@@ -1477,6 +1477,31 @@ void test_http_cold_load_policy_is_bounded_and_precompressed() {
   TEST_ASSERT_TRUE(cadence < update);
 }
 
+void test_disabled_nfc_snapshot_is_bounded_read_only_and_diagnostic() {
+  const auto source = read_project_source("src/web/application_api_context.cpp");
+  TEST_ASSERT_FALSE(source.empty());
+  const auto start = source.find("case api::Resource::nfc: {");
+  const auto end = source.find("case api::Resource::nfc_tag:", start);
+  TEST_ASSERT_TRUE(start != std::string::npos);
+  TEST_ASSERT_TRUE(end != std::string::npos);
+  TEST_ASSERT_TRUE(end > start);
+  const auto branch = source.substr(start, end - start);
+  for (const auto* field : {
+           "available", "enabled", "wiring_complete", "bringup_state",
+           "spi_ok", "irq_configured", "irq_line_state", "irq_latched",
+           "irq_count", "last_irq_at_ms", "rfal_initialized",
+           "rf_field_enabled", "inventory", "tag_count", "present",
+           "technology", "last_seen_ms", "inventory_result", "last_error",
+           "recovery_count"}) {
+    TEST_ASSERT_TRUE_MESSAGE(branch.find(field) != std::string::npos, field);
+  }
+  TEST_ASSERT_TRUE(branch.find("raw_blocks") == std::string::npos);
+  TEST_ASSERT_TRUE(branch.find("access_token") == std::string::npos);
+  TEST_ASSERT_TRUE(branch.find("password") == std::string::npos);
+  TEST_ASSERT_TRUE(branch.find("Result<std::string>::failure") ==
+      std::string::npos);
+}
+
 int main(int, char**) {
   UNITY_BEGIN();
   RUN_TEST(
@@ -1520,5 +1545,6 @@ int main(int, char**) {
   RUN_TEST(test_tokenless_provisioning_connect_accepts_omitted_optional_token);
   RUN_TEST(test_router_stress_repeats_reads_snapshots_and_operation_polls);
   RUN_TEST(test_http_cold_load_policy_is_bounded_and_precompressed);
+  RUN_TEST(test_disabled_nfc_snapshot_is_bounded_read_only_and_diagnostic);
   return UNITY_END();
 }

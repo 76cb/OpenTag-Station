@@ -6,7 +6,9 @@
 
 #include "core/error.hpp"
 #include "core/result.hpp"
+#include "hardware/nfc/st25r3916b/frontend_backend.hpp"
 #include "hardware/nfc/st25r3916b/service.hpp"
+#include "platform/rfal/rfal_platform_contract.hpp"
 
 namespace {
 
@@ -14,8 +16,15 @@ using opentag::core::ErrorCategory;
 using opentag::core::Result;
 using opentag::hardware::nfc::st25r3916b::BringUpState;
 using opentag::hardware::nfc::st25r3916b::ChipIdentity;
+using DirectFrontendBackend =
+    opentag::hardware::nfc::st25r3916b::FrontendBackend;
+using opentag::hardware::nfc::st25r3916b::FrontendBackendDiagnostics;
+using opentag::hardware::nfc::st25r3916b::FrontendTiming;
 using opentag::hardware::nfc::st25r3916b::IFrontendBackend;
+using opentag::hardware::nfc::st25r3916b::IRfalDriver;
 using opentag::hardware::nfc::st25r3916b::Service;
+using opentag::hardware::nfc::st25r3916b::decode_identity_register;
+using opentag::platform::rfal::IRfalPlatform;
 
 class FrontendBackend final : public IFrontendBackend {
  public:
@@ -31,14 +40,20 @@ class FrontendBackend final : public IFrontendBackend {
   Result<ChipIdentity> read_and_validate_identity(std::uint32_t) override {
     calls.emplace_back("identity");
     if (fail_on == "identity") return Result<ChipIdentity>::failure(error());
-    return Result<ChipIdentity>::success({0x05U, 0x01U});
+    return Result<ChipIdentity>::success({0x06U, 0x01U});
   }
 
-  Result<void> configure_interrupt(std::uint32_t) override { return operation("irq"); }
-  Result<void> initialize_rfal(std::uint32_t) override { return operation("rfal"); }
+  Result<void> configure_interrupt(std::uint32_t) override {
+    return operation("irq");
+  }
+  Result<void> initialize_rfal(std::uint32_t) override {
+    return operation("rfal");
+  }
   Result<void> set_rf_field(bool enabled, std::uint32_t) override {
     return operation(enabled ? "field_on" : "field_off");
   }
+
+  FrontendBackendDiagnostics diagnostics() const override { return {}; }
 
  private:
   static opentag::core::Error error() {
@@ -47,9 +62,111 @@ class FrontendBackend final : public IFrontendBackend {
 
   Result<void> operation(const char* name) {
     calls.emplace_back(name);
-    return fail_on == name ? Result<void>::failure(error()) : Result<void>::success();
+    return fail_on == name
+        ? Result<void>::failure(error())
+        : Result<void>::success();
   }
 };
+
+class FakePlatform final : public IRfalPlatform {
+ public:
+  bool initialize() override { return initialize_ok; }
+
+  bool transfer(
+      const std::uint8_t* transmit,
+      std::uint8_t* receive,
+      std::size_t length) override {
+    if (!transfer_ok || transmit == nullptr || receive == nullptr) return false;
+    for (std::size_t index = 0U; index < length; ++index) receive[index] = 0U;
+    if (length == 2U && transmit[0] == 0x7FU) {
+      receive[1] = identity_raw;
+    } else if (length == 5U && transmit[0] == 0x5AU) {
+      receive[1] = irq_status_main;
+      line_active = false;
+    } else if (length == 2U && transmit[0] == 0x02U) {
+      operation_control = transmit[1];
+      if (operation_control == 0x80U && generate_irq) {
+        latched = true;
+        line_active = true;
+        ++irq_count_value;
+        last_irq_ms = now_ms;
+      }
+      if (operation_control == 0U && irq_status_main == 0U) line_active = false;
+    }
+    return true;
+  }
+
+  void select(bool active) override { selected = active; }
+  void power(bool active) override { powered = active; }
+  void reset(bool active) override { reset_asserted = active; }
+  bool interrupt_pending() const override { return line_active || latched; }
+  bool interrupt_line_active() const override { return line_active; }
+  bool interrupt_latched() const override { return latched; }
+  std::uint32_t interrupt_count() const override { return irq_count_value; }
+  std::uint32_t last_interrupt_at_ms() const override { return last_irq_ms; }
+  void acknowledge_interrupt() override { latched = false; }
+  std::uint32_t ticks_ms() const override { return now_ms; }
+  void delay_ms(std::uint32_t milliseconds) override { now_ms += milliseconds; }
+  bool lock_bus(std::uint32_t) override { return lock_ok; }
+  void unlock_bus() override {}
+  void enter_critical() override {}
+  void leave_critical() override {}
+
+  bool initialize_ok{true};
+  bool transfer_ok{true};
+  bool lock_ok{true};
+  bool generate_irq{true};
+  bool selected{false};
+  bool powered{false};
+  bool reset_asserted{false};
+  bool line_active{false};
+  bool latched{false};
+  std::uint8_t identity_raw{0x31U};
+  std::uint8_t irq_status_main{0x80U};
+  std::uint8_t operation_control{0U};
+  std::uint32_t irq_count_value{0U};
+  std::uint32_t last_irq_ms{0U};
+  std::uint32_t now_ms{0U};
+};
+
+class FakeRfal final : public IRfalDriver {
+ public:
+  Result<void> initialize(std::uint32_t) override {
+    ++initialize_calls;
+    return initialize_ok
+        ? Result<void>::success()
+        : Result<void>::failure({
+              ErrorCategory::nfc_communication,
+              "injected RFAL initialization failure",
+              false});
+  }
+
+  Result<void> set_rf_field(bool enabled, std::uint32_t) override {
+    ++field_calls;
+    if (!field_ok) {
+      return Result<void>::failure({
+          ErrorCategory::nfc_communication,
+          "injected RF field failure",
+          false});
+    }
+    field_enabled = enabled;
+    return Result<void>::success();
+  }
+
+  bool initialize_ok{true};
+  bool field_ok{true};
+  bool field_enabled{false};
+  std::uint32_t initialize_calls{0U};
+  std::uint32_t field_calls{0U};
+};
+
+constexpr FrontendTiming test_timing{2U, 3U, 4U, 10U, 1U};
+
+void prepare_direct_backend(DirectFrontendBackend& backend) {
+  TEST_ASSERT_TRUE(backend.set_power(true, 100U).ok());
+  TEST_ASSERT_TRUE(backend.reset(100U).ok());
+  TEST_ASSERT_TRUE(backend.read_and_validate_identity(100U).ok());
+}
 
 void assert_calls(const FrontendBackend& backend, const std::vector<std::string>& expected) {
   TEST_ASSERT_EQUAL_UINT(expected.size(), backend.calls.size());
@@ -72,7 +189,7 @@ void test_bring_up_follows_required_hardware_sequence() {
       static_cast<int>(BringUpState::ready),
       static_cast<int>(service.diagnostics().state));
   TEST_ASSERT_TRUE(service.diagnostics().identity.has_value());
-  TEST_ASSERT_EQUAL_HEX8(0x05U, service.diagnostics().identity->product);
+  TEST_ASSERT_EQUAL_HEX8(0x06U, service.diagnostics().identity->product);
 }
 
 void test_bring_up_failure_leaves_frontend_safe_and_diagnostic() {
@@ -107,10 +224,122 @@ void test_recovery_repeats_complete_sequence_without_reboot() {
       static_cast<int>(service.diagnostics().state));
 }
 
+void test_each_bring_up_stage_failure_disables_field_and_power() {
+  const std::vector<std::string> stages{
+      "power_on", "reset", "identity", "irq", "rfal", "field_on"};
+  for (const auto& stage : stages) {
+    FrontendBackend backend;
+    backend.fail_on = stage;
+    Service service(backend);
+    TEST_ASSERT_FALSE_MESSAGE(service.start(100U).ok(), stage.c_str());
+    TEST_ASSERT_EQUAL_STRING(
+        "field_off", backend.calls[backend.calls.size() - 2U].c_str());
+    TEST_ASSERT_EQUAL_STRING("power_off", backend.calls.back().c_str());
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(BringUpState::fault),
+        static_cast<int>(service.diagnostics().state));
+  }
+}
+
+void test_stop_disables_field_then_power() {
+  FrontendBackend backend;
+  Service service(backend);
+  TEST_ASSERT_TRUE(service.start(100U).ok());
+  backend.calls.clear();
+  TEST_ASSERT_TRUE(service.stop(100U).ok());
+  assert_calls(backend, {"field_off", "power_off"});
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(BringUpState::off),
+      static_cast<int>(service.diagnostics().state));
+}
+
+void test_identity_decoder_accepts_only_st25r3916b_product_code() {
+  const auto valid = decode_identity_register(0x31U);
+  TEST_ASSERT_TRUE(valid.ok());
+  TEST_ASSERT_EQUAL_UINT8(6U, valid.value().product);
+  TEST_ASSERT_EQUAL_UINT8(1U, valid.value().revision);
+
+  TEST_ASSERT_FALSE(decode_identity_register(0x00U).ok());
+  TEST_ASSERT_FALSE(decode_identity_register(0xFFU).ok());
+  const auto wrong = decode_identity_register(0x29U);
+  TEST_ASSERT_FALSE(wrong.ok());
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(ErrorCategory::nfc_communication),
+      static_cast<int>(wrong.error().category));
+}
+
+void test_direct_backend_validates_spi_identity_and_real_irq_transition() {
+  FakePlatform platform;
+  FakeRfal rfal;
+  DirectFrontendBackend backend(platform, test_timing, &rfal);
+  prepare_direct_backend(backend);
+  TEST_ASSERT_TRUE(backend.configure_interrupt(100U).ok());
+  TEST_ASSERT_TRUE(backend.configure_interrupt(100U).ok());
+  TEST_ASSERT_TRUE(backend.initialize_rfal(100U).ok());
+  TEST_ASSERT_TRUE(backend.set_rf_field(true, 100U).ok());
+
+  const auto diagnostics = backend.diagnostics();
+  TEST_ASSERT_TRUE(diagnostics.power_enabled);
+  TEST_ASSERT_TRUE(diagnostics.spi_ok);
+  TEST_ASSERT_TRUE(diagnostics.irq_configured);
+  TEST_ASSERT_EQUAL_UINT32(2U, diagnostics.irq_count);
+  TEST_ASSERT_TRUE(diagnostics.rfal_initialized);
+  TEST_ASSERT_TRUE(diagnostics.rf_field_enabled);
+  TEST_ASSERT_FALSE(diagnostics.irq_line_state);
+  TEST_ASSERT_FALSE(diagnostics.irq_latched);
+  TEST_ASSERT_EQUAL_UINT8(0U, platform.operation_control);
+}
+
+void test_direct_backend_rejects_floating_bus_patterns_and_spi_failure() {
+  for (const auto raw : {0x00U, 0xFFU, 0x29U}) {
+    FakePlatform platform;
+    platform.identity_raw = static_cast<std::uint8_t>(raw);
+    DirectFrontendBackend backend(platform, test_timing);
+    TEST_ASSERT_TRUE(backend.set_power(true, 100U).ok());
+    TEST_ASSERT_TRUE(backend.reset(100U).ok());
+    TEST_ASSERT_FALSE(backend.read_and_validate_identity(100U).ok());
+    TEST_ASSERT_FALSE(backend.diagnostics().spi_ok);
+  }
+  FakePlatform platform;
+  DirectFrontendBackend backend(platform, test_timing);
+  TEST_ASSERT_TRUE(backend.set_power(true, 100U).ok());
+  TEST_ASSERT_TRUE(backend.reset(100U).ok());
+  platform.transfer_ok = false;
+  TEST_ASSERT_FALSE(backend.read_and_validate_identity(100U).ok());
+}
+
+void test_direct_backend_distinguishes_broken_irq_and_missing_rfal() {
+  FakePlatform platform;
+  platform.generate_irq = false;
+  platform.irq_status_main = 0U;
+  DirectFrontendBackend backend(platform, test_timing);
+  prepare_direct_backend(backend);
+  const auto irq = backend.configure_interrupt(100U);
+  TEST_ASSERT_FALSE(irq.ok());
+  TEST_ASSERT_FALSE(backend.diagnostics().irq_configured);
+  TEST_ASSERT_EQUAL_UINT8(0U, platform.operation_control);
+
+  platform.generate_irq = true;
+  platform.irq_status_main = 0x80U;
+  TEST_ASSERT_TRUE(backend.configure_interrupt(100U).ok());
+  const auto rfal = backend.initialize_rfal(100U);
+  TEST_ASSERT_FALSE(rfal.ok());
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(ErrorCategory::configuration),
+      static_cast<int>(rfal.error().category));
+  TEST_ASSERT_FALSE(backend.set_rf_field(true, 100U).ok());
+}
+
 int main(int, char**) {
   UNITY_BEGIN();
   RUN_TEST(test_bring_up_follows_required_hardware_sequence);
   RUN_TEST(test_bring_up_failure_leaves_frontend_safe_and_diagnostic);
   RUN_TEST(test_recovery_repeats_complete_sequence_without_reboot);
+  RUN_TEST(test_each_bring_up_stage_failure_disables_field_and_power);
+  RUN_TEST(test_stop_disables_field_then_power);
+  RUN_TEST(test_identity_decoder_accepts_only_st25r3916b_product_code);
+  RUN_TEST(test_direct_backend_validates_spi_identity_and_real_irq_transition);
+  RUN_TEST(test_direct_backend_rejects_floating_bus_patterns_and_spi_failure);
+  RUN_TEST(test_direct_backend_distinguishes_broken_irq_and_missing_rfal);
   return UNITY_END();
 }

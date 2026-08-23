@@ -3,6 +3,13 @@
 No vendor source is present yet. This is an explicit external gate, not an
 implicit dependency download.
 
+Acquisition attempt recorded 2026-08-23: the official
+`https://www.st.com/en/embedded-software/stsw-st25rfal002.html` delivery is
+request-controlled. No authoritative archive was delivered, so no archive
+filename, internal RFAL version, untouched SHA-256, complete delivered SLA0051
+license, redistribution decision, import list, or patch log can be recorded.
+No unofficial mirror was imported.
+
 The project will import an exact ST `STSW-ST25RFAL002` release only after its
 version, archive checksum, and SLA0051 redistribution obligations are recorded.
 Vendor files remain unmodified in this directory. The ESP32-S3 adaptation lives

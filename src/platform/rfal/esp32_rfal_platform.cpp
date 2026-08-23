@@ -89,13 +89,39 @@ void Esp32RfalPlatform::reset(bool active) {
 
 bool Esp32RfalPlatform::interrupt_pending() const {
   if (!initialized_) return false;
-  const bool line_active = digitalRead(pins_.interrupt) ==
+  return interrupt_latched() || interrupt_line_active();
+}
+
+bool Esp32RfalPlatform::interrupt_line_active() const {
+  return initialized_ && digitalRead(pins_.interrupt) ==
       level(true, electrical_.interrupt_active_high);
-  return interrupt_latched_ || line_active;
+}
+
+bool Esp32RfalPlatform::interrupt_latched() const {
+  portENTER_CRITICAL(&critical_mux_);
+  const bool result = interrupt_latched_;
+  portEXIT_CRITICAL(&critical_mux_);
+  return result;
+}
+
+std::uint32_t Esp32RfalPlatform::interrupt_count() const {
+  portENTER_CRITICAL(&critical_mux_);
+  const auto result = interrupt_count_;
+  portEXIT_CRITICAL(&critical_mux_);
+  return result;
+}
+
+std::uint32_t Esp32RfalPlatform::last_interrupt_at_ms() const {
+  portENTER_CRITICAL(&critical_mux_);
+  const auto tick = last_interrupt_tick_;
+  portEXIT_CRITICAL(&critical_mux_);
+  return static_cast<std::uint32_t>(tick) * portTICK_PERIOD_MS;
 }
 
 void Esp32RfalPlatform::acknowledge_interrupt() {
+  portENTER_CRITICAL(&critical_mux_);
   interrupt_latched_ = false;
+  portEXIT_CRITICAL(&critical_mux_);
 }
 
 std::uint32_t Esp32RfalPlatform::ticks_ms() const {
@@ -125,7 +151,11 @@ void Esp32RfalPlatform::leave_critical() {
 
 void IRAM_ATTR Esp32RfalPlatform::interrupt_trampoline(void* context) {
   auto* self = static_cast<Esp32RfalPlatform*>(context);
+  portENTER_CRITICAL_ISR(&self->critical_mux_);
   self->interrupt_latched_ = true;
+  ++self->interrupt_count_;
+  self->last_interrupt_tick_ = xTaskGetTickCountFromISR();
+  portEXIT_CRITICAL_ISR(&self->critical_mux_);
 }
 
 }  // namespace opentag::platform::rfal

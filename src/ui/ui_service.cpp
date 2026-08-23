@@ -737,15 +737,15 @@ void UiService::build_tags_page() {
   lv_obj_align(icon, LV_ALIGN_TOP_MID, 0, 12);
 
   auto* heading = lv_label_create(card);
-  lv_label_set_text(heading, "NFC reader not configured");
+  lv_label_set_text(heading, "NFC READER");
   lv_obj_set_style_text_font(heading, &lv_font_montserrat_20, 0);
   lv_obj_align(heading, LV_ALIGN_TOP_MID, 0, 70);
 
   auto* detail = lv_label_create(card);
   lv_label_set_text(
       detail,
-      "Tag tools will appear here when supported hardware is enabled.\n"
-      "No NFC hardware is assumed.");
+      "OFF\n"
+      "Hardware wiring and ST RFAL are not enabled.");
   lv_obj_set_width(detail, 310);
   lv_obj_set_style_text_align(detail, LV_TEXT_ALIGN_CENTER, 0);
   lv_obj_set_style_text_color(detail, lv_color_hex(0x9AB8BC), 0);

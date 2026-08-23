@@ -9,6 +9,7 @@
 #include <SPI.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
+#include <freertos/task.h>
 
 namespace opentag::platform::rfal {
 
@@ -53,6 +54,10 @@ class Esp32RfalPlatform final : public IRfalPlatform {
   void power(bool active) override;
   void reset(bool active) override;
   [[nodiscard]] bool interrupt_pending() const override;
+  [[nodiscard]] bool interrupt_line_active() const override;
+  [[nodiscard]] bool interrupt_latched() const override;
+  [[nodiscard]] std::uint32_t interrupt_count() const override;
+  [[nodiscard]] std::uint32_t last_interrupt_at_ms() const override;
   void acknowledge_interrupt() override;
   [[nodiscard]] std::uint32_t ticks_ms() const override;
   void delay_ms(std::uint32_t milliseconds) override;
@@ -69,8 +74,10 @@ class Esp32RfalPlatform final : public IRfalPlatform {
   Esp32RfalPins pins_;
   Esp32RfalElectricalConfig electrical_;
   SemaphoreHandle_t bus_mutex_{nullptr};
-  portMUX_TYPE critical_mux_ = portMUX_INITIALIZER_UNLOCKED;
+  mutable portMUX_TYPE critical_mux_ = portMUX_INITIALIZER_UNLOCKED;
   volatile bool interrupt_latched_{false};
+  volatile std::uint32_t interrupt_count_{0U};
+  volatile TickType_t last_interrupt_tick_{0U};
   bool initialized_{false};
 };
 
