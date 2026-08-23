@@ -15,7 +15,7 @@ in [release-validation.md](release-validation.md).
 | Flash/PSRAM | 16 MB flash, QSPI PSRAM configuration | Diagnostics/buffer policy compiled; hardware test pending |
 | Scale ADC | NAU7802 at I2C `0x2A` | Driver/service implemented, compiled, and host-tested; hardware test pending |
 | Load cell | YZC-133, 5 kg actual/default profile; 2 kg supported | Software implemented and host-tested; physical validation pending |
-| NFC frontend | ST25R3916B, SPI, IRQ, reset/control | Mandatory; module/wiring unresolved |
+| NFC frontend | ST25R3916B, SPI, IRQ, reset/control | Direct identity/IRQ backend host-tested; module/wiring/RFAL unresolved |
 | Tag technology | NFC-V / ISO15693 | Confirmed by current OpenPrintTag specification |
 
 The built-in display/touch and external scale pins are centralized in
@@ -104,6 +104,12 @@ a bounded recursive bus mutex plus an IRQ latch/acknowledgement path. No
 electrical defaults are instantiated because those values depend on the exact
 module checkpoint below.
 
+The concrete direct-register backend now validates the ST25R3916B product and
+revision register and requires a real oscillator-stable IRQ transition before
+RFAL can initialize. These are host-tested software contracts, not physical
+results. Details, authoritative register sources, and the blocked procedure are
+in [nfc-hardware-bringup.md](nfc-hardware-bringup.md).
+
 OpenPrintTag's current physical specification expects a circular reader antenna
 72–80 mm in diameter, 13.56 MHz resonance, typically 1 W RF output (1.6 W max),
 parallel and approximately concentric with the spool. A breakout board that only
@@ -126,7 +132,8 @@ Before assigning pins or enabling `OPENTAG_ENABLE_ST25R3916B`, provide or verify
    representative spools.
 
 Until then, all NFC pins remain `-1`, RFAL is not vendored, and the boot firmware
-reports NFC disabled.
+reports NFC disabled. No opt-in NFC image is produced because enabling it with
+unproven pins would correctly fail the existing wiring static assertion.
 
 ## Scale assumptions
 

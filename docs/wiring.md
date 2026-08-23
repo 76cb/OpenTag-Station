@@ -48,3 +48,5 @@ The exact module schematic and WT32 header availability must resolve the
 [hardware checkpoint](hardware.md#required-nfc-hardware-checkpoint). Once
 resolved, update only `src/boards/wt32_sc01_plus_rev_a.hpp`, enable the build
 flag, and perform SPI identity and IRQ tests before turning on the RF field.
+The current blocked bring-up record and ordered physical procedure are in
+[nfc-hardware-bringup.md](nfc-hardware-bringup.md).

@@ -121,11 +121,20 @@ const char index_html[] = R"HTML(<!doctype html>
       <div class="section-heading"><div><p class="eyebrow">OPENPRINTTAG</p><h2 id="nfc-title">Tags</h2></div><span id="nfc-badge" class="badge neutral">Disabled</span></div>
       <article class="card intentional-empty">
         <span class="empty-icon" aria-hidden="true">◇</span>
-        <h3>NFC reader not configured</h3>
-        <p>OpenTag Station will use this area to read and manage OpenPrintTag-compatible filament tags.</p>
-        <a class="button" href="#settings">NFC Settings</a>
+        <h3 id="nfc-summary">NFC hardware disabled</h3>
+        <p id="nfc-guidance">Reader wiring and ST RFAL are not configured.</p>
+        <dl class="facts">
+          <div><dt>Reader</dt><dd id="nfc-reader-state">OFF</dd></div>
+          <div><dt>Tag</dt><dd id="nfc-tag-state">No tag</dd></div>
+          <div><dt>UID</dt><dd id="nfc-uid">—</dd></div>
+          <div><dt>Technology</dt><dd id="nfc-technology">NFC-V / ISO15693</dd></div>
+          <div><dt>Identity</dt><dd id="nfc-identity">—</dd></div>
+          <div><dt>Geometry</dt><dd id="nfc-geometry">—</dd></div>
+        </dl>
+        <p id="nfc-read-status" class="setup-status" aria-live="polite">No tag data</p>
+        <button id="read-tag" class="button" type="button" disabled hidden>Read tag</button>
       </article>
-      <div class="visually-hidden" aria-hidden="true"><span id="nfc-reader-state">Disabled</span><span id="nfc-tag-state">No tag</span><span id="nfc-uid">—</span><span id="nfc-material">—</span><button id="read-tag" type="button" disabled>Read tag</button><pre id="tag-diagnostics">No tag data</pre></div>
+      <span id="nfc-material" class="visually-hidden" aria-hidden="true">—</span>
     </section>
 
     <section id="spool" class="section product-page home-support" data-page="home" aria-labelledby="spool-title">
@@ -1784,14 +1793,65 @@ const char application_javascript[] = R"JS((function () {
 
   function renderNfc(payload) {
     const nfc = asObject(first(payload.nfc, payload));
-    const available = first(nfc.available, nfc.reader_available, false) === true;
-    state.nfcAvailable = available;
-    const stateText = normalizeState(first(nfc.state, nfc.reader_state, available ? 'ready' : 'unavailable'));
+    const available = nfc.available === true;
+    const bringup = String(first(nfc.bringup_state, nfc.state,
+      available ? 'ready' : 'off')).toLowerCase();
+    const inventory = asObject(nfc.inventory);
+    const identity = asObject(nfc.identity);
+    const geometry = asObject(first(nfc.geometry, inventory.geometry));
+    const tagCount = Number(first(inventory.tag_count, 0));
+    const present = inventory.present === true;
+    const uid = first(inventory.uid, null);
+    const ready = available && bringup === 'ready';
+    const initializing = ['powering', 'resetting', 'identifying',
+      'configuring_irq', 'initializing_rfal', 'enabling_field'].indexOf(bringup) >= 0;
+    state.nfcAvailable = ready;
+    const stateText = normalizeState(bringup);
     setText('nfc-reader-state', stateText);
-    setText('nfc-tag-state', normalizeState(first(nfc.tag_state, nfc.presence, 'no tag')));
-    setBadge('nfc-badge', available ? stateText : 'Disabled', available ? 'good' : 'neutral');
+    setText('nfc-tag-state', tagCount > 1 ? 'Multiple tags' : present ? 'Detected' : 'No tag');
+    setText('nfc-uid', uid);
+    setText('nfc-technology', first(inventory.technology, 'NFC-V / ISO15693'));
+    setText('nfc-identity', Object.keys(identity).length
+      ? 'Product ' + first(identity.product, '—') + ', revision ' + first(identity.revision, '—')
+      : '—');
+    const blockSize = Number(geometry.block_size);
+    const blockCount = Number(geometry.block_count);
+    setText('nfc-geometry', Number.isFinite(blockSize) && Number.isFinite(blockCount)
+      ? blockCount + ' × ' + blockSize + ' B' : '—');
+
+    let summary = 'NFC hardware disabled';
+    let guidance = first(nfc.last_error,
+      'Reader wiring and ST RFAL are not configured.');
+    let badgeKind = 'neutral';
+    if (bringup === 'fault' || bringup === 'error') {
+      summary = 'NFC reader error';
+      badgeKind = 'bad';
+    } else if (ready && tagCount > 1) {
+      summary = 'Multiple NFC-V tags detected';
+      guidance = 'Remove extra tags and present exactly one tag.';
+      badgeKind = 'warning';
+    } else if (ready && present && tagCount === 1) {
+      summary = 'NFC-V TAG DETECTED';
+      guidance = uid ? 'UID: ' + uid : 'Tag inventory succeeded.';
+      badgeKind = 'good';
+    } else if (ready) {
+      summary = 'Reader ready';
+      guidance = 'Present an NFC-V tag.';
+      badgeKind = 'good';
+    } else if (initializing) {
+      summary = 'Initializing NFC reader';
+      guidance = 'Bring-up is in progress: ' + stateText + '.';
+      badgeKind = 'warning';
+    }
+    setText('nfc-summary', summary);
+    setText('nfc-guidance', guidance);
+    setBadge('nfc-badge', ready ? (present ? 'Tag detected' : 'Ready') :
+      initializing || available ? stateText : 'Disabled', badgeKind);
     const readButton = byId('read-tag');
-    if (readButton) readButton.disabled = !available || state.maintenance;
+    if (readButton) {
+      readButton.hidden = !ready;
+      readButton.disabled = !ready || state.maintenance;
+    }
   }
 
   function renderTag(payload) {
@@ -1799,8 +1859,14 @@ const char application_javascript[] = R"JS((function () {
     setText('nfc-uid', first(tag.uid, tag.nfc_uid));
     const material = asObject(tag.material);
     setText('nfc-material', first(material.name, material.material_name, tag.material_name, tag.material));
-    const diagnostics = byId('tag-diagnostics');
-    if (diagnostics) diagnostics.textContent = Object.keys(tag).length ? pretty(tag) : 'No tag data';
+    const geometry = asObject(tag.geometry);
+    const blockSize = Number(first(geometry.block_size, tag.block_size));
+    const blockCount = Number(first(geometry.block_count, tag.block_count));
+    if (Number.isFinite(blockSize) && Number.isFinite(blockCount)) {
+      setText('nfc-geometry', blockCount + ' × ' + blockSize + ' B');
+    }
+    setText('nfc-read-status', Object.keys(tag).length
+      ? 'Read-only tag data retrieved successfully.' : 'No tag data');
   }
 
   function renderSpool(payload) {
@@ -3476,6 +3542,7 @@ const char application_javascript[] = R"JS((function () {
       stopCalibrationRefresh: stopCalibrationRefresh,
       renderScale: renderScale,
       renderNfc: renderNfc,
+      renderTag: renderTag,
       productPageFromHash: productPageFromHash,
       activateProductPage: activateProductPage,
       navigateProductPage: navigateProductPage,

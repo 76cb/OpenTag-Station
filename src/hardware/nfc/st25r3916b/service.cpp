@@ -15,9 +15,14 @@ core::Error invalid_timeout() {
 
 }  // namespace
 
+void Service::refresh_frontend_diagnostics() {
+  diagnostics_.frontend = backend_.diagnostics();
+}
+
 core::Result<void> Service::fail(core::Error error, std::uint32_t timeout_ms) {
   (void)backend_.set_rf_field(false, timeout_ms);
   (void)backend_.set_power(false, timeout_ms);
+  refresh_frontend_diagnostics();
   diagnostics_.state = BringUpState::fault;
   diagnostics_.last_error = error;
   return core::Result<void>::failure(std::move(error));
@@ -31,31 +36,38 @@ core::Result<void> Service::start(std::uint32_t step_timeout_ms) {
   }
   diagnostics_.identity.reset();
   diagnostics_.last_error.reset();
+  refresh_frontend_diagnostics();
 
   diagnostics_.state = BringUpState::powering;
   const auto powered = backend_.set_power(true, step_timeout_ms);
   if (!powered.ok()) return fail(powered.error(), step_timeout_ms);
+  refresh_frontend_diagnostics();
 
   diagnostics_.state = BringUpState::resetting;
   const auto reset = backend_.reset(step_timeout_ms);
   if (!reset.ok()) return fail(reset.error(), step_timeout_ms);
+  refresh_frontend_diagnostics();
 
   diagnostics_.state = BringUpState::identifying;
   const auto identity = backend_.read_and_validate_identity(step_timeout_ms);
   if (!identity.ok()) return fail(identity.error(), step_timeout_ms);
   diagnostics_.identity = identity.value();
+  refresh_frontend_diagnostics();
 
   diagnostics_.state = BringUpState::configuring_irq;
   const auto irq = backend_.configure_interrupt(step_timeout_ms);
   if (!irq.ok()) return fail(irq.error(), step_timeout_ms);
+  refresh_frontend_diagnostics();
 
   diagnostics_.state = BringUpState::initializing_rfal;
   const auto rfal = backend_.initialize_rfal(step_timeout_ms);
   if (!rfal.ok()) return fail(rfal.error(), step_timeout_ms);
+  refresh_frontend_diagnostics();
 
   diagnostics_.state = BringUpState::enabling_field;
   const auto field = backend_.set_rf_field(true, step_timeout_ms);
   if (!field.ok()) return fail(field.error(), step_timeout_ms);
+  refresh_frontend_diagnostics();
 
   diagnostics_.state = BringUpState::ready;
   return core::Result<void>::success();
@@ -78,6 +90,7 @@ core::Result<void> Service::stop(std::uint32_t step_timeout_ms) {
   const auto field = backend_.set_rf_field(false, step_timeout_ms);
   const auto power = backend_.set_power(false, step_timeout_ms);
   diagnostics_.identity.reset();
+  refresh_frontend_diagnostics();
   if (!field.ok()) {
     diagnostics_.state = BringUpState::fault;
     diagnostics_.last_error = field.error();

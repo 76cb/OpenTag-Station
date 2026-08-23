@@ -21,6 +21,10 @@ class IRfalPlatform {
   virtual void power(bool active) = 0;
   virtual void reset(bool active) = 0;
   [[nodiscard]] virtual bool interrupt_pending() const = 0;
+  [[nodiscard]] virtual bool interrupt_line_active() const = 0;
+  [[nodiscard]] virtual bool interrupt_latched() const = 0;
+  [[nodiscard]] virtual std::uint32_t interrupt_count() const = 0;
+  [[nodiscard]] virtual std::uint32_t last_interrupt_at_ms() const = 0;
   virtual void acknowledge_interrupt() = 0;
   [[nodiscard]] virtual std::uint32_t ticks_ms() const = 0;
   virtual void delay_ms(std::uint32_t milliseconds) = 0;

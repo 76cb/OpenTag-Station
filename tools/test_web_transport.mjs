@@ -1516,6 +1516,86 @@ test('heartbeat and snapshot events cause no REST storm while invalidation refre
   assert.equal(app.fetchCalls[0].url, '/api/v1/network');
 });
 
+
+test('Tags renders bounded disabled, initializing, ready, detected, multiple, and error states', () => {
+  const { T, document } = loadApplication();
+
+  T.renderNfc({
+    available: false,
+    enabled: false,
+    bringup_state: 'off',
+    wiring_complete: false,
+    rfal_initialized: false,
+    inventory: {
+      tag_count: 0,
+      present: false,
+      technology: 'NFC-V / ISO15693',
+      inventory_result: 'disabled',
+    },
+    last_error: 'NFC wiring is incomplete and authoritative ST RFAL is not vendored',
+  });
+  assert.equal(document.getElementById('nfc-summary').textContent, 'NFC hardware disabled');
+  assert.equal(document.getElementById('nfc-badge').textContent, 'Disabled');
+  assert.match(document.getElementById('nfc-guidance').textContent, /wiring.*RFAL/i);
+  assert.equal(document.getElementById('read-tag').hidden, true);
+
+  T.renderNfc({ available: false, bringup_state: 'identifying', inventory: {} });
+  assert.equal(document.getElementById('nfc-summary').textContent, 'Initializing NFC reader');
+  assert.equal(document.getElementById('nfc-badge').textContent, 'identifying');
+
+  T.renderNfc({
+    available: true,
+    bringup_state: 'ready',
+    inventory: { tag_count: 0, present: false, technology: 'NFC-V / ISO15693' },
+  });
+  assert.equal(document.getElementById('nfc-summary').textContent, 'Reader ready');
+  assert.equal(document.getElementById('nfc-guidance').textContent, 'Present an NFC-V tag.');
+  assert.equal(document.getElementById('read-tag').hidden, false);
+  assert.equal(document.getElementById('read-tag').disabled, false);
+
+  T.renderNfc({
+    available: true,
+    bringup_state: 'ready',
+    identity: { product: 6, revision: 1 },
+    inventory: {
+      tag_count: 1,
+      present: true,
+      uid: 'E0040108662F6FBC',
+      technology: 'NFC-V / ISO15693',
+    },
+    geometry: { block_size: 4, block_count: 78 },
+  });
+  assert.equal(document.getElementById('nfc-summary').textContent, 'NFC-V TAG DETECTED');
+  assert.equal(document.getElementById('nfc-uid').textContent, 'E0040108662F6FBC');
+  assert.equal(document.getElementById('nfc-identity').textContent, 'Product 6, revision 1');
+  assert.equal(document.getElementById('nfc-geometry').textContent, '78 × 4 B');
+
+  T.renderNfc({
+    available: true,
+    bringup_state: 'ready',
+    inventory: { tag_count: 2, present: false },
+  });
+  assert.equal(document.getElementById('nfc-summary').textContent,
+    'Multiple NFC-V tags detected');
+
+  T.renderNfc({
+    available: false,
+    bringup_state: 'fault',
+    last_error: 'ST25R3916B IRQ line did not clear',
+  });
+  assert.equal(document.getElementById('nfc-summary').textContent, 'NFC reader error');
+  assert.match(document.getElementById('nfc-guidance').textContent, /IRQ line/);
+
+  T.renderTag({
+    uid: 'E0040108662F6FBC',
+    geometry: { block_size: 4, block_count: 78 },
+    raw_blocks: new Array(4000).fill(255),
+  });
+  assert.equal(document.getElementById('nfc-read-status').textContent,
+    'Read-only tag data retrieved successfully.');
+  assert.equal(document.getElementById('nfc-read-status').textContent.includes('255'), false,
+    'raw memory must not be rendered into routine status UI');
+});
 test('product navigation exposes exactly five primary destinations and preserves legacy deep links', () => {
   const { T, document, context } = loadApplication();
   const pages = ['home', 'scale', 'printer', 'tags', 'settings'];

@@ -20,7 +20,7 @@ therefore recorded by Git revision, MIME type, and fixture corpus revision.
 
 | Component | Baseline | Status |
 |---|---|---|
-| ST25R3916B | [ST product documentation](https://www.st.com/en/nfc/st25r3916b.html) | Device capability inspected; module unknown |
+| ST25R3916B | [DS13541 Rev 11](https://www.st.com/resource/en/datasheet/st25r3916b.pdf) | Direct product/revision and oscillator-IRQ backend implemented and host-tested; module/wiring and physical result unknown |
 | RFAL | [STSW-ST25RFAL002](https://www.st.com/en/embedded-software/stsw-st25rfal002.html) and [UM2890 Rev 7](https://www.st.com/resource/en/user_manual/um2890-rfnfc-abstraction-layer-rfal-stmicroelectronics.pdf) | ESP32 platform primitives compiled; vendor source release not yet acquired/pinned |
 | X-CUBE-NFC6 | [ST product package](https://www.st.com/en/embedded-software/x-cube-nfc6.html) | Port/reference source only, not a build dependency |
 
@@ -30,8 +30,10 @@ the exact delivered archive plus its license/redistribution terms have not been
 accepted and captured for this repository. Before import, record the exact ST
 archive/release identifier, archive SHA-256, internal RFAL version, complete
 license text, redistribution decision, and any project modifications. Until
-then diagnostics say `not-vendored`, the frontend backend is unbound, and the
-production enable flag remains false.
+then RFAL initialization returns a categorized configuration error, the
+production enable flag remains false, and diagnostics identify the unresolved
+wiring/vendor gates. Direct silicon identity and IRQ validation do not remove
+the RFAL acquisition requirement.
 
 ## Build dependencies
 

@@ -56,6 +56,48 @@ std::string Uid::hex() const {
   return output.str();
 }
 
+const InventorySnapshot& InventoryTracker::observe(
+    const core::Result<std::vector<Uid>>& inventory,
+    std::uint32_t now_ms) {
+  if (!inventory.ok()) {
+    snapshot_.inventory_valid = false;
+    snapshot_.result = InventoryResult::transport_error;
+    snapshot_.change = TagPresenceChange::error;
+    return snapshot_;
+  }
+
+  snapshot_.inventory_valid = true;
+  snapshot_.tag_count = inventory.value().size();
+  if (inventory.value().empty()) {
+    snapshot_.change = snapshot_.present
+        ? TagPresenceChange::removed
+        : TagPresenceChange::none;
+    snapshot_.present = false;
+    snapshot_.uid.reset();
+    snapshot_.result = InventoryResult::no_tag;
+    return snapshot_;
+  }
+  if (inventory.value().size() != 1U) {
+    snapshot_.present = false;
+    snapshot_.uid.reset();
+    snapshot_.result = InventoryResult::multiple_tags;
+    snapshot_.change = TagPresenceChange::multiple;
+    return snapshot_;
+  }
+
+  const auto& observed = inventory.value().front();
+  snapshot_.change = !snapshot_.present || !snapshot_.uid.has_value()
+      ? TagPresenceChange::appeared
+      : *snapshot_.uid == observed
+          ? TagPresenceChange::unchanged
+          : TagPresenceChange::replaced;
+  snapshot_.present = true;
+  snapshot_.uid = observed;
+  snapshot_.last_seen_ms = now_ms;
+  snapshot_.result = InventoryResult::one_tag;
+  return snapshot_;
+}
+
 core::Result<void> TagGeometry::validate() const {
   if (block_size == 0U || block_count == 0U || block_size > WritePlan::maximum_image_size ||
       block_count > static_cast<std::size_t>(std::numeric_limits<std::uint16_t>::max()) + 1U ||

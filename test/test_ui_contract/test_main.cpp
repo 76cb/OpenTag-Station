@@ -221,6 +221,19 @@ void test_touchscreen_uses_signed_integer_rounded_grams() {
       std::string::npos);
 }
 
+void test_tags_page_exposes_minimal_read_only_disabled_reader_state() {
+  const auto source = read_source("src/ui/ui_service.cpp");
+  const auto build = method(
+      source,
+      "void UiService::build_tags_page()",
+      "void UiService::build_settings_page()");
+  TEST_ASSERT_TRUE(build.find("NFC READER") != std::string::npos);
+  TEST_ASSERT_TRUE(build.find("OFF") != std::string::npos);
+  TEST_ASSERT_TRUE(build.find("ST RFAL") != std::string::npos);
+  TEST_ASSERT_TRUE(build.find("WRITE") == std::string::npos);
+  TEST_ASSERT_TRUE(build.find("FORMAT") == std::string::npos);
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -233,5 +246,6 @@ int main(int argc, char** argv) {
   RUN_TEST(test_repeated_native_navigation_rebuilds_one_bounded_screen);
   RUN_TEST(test_idle_home_and_scale_refresh_do_not_copy_full_configuration);
   RUN_TEST(test_touchscreen_uses_signed_integer_rounded_grams);
+  RUN_TEST(test_tags_page_exposes_minimal_read_only_disabled_reader_state);
   return UNITY_END();
 }
