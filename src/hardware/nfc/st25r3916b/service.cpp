@@ -44,7 +44,7 @@ core::Result<void> Service::start(std::uint32_t step_timeout_ms) {
   refresh_frontend_diagnostics();
 
   diagnostics_.state = BringUpState::resetting;
-  const auto reset = backend_.reset(step_timeout_ms);
+  const auto reset = backend_.reset_to_defaults(step_timeout_ms);
   if (!reset.ok()) return fail(reset.error(), step_timeout_ms);
   refresh_frontend_diagnostics();
 

@@ -30,23 +30,35 @@ sign, swap A+ and A− only after confirming the four-wire mapping.
 
 ## ST25R3916B
 
-**Not assigned. Do not wire from this document yet.**
+The exact module is the ELECHOUSE `NFC_ST25R3916B` with this 1.25 mm connector:
 
-| Reader signal | WT32 pin |
+| Pin | Module signal |
+|---:|---|
+| 1 | IRQ |
+| 2 | CS / BSS |
+| 3 | SCLK / SCL |
+| 4 | MOSI |
+| 5 | MISO / SDA |
+| 6 | +5V |
+| 7 | GND |
+
+It exposes neither reset nor power-enable. Do not assign a fake GPIO for either.
+The recommended future transport is the documented I2C module configuration on
+the existing scale bus, with proposed IRQ on GPIO12:
+
+| Module signal | Proposed WT32 connection |
 |---|---|
-| Power / I/O supply | TBD |
-| Ground | TBD |
-| SCK | TBD |
-| MOSI | TBD |
-| MISO | TBD |
-| CS | TBD |
-| IRQ | TBD |
-| Reset | TBD |
-| Power/enable or bus-select | TBD |
+| SDA | GPIO10, shared with NAU7802 |
+| SCL | GPIO11, shared with NAU7802 |
+| IRQ | GPIO12 |
+| +5V | EXT 5V |
+| GND | EXT GND |
+| CS / BSS, MOSI | not connected in ELECHOUSE's I2C quick-start hookup |
+| Reset, power-enable | not present on the module |
 
-The exact module schematic and WT32 header availability must resolve the
-[hardware checkpoint](hardware.md#required-nfc-hardware-checkpoint). Once
-resolved, update only `src/boards/wt32_sc01_plus_rev_a.hpp`, enable the build
-flag, and perform SPI identity and IRQ tests before turning on the RF field.
-The current blocked bring-up record and ordered physical procedure are in
-[nfc-hardware-bringup.md](nfc-hardware-bringup.md).
+**This is a recommendation, not an active wiring assignment. Do not wire or
+power the reader from this table yet.** The board profile deliberately retains
+`-1` transport pins. First implement the authoritative ST RFAL I2C adapter and
+a bounded shared-bus lock used by both NFC and the NAU7802 scale owner, then
+verify the module solder bridge and combined pull-ups. The full rationale and
+ordered procedure are in [nfc-hardware-bringup.md](nfc-hardware-bringup.md).

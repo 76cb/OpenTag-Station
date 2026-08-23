@@ -339,21 +339,22 @@ adds deterministic coverage for every truncated prefix and every single-byte
 mutation of the official 312-byte fixture. Unsupported/malformed tags fail with
 structured errors.
 
-Physical NFC remains wiring-gated. Before enabling it:
+Physical NFC remains transport-gated. The exact ELECHOUSE module is documented;
+before enabling it:
 
-1. Identify the exact ST25R3916B module, voltage, oscillator, antenna/matching
-   network, bus-selection straps, and RFAL distribution/license.
-2. Record WT32 SPI CS/SCLK/MOSI/MISO, IRQ, reset, power, ground, logic levels,
-   and shared-bus constraints; continuity-check with power removed.
-3. Verify safe power/reset sequence and chip identity.
-4. Verify IRQ polarity/clearing, SPI locking, RF field on/off, and recovery.
+1. Acquire/pin the authoritative ST RFAL delivery and implement its I2C platform
+   path with one bounded lock shared by NFC and the NAU7802 owner.
+2. With power removed, configure the module's I2C solder bridge; verify 5 V
+   supply, 3.3 V bus levels, combined pull-ups, SDA/SCL, GPIO12 IRQ proposal,
+   and the absence of reset/power-enable wiring.
+3. Verify Set Default initialization, chip identity, and continued scale sampling.
+4. Verify IRQ polarity/clearing, shared-I2C locking, RF field on/off, and recovery.
 5. Inventory one NFC-V tag, reject multiple tags, read geometry/security status,
-   and read the full image.
+   and read the bounded image.
 6. Decode official and real OpenPrintTag records; reject malformed, unsupported,
    oversized, locked, removed, and changed tags.
-7. Write only a sacrificial compatible tag, verify changed blocks and exact
-   readback, then confirm unknown fields/regions remain unchanged.
-8. Repeat at position/orientation/range limits and after RF reset/reboot.
+7. Repeat read-only validation at position/orientation/range limits and after
+   frontend reset-to-default/reboot. Do not perform tag writes in this phase.
 
 All steps are UNVERIFIED.
 
@@ -568,11 +569,13 @@ Every item below starts and remains **UNVERIFIED** until real evidence is added.
 
 ### NFC
 
-- [ ] **UNVERIFIED** — exact ST25R3916B module, antenna, wiring, RFAL binding.
+- [x] **DOCUMENTED, NOT PHYSICALLY VERIFIED** — ELECHOUSE
+  `NFC_ST25R3916B`, integrated antenna, connector, voltage, and control-line
+  absence.
+- [ ] **UNVERIFIED** — shared-I2C wiring/locking, RFAL binding, and IRQ proposal.
 - [ ] **UNVERIFIED** — bring-up, identity, IRQ, RF field and recovery.
 - [ ] **UNVERIFIED** — NFC-V inventory/geometry/security/multi-tag behavior.
 - [ ] **UNVERIFIED** — OpenPrintTag real-tag read/decode.
-- [ ] **UNVERIFIED** — sacrificial-tag write/readback/preservation.
 
 ### Integrations
 

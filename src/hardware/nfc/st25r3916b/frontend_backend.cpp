@@ -13,6 +13,7 @@ constexpr std::uint8_t operation_control_register = 0x02U;
 constexpr std::uint8_t main_interrupt_register = 0x1AU;
 constexpr std::uint8_t operation_enable_oscillator = 0x80U;
 constexpr std::uint8_t oscillator_stable_interrupt = 0x80U;
+constexpr std::uint8_t set_default_direct_command = 0xC1U;
 constexpr std::uint8_t st25r3916b_product_code = 0x06U;
 constexpr std::size_t interrupt_register_count = 4U;
 constexpr std::size_t maximum_register_burst = interrupt_register_count;
@@ -80,6 +81,14 @@ core::Result<void> FrontendBackend::transfer(
   return core::Result<void>::success();
 }
 
+core::Result<void> FrontendBackend::send_direct_command(
+    std::uint8_t command,
+    std::uint32_t timeout_ms) {
+  std::array<std::uint8_t, 1U> transmit{command};
+  std::array<std::uint8_t, 1U> receive{};
+  return transfer(transmit.data(), receive.data(), transmit.size(), timeout_ms);
+}
+
 core::Result<void> FrontendBackend::write_register(
     std::uint8_t address,
     std::uint8_t value,
@@ -113,17 +122,64 @@ core::Result<void> FrontendBackend::read_registers(
 core::Result<void> FrontendBackend::set_power(
     bool enabled,
     std::uint32_t timeout_ms) {
-  if (timeout_ms == 0U || !timing_.complete()) {
+  if (timeout_ms == 0U || !timing_.complete(control_.reset)) {
     return core::Result<void>::failure(configuration_error(
         "ST25R3916B module timing is incomplete"));
   }
+  const bool external_reset = platform_.external_reset_available();
+  const bool external_power = platform_.external_power_control_available();
+  if (control_.reset == FrontendResetMode::external_gpio && !external_reset) {
+    return core::Result<void>::failure(configuration_error(
+        "ST25R3916B external-reset mode requires a real reset GPIO"));
+  }
+  if (control_.reset == FrontendResetMode::set_default_command &&
+      external_reset) {
+    return core::Result<void>::failure(configuration_error(
+        "ST25R3916B software-reset mode must not declare a reset GPIO"));
+  }
+  if (control_.power == FrontendPowerMode::external_gpio && !external_power) {
+    return core::Result<void>::failure(configuration_error(
+        "ST25R3916B external-power mode requires a real enable GPIO"));
+  }
+  if (control_.power == FrontendPowerMode::always_on && external_power) {
+    return core::Result<void>::failure(configuration_error(
+        "ST25R3916B always-on mode must not declare a power-enable GPIO"));
+  }
+  diagnostics_.external_power_control_available = external_power;
+  diagnostics_.external_reset_available = external_reset;
+  diagnostics_.software_reset =
+      control_.reset == FrontendResetMode::set_default_command;
   if (!enabled) {
     if (diagnostics_.rf_field_enabled && rfal_driver_ != nullptr) {
       (void)rfal_driver_->set_rf_field(false, timeout_ms);
     }
-    platform_.power(false);
+    core::Result<void> quiesced = core::Result<void>::success();
+    if (frontend_active_ && control_.power == FrontendPowerMode::always_on) {
+      if (timing_.reset_recovery_ms >= timeout_ms) {
+        return core::Result<void>::failure(configuration_error(
+            "ST25R3916B shutdown timing exceeds the bounded step timeout"));
+      }
+      quiesced = send_direct_command(
+          set_default_direct_command,
+          timeout_ms - timing_.reset_recovery_ms);
+      if (quiesced.ok()) platform_.delay_ms(timing_.reset_recovery_ms);
+    }
+    if (control_.power == FrontendPowerMode::external_gpio) {
+      platform_.set_external_power(false);
+    }
     platform_.acknowledge_interrupt();
+    if (!quiesced.ok()) {
+      diagnostics_.spi_ok = false;
+      return quiesced;
+    }
     diagnostics_ = {};
+    diagnostics_.power_enabled =
+        control_.power == FrontendPowerMode::always_on && frontend_active_;
+    diagnostics_.external_power_control_available = external_power;
+    diagnostics_.external_reset_available = external_reset;
+    diagnostics_.software_reset =
+        control_.reset == FrontendResetMode::set_default_command;
+    frontend_active_ = false;
     return core::Result<void>::success();
   }
   if (timing_.power_settle_ms > timeout_ms) {
@@ -135,27 +191,40 @@ core::Result<void> FrontendBackend::set_power(
         "ST25R3916B ESP32 SPI/GPIO platform initialization failed",
         false));
   }
-  platform_.power(true);
+  if (control_.power == FrontendPowerMode::external_gpio) {
+    platform_.set_external_power(true);
+  }
   platform_.delay_ms(timing_.power_settle_ms);
+  frontend_active_ = true;
   diagnostics_.power_enabled = true;
   return core::Result<void>::success();
 }
 
-core::Result<void> FrontendBackend::reset(std::uint32_t timeout_ms) {
+core::Result<void> FrontendBackend::reset_to_defaults(
+    std::uint32_t timeout_ms) {
   const auto reset_duration = timing_.reset_assert_ms + timing_.reset_recovery_ms;
-  if (!diagnostics_.power_enabled) {
+  if (!frontend_active_) {
     return core::Result<void>::failure(communication_error(
         "ST25R3916B reset requested while frontend power is off",
         false));
   }
   if (timeout_ms == 0U || reset_duration < timing_.reset_assert_ms ||
-      reset_duration > timeout_ms) {
+      reset_duration > timeout_ms ||
+      (control_.reset == FrontendResetMode::set_default_command &&
+       reset_duration >= timeout_ms)) {
     return core::Result<void>::failure(configuration_error(
         "ST25R3916B reset timing exceeds the bounded step timeout"));
   }
-  platform_.reset(true);
-  platform_.delay_ms(timing_.reset_assert_ms);
-  platform_.reset(false);
+  if (control_.reset == FrontendResetMode::external_gpio) {
+    platform_.set_external_reset(true);
+    platform_.delay_ms(timing_.reset_assert_ms);
+    platform_.set_external_reset(false);
+  } else {
+    const auto reset = send_direct_command(
+        set_default_direct_command,
+        timeout_ms - timing_.reset_recovery_ms);
+    if (!reset.ok()) return reset;
+  }
   platform_.delay_ms(timing_.reset_recovery_ms);
   platform_.acknowledge_interrupt();
   diagnostics_.spi_ok = false;
@@ -167,7 +236,7 @@ core::Result<void> FrontendBackend::reset(std::uint32_t timeout_ms) {
 
 core::Result<ChipIdentity> FrontendBackend::read_and_validate_identity(
     std::uint32_t timeout_ms) {
-  if (!diagnostics_.power_enabled) {
+  if (!frontend_active_) {
     return core::Result<ChipIdentity>::failure(communication_error(
         "ST25R3916B identity requested while frontend power is off",
         false));

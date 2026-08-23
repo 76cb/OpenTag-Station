@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 
+#include "boards/wt32_sc01_plus_rev_a.hpp"
 #include "core/error.hpp"
 #include "core/result.hpp"
 #include "hardware/nfc/st25r3916b/frontend_backend.hpp"
@@ -19,6 +20,9 @@ using opentag::hardware::nfc::st25r3916b::ChipIdentity;
 using DirectFrontendBackend =
     opentag::hardware::nfc::st25r3916b::FrontendBackend;
 using opentag::hardware::nfc::st25r3916b::FrontendBackendDiagnostics;
+using opentag::hardware::nfc::st25r3916b::FrontendControl;
+using opentag::hardware::nfc::st25r3916b::FrontendPowerMode;
+using opentag::hardware::nfc::st25r3916b::FrontendResetMode;
 using opentag::hardware::nfc::st25r3916b::FrontendTiming;
 using opentag::hardware::nfc::st25r3916b::IFrontendBackend;
 using opentag::hardware::nfc::st25r3916b::IRfalDriver;
@@ -35,7 +39,9 @@ class FrontendBackend final : public IFrontendBackend {
     return operation(enabled ? "power_on" : "power_off");
   }
 
-  Result<void> reset(std::uint32_t) override { return operation("reset"); }
+  Result<void> reset_to_defaults(std::uint32_t) override {
+    return operation("reset");
+  }
 
   Result<ChipIdentity> read_and_validate_identity(std::uint32_t) override {
     calls.emplace_back("identity");
@@ -77,6 +83,7 @@ class FakePlatform final : public IRfalPlatform {
       std::uint8_t* receive,
       std::size_t length) override {
     if (!transfer_ok || transmit == nullptr || receive == nullptr) return false;
+    if (length == 1U && transmit[0] == 0xC1U) ++set_default_commands;
     for (std::size_t index = 0U; index < length; ++index) receive[index] = 0U;
     if (length == 2U && transmit[0] == 0x7FU) {
       receive[1] = identity_raw;
@@ -97,8 +104,20 @@ class FakePlatform final : public IRfalPlatform {
   }
 
   void select(bool active) override { selected = active; }
-  void power(bool active) override { powered = active; }
-  void reset(bool active) override { reset_asserted = active; }
+  bool external_power_control_available() const override {
+    return external_power_available;
+  }
+  bool external_reset_available() const override {
+    return external_reset_available_value;
+  }
+  void set_external_power(bool active) override {
+    powered = active;
+    ++power_control_calls;
+  }
+  void set_external_reset(bool active) override {
+    reset_asserted = active;
+    ++reset_control_calls;
+  }
   bool interrupt_pending() const override { return line_active || latched; }
   bool interrupt_line_active() const override { return line_active; }
   bool interrupt_latched() const override { return latched; }
@@ -113,6 +132,8 @@ class FakePlatform final : public IRfalPlatform {
   void leave_critical() override {}
 
   bool initialize_ok{true};
+  bool external_power_available{true};
+  bool external_reset_available_value{true};
   bool transfer_ok{true};
   bool lock_ok{true};
   bool generate_irq{true};
@@ -124,6 +145,9 @@ class FakePlatform final : public IRfalPlatform {
   std::uint8_t identity_raw{0x31U};
   std::uint8_t irq_status_main{0x80U};
   std::uint8_t operation_control{0U};
+  std::uint32_t power_control_calls{0U};
+  std::uint32_t reset_control_calls{0U};
+  std::uint32_t set_default_commands{0U};
   std::uint32_t irq_count_value{0U};
   std::uint32_t last_irq_ms{0U};
   std::uint32_t now_ms{0U};
@@ -161,10 +185,13 @@ class FakeRfal final : public IRfalDriver {
 };
 
 constexpr FrontendTiming test_timing{2U, 3U, 4U, 10U, 1U};
+constexpr FrontendTiming module_timing{2U, 0U, 4U, 10U, 1U};
+constexpr FrontendControl module_control{
+    FrontendResetMode::set_default_command, FrontendPowerMode::always_on};
 
 void prepare_direct_backend(DirectFrontendBackend& backend) {
   TEST_ASSERT_TRUE(backend.set_power(true, 100U).ok());
-  TEST_ASSERT_TRUE(backend.reset(100U).ok());
+  TEST_ASSERT_TRUE(backend.reset_to_defaults(100U).ok());
   TEST_ASSERT_TRUE(backend.read_and_validate_identity(100U).ok());
 }
 
@@ -296,14 +323,14 @@ void test_direct_backend_rejects_floating_bus_patterns_and_spi_failure() {
     platform.identity_raw = static_cast<std::uint8_t>(raw);
     DirectFrontendBackend backend(platform, test_timing);
     TEST_ASSERT_TRUE(backend.set_power(true, 100U).ok());
-    TEST_ASSERT_TRUE(backend.reset(100U).ok());
+    TEST_ASSERT_TRUE(backend.reset_to_defaults(100U).ok());
     TEST_ASSERT_FALSE(backend.read_and_validate_identity(100U).ok());
     TEST_ASSERT_FALSE(backend.diagnostics().spi_ok);
   }
   FakePlatform platform;
   DirectFrontendBackend backend(platform, test_timing);
   TEST_ASSERT_TRUE(backend.set_power(true, 100U).ok());
-  TEST_ASSERT_TRUE(backend.reset(100U).ok());
+  TEST_ASSERT_TRUE(backend.reset_to_defaults(100U).ok());
   platform.transfer_ok = false;
   TEST_ASSERT_FALSE(backend.read_and_validate_identity(100U).ok());
 }
@@ -330,6 +357,65 @@ void test_direct_backend_distinguishes_broken_irq_and_missing_rfal() {
   TEST_ASSERT_FALSE(backend.set_rf_field(true, 100U).ok());
 }
 
+void test_pin_validation_preserves_required_control_lines() {
+  opentag::boards::St25r3916bPins pins{
+      1, 2, 3, 4, 5, -1, -1, false, false};
+  TEST_ASSERT_TRUE(pins.complete());
+
+  pins.external_reset_required = true;
+  TEST_ASSERT_FALSE(pins.complete());
+  pins.reset = 6;
+  TEST_ASSERT_TRUE(pins.complete());
+
+  pins.external_power_control_required = true;
+  TEST_ASSERT_FALSE(pins.complete());
+  pins.power_enable = 7;
+  TEST_ASSERT_TRUE(pins.complete());
+
+  pins.external_reset_required = false;
+  TEST_ASSERT_FALSE(pins.complete());
+}
+
+void test_elehouse_module_uses_software_reset_without_fake_gpio() {
+  FakePlatform platform;
+  platform.external_power_available = false;
+  platform.external_reset_available_value = false;
+  DirectFrontendBackend backend(
+      platform, module_timing, nullptr, module_control);
+
+  TEST_ASSERT_TRUE(backend.set_power(true, 100U).ok());
+  TEST_ASSERT_FALSE(backend.reset_to_defaults(4U).ok());
+  TEST_ASSERT_EQUAL_UINT32(0U, platform.set_default_commands);
+  TEST_ASSERT_TRUE(backend.reset_to_defaults(100U).ok());
+  TEST_ASSERT_EQUAL_UINT32(1U, platform.set_default_commands);
+  TEST_ASSERT_EQUAL_UINT32(0U, platform.power_control_calls);
+  TEST_ASSERT_EQUAL_UINT32(0U, platform.reset_control_calls);
+  TEST_ASSERT_TRUE(backend.diagnostics().power_enabled);
+  TEST_ASSERT_FALSE(backend.diagnostics().external_power_control_available);
+  TEST_ASSERT_FALSE(backend.diagnostics().external_reset_available);
+  TEST_ASSERT_TRUE(backend.diagnostics().software_reset);
+
+  TEST_ASSERT_FALSE(backend.set_power(false, 4U).ok());
+  TEST_ASSERT_EQUAL_UINT32(1U, platform.set_default_commands);
+  TEST_ASSERT_TRUE(backend.set_power(false, 100U).ok());
+  TEST_ASSERT_EQUAL_UINT32(2U, platform.set_default_commands);
+  TEST_ASSERT_TRUE(backend.diagnostics().power_enabled);
+  TEST_ASSERT_FALSE(backend.read_and_validate_identity(100U).ok());
+}
+
+void test_control_mode_rejects_missing_or_invented_gpio() {
+  FakePlatform platform;
+  platform.external_power_available = false;
+  platform.external_reset_available_value = false;
+  DirectFrontendBackend external_backend(platform, test_timing);
+  TEST_ASSERT_FALSE(external_backend.set_power(true, 100U).ok());
+
+  FakePlatform invented;
+  DirectFrontendBackend module_backend(
+      invented, module_timing, nullptr, module_control);
+  TEST_ASSERT_FALSE(module_backend.set_power(true, 100U).ok());
+}
+
 int main(int, char**) {
   UNITY_BEGIN();
   RUN_TEST(test_bring_up_follows_required_hardware_sequence);
@@ -341,5 +427,8 @@ int main(int, char**) {
   RUN_TEST(test_direct_backend_validates_spi_identity_and_real_irq_transition);
   RUN_TEST(test_direct_backend_rejects_floating_bus_patterns_and_spi_failure);
   RUN_TEST(test_direct_backend_distinguishes_broken_irq_and_missing_rfal);
+  RUN_TEST(test_pin_validation_preserves_required_control_lines);
+  RUN_TEST(test_elehouse_module_uses_software_reset_without_fake_gpio);
+  RUN_TEST(test_control_mode_rejects_missing_or_invented_gpio);
   return UNITY_END();
 }

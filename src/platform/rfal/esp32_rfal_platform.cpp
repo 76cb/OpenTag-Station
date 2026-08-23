@@ -31,14 +31,16 @@ bool Esp32RfalPlatform::initialize() {
   if (bus_mutex_ == nullptr) return false;
 
   pinMode(pins_.chip_select, OUTPUT);
-  pinMode(pins_.reset, OUTPUT);
   pinMode(pins_.interrupt, INPUT);
-  if (pins_.power_enable >= 0) pinMode(pins_.power_enable, OUTPUT);
+  if (external_reset_available()) pinMode(pins_.reset, OUTPUT);
+  if (external_power_control_available()) {
+    pinMode(pins_.power_enable, OUTPUT);
+  }
   digitalWrite(
       pins_.chip_select,
       level(false, !electrical_.chip_select_active_low));
-  reset(false);
-  power(false);
+  set_external_reset(false);
+  set_external_power(false);
 
   spi_.begin(pins_.sck, pins_.miso, pins_.mosi, pins_.chip_select);
   attachInterruptArg(
@@ -73,16 +75,24 @@ void Esp32RfalPlatform::select(bool active) {
   if (!active) spi_.endTransaction();
 }
 
-void Esp32RfalPlatform::power(bool active) {
-  if (pins_.power_enable >= 0) {
+bool Esp32RfalPlatform::external_power_control_available() const {
+  return pins_.external_power_control_required && pins_.power_enable >= 0;
+}
+
+bool Esp32RfalPlatform::external_reset_available() const {
+  return pins_.external_reset_required && pins_.reset >= 0;
+}
+
+void Esp32RfalPlatform::set_external_power(bool active) {
+  if (external_power_control_available()) {
     digitalWrite(
         pins_.power_enable,
         level(active, electrical_.power_enable_active_high));
   }
 }
 
-void Esp32RfalPlatform::reset(bool active) {
-  if (pins_.reset >= 0) {
+void Esp32RfalPlatform::set_external_reset(bool active) {
+  if (external_reset_available()) {
     digitalWrite(pins_.reset, level(active, electrical_.reset_active_high));
   }
 }

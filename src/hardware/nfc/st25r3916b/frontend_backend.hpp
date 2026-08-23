@@ -8,8 +8,23 @@
 
 namespace opentag::hardware::nfc::st25r3916b {
 
-// Module-specific timings remain injected because the selected breakout,
-// reset circuit, and power-enable circuit are not yet known.
+enum class FrontendResetMode : std::uint8_t {
+  external_gpio,
+  set_default_command,
+};
+
+enum class FrontendPowerMode : std::uint8_t {
+  external_gpio,
+  always_on,
+};
+
+struct FrontendControl {
+  FrontendResetMode reset{FrontendResetMode::external_gpio};
+  FrontendPowerMode power{FrontendPowerMode::external_gpio};
+};
+
+// Timings are injected so an external-reset board and a software-reset module
+// keep distinct, validated timing contracts.
 struct FrontendTiming {
   std::uint32_t power_settle_ms{0U};
   std::uint32_t reset_assert_ms{0U};
@@ -17,8 +32,12 @@ struct FrontendTiming {
   std::uint32_t irq_wait_ms{0U};
   std::uint32_t irq_poll_interval_ms{0U};
 
-  [[nodiscard]] bool complete() const {
-    return power_settle_ms != 0U && reset_assert_ms != 0U &&
+  [[nodiscard]] bool complete(FrontendResetMode reset_mode) const {
+    const bool reset_timing_valid =
+        reset_mode == FrontendResetMode::external_gpio
+            ? reset_assert_ms != 0U
+            : reset_assert_ms == 0U;
+    return power_settle_ms != 0U && reset_timing_valid &&
         reset_recovery_ms != 0U && irq_wait_ms != 0U &&
         irq_poll_interval_ms != 0U && irq_poll_interval_ms <= irq_wait_ms;
   }
@@ -48,13 +67,16 @@ class FrontendBackend final : public IFrontendBackend {
   FrontendBackend(
       platform::rfal::IRfalPlatform& platform,
       FrontendTiming timing,
-      IRfalDriver* rfal_driver = nullptr)
-      : platform_(platform), timing_(timing), rfal_driver_(rfal_driver) {}
+      IRfalDriver* rfal_driver = nullptr,
+      FrontendControl control = {})
+      : platform_(platform), timing_(timing), rfal_driver_(rfal_driver),
+        control_(control) {}
 
   [[nodiscard]] core::Result<void> set_power(
       bool enabled,
       std::uint32_t timeout_ms) override;
-  [[nodiscard]] core::Result<void> reset(std::uint32_t timeout_ms) override;
+  [[nodiscard]] core::Result<void> reset_to_defaults(
+      std::uint32_t timeout_ms) override;
   [[nodiscard]] core::Result<ChipIdentity> read_and_validate_identity(
       std::uint32_t timeout_ms) override;
   [[nodiscard]] core::Result<void> configure_interrupt(
@@ -67,6 +89,9 @@ class FrontendBackend final : public IFrontendBackend {
   [[nodiscard]] FrontendBackendDiagnostics diagnostics() const override;
 
  private:
+  [[nodiscard]] core::Result<void> send_direct_command(
+      std::uint8_t command,
+      std::uint32_t timeout_ms);
   [[nodiscard]] core::Result<void> transfer(
       const std::uint8_t* transmit,
       std::uint8_t* receive,
@@ -85,7 +110,9 @@ class FrontendBackend final : public IFrontendBackend {
   platform::rfal::IRfalPlatform& platform_;
   FrontendTiming timing_;
   IRfalDriver* rfal_driver_{nullptr};
+  FrontendControl control_;
   FrontendBackendDiagnostics diagnostics_;
+  bool frontend_active_{false};
 };
 
 }  // namespace opentag::hardware::nfc::st25r3916b

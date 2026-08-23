@@ -27,6 +27,9 @@ enum class BringUpState : std::uint8_t {
 
 struct FrontendBackendDiagnostics {
   bool power_enabled{false};
+  bool external_power_control_available{false};
+  bool external_reset_available{false};
+  bool software_reset{false};
   bool spi_ok{false};
   bool irq_configured{false};
   bool irq_line_state{false};
@@ -44,7 +47,8 @@ class IFrontendBackend {
   [[nodiscard]] virtual core::Result<void> set_power(
       bool enabled,
       std::uint32_t timeout_ms) = 0;
-  [[nodiscard]] virtual core::Result<void> reset(std::uint32_t timeout_ms) = 0;
+  [[nodiscard]] virtual core::Result<void> reset_to_defaults(
+      std::uint32_t timeout_ms) = 0;
   [[nodiscard]] virtual core::Result<ChipIdentity> read_and_validate_identity(
       std::uint32_t timeout_ms) = 0;
   [[nodiscard]] virtual core::Result<void> configure_interrupt(

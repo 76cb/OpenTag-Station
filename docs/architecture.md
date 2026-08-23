@@ -316,7 +316,7 @@ bounded diagnostic export, not for hiding unbounded growth.
 |---:|---|---|
 | 0 | Research and foundation | Current upstream revisions are recorded; both native tests and pinned WT32 firmware build pass; unverified hardware is labeled. |
 | 1 | Board bring-up | Implemented and compiled; serial, display, full-screen touch, storage, PSRAM, reset diagnostics, and responsive LVGL loop must still pass on the actual board. |
-| 2 | ST25R3916B bring-up | Sequence/recovery service unit-tested; exact RFAL distribution, module/wiring, concrete backend, and all physical checks remain gated. |
+| 2 | ST25R3916B bring-up | Sequence/recovery and no-control-GPIO contracts are unit-tested; ELECHOUSE module identified, while shared-I2C/RFAL binding and all physical checks remain gated. |
 | 3 | NFC-V | Protocol contracts, single-tag/geometry/locks/read/write verification are unit-tested; RFAL binding and real-tag verification remain gated. |
 | 4 | OpenPrintTag | Official host fixtures decode and safely modify with semantic verification; real-tag transaction through ST25R3916B remains gated. |
 | 5 | Scale | NAU7802 raw/tare/calibration/filter/stability behavior passes with reference weights; calibration survives power cycles and export/import. |
