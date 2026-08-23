@@ -197,6 +197,10 @@ struct ScaleDiagnosticSnapshot {
   bool scale_persistence_available{true};
   bool scale_tare_ready{false};
   std::int32_t scale_tare_zero_offset_counts{0};
+  std::int32_t scale_persistent_zero_offset_counts{0};
+  std::int32_t scale_runtime_zero_correction_counts{0};
+  std::int32_t scale_effective_zero_offset_counts{0};
+  bool scale_calibration_reference_settled{false};
   bool scale_weight_available{false};
   services::ScaleMeasurementPurpose scale_measurement_purpose{
       services::ScaleMeasurementPurpose::weigh};
@@ -243,6 +247,14 @@ class ScaleDiagnosticStore final {
     next.scale_persistence_available = status.persistence_available;
     next.scale_tare_ready = status.tare_ready;
     next.scale_tare_zero_offset_counts = status.tare_zero_offset_counts;
+    next.scale_persistent_zero_offset_counts =
+        status.persistent_zero_offset_counts;
+    next.scale_runtime_zero_correction_counts =
+        status.runtime_zero_correction_counts;
+    next.scale_effective_zero_offset_counts =
+        status.effective_zero_offset_counts;
+    next.scale_calibration_reference_settled =
+        status.calibration_reference_settled;
     next.scale_measurement_purpose = status.measurement_purpose;
     next.scale_measurement_state = status.measurement_state;
     next.scale_last_completed_available =

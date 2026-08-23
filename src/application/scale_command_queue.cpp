@@ -96,6 +96,16 @@ void ScaleCommandQueue::process_one(std::uint32_t now_ms) {
       active_.reset();
       return;
     }
+    if (active_->type == CommandType::calibrate &&
+        status.sample.raw_stable &&
+        status.measurement_state == services::ScaleMeasurementState::settling &&
+        !active_->reference_detected_reported) {
+      operations_.mark_running(
+          active_->operation_id,
+          now_ms,
+          "Reference detected; settling reference plateau");
+      active_->reference_detected_reported = true;
+    }
     if (status.measurement_state != services::ScaleMeasurementState::ready) {
       return;
     }

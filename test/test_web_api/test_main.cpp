@@ -1060,6 +1060,24 @@ void test_public_update_partition_serializer_never_exposes_flash_address() {
   TEST_ASSERT_TRUE(serializer.find("object[\"present\"]") != std::string::npos);
 }
 
+void test_scale_serializer_exposes_bounded_zero_and_settle_diagnostics() {
+  const auto source = read_project_source("src/web/application_api_context.cpp");
+  TEST_ASSERT_FALSE(source.empty());
+  const auto begin = source.find("void write_scale(");
+  const auto end = source.find("void write_partition(", begin);
+  TEST_ASSERT_TRUE(begin != std::string::npos);
+  TEST_ASSERT_TRUE(end != std::string::npos);
+  const auto serializer = source.substr(begin, end - begin);
+  TEST_ASSERT_TRUE(serializer.find("persistent_zero_offset_counts") !=
+      std::string::npos);
+  TEST_ASSERT_TRUE(serializer.find("runtime_zero_correction_counts") !=
+      std::string::npos);
+  TEST_ASSERT_TRUE(serializer.find("effective_zero_offset_counts") !=
+      std::string::npos);
+  TEST_ASSERT_TRUE(serializer.find("calibration_reference_settled") !=
+      std::string::npos);
+}
+
 void test_update_owner_capabilities_and_safe_reboot_retry_are_fail_closed() {
   const auto source = read_project_source("src/web/application_api_context.cpp");
   TEST_ASSERT_FALSE(source.empty());
@@ -1492,6 +1510,7 @@ int main(int, char**) {
   RUN_TEST(
       test_update_reboot_and_cancel_require_exact_stale_state_preconditions);
   RUN_TEST(test_public_update_partition_serializer_never_exposes_flash_address);
+  RUN_TEST(test_scale_serializer_exposes_bounded_zero_and_settle_diagnostics);
   RUN_TEST(
       test_update_owner_capabilities_and_safe_reboot_retry_are_fail_closed);
   RUN_TEST(

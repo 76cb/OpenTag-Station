@@ -46,6 +46,7 @@ class ScaleCommandQueue final {
     float reference_grams{0.0F};
     std::uint64_t operation_id{0U};
     std::uint32_t enqueued_at_ms{0U};
+    bool reference_detected_reported{false};
   };
 
   [[nodiscard]] CommandReceipt submit(Command command, OperationKind kind);

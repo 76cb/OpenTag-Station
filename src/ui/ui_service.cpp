@@ -216,7 +216,9 @@ void UiService::build_current_screen() {
   setup_network_dropdown_ = nullptr;
   setup_keyboard_ = nullptr;
   workflow_material_label_ = nullptr;
+  workflow_home_state_label_ = nullptr;
   workflow_weight_label_ = nullptr;
+  workflow_scale_unit_label_ = nullptr;
   workflow_weigh_button_ = nullptr;
   workflow_tare_button_ = nullptr;
   workflow_calibrate_button_ = nullptr;
@@ -432,10 +434,11 @@ void UiService::build_home_page() {
   lv_obj_set_style_bg_color(hero, lv_color_hex(0x102B33), 0);
   lv_obj_clear_flag(hero, LV_OBJ_FLAG_SCROLLABLE);
 
-  auto* ready = lv_label_create(hero);
-  lv_label_set_text(ready, LV_SYMBOL_OK " READY");
-  lv_obj_set_style_text_color(ready, lv_color_hex(0x24D6A1), 0);
-  lv_obj_align(ready, LV_ALIGN_TOP_LEFT, 4, 0);
+  workflow_home_state_label_ = lv_label_create(hero);
+  lv_label_set_text(workflow_home_state_label_, LV_SYMBOL_OK " READY");
+  lv_obj_set_style_text_color(
+      workflow_home_state_label_, lv_color_hex(0x24D6A1), 0);
+  lv_obj_align(workflow_home_state_label_, LV_ALIGN_TOP_LEFT, 4, 0);
 
   workflow_material_label_ = lv_label_create(hero);
   lv_label_set_text(workflow_material_label_, "Place a spool");
@@ -499,57 +502,16 @@ void UiService::build_scale_page() {
       arc, lv_color_hex(0x24D6A1), LV_PART_INDICATOR);
   lv_obj_clear_flag(arc, LV_OBJ_FLAG_CLICKABLE);
 
-  auto* spool = lv_obj_create(screen);
-  lv_obj_set_pos(spool, 129, 61);
-  lv_obj_set_size(spool, 150, 150);
-  lv_obj_set_style_radius(spool, LV_RADIUS_CIRCLE, 0);
-  lv_obj_set_style_border_width(spool, 8, 0);
-  lv_obj_set_style_border_color(spool, lv_color_hex(0x405A68), 0);
-  lv_obj_set_style_bg_color(spool, lv_color_hex(0x162D37), 0);
-  lv_obj_set_style_pad_all(spool, 0, 0);
-  lv_obj_clear_flag(spool, LV_OBJ_FLAG_SCROLLABLE);
-
-  auto* filament = lv_obj_create(spool);
-  lv_obj_set_pos(filament, 13, 13);
-  lv_obj_set_size(filament, 108, 108);
-  lv_obj_set_style_radius(filament, LV_RADIUS_CIRCLE, 0);
-  lv_obj_set_style_border_width(filament, 10, 0);
-  lv_obj_set_style_border_color(filament, lv_color_hex(0x2A4651), 0);
-  lv_obj_set_style_bg_color(filament, lv_color_hex(0x101F29), 0);
-  lv_obj_clear_flag(filament, LV_OBJ_FLAG_SCROLLABLE);
-
-  static constexpr std::array<std::pair<lv_coord_t, lv_coord_t>, 6>
-      opening_positions{{
-          {57, 10}, {96, 31}, {96, 87},
-          {57, 112}, {18, 87}, {18, 31}}};
-  for (const auto& [x, y] : opening_positions) {
-    auto* opening = lv_obj_create(spool);
-    lv_obj_set_pos(opening, x, y);
-    lv_obj_set_size(opening, 22, 15);
-    lv_obj_set_style_radius(opening, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_style_border_width(opening, 1, 0);
-    lv_obj_set_style_border_color(opening, lv_color_hex(0x526B77), 0);
-    lv_obj_set_style_bg_color(opening, lv_color_hex(0x071219), 0);
-    lv_obj_clear_flag(opening, LV_OBJ_FLAG_SCROLLABLE);
-  }
-
-  auto* hub = lv_obj_create(spool);
-  lv_obj_set_pos(hub, 27, 27);
-  lv_obj_set_size(hub, 80, 80);
-  lv_obj_set_style_radius(hub, LV_RADIUS_CIRCLE, 0);
-  lv_obj_set_style_border_width(hub, 6, 0);
-  lv_obj_set_style_border_color(hub, lv_color_hex(0x506B78), 0);
-  lv_obj_set_style_bg_color(hub, lv_color_hex(0x08141D), 0);
-  lv_obj_clear_flag(hub, LV_OBJ_FLAG_SCROLLABLE);
-
   workflow_scale_indicator_ = lv_obj_create(screen);
-  lv_obj_set_pos(workflow_scale_indicator_, 199, 42);
-  lv_obj_set_size(workflow_scale_indicator_, 10, 19);
+  lv_obj_set_pos(workflow_scale_indicator_, 129, 61);
+  lv_obj_set_size(workflow_scale_indicator_, 150, 150);
   lv_obj_set_style_radius(
       workflow_scale_indicator_, LV_RADIUS_CIRCLE, 0);
-  lv_obj_set_style_border_width(workflow_scale_indicator_, 0, 0);
+  lv_obj_set_style_border_width(workflow_scale_indicator_, 2, 0);
+  lv_obj_set_style_border_color(
+      workflow_scale_indicator_, lv_color_hex(0x405A68), 0);
   lv_obj_set_style_bg_color(
-      workflow_scale_indicator_, lv_color_hex(0x526B77), 0);
+      workflow_scale_indicator_, lv_color_hex(0x10262F), 0);
   lv_obj_clear_flag(workflow_scale_indicator_, LV_OBJ_FLAG_SCROLLABLE);
 
   auto* gross_label = lv_label_create(screen);
@@ -557,30 +519,38 @@ void UiService::build_scale_page() {
   lv_obj_set_width(gross_label, 118);
   lv_obj_set_style_text_align(gross_label, LV_TEXT_ALIGN_CENTER, 0);
   lv_obj_set_style_text_color(gross_label, lv_color_hex(0x9AB8BC), 0);
-  lv_obj_set_pos(gross_label, 145, 88);
+  lv_obj_set_pos(gross_label, 145, 87);
 
   workflow_weight_label_ = lv_label_create(screen);
-  lv_label_set_text(workflow_weight_label_, "-- g");
-  lv_obj_set_width(workflow_weight_label_, 142);
+  lv_label_set_text(workflow_weight_label_, "--");
+  lv_obj_set_width(workflow_weight_label_, 118);
   lv_obj_set_style_text_font(
       workflow_weight_label_, &lv_font_montserrat_32, 0);
   lv_obj_set_style_text_color(
       workflow_weight_label_, lv_color_hex(0xE7FAF7), 0);
   lv_obj_set_style_text_align(
       workflow_weight_label_, LV_TEXT_ALIGN_CENTER, 0);
-  lv_obj_set_pos(workflow_weight_label_, 133, 111);
+  lv_obj_set_pos(workflow_weight_label_, 137, 110);
+
+  workflow_scale_unit_label_ = lv_label_create(screen);
+  lv_label_set_text(workflow_scale_unit_label_, "g");
+  lv_obj_set_style_text_font(
+      workflow_scale_unit_label_, &lv_font_montserrat_16, 0);
+  lv_obj_set_style_text_color(
+      workflow_scale_unit_label_, lv_color_hex(0x9AB8BC), 0);
+  lv_obj_set_pos(workflow_scale_unit_label_, 257, 125);
 
   workflow_scale_quality_label_ = lv_label_create(screen);
-  lv_label_set_text(workflow_scale_quality_label_, "Press Weigh");
+  lv_label_set_text(workflow_scale_quality_label_, "READY");
   lv_obj_set_width(workflow_scale_quality_label_, 168);
   lv_obj_set_style_text_align(
       workflow_scale_quality_label_, LV_TEXT_ALIGN_CENTER, 0);
   lv_obj_set_style_text_color(
       workflow_scale_quality_label_, lv_color_hex(0x9AB8BC), 0);
-  lv_obj_set_pos(workflow_scale_quality_label_, 120, 151);
+  lv_obj_set_pos(workflow_scale_quality_label_, 120, 158);
 
   workflow_scale_capture_label_ = lv_label_create(screen);
-  lv_label_set_text(workflow_scale_capture_label_, "No captured weight");
+  lv_label_set_text(workflow_scale_capture_label_, "Last: -- g");
   lv_obj_set_width(workflow_scale_capture_label_, 184);
   lv_obj_set_style_text_align(
       workflow_scale_capture_label_, LV_TEXT_ALIGN_CENTER, 0);
@@ -609,10 +579,10 @@ void UiService::build_scale_page() {
     lv_obj_center(label);
   };
   make_action(
-      &workflow_weigh_button_, LV_SYMBOL_REFRESH "  Weigh", 44,
+      &workflow_weigh_button_, "WEIGH", 44,
       weigh_callback, true);
   make_action(
-      &workflow_tare_button_, "Tare", 102,
+      &workflow_tare_button_, "TARE", 102,
       tare_callback, false);
 
   workflow_calibration_label_ = lv_label_create(screen);
@@ -646,7 +616,7 @@ void UiService::build_scale_page() {
   lv_obj_add_flag(workflow_reference_input_, LV_OBJ_FLAG_HIDDEN);
 
   make_action(
-      &workflow_calibrate_button_, "Calibrate", 160,
+      &workflow_calibrate_button_, "CALIBRATE", 160,
       calibrate_callback, false);
 
   workflow_calibration_close_button_ = lv_btn_create(screen);
@@ -1166,6 +1136,15 @@ void UiService::navigation_callback(lv_event_t* event) {
 
 void UiService::weigh_callback(lv_event_t* event) {
   auto* self = static_cast<UiService*>(lv_event_get_user_data(event));
+  if (self->active_page_ == ProductPage::home &&
+      !self->diagnostics_.scale_snapshot().scale_calibrated) {
+    self->active_page_ = ProductPage::scale;
+    self->workflow_feedback_.clear();
+    self->build_current_screen();
+    self->set_scale_calibration_panel_open(true);
+    self->refresh_workflow();
+    return;
+  }
   const auto receipt = self->scale_commands_.submit_weigh(millis());
   if (receipt.accepted) {
     self->weigh_operation_id_ = receipt.operation_id;
@@ -1221,7 +1200,7 @@ void UiService::set_scale_calibration_panel_open(bool open) {
         workflow_calibrate_button_, 310, open ? 134 : 160);
     auto* label = lv_obj_get_child(workflow_calibrate_button_, 0);
     if (label != nullptr) {
-      lv_label_set_text(label, open ? "Run calibration" : "Calibrate");
+      lv_label_set_text(label, open ? "RUN CALIBRATION" : "CALIBRATE");
     }
   }
   if (!open && scale_keyboard_ != nullptr) {
@@ -1697,26 +1676,42 @@ void UiService::refresh_workflow() {
       lv_obj_add_state(button, LV_STATE_DISABLED);
     }
   };
-  const auto set_weight = [&](lv_obj_t* label) {
+  const auto set_weight = [&](lv_obj_t* label, bool inline_unit) {
     if (label == nullptr) return;
     if (measurement_active && scale.scale_weight_available) {
       lv_label_set_text_fmt(
-          label, "%ld g",
+          label, inline_unit ? "%ld g" : "%ld",
           static_cast<long>(rounded_grams_from_milligrams(
               scale.scale_gross_milligrams)));
     } else if (scale.scale_last_completed_available) {
       lv_label_set_text_fmt(
-          label, "%ld g",
+          label, inline_unit ? "%ld g" : "%ld",
           static_cast<long>(rounded_grams_from_milligrams(
               scale.scale_last_completed_milligrams)));
     } else {
-      lv_label_set_text(label, "-- g");
+      lv_label_set_text(label, inline_unit ? "-- g" : "--");
     }
   };
 
   if (active_page_ == ProductPage::home) {
+    const bool calibration_required = !scale.scale_calibrated;
     const auto workflow = workflow_.snapshot();
-    if (workflow.openprinttag_available) {
+    if (workflow_home_state_label_ != nullptr) {
+      lv_label_set_text(
+          workflow_home_state_label_,
+          calibration_required ? "! SCALE SETUP REQUIRED" :
+                                 LV_SYMBOL_OK " READY");
+      lv_obj_set_style_text_color(
+          workflow_home_state_label_,
+          lv_color_hex(calibration_required ? 0xF4C95D : 0x24D6A1), 0);
+    }
+    if (calibration_required) {
+      lv_label_set_text(
+          workflow_material_label_, "Calibrate before weighing");
+      lv_label_set_text(
+          workflow_identity_label_,
+          "Open Scale to tare, then place a known reference.");
+    } else if (workflow.openprinttag_available) {
       const std::string material = workflow.material.material_name.value_or(
           workflow.material.material_abbreviation.value_or("Spool detected"));
       lv_label_set_text(workflow_material_label_, material.c_str());
@@ -1731,15 +1726,16 @@ void UiService::refresh_workflow() {
           workflow_identity_label_,
           "Start a measurement when you are ready.");
     }
-    set_weight(workflow_weight_label_);
+    set_weight(workflow_weight_label_, true);
     set_enabled(
         workflow_weigh_button_,
-        scale.scale_adc_ready && scale.scale_calibrated && !busy);
+        scale.scale_adc_ready && !busy);
     auto* label = workflow_weigh_button_ == nullptr
         ? nullptr : lv_obj_get_child(workflow_weigh_button_, 0);
     if (label != nullptr) {
       lv_label_set_text(
           label,
+          calibration_required ? "CALIBRATE SCALE" :
           scale.scale_last_completed_available
               ? LV_SYMBOL_REFRESH "  Weigh Again"
               : LV_SYMBOL_REFRESH "  Weigh Spool");
@@ -1748,7 +1744,7 @@ void UiService::refresh_workflow() {
   }
 
   if (active_page_ == ProductPage::scale) {
-    set_weight(workflow_weight_label_);
+    set_weight(workflow_weight_label_, false);
     const bool stable_for_action =
         scale.scale_measurement_purpose ==
                 services::ScaleMeasurementPurpose::weigh
@@ -1756,29 +1752,30 @@ void UiService::refresh_workflow() {
             : scale.scale_raw_stable;
     if (workflow_scale_quality_label_ != nullptr) {
       if (!scale.scale_adc_ready) {
-        lv_label_set_text(
-            workflow_scale_quality_label_, "Scale unavailable");
+        lv_label_set_text(workflow_scale_quality_label_, "ERROR");
       } else if (measurement_active) {
         lv_label_set_text(
             workflow_scale_quality_label_,
-            stable_for_action ? LV_SYMBOL_OK " Stable" :
-            scale.scale_samples_in_filter < 3U ? "Measuring" : "Settling");
+            stable_for_action ? "STABLE" :
+            scale.scale_samples_in_filter < 3U ? "MEASURING" : "SETTLING");
+      } else if (!scale.scale_calibrated) {
+        lv_label_set_text(workflow_scale_quality_label_, "SETUP REQUIRED");
       } else if (scale.scale_last_completed_available) {
         lv_label_set_text(
-            workflow_scale_quality_label_, LV_SYMBOL_OK " Stable");
+            workflow_scale_quality_label_,
+            scale.scale_last_completed_milligrams == 0 ? "ZERO" : "STABLE");
       } else {
-        lv_label_set_text(workflow_scale_quality_label_, "Press Weigh");
+        lv_label_set_text(workflow_scale_quality_label_, "READY");
       }
     }
     if (workflow_scale_capture_label_ != nullptr) {
       if (scale.scale_last_completed_available) {
         lv_label_set_text_fmt(
-            workflow_scale_capture_label_, "Captured %lus ago",
-            static_cast<unsigned long>(
-                (millis() - scale.scale_last_completed_at_ms) / 1000U));
+            workflow_scale_capture_label_, "Last: %ld g",
+            static_cast<long>(rounded_grams_from_milligrams(
+                scale.scale_last_completed_milligrams)));
       } else {
-        lv_label_set_text(
-            workflow_scale_capture_label_, "No captured weight");
+        lv_label_set_text(workflow_scale_capture_label_, "Last: -- g");
       }
     }
 
@@ -1806,6 +1803,9 @@ void UiService::refresh_workflow() {
     if (!scale.scale_adc_ready) {
       gauge_color = 0xEF4444;
       gauge_value = 100;
+    } else if (!scale.scale_calibrated && !measurement_active) {
+      gauge_color = 0xF4C95D;
+      gauge_value = 28;
     }
     if (workflow_scale_gauge_ != nullptr) {
       lv_arc_set_value(workflow_scale_gauge_, gauge_value);
@@ -1814,8 +1814,12 @@ void UiService::refresh_workflow() {
           LV_PART_INDICATOR);
     }
     if (workflow_scale_indicator_ != nullptr) {
-      lv_obj_set_style_bg_color(
+      lv_obj_set_style_border_color(
           workflow_scale_indicator_, lv_color_hex(gauge_color), 0);
+    }
+    if (workflow_scale_quality_label_ != nullptr) {
+      lv_obj_set_style_text_color(
+          workflow_scale_quality_label_, lv_color_hex(gauge_color), 0);
     }
 
     char* end = nullptr;
@@ -1838,6 +1842,28 @@ void UiService::refresh_workflow() {
             ? scale.scale_adc_ready && scale.scale_tare_ready &&
                 scale.scale_raw_stable && reference_valid && !busy
             : scale.scale_adc_ready && !busy);
+    if (workflow_weigh_button_ != nullptr) {
+      lv_obj_set_style_bg_color(
+          workflow_weigh_button_,
+          lv_color_hex(scale.scale_calibrated ? 0x24D6A1 : 0x163B43), 0);
+      auto* label = lv_obj_get_child(workflow_weigh_button_, 0);
+      if (label != nullptr) {
+        lv_obj_set_style_text_color(
+            label,
+            lv_color_hex(scale.scale_calibrated ? 0x06201B : 0xE7FAF7), 0);
+      }
+    }
+    if (workflow_calibrate_button_ != nullptr) {
+      lv_obj_set_style_bg_color(
+          workflow_calibrate_button_,
+          lv_color_hex(scale.scale_calibrated ? 0x163B43 : 0x24D6A1), 0);
+      auto* label = lv_obj_get_child(workflow_calibrate_button_, 0);
+      if (label != nullptr) {
+        lv_obj_set_style_text_color(
+            label,
+            lv_color_hex(scale.scale_calibrated ? 0xE7FAF7 : 0x06201B), 0);
+      }
+    }
 
     std::string guidance;
     if (!scale.scale_adc_ready) {

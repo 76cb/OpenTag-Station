@@ -58,6 +58,15 @@ void test_home_weigh_opens_scale_before_refreshing() {
       std::string::npos);
   TEST_ASSERT_TRUE(
       callback.find("submit_weigh(millis())") != std::string::npos);
+  TEST_ASSERT_TRUE(
+      callback.find("!self->diagnostics_.scale_snapshot().scale_calibrated") !=
+      std::string::npos);
+  TEST_ASSERT_TRUE(
+      callback.find("set_scale_calibration_panel_open(true)") !=
+      std::string::npos);
+  TEST_ASSERT_LESS_THAN(
+      callback.find("submit_weigh(millis())"),
+      callback.find("set_scale_calibration_panel_open(true)"));
 }
 
 void test_scale_ui_uses_raw_stability_only_for_calibration_actions() {
@@ -91,28 +100,71 @@ void test_scale_visual_is_a_state_gauge_with_collapsed_calibration() {
       "void UiService::build_printer_page()");
   TEST_ASSERT_TRUE(
       build.find("lv_arc_set_value(arc, 0)") != std::string::npos);
+  TEST_ASSERT_TRUE(build.find("opening_positions") == std::string::npos);
+  TEST_ASSERT_TRUE(build.find("filament") == std::string::npos);
+  TEST_ASSERT_TRUE(build.find("hub") == std::string::npos);
   TEST_ASSERT_TRUE(
-      build.find("opening_positions") != std::string::npos);
+      build.find("lv_obj_set_size(workflow_scale_indicator_, 150, 150)") !=
+      std::string::npos);
   TEST_ASSERT_TRUE(
-      build.find("std::pair<lv_coord_t, lv_coord_t>, 6") !=
+      build.find("lv_obj_set_style_border_width(workflow_scale_indicator_, 2") !=
       std::string::npos);
   TEST_ASSERT_TRUE(
       build.find(
           "lv_obj_add_flag(workflow_reference_input_, "
           "LV_OBJ_FLAG_HIDDEN)") != std::string::npos);
   TEST_ASSERT_TRUE(build.find("GROSS WEIGHT") != std::string::npos);
-  TEST_ASSERT_TRUE(build.find("No captured weight") != std::string::npos);
+  TEST_ASSERT_TRUE(build.find("Last: -- g") != std::string::npos);
+  TEST_ASSERT_TRUE(build.find("\"WEIGH\", 44") != std::string::npos);
+  TEST_ASSERT_TRUE(build.find("\"TARE\", 102") != std::string::npos);
+  TEST_ASSERT_TRUE(build.find("\"CALIBRATE\", 160") != std::string::npos);
+  TEST_ASSERT_TRUE(
+      build.find("lv_obj_set_size(button, 156, 48)") != std::string::npos);
+  TEST_ASSERT_TRUE(build.find("YZC-133") == std::string::npos);
+  TEST_ASSERT_TRUE(build.find("5 kg") == std::string::npos);
+  TEST_ASSERT_TRUE(build.find("rated capacity") == std::string::npos);
 
   const auto drawer = method(
       source,
       "void UiService::set_scale_calibration_panel_open",
       "void UiService::calibrate_callback");
   TEST_ASSERT_TRUE(
-      drawer.find("open ? \"Run calibration\" : \"Calibrate\"") !=
+      drawer.find("open ? \"RUN CALIBRATION\" : \"CALIBRATE\"") !=
       std::string::npos);
   TEST_ASSERT_TRUE(
       drawer.find("workflow_calibration_close_button_") !=
       std::string::npos);
+}
+
+void test_scale_screen_has_bounded_480x320_layout_and_distinct_states() {
+  const auto source = read_source("src/ui/ui_service.cpp");
+  const auto build = method(
+      source,
+      "void UiService::build_scale_page()",
+      "void UiService::build_printer_page()");
+  TEST_ASSERT_TRUE(build.find("lv_obj_set_pos(arc, 112, 44)") != std::string::npos);
+  TEST_ASSERT_TRUE(build.find("lv_obj_set_size(arc, 184, 184)") != std::string::npos);
+  TEST_ASSERT_TRUE(build.find("lv_obj_set_pos(button, 310, y)") != std::string::npos);
+  TEST_ASSERT_TRUE(build.find("lv_obj_set_size(button, 156, 48)") != std::string::npos);
+  TEST_ASSERT_TRUE(build.find("lv_obj_set_pos(workflow_status_label_, 112, 270)") !=
+      std::string::npos);
+
+  const auto refresh = method(
+      source,
+      "void UiService::refresh_workflow()",
+      "void UiService::refresh_diagnostics");
+  for (const char* state : {
+           "READY", "MEASURING", "SETTLING", "STABLE", "ZERO", "ERROR",
+           "SETUP REQUIRED"}) {
+    TEST_ASSERT_TRUE_MESSAGE(
+        refresh.find(state) != std::string::npos, state);
+  }
+  TEST_ASSERT_TRUE(
+      refresh.find("scale.scale_calibrated ? 0x163B43 : 0x24D6A1") !=
+      std::string::npos);
+  TEST_ASSERT_TRUE(
+      refresh.find("lv_obj_set_style_border_color(\n          "
+                   "workflow_scale_indicator_") != std::string::npos);
 }
 
 void test_repeated_native_navigation_rebuilds_one_bounded_screen() {
@@ -148,6 +200,12 @@ void test_touchscreen_uses_signed_integer_rounded_grams() {
   TEST_ASSERT_EQUAL_INT32(0, rounded_grams_from_milligrams(-499));
   TEST_ASSERT_EQUAL_INT32(-1, rounded_grams_from_milligrams(-500));
   TEST_ASSERT_EQUAL_INT32(-2, rounded_grams_from_milligrams(-1500));
+  TEST_ASSERT_EQUAL_INT32(0, rounded_grams_from_milligrams(0));
+  TEST_ASSERT_EQUAL_INT32(5, rounded_grams_from_milligrams(5000));
+  TEST_ASSERT_EQUAL_INT32(999, rounded_grams_from_milligrams(999000));
+  TEST_ASSERT_EQUAL_INT32(1115, rounded_grams_from_milligrams(1115000));
+  TEST_ASSERT_EQUAL_INT32(5000, rounded_grams_from_milligrams(5000000));
+  TEST_ASSERT_EQUAL_INT32(-5000, rounded_grams_from_milligrams(-5000000));
 
   const auto source = read_source("src/ui/ui_service.cpp");
   const auto refresh = method(
@@ -158,6 +216,9 @@ void test_touchscreen_uses_signed_integer_rounded_grams() {
       refresh.find("rounded_grams_from_milligrams") != std::string::npos);
   TEST_ASSERT_TRUE(refresh.find("%.0f") == std::string::npos);
   TEST_ASSERT_TRUE(source.find("%.0f") == std::string::npos);
+  TEST_ASSERT_TRUE(
+      refresh.find("inline_unit ? \"%ld g\" : \"%ld\"") !=
+      std::string::npos);
 }
 
 }  // namespace
@@ -168,6 +229,7 @@ int main(int argc, char** argv) {
   RUN_TEST(test_home_weigh_opens_scale_before_refreshing);
   RUN_TEST(test_scale_ui_uses_raw_stability_only_for_calibration_actions);
   RUN_TEST(test_scale_visual_is_a_state_gauge_with_collapsed_calibration);
+  RUN_TEST(test_scale_screen_has_bounded_480x320_layout_and_distinct_states);
   RUN_TEST(test_repeated_native_navigation_rebuilds_one_bounded_screen);
   RUN_TEST(test_idle_home_and_scale_refresh_do_not_copy_full_configuration);
   RUN_TEST(test_touchscreen_uses_signed_integer_rounded_grams);
