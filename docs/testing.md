@@ -177,24 +177,24 @@ WT32 build remains warning-free at 167,152 RAM bytes and 1,948,105 flash bytes.
 
 ## Local stabilization gate result — 2026-08-22 pre-commit
 
-The final local stabilization run passes 262/262 native cases across twenty
-suites in 00:06:27.085 and 33/33 deterministic browser-transport cases.
-Embedded JavaScript syntax validation passes for the 119,132-byte shipped
-source. The pinned WT32 build is warning-free at 170,752/327,680 RAM bytes
-(52.1%) and 2,090,973/5,242,880 flash bytes (39.9%).
+The final local stabilization run passes 278/278 native cases across twenty-one
+suites in 00:06:57.037 and 37/37 deterministic browser-transport cases.
+Embedded JavaScript syntax validation passes for the 127,078-byte shipped
+source. The pinned WT32 build is warning-free at 170,776/327,680 RAM bytes
+(52.1%) and 2,173,233/5,242,880 flash bytes (39.9%).
 
-The stack analyzer parses 8,192 frames across 413 files. Its largest project
+The stack analyzer parses 8,232 frames across 413 files. Its largest project
 frames are 7,936 bytes for `Codec::decode` (behind the disabled NFC gate),
 6,512 for `OtaWorker::process`, 6,512 for `OtaWorker::run`, 5,312 for OTA
 pre-task cleanup, 5,264 for the firmware descriptor, 5,024 to begin streaming
-upload, 4,224 for API `snapshot_json`, and 3,232 for the upload handler. Eleven
+upload, 4,240 for API `snapshot_json`, and 3,232 for the upload handler. Eleven
 project frames report dynamic use; the largest estimate is 240
 bytes. Frame sizes are individual compiler estimates, not cumulative call-chain
 proof.
 
-The final local pre-commit factory bundle passes validation at 2,156,880 bytes,
-with embedded version `0.1.0-dev+296d8a47c13d` and SHA-256
-`578cb70758d9364bef5684b4e59fd4c0b2644c6df3660e16b641e61498f51b73`.
+The final local pre-commit factory bundle passes validation at 2,239,136 bytes,
+with embedded version `0.1.0-dev+7483a07061d2` and SHA-256
+`8b704d7eecdbb815ba03ef8fca6461109747e7bf99804eda37feda8c8de9bc28`.
 This bundle predates the final stabilization commit, so it is not the final
 release or deployed artifact and no final embedded Git SHA, final artifact
 digest, Pages status, or public HTTP result is claimed.

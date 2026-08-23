@@ -54,6 +54,9 @@ class UiService {
   [[nodiscard]] bool buffers_in_psram() const { return buffers_in_psram_; }
 
  private:
+  enum class ProductPage : std::uint8_t { home, scale, printer, tags, settings };
+  enum class ScaleAction : std::uint8_t { none, weigh, tare, calibrate };
+
   static constexpr std::uint16_t primary_buffer_rows = 40U;
   static constexpr std::uint16_t fallback_buffer_rows = 20U;
   static constexpr std::uint32_t refresh_interval_ms = 1000U;
@@ -76,13 +79,24 @@ class UiService {
   static void setup_textarea_callback(lv_event_t* event);
   static void setup_keyboard_callback(lv_event_t* event);
   static void diagnostics_toggle_callback(lv_event_t* event);
+  static void navigation_callback(lv_event_t* event);
   static void weigh_callback(lv_event_t* event);
+  static void tare_callback(lv_event_t* event);
+  static void calibrate_callback(lv_event_t* event);
+  static void scale_textarea_callback(lv_event_t* event);
+  static void scale_keyboard_callback(lv_event_t* event);
   static void toolhead_callback(lv_event_t* event);
   static void assignment_confirmation_callback(lv_event_t* event);
 
   bool allocate_buffers();
   void build_workflow_screen();
   void build_diagnostics_screen();
+  void build_product_rail();
+  void build_home_page();
+  void build_scale_page();
+  void build_printer_page();
+  void build_tags_page();
+  void build_settings_page();
   void build_setup_screen();
   void build_display_self_test_screen();
   void update_display_self_test_touch(
@@ -121,6 +135,7 @@ class UiService {
   bool showing_display_self_test_{OPENTAG_DISPLAY_SELF_TEST == 1};
   std::uint8_t normal_brightness_percent_{80U};
   std::uint32_t dim_after_ms_{dim_after_ms};
+  ProductPage active_page_{ProductPage::home};
   std::uint32_t sleep_after_ms_{sleep_after_ms};
   std::string setup_feedback_;
   std::uint32_t last_tick_ms_{0};
@@ -147,13 +162,22 @@ class UiService {
   lv_obj_t* workflow_weigh_button_{nullptr};
   lv_obj_t* workflow_identity_label_{nullptr};
   lv_obj_t* workflow_status_label_{nullptr};
+  lv_obj_t* workflow_tare_button_{nullptr};
+  lv_obj_t* workflow_calibrate_button_{nullptr};
+  lv_obj_t* workflow_reference_input_{nullptr};
+  lv_obj_t* workflow_scale_quality_label_{nullptr};
+  lv_obj_t* scale_keyboard_{nullptr};
   lv_obj_t* display_test_touch_marker_{nullptr};
   lv_obj_t* display_test_touch_label_{nullptr};
   std::array<lv_obj_t*, 5> workflow_toolhead_buttons_{};
   std::string workflow_feedback_;
+  std::array<lv_obj_t*, 5> product_nav_buttons_{};
+  std::array<bool, 5> workflow_toolhead_enabled_{{true, true, true, true, true}};
   std::optional<std::uint64_t> weigh_operation_id_;
   std::string pending_printer_id_;
   int pending_backend_toolhead_id_{-1};
+  ScaleAction scale_action_{ScaleAction::none};
+  std::string selected_printer_id_;
   bool pending_replace_confirmation_{false};
   bool pending_active_override_{false};
   std::optional<std::uint64_t> pending_spool_generation_;

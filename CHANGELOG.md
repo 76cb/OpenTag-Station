@@ -194,22 +194,22 @@ Versioning once releases begin.
 
 ### Verified
 
-- The 2026-08-22 pre-commit hardware-stabilization software gates pass 262/262
-  native cases across twenty suites in 00:06:27.085 and 33/33 deterministic
+- The 2026-08-22 pre-commit hardware-stabilization software gates pass 278/278
+  native cases across twenty-one suites in 00:06:57.037 and 37/37 deterministic
   browser-transport cases. Embedded JavaScript syntax validation passes for the
-  119,132-byte shipped source.
+  127,078-byte shipped source.
 - The stabilization WT32-SC01 Plus build completes without compiler warnings at
-  170,752/327,680 RAM bytes (52.1%) and 2,090,973/5,242,880 flash bytes
+  170,776/327,680 RAM bytes (52.1%) and 2,173,233/5,242,880 flash bytes
   (39.9%).
-- Stabilization stack analysis parses 8,192 frames across 413 files. The largest
+- Stabilization stack analysis parses 8,232 frames across 413 files. The largest
   project frames are 7,936 bytes for the OpenPrintTag codec (NFC remains
   disabled), 6,512 for OTA process, 6,512 for OTA run, 5,312 for OTA pre-task
   cleanup, 5,264 for the firmware descriptor, 5,024 to begin streaming upload,
-  4,224 for API `snapshot_json`, and 3,232 for the upload handler. Eleven
+  4,240 for API `snapshot_json`, and 3,232 for the upload handler. Eleven
   project frames report dynamic use; the largest estimate is 240 bytes.
-- The final pre-commit factory bundle validation passes at 2,156,880 bytes with
-  embedded version `0.1.0-dev+296d8a47c13d` and SHA-256
-  `578cb70758d9364bef5684b4e59fd4c0b2644c6df3660e16b641e61498f51b73`.
+- The final pre-commit factory bundle validation passes at 2,239,136 bytes with
+  embedded version `0.1.0-dev+7483a07061d2` and SHA-256
+  `8b704d7eecdbb815ba03ef8fca6461109747e7bf99804eda37feda8c8de9bc28`.
   This is local bundle-size/structure evidence only; it is not a final committed
   or deployed image, and no final Git SHA, final artifact digest, or deployment
   result is claimed.
