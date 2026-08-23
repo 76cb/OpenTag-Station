@@ -4,6 +4,8 @@
 #include <iterator>
 #include <string>
 
+#include "ui/weight_format.hpp"
+
 namespace {
 
 std::string read_source(const char* path) {
@@ -137,6 +139,27 @@ void test_idle_home_and_scale_refresh_do_not_copy_full_configuration() {
       refresh.find("Waiting for OpenPrintTag") == std::string::npos);
 }
 
+void test_touchscreen_uses_signed_integer_rounded_grams() {
+  using opentag::ui::rounded_grams_from_milligrams;
+  TEST_ASSERT_EQUAL_INT32(0, rounded_grams_from_milligrams(499));
+  TEST_ASSERT_EQUAL_INT32(1, rounded_grams_from_milligrams(500));
+  TEST_ASSERT_EQUAL_INT32(1, rounded_grams_from_milligrams(1499));
+  TEST_ASSERT_EQUAL_INT32(2, rounded_grams_from_milligrams(1500));
+  TEST_ASSERT_EQUAL_INT32(0, rounded_grams_from_milligrams(-499));
+  TEST_ASSERT_EQUAL_INT32(-1, rounded_grams_from_milligrams(-500));
+  TEST_ASSERT_EQUAL_INT32(-2, rounded_grams_from_milligrams(-1500));
+
+  const auto source = read_source("src/ui/ui_service.cpp");
+  const auto refresh = method(
+      source,
+      "void UiService::refresh_workflow()",
+      "void UiService::refresh_diagnostics");
+  TEST_ASSERT_TRUE(
+      refresh.find("rounded_grams_from_milligrams") != std::string::npos);
+  TEST_ASSERT_TRUE(refresh.find("%.0f") == std::string::npos);
+  TEST_ASSERT_TRUE(source.find("%.0f") == std::string::npos);
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -147,5 +170,6 @@ int main(int argc, char** argv) {
   RUN_TEST(test_scale_visual_is_a_state_gauge_with_collapsed_calibration);
   RUN_TEST(test_repeated_native_navigation_rebuilds_one_bounded_screen);
   RUN_TEST(test_idle_home_and_scale_refresh_do_not_copy_full_configuration);
+  RUN_TEST(test_touchscreen_uses_signed_integer_rounded_grams);
   return UNITY_END();
 }

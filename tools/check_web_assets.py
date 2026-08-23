@@ -9,32 +9,30 @@ import subprocess
 import sys
 import tempfile
 
+from web_asset_compression import browser_assets, generated_include, gzip_asset
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-ASSETS = ROOT / "src" / "web" / "web_assets.cpp"
-START = 'const char application_javascript[] = R"JS('
-END = ')JS";'
 
 
 def main() -> int:
-    source = ASSETS.read_text(encoding="utf-8")
-    start = source.find(START)
-    if start < 0:
-        print(f"{ASSETS}: embedded JavaScript start marker is missing", file=sys.stderr)
+    try:
+        stylesheet_bytes, javascript_bytes = browser_assets()
+    except ValueError as error:
+        print(error, file=sys.stderr)
         return 1
-    start += len(START)
-    end = source.find(END, start)
-    if end < 0:
-        print(f"{ASSETS}: embedded JavaScript end marker is missing", file=sys.stderr)
+    stylesheet_gzip = gzip_asset(stylesheet_bytes)
+    javascript_gzip = gzip_asset(javascript_bytes)
+    if (len(stylesheet_gzip) >= len(stylesheet_bytes) or
+            len(javascript_gzip) >= len(javascript_bytes)):
+        print("precompressed browser assets are not smaller than source", file=sys.stderr)
         return 1
-    if source.find(START, start) >= 0:
-        print(f"{ASSETS}: duplicate embedded JavaScript asset", file=sys.stderr)
+    generated = generated_include()
+    if (generated != generated_include() or
+            "application_css_gzip_size" not in generated or
+            "application_javascript_gzip_size" not in generated):
+        print("precompressed C++ include generation is invalid or nondeterministic", file=sys.stderr)
         return 1
-
-    javascript = source[start:end]
-    if not javascript.strip() or "\x00" in javascript:
-        print(f"{ASSETS}: embedded JavaScript is empty or contains NUL", file=sys.stderr)
-        return 1
+    javascript = javascript_bytes.decode("utf-8")
 
     node = shutil.which("node") or shutil.which("node.exe")
     if node is None:
@@ -61,7 +59,11 @@ def main() -> int:
     finally:
         temporary_path.unlink(missing_ok=True)
     if checked.returncode == 0:
-        print(f"embedded JavaScript syntax OK ({len(javascript.encode('utf-8'))} bytes)")
+        print(
+            "embedded assets OK "
+            f"(CSS {len(stylesheet_bytes)} -> {len(stylesheet_gzip)} gzip bytes; "
+            f"JS {len(javascript_bytes)} -> {len(javascript_gzip)} gzip bytes)"
+        )
     return checked.returncode
 
 

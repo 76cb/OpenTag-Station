@@ -1,5 +1,7 @@
 #include "web/web_assets.hpp"
 
+#include "diagnostics/build_info.hpp"
+
 namespace opentag::web::assets {
 
 const char index_html[] = R"HTML(<!doctype html>
@@ -10,8 +12,8 @@ const char index_html[] = R"HTML(<!doctype html>
   <meta name="color-scheme" content="dark light">
   <meta name="description" content="Local administration for OpenTag Station">
   <title>OpenTag Station</title>
-  <link rel="stylesheet" href="/assets/app.css">
-  <script defer src="/assets/app.js"></script>
+  <link rel="stylesheet" href="/assets/app.css?v=)HTML" OPENTAG_GIT_SHA R"HTML(">
+  <script defer src="/assets/app.js?v=)HTML" OPENTAG_GIT_SHA R"HTML("></script>
 </head>
 <body>
   <a class="skip-link" href="#content">Skip to content</a>
@@ -581,6 +583,7 @@ const char application_javascript[] = R"JS((function () {
   const MAX_IMPORT_BYTES = 16384;
   const MAX_FIRMWARE_IMAGE_BYTES = 0x500000;
   const UPDATE_UPLOAD_TIMEOUT_MS = 190000;
+  const FALLBACK_BACKOFF_MS = Object.freeze([2000, 5000, 10000, 30000]);
   const PRIORITY = Object.freeze({ CONTROL: 1, CORE: 2, SECONDARY: 3, BACKGROUND: 4 });
   const CONFIG_STATE = Object.freeze({ UNLOADED: 'UNLOADED', LOADING: 'LOADING', READY: 'READY', ERROR: 'ERROR' });
   const SELF_TEST_PATHS = Object.freeze([
@@ -638,7 +641,9 @@ const char application_javascript[] = R"JS((function () {
     live: null,
     fallbackTimer: 0,
     fallbackTick: 0,
+    fallbackDelayIndex: 0,
     fallbackActive: false,
+    fallbackInFlight: false,
     selfTestGeneration: 0,
     manualRefreshActive: false,
     unloading: false,
@@ -972,7 +977,7 @@ const char application_javascript[] = R"JS((function () {
   }
 
   const scheduler = new RequestScheduler({
-    maximumActive: 2, maximumBackground: 1, maximumQueued: 32
+    maximumActive: 1, maximumBackground: 1, maximumQueued: 32
   });
 
   function resourcePriority(path, mutation) {
@@ -2646,10 +2651,11 @@ const char application_javascript[] = R"JS((function () {
       this.onFallback = options.onFallback;
       this.connectDeadlineMs = options.connectDeadlineMs || 8000;
       this.staleMs = options.staleMs || 35000;
+      this.retryStepsMs = options.retryStepsMs || FALLBACK_BACKOFF_MS;
       this.socket = null;
       this.timer = 0;
       this.generation = 0;
-      this.retryMs = 1000;
+      this.retryIndex = 0;
       this.lastMessageMs = 0;
       this.status = 'stopped';
       this.stopped = true;
@@ -2746,7 +2752,7 @@ const char application_javascript[] = R"JS((function () {
       }.bind(this);
       socket.addEventListener('open', function () {
         if (!current()) return;
-        this.retryMs = 1000;
+        this.retryIndex = 0;
         this.lastMessageMs = this.now();
         this.onFallback(false);
         this._setStatus('connected', 'Connected');
@@ -2782,8 +2788,12 @@ const char application_javascript[] = R"JS((function () {
       if (!this._mayConnect()) return;
       this.onFallback(true);
       this._setStatus(status || 'fallback', text);
-      const wait = Math.round(this.retryMs * (0.8 + this.random() * 0.4));
-      this.retryMs = Math.min(30000, this.retryMs * 2);
+      const retryIndex = Math.min(
+        this.retryIndex, this.retryStepsMs.length - 1);
+      const wait = Math.round(
+        this.retryStepsMs[retryIndex] * (0.8 + this.random() * 0.4));
+      this.retryIndex = Math.min(
+        retryIndex + 1, this.retryStepsMs.length - 1);
       this._arm(wait, function () { this.connect(); }.bind(this));
     }
     snapshot() {
@@ -2807,40 +2817,58 @@ const char application_javascript[] = R"JS((function () {
 
   async function fallbackStep() {
     state.fallbackTimer = 0;
-    if (!state.fallbackActive || state.unloading || state.maintenance) return;
-    state.fallbackTick += 1;
-    const measurement = asObject(asObject(state.scale).measurement);
-    if (state.scaleBusy || measurement.active === true) {
-      await load('/scale', renderScale, true, PRIORITY.CORE, {
-        supersedeKey: 'fallback:/scale', group: 'fallback:'
-      });
-    }
-    if (state.fallbackTick % 5 === 0 && state.fallbackActive) {
-      await load('/health', renderHealth, true, PRIORITY.CORE, {
-        supersedeKey: 'fallback:/health', group: 'fallback:'
-      });
-      await load('/network', renderNetwork, true, PRIORITY.CORE, {
-        supersedeKey: 'fallback:/network', group: 'fallback:'
-      });
-      await load('/update', renderUpdate, true, PRIORITY.SECONDARY, {
-        supersedeKey: 'fallback:/update', group: 'fallback:'
-      });
-    }
-    if (state.fallbackActive && !state.unloading && !state.maintenance) {
-      state.fallbackTimer = window.setTimeout(fallbackStep, 2000);
+    if (!state.fallbackActive || state.unloading || state.maintenance ||
+        state.fallbackInFlight) return;
+    state.fallbackInFlight = true;
+    try {
+      const metrics = scheduler.metrics();
+      if (metrics.active === 0 && metrics.queued === 0) {
+        const measurement = asObject(asObject(state.scale).measurement);
+        const resources = [
+          ['/health', renderHealth, PRIORITY.CORE],
+          ['/network', renderNetwork, PRIORITY.CORE],
+          ['/update', renderUpdate, PRIORITY.SECONDARY]
+        ];
+        const resource = state.scaleBusy || measurement.active === true
+          ? ['/scale', renderScale, PRIORITY.CORE]
+          : resources[state.fallbackTick % resources.length];
+        state.fallbackTick += 1;
+        await load(resource[0], resource[1], true, resource[2], {
+          supersedeKey: 'fallback:' + resource[0], group: 'fallback:'
+        });
+      }
+    } finally {
+      state.fallbackInFlight = false;
+      if (state.fallbackActive && !state.unloading && !state.maintenance) {
+        const delayIndex = Math.min(
+          state.fallbackDelayIndex, FALLBACK_BACKOFF_MS.length - 1);
+        state.fallbackTimer = window.setTimeout(
+          fallbackStep, FALLBACK_BACKOFF_MS[delayIndex]);
+        state.fallbackDelayIndex = Math.min(
+          delayIndex + 1, FALLBACK_BACKOFF_MS.length - 1);
+      }
     }
   }
 
   function setFallbackPolling(active) {
+    const wasActive = state.fallbackActive;
     state.fallbackActive = active === true;
     if (!state.fallbackActive) {
       if (state.fallbackTimer) window.clearTimeout(state.fallbackTimer);
       state.fallbackTimer = 0;
       state.fallbackTick = 0;
+      state.fallbackDelayIndex = 0;
       scheduler.cancelGroup('fallback:');
       return;
     }
-    if (!state.fallbackTimer) state.fallbackTimer = window.setTimeout(fallbackStep, 0);
+    if (!wasActive) {
+      state.fallbackTick = 0;
+      state.fallbackDelayIndex = 1;
+    }
+    if (!wasActive && !state.fallbackTimer && !state.fallbackInFlight) {
+      state.fallbackTimer = window.setTimeout(
+        fallbackStep, FALLBACK_BACKOFF_MS[0]);
+    }
   }
 
   function handleLiveEvent(message) {
@@ -3395,6 +3423,10 @@ const char application_javascript[] = R"JS((function () {
 
 const std::size_t application_javascript_size =
     sizeof(application_javascript) - 1U;
+
+#if defined(ARDUINO_ARCH_ESP32)
+#include "opentag_web_assets_gzip.inc"
+#endif
 
 static_assert(sizeof(index_html) - 1U <= maximum_index_html_bytes);
 static_assert(sizeof(application_css) - 1U <= maximum_stylesheet_bytes);

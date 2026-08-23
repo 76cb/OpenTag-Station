@@ -11,9 +11,10 @@ Versioning once releases begin.
   browser request scheduler, a single recoverable WebSocket per tab, explicit
   configuration load state, targeted operation polling, and read-only local
   interface self-test coverage.
-- Restore the pinned HTTP server's seven-client/five-backlog socket budget,
-  disable LRU purging of useful sessions, and retain five-second socket waits so
-  normal browser traffic cannot evict live updates or mutation receipts.
+- Reduce the cold-browser-load peak with deterministic precompressed CSS/JS,
+  firmware-versioned static caching, one active REST request, bounded fallback
+  polling, five HTTP client slots, and a measured 12 KiB HTTP task stack while
+  retaining LRU protection and five-second socket waits.
 - Serialize Wi-Fi scan and association/radio-mode transitions, and distinguish
   an Arduino `WIFI_SCAN_FAILED` (`-2`) start rejection from a scan whose wrapper
   state was lost after asynchronous start.

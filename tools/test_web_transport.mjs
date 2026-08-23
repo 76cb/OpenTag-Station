@@ -579,6 +579,36 @@ test('production scheduler deduplicates GET work and supersedes only queued back
   await drainScheduler(scheduler);
 });
 
+test('production API scheduler permits only one active REST request', async () => {
+  const first = deferred();
+  let active = 0;
+  let maximumActive = 0;
+  let calls = 0;
+  const app = loadApplication({
+    fetch: async () => {
+      calls += 1;
+      active += 1;
+      maximumActive = Math.max(maximumActive, active);
+      if (calls === 1) await first.promise;
+      active -= 1;
+      return jsonResponse(200, {});
+    },
+  });
+  const { T } = app;
+  const device = T.api('/device');
+  const network = T.api('/network');
+  await flushPromises();
+  assert.equal(app.fetchCalls.length, 1);
+  assert.equal(T.scheduler.metrics().active, 1);
+  assert.equal(T.scheduler.metrics().queued, 1);
+  first.resolve();
+  await Promise.all([device, network]);
+  await drainScheduler(T.scheduler);
+  assert.equal(app.fetchCalls.length, 2);
+  assert.equal(maximumActive, 1);
+  assert.equal(T.scheduler.metrics().maximumActive, 1);
+});
+
 test('full background queue rejects overflow but admits P1 control by evicting low priority', async () => {
   const { T } = loadApplication();
   const scheduler = new T.RequestScheduler({
@@ -1137,7 +1167,9 @@ test('LiveConnection has one bounded socket/timer across timeout, stale, reconne
   assert.equal(live.snapshot().state, 'fallback');
   assert.equal(sockets[0].closeCount, 1);
   assert.equal(clock.timers.size, 1);
-  clock.tick(1000);
+  clock.tick(1999);
+  assert.equal(sockets.length, 1);
+  clock.tick(1);
   assert.equal(sockets.length, 2);
   assert.equal(live.snapshot().state, 'connecting');
   sockets[1].emit('open');
@@ -1209,7 +1241,9 @@ test('socket construction exhaustion enters bounded fallback and reconnects once
   assert.equal(clock.timers.size, 1);
   assert.deepEqual(fallback, [true]);
 
-  clock.tick(1000);
+  clock.tick(1999);
+  assert.equal(attempts, 1);
+  clock.tick(1);
   assert.equal(attempts, 2);
   assert.equal(sockets.length, 1);
   assert.equal(live.snapshot().state, 'connecting');
@@ -1766,24 +1800,81 @@ test("scale mutation completion keeps controls gated by the authoritative latest
   }
 });
 
-test('fallback polling skips idle scale and follows an active measurement only', async () => {
+test('fallback polling backs off, never queues, rotates idle reads, and follows active scale', async () => {
   const app = loadApplication({
     fetch: async () => jsonResponse(200, {
       scale: { revision: 2, adc_ready: true, calibrated: true, measurement: { state: 'settling', active: true } },
     }),
   });
-  const { T } = app;
+  const { T, clock } = app;
+  T.setFallbackPolling(true);
+  assert.equal(clock.nextTimer().at - clock.now, 2000);
+  clock.runNext();
+  await flushPromises();
+  await drainScheduler(T.scheduler);
+  assert.equal(app.fetchCalls.length, 1);
+  assert.equal(app.fetchCalls[0].url, '/api/v1/health');
+  assert.equal(clock.nextTimer().at - clock.now, 5000);
+
+  clock.runNext();
+  await flushPromises();
+  await drainScheduler(T.scheduler);
+  assert.equal(app.fetchCalls.length, 2);
+  assert.equal(app.fetchCalls[1].url, '/api/v1/network');
+  assert.equal(clock.nextTimer().at - clock.now, 10000);
+
+  clock.runNext();
+  await flushPromises();
+  await drainScheduler(T.scheduler);
+  assert.equal(app.fetchCalls.length, 3);
+  assert.equal(app.fetchCalls[2].url, '/api/v1/update');
+  assert.equal(clock.nextTimer().at - clock.now, 30000);
+  T.setFallbackPolling(false);
+
+  const gate = deferred();
+  const blocker = T.scheduler.request('foreground-busy', () => gate.promise, {
+    priority: T.PRIORITY.CONTROL,
+  });
+  await flushPromises();
+  T.state.fallbackActive = true;
+  await T.fallbackStep();
+  assert.equal(app.fetchCalls.length, 3, 'fallback must not queue behind foreground work');
+  assert.equal(T.scheduler.metrics().queued, 0);
+  T.setFallbackPolling(false);
+  gate.resolve();
+  await blocker;
+  await drainScheduler(T.scheduler);
+
+  const fallbackGate = deferred();
+  app.setFetch(() => fallbackGate.promise);
+  T.state.fallbackActive = true;
+  const oneFallback = T.fallbackStep();
+  await flushPromises();
+  assert.equal(T.state.fallbackInFlight, true);
+  T.setFallbackPolling(true);
+  assert.equal(clock.timers.size, 1, 'only the request timeout may be armed while fallback is in flight');
+  fallbackGate.resolve(jsonResponse(200, {}));
+  await oneFallback;
+  assert.equal(T.state.fallbackInFlight, false);
+  assert.equal(clock.timers.size, 1, 'one and only one next fallback timer is armed');
+  T.setFallbackPolling(false);
+  app.setFetch(async () => jsonResponse(200, {
+    scale: { revision: 2, adc_ready: true, calibrated: true,
+      measurement: { state: 'settling', active: true } },
+  }));
+
   T.state.fallbackActive = true;
   T.state.scale = { calibrated: true, measurement: { state: 'completed', active: false } };
   await T.fallbackStep();
-  assert.equal(app.fetchCalls.length, 0, 'idle fallback must not poll scale');
+  assert.equal(app.fetchCalls.length, 5);
+  assert.equal(app.fetchCalls[4].url, '/api/v1/health');
   T.setFallbackPolling(false);
 
   T.state.fallbackActive = true;
   T.state.scale = { calibrated: true, measurement: { state: 'settling', active: true } };
   await T.fallbackStep();
-  assert.equal(app.fetchCalls.length, 1);
-  assert.equal(app.fetchCalls[0].url, '/api/v1/scale');
+  assert.equal(app.fetchCalls.length, 6);
+  assert.equal(app.fetchCalls[5].url, '/api/v1/scale');
   T.setFallbackPolling(false);
 });
 
@@ -1846,6 +1937,29 @@ test('production scheduler drains 100 refresh cycles and 1000 jobs without leaki
     maximumQueued: scheduler.metrics().maximumQueued,
     paused: 0,
   });
+});
+
+test('physical cold-load probe covers combined assets, REST, WebSocket, scale, and memory evidence', () => {
+  const source = readFileSync(
+    path.join(ROOT, 'tools', 'cold_browser_load_probe.mjs'), 'utf8');
+  assert.match(source, /cycles: 20/);
+  assert.match(source, /Promise\.all\(\[/);
+  assert.match(source, /CORE_REST = \['\/device', '\/network', '\/config', '\/scale'\]/);
+  for (const endpoint of [
+    '/health', '/status', '/spool', '/printers', '/toolheads', '/update',
+    '/nfc', '/diagnostics', '/logs',
+  ]) assert.ok(source.includes(`'${endpoint}'`));
+  assert.match(source, /new WebSocket\(url\)/);
+  assert.match(source, /'\/scale\/weigh'/);
+  assert.match(source, /'\/scale\/tare'/);
+  assert.match(source, /'\/scale\/calibrate'/);
+  for (const metric of [
+    'free_heap_bytes', 'minimum_free_heap_bytes',
+    'largest_free_internal_block_bytes', 'active_http_sessions',
+    'maximum_observed_http_sessions', 'websocket_clients', 'httpd',
+  ]) assert.ok(source.includes(metric));
+  assert.match(source, /minimumHttpStackMargin: 2048/);
+  assert.match(source, /result\.after\.freeHeap \+ settings\.recoverySlack < baseline\.freeHeap/);
 });
 
 test('configuration selects the 90 second bound only for hostname or Wi-Fi changes', () => {

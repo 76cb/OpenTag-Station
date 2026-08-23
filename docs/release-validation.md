@@ -75,7 +75,7 @@ are recorded. A successful firmware build is not physical validation.
 | --- | --- | --- |
 | Application lifecycle | Arduino `setup()/loop()` constructs static services; `DeviceLifecycleGate` serializes reboot, reset, OTA, and candidate validation | Owner tasks expose snapshots and bounded receipts |
 | Web/API server | Network task starts/stops/publishes; ESP-IDF HTTP task executes handlers | Router is transport-neutral; handlers never own backend or flash state |
-| WebSocket publishing | Network task builds events; one fixed asynchronous batch owns payloads until callbacks complete | At most 2 WebSocket clients and 7 total sockets; LRU purge disabled |
+| WebSocket publishing | Network task builds events; one fixed asynchronous batch owns payloads until callbacks complete | At most 2 WebSocket clients and 5 total sockets; LRU purge disabled |
 | Configuration | `ConfigurationWorker` owns UI/API writes; `ConfigurationService` mutex serializes persistence and snapshots | Scale calibration and confirmed spool mapping use the same service |
 | Storage | `StorageService` owns station NVS/LittleFS operations behind one mutex and reset gate | OTA metadata uses a separate `Esp32UpdateRecordStore` namespace |
 | Scale | Scale task owns NAU7802 calls and executes the fixed scale command queue | UI/API/diagnostics read coherent snapshots |
@@ -100,12 +100,11 @@ Confirmed Phase 11 fixes:
 - browser resource epochs, payload revisions, and socket identity prevent older
   REST/WebSocket work from overwriting newer scale, update, or printer state.
 - the previous browser startup could issue roughly 25 REST transactions plus a
-  WebSocket, then repeat an eight-read burst for each heartbeat; the bounded
-  two-request scheduler now orders critical startup, deduplicates/supersedes
-  reads, reserves priority for mutations, and treats heartbeat as liveness only;
-- the HTTP server now uses the pinned environment's seven-socket, five-backlog,
-  LRU-disabled policy and five-second receive/send waits instead of allowing a
-  useful live connection or mutation receipt to be evicted under normal load;
+  WebSocket, then repeat an eight-read burst for each heartbeat; startup now
+  orders critical work, permits one REST request at a time, deduplicates reads,
+  reserves mutation priority, and treats heartbeat as liveness only;
+- the HTTP server now uses five client sockets, a five-connection backlog,
+  LRU-disabled policy, short-lived static transfers, and five-second waits;
 - one tab owns one stale-detected WebSocket and one reconnect timer, with
   exponential retry and scheduler-driven fallback polling; and
 - an empty API token is explicit trusted-LAN mode. Authentication is disabled,
@@ -131,7 +130,7 @@ ESP-IDF's Arduino port interprets these configured stack depths as bytes.
 | `opentag-network` | 1 | 0 | 16,384 | Wi-Fi scan/reconnect, diagnostics, bounded WebSocket serialization | Network and web lifecycle owner |
 | `opentag-control` | 1 | 0 | 4,096 | reset intent, bounded erase, restart | Generic reboot/factory-reset owner |
 | `opentag-ota` | 1 | 0 | 24,576 | boot reconciliation, SHA/flash operations, image validation, rollback | OTA/candidate owner |
-| ESP-IDF `httpd` | 5 default | unpinned default | 20,480 | request headers/body, JSON router or 4 KiB upload handoff | HTTP/WebSocket handler execution |
+| ESP-IDF `httpd` | 5 default | unpinned default | 12,288 | measured/compiled worst-route budget 9,344 bytes plus 2,944-byte safety margin | HTTP/WebSocket handler execution |
 | NFC owner | — | — | 0 | Not created while RFAL/wiring gate is disabled | Must be inventoried when enabled |
 
 Configured project-created dynamic task stacks total **104,448 bytes**. The

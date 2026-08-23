@@ -1403,6 +1403,62 @@ void test_router_stress_repeats_reads_snapshots_and_operation_polls() {
   TEST_ASSERT_EQUAL_UINT(0U, context.submit_calls);
 }
 
+void test_http_cold_load_policy_is_bounded_and_precompressed() {
+  const auto header = read_project_source("src/web/local_web_server.hpp");
+  const auto server = read_project_source("src/web/local_web_server.cpp");
+  const auto assets = read_project_source("src/web/web_assets.cpp");
+  const auto platformio = read_project_source("platformio.ini");
+  TEST_ASSERT_FALSE(header.empty());
+  TEST_ASSERT_FALSE(server.empty());
+  TEST_ASSERT_FALSE(assets.empty());
+  TEST_ASSERT_FALSE(platformio.empty());
+
+  TEST_ASSERT_TRUE(header.find(
+      "maximum_open_sockets = 5U") != std::string::npos);
+  TEST_ASSERT_TRUE(header.find(
+      "http_task_stack_bytes = 12288U") != std::string::npos);
+  TEST_ASSERT_TRUE(header.find(
+      "http_worst_case_stack_use_bytes = 9344U") != std::string::npos);
+  TEST_ASSERT_TRUE(header.find(
+      "minimum_http_stack_safety_bytes = 2048U") != std::string::npos);
+  TEST_ASSERT_TRUE(header.find(
+      "http_task_stack_bytes - http_worst_case_stack_use_bytes") !=
+      std::string::npos);
+  TEST_ASSERT_TRUE(server.find(
+      "configuration.stack_size = http_task_stack_bytes") !=
+      std::string::npos);
+  TEST_ASSERT_TRUE(server.find(
+      "configuration.max_open_sockets") != std::string::npos);
+
+  TEST_ASSERT_TRUE(platformio.find(
+      "pre:tools/precompress_web_assets.py") != std::string::npos);
+  TEST_ASSERT_TRUE(assets.find(
+      "#include \"opentag_web_assets_gzip.inc\"") !=
+      std::string::npos);
+  TEST_ASSERT_TRUE(assets.find(
+      "/assets/app.css?v=)HTML\" OPENTAG_GIT_SHA") !=
+      std::string::npos);
+  TEST_ASSERT_TRUE(assets.find(
+      "/assets/app.js?v=)HTML\" OPENTAG_GIT_SHA") !=
+      std::string::npos);
+  TEST_ASSERT_TRUE(server.find(
+      "Content-Encoding\", \"gzip") != std::string::npos);
+  TEST_ASSERT_TRUE(server.find(
+      "public, max-age=31536000, immutable") != std::string::npos);
+  TEST_ASSERT_TRUE(server.find(
+      "no-cache, max-age=0, must-revalidate") != std::string::npos);
+  TEST_ASSERT_TRUE(server.find(
+      "Connection\", \"close") != std::string::npos);
+
+  const auto publish = server.find("void LocalWebServer::publish(");
+  const auto cadence = server.find("next_publish_check_ms_", publish);
+  const auto update = server.find("api_context_.update_revision()", publish);
+  TEST_ASSERT_TRUE(publish != std::string::npos);
+  TEST_ASSERT_TRUE(cadence != std::string::npos);
+  TEST_ASSERT_TRUE(update != std::string::npos);
+  TEST_ASSERT_TRUE(cadence < update);
+}
+
 int main(int, char**) {
   UNITY_BEGIN();
   RUN_TEST(
@@ -1444,5 +1500,6 @@ int main(int, char**) {
   RUN_TEST(test_provisioning_connect_is_typed_and_does_not_echo_secrets);
   RUN_TEST(test_tokenless_provisioning_connect_accepts_omitted_optional_token);
   RUN_TEST(test_router_stress_repeats_reads_snapshots_and_operation_polls);
+  RUN_TEST(test_http_cold_load_policy_is_bounded_and_precompressed);
   return UNITY_END();
 }
