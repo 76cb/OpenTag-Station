@@ -1482,9 +1482,77 @@ test('heartbeat and snapshot events cause no REST storm while invalidation refre
   assert.equal(app.fetchCalls[0].url, '/api/v1/network');
 });
 
+test('product navigation exposes exactly five primary destinations and preserves legacy deep links', () => {
+  const { T, document, context } = loadApplication();
+  const pages = ['home', 'scale', 'printer', 'tags', 'settings'];
+  assert.deepEqual(Array.from(Object.keys(T.PRODUCT_PAGES)), pages);
+  for (const page of pages) {
+    assert.equal(T.activateProductPage(page), page);
+    assert.equal(T.state.currentPage, page);
+    assert.equal(document.getElementById('nav-' + page).className, 'active');
+    for (const candidate of pages) {
+      for (const id of T.PRODUCT_PAGES[candidate]) {
+        assert.equal(document.getElementById(id).hidden, candidate !== page);
+      }
+    }
+  }
+  assert.equal(T.productPageFromHash('#printers'), 'printer');
+  assert.equal(T.productPageFromHash('#nfc'), 'tags');
+  assert.equal(T.productPageFromHash('#diagnostics'), 'settings');
+  assert.equal(T.navigateProductPage('scale'), 'scale');
+  assert.equal(context.location.hash, '#scale');
+});
+
+test('Home Weigh opens Scale and submits one bounded measurement', async () => {
+  const clock = new FakeClock();
+  const app = loadApplication({
+    clock,
+    fetch: async (url, init) => {
+      const endpoint = String(url).slice('/api/v1'.length);
+      if (init.method === 'POST') {
+        assert.equal(endpoint, '/scale/weigh');
+        return jsonResponse(202, { operation_id: 91 });
+      }
+      if (endpoint === '/operations/91') {
+        return jsonResponse(200, {
+          id: 91, state: 'succeeded', message: 'Stable weight captured',
+        });
+      }
+      if (endpoint === '/scale') {
+        return jsonResponse(200, {
+          revision: 2, adc_ready: true, calibrated: true,
+          measurement: {
+            state: 'completed', active: false,
+            last_completed_grams: 1115,
+          },
+          sample: { raw_stable: true, stable: true },
+        });
+      }
+      assert.fail('unexpected Home weigh request: ' + init.method + ' ' + endpoint);
+    },
+  });
+  const { T, document, context } = app;
+  T.applyAuthState(false, 1);
+  T.renderScale({
+    revision: 1, adc_ready: true, calibrated: true,
+    measurement: { state: 'idle', active: false },
+    sample: { raw_stable: true, stable: true },
+  });
+  T.activateProductPage('home');
+  const completion = T.startHomeWeigh();
+  await flushPromises(20);
+  assert.equal(T.state.currentPage, 'scale');
+  assert.equal(context.location.hash, '#scale');
+  assert.equal(clock.runNext(), true);
+  assert.equal(await completion, true);
+  assert.equal(document.getElementById('gross-weight').textContent, '1115');
+  assert.equal(app.fetchCalls.filter((call) => call.init.method === 'POST').length, 1);
+});
+
 test('on-demand scale renders only settling or retained results and gates Weigh', () => {
-  assert.ok(readFileSync(ASSET_PATH, 'utf8').includes(
-    'id="weigh-scale" class="button primary" type="button" disabled>Weigh</button>'));
+  const source = readFileSync(ASSET_PATH, 'utf8');
+  assert.ok(source.includes('id="scale-visual" class="spool-visual"'));
+  assert.ok(source.includes('id="weigh-scale" class="action-card weigh-action"'));
   const { T, document } = loadApplication();
   T.renderScale({
     revision: 1, adc_ready: true, calibrated: true,
@@ -1493,11 +1561,12 @@ test('on-demand scale renders only settling or retained results and gates Weigh'
     sample: { gross_grams: 1127.4, raw_stable: true, stable: true },
   });
   assert.equal(document.getElementById('gross-weight').textContent, '1115');
-  assert.match(document.getElementById('weight-quality').textContent, /^Captured at /);
+  assert.match(document.getElementById('weight-quality').textContent, /Captured at /);
   assert.equal(document.getElementById('weigh-scale').disabled, false);
 
   T.renderScale({
     revision: 2, adc_ready: true, calibrated: true,
+    samples_in_filter: 4,
     measurement: { state: 'settling', active: true, snapshot_at_ms: 7000 },
     sample: { gross_grams: 1113.6, raw_stable: false, stable: false },
   });
@@ -1520,32 +1589,35 @@ test('fresh calibration actions automatically wait for raw-stable windows', () =
     revision: 1, adc_ready: true, calibrated: false, raw_stable: false,
     samples_in_filter: 2, tare_ready: false, measurement: { state: 'idle', active: false },
   });
-  assert.equal(tare.disabled, false, 'tare starts a bounded settling session');
+  assert.equal(tare.disabled, true, 'tare waits for raw stability');
   assert.equal(calibrate.disabled, true);
-  assert.equal(status.textContent, 'Waiting for stable empty platform.');
+  assert.equal(status.textContent,
+    'Remove all weight. Waiting for a stable empty platform.');
 
   T.renderScale({
     revision: 2, adc_ready: true, calibrated: false, raw_stable: true,
     samples_in_filter: 3, tare_ready: false, measurement: { state: 'idle', active: false },
   });
   assert.equal(tare.disabled, false);
-  assert.equal(status.textContent, 'Ready to tare.');
+  assert.equal(status.textContent, 'Empty platform is stable. Ready to tare.');
 
   T.renderScale({
     revision: 3, adc_ready: true, calibrated: false, raw_stable: false,
     samples_in_filter: 0, tare_ready: true, tare_zero_offset_counts: 1234,
     measurement: { state: 'completed', active: false },
   });
-  assert.equal(calibrate.disabled, false, 'calibrate starts its own reference settling session');
-  assert.equal(status.textContent, 'Tare complete — place reference weight.');
+  assert.equal(calibrate.disabled, true,
+    'calibrate waits for a new raw reference window');
+  assert.equal(status.textContent, 'Tare complete — place the reference weight.');
 
   T.renderScale({
     revision: 4, adc_ready: true, calibrated: false, raw_stable: false,
     samples_in_filter: 2, tare_ready: true, tare_zero_offset_counts: 1234,
     measurement: { state: 'idle', active: false },
   });
-  assert.equal(calibrate.disabled, false);
-  assert.equal(status.textContent, 'Waiting for stable reference weight.');
+  assert.equal(calibrate.disabled, true);
+  assert.equal(status.textContent,
+    'Reference placed. Waiting for a stable signal.');
 
   T.renderScale({
     revision: 5, adc_ready: true, calibrated: false, raw_stable: true,
@@ -1553,7 +1625,8 @@ test('fresh calibration actions automatically wait for raw-stable windows', () =
     measurement: { state: 'idle', active: false },
   });
   assert.equal(calibrate.disabled, false);
-  assert.equal(status.textContent, 'Ready to calibrate.');
+  assert.equal(status.textContent,
+    'Reference is stable. Ready to calibrate.');
 
   T.renderScale({
     revision: 6, adc_ready: true, calibrated: false, raw_stable: false,

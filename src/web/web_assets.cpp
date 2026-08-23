@@ -15,31 +15,25 @@ const char index_html[] = R"HTML(<!doctype html>
 </head>
 <body>
   <a class="skip-link" href="#content">Skip to content</a>
-  <header class="site-header">
-    <div class="brand-block">
-      <span class="brand-mark" aria-hidden="true">OT</span>
-      <div>
-        <p class="eyebrow">LOCAL APPLIANCE</p>
-        <h1>OpenTag Station</h1>
-      </div>
-    </div>
-    <div class="connection-strip" aria-live="polite">
-      <span id="live-indicator" class="status-dot pending" aria-hidden="true"></span>
-      <span id="live-status">Connecting to live updates…</span>
-      <button id="refresh-all" class="button quiet" type="button">Refresh</button>
-    </div>
-  </header>
-
-  <nav class="section-nav" aria-label="Station sections">
-    <a href="#overview">Overview</a>
-    <a href="#scale">Scale</a>
-    <a href="#nfc">NFC</a>
-    <a href="#spool">Spool</a>
-    <a href="#printers">Toolheads</a>
-    <a href="#configuration">Configuration</a>
-    <a href="#diagnostics">Diagnostics</a>
-    <a href="#maintenance">Updates</a>
-  </nav>
+  <aside class="product-rail">
+    <a class="brand-block" href="#home" aria-label="OpenTag Station home">
+      <span class="brand-mark" aria-hidden="true"><span></span></span>
+      <span class="brand-name">opentag<small>station</small></span>
+    </a>
+    <nav class="section-nav" aria-label="Primary navigation">
+      <a id="nav-home" href="#home" data-nav="home"><span class="nav-icon" aria-hidden="true">⌂</span><span>Home</span></a>
+      <a id="nav-scale" href="#scale" data-nav="scale"><span class="nav-icon" aria-hidden="true">◉</span><span>Scale</span></a>
+      <a id="nav-printer" href="#printer" data-nav="printer"><span class="nav-icon" aria-hidden="true">▣</span><span>Printer</span></a>
+      <a id="nav-tags" href="#tags" data-nav="tags"><span class="nav-icon" aria-hidden="true">◇</span><span>Tags</span></a>
+      <a id="nav-settings" href="#settings" data-nav="settings"><span class="nav-icon" aria-hidden="true">⚙</span><span>Settings</span></a>
+    </nav>
+    <div class="rail-live" aria-live="polite"><span id="live-indicator" class="status-dot pending" aria-hidden="true"></span><span id="live-status">Connecting…</span></div>
+  </aside>
+  <div class="app-frame">
+    <header class="site-header">
+      <div><p class="eyebrow">OPEN TAG STATION</p><h1 id="page-title">Home</h1></div>
+      <div class="connection-strip"><span id="health-badge" class="badge neutral">Checking</span><button id="refresh-all" class="button quiet" type="button">Refresh</button></div>
+    </header>
 
   <main id="content">
     <section id="setup-portal" class="section setup-portal" aria-labelledby="setup-title" hidden>
@@ -67,79 +61,67 @@ const char index_html[] = R"HTML(<!doctype html>
         </article>
       </div>
     </section>
-    <section id="overview" class="section" aria-labelledby="overview-title">
-      <div class="section-heading">
-        <div><p class="eyebrow">AT A GLANCE</p><h2 id="overview-title">Device overview</h2></div>
-        <span id="health-badge" class="badge neutral">Checking</span>
-      </div>
-      <div class="card-grid overview-grid">
-        <article class="card hero-card">
-          <p class="metric-label">Station</p>
-          <p id="device-name" class="hero-value">OpenTag Station</p>
-          <p id="device-address" class="muted">Address unavailable</p>
+    <section id="overview" class="section product-page home-page" data-page="home" aria-labelledby="overview-title">
+      <div class="home-hero">
+        <article class="home-copy">
+          <p class="eyebrow">READY</p>
+          <h2 id="device-name">OpenTag Station</h2>
+          <p id="overview-title" class="home-prompt">Place a spool</p>
+          <p class="muted">Present a spool to begin, or capture its weight directly.</p>
         </article>
-        <article class="card"><dl class="facts">
-          <div><dt>Firmware</dt><dd id="firmware-version">—</dd></div>
-          <div><dt>Git SHA</dt><dd id="git-sha" class="mono">—</dd></div>
-          <div><dt>Build</dt><dd id="build-date">—</dd></div>
-          <div><dt>Hardware</dt><dd id="hardware-id">—</dd></div>
-        </dl></article>
-        <article class="card"><dl class="facts">
-          <div><dt>Uptime</dt><dd id="uptime">—</dd></div>
-          <div><dt>Wi-Fi</dt><dd id="wifi-state">—</dd></div>
-          <div><dt>Free heap</dt><dd id="heap-free">—</dd></div>
-          <div><dt>Free PSRAM</dt><dd id="psram-free">—</dd></div>
-        </dl></article>
+        <button id="home-weigh" class="home-action" type="button" disabled>
+          <span class="home-action-icon" aria-hidden="true">◉</span>
+          <span><strong>WEIGH SPOOL</strong><small id="home-last-weight">No measurement yet</small></span>
+          <span aria-hidden="true">›</span>
+        </button>
       </div>
+      <p id="home-weight-state" class="home-state">Scale snapshot pending</p>
     </section>
 
-    <section id="scale" class="section" aria-labelledby="scale-title">
-      <div class="section-heading"><div><p class="eyebrow">ON-DEMAND SENSOR</p><h2 id="scale-title">Scale</h2></div><span id="scale-badge" class="badge neutral">Unknown</span></div>
-      <div class="card-grid two-column">
-        <article class="card weight-card" aria-live="polite">
-          <p class="metric-label">Gross weight</p>
-          <p><span id="gross-weight" class="weight-value">—</span> <span class="unit">g</span></p>
-          <p id="weight-quality" class="quality">Press Weigh</p>
-          <div class="action-row"><button id="weigh-scale" class="button primary" type="button" disabled>Weigh</button></div>
-          <dl class="facts compact">
-            <div><dt>Profile</dt><dd id="scale-profile">—</dd></div>
-            <div><dt>Rated capacity</dt><dd id="scale-capacity">—</dd></div>
-            <div><dt>Calibration</dt><dd id="scale-calibration">—</dd></div>
-            <div><dt>Raw counts</dt><dd id="scale-raw" class="mono">—</dd></div>
-            <div><dt>Filtered counts</dt><dd id="scale-filtered" class="mono">—</dd></div>
-            <div><dt>Zero offset</dt><dd id="scale-zero" class="mono">—</dd></div>
-            <div><dt>Counts per gram</dt><dd id="scale-factor" class="mono">—</dd></div>
-            <div><dt>Reference mass</dt><dd id="scale-reference">—</dd></div>
-          </dl>
+    <section id="scale" class="section product-page scale-page" data-page="scale" aria-labelledby="scale-title" hidden>
+      <div class="section-heading"><div><p class="eyebrow">FILAMENT SCALE</p><h2 id="scale-title">Scale</h2></div><span id="scale-badge" class="badge neutral">Idle</span></div>
+      <div class="scale-stage">
+        <article class="spool-panel" aria-live="polite">
+          <div id="scale-visual" class="spool-visual" data-state="idle">
+            <div class="spool-ticks"></div>
+            <div class="spool-rim">
+              <i></i><i></i><i></i><i></i><i></i><i></i>
+              <div class="spool-hub">
+                <p class="metric-label">Gross weight</p>
+                <p class="spool-reading"><span id="gross-weight" class="weight-value">—</span><span class="unit">g</span></p>
+                <p id="weight-quality" class="quality">Press Weigh</p>
+              </div>
+            </div>
+          </div>
         </article>
-        <article class="card">
-          <h3>Calibration controls</h3>
-          <p class="muted"><strong>Tare:</strong> empty the platform, wait for Stable, then tare. <strong>Calibrate:</strong> tare first, place an accurate known mass, wait for Stable, enter its grams, then calibrate. The result is persisted through the existing calibration owner.</p>
-          <p id="scale-action-status" class="setup-status" aria-live="polite">Waiting for the first scale snapshot.</p>
-          <div class="action-row"><button id="tare-scale" class="button" type="button" disabled>Tare scale</button></div>
-          <form id="calibrate-form" class="stacked-form">
+        <aside class="scale-actions">
+          <button id="weigh-scale" class="action-card weigh-action" type="button" disabled><span class="action-icon">◌</span><span><strong id="weigh-action-label">Weigh</strong><small>Capture stable weight</small></span><span>›</span></button>
+          <button id="tare-scale" class="action-card" type="button" disabled><span class="action-icon">↔</span><span><strong id="tare-action-label">Tare</strong><small>Zero the empty scale</small></span><span>›</span></button>
+          <form id="calibrate-form" class="calibration-card">
+            <button id="calibrate-scale" class="action-card" type="submit" disabled><span class="action-icon">◎</span><span><strong id="calibrate-action-label">Calibrate</strong><small>Use a known reference</small></span><span>›</span></button>
             <label for="reference-grams">Known reference weight (g)</label>
-            <input id="reference-grams" name="reference_grams" type="number" min="1" max="5000" step="0.1" inputmode="decimal" required>
-            <button id="calibrate-scale" class="button primary" type="submit" disabled>Calibrate</button>
+            <input id="reference-grams" name="reference_grams" type="number" min="1" max="5000" step="0.1" inputmode="decimal" placeholder="Enter weight">
           </form>
-        </article>
+          <p id="scale-action-status" class="scale-guide-status" aria-live="polite">Waiting for the first scale snapshot.</p>
+          <ol id="calibration-steps" class="calibration-steps">
+            <li id="cal-step-empty" data-cal-step="empty">Empty platform</li><li id="cal-step-tare" data-cal-step="tare">Tare</li><li id="cal-step-reference" data-cal-step="reference">Place reference</li><li id="cal-step-stable" data-cal-step="stable">Stable signal</li><li id="cal-step-calibrate" data-cal-step="calibrate">Calibrate</li>
+          </ol>
+        </aside>
       </div>
     </section>
 
-    <section id="nfc" class="section" aria-labelledby="nfc-title">
-      <div class="section-heading"><div><p class="eyebrow">TAG READER</p><h2 id="nfc-title">NFC and OpenPrintTag</h2></div><span id="nfc-badge" class="badge warning">Unavailable</span></div>
-      <div class="card-grid two-column">
-        <article class="card"><dl class="facts">
-          <div><dt>Reader</dt><dd id="nfc-reader-state">Disabled in this build</dd></div>
-          <div><dt>Tag</dt><dd id="nfc-tag-state">No tag</dd></div>
-          <div><dt>UID</dt><dd id="nfc-uid" class="mono">—</dd></div>
-          <div><dt>Material</dt><dd id="nfc-material">—</dd></div>
-        </dl><div class="action-row"><button id="read-tag" class="button" type="button" disabled>Read tag</button></div></article>
-        <article class="card"><h3>Tag diagnostics</h3><pre id="tag-diagnostics" class="json-view" tabindex="0">No tag data</pre></article>
-      </div>
+    <section id="nfc" class="section product-page tags-page" data-page="tags" aria-labelledby="nfc-title" hidden>
+      <div class="section-heading"><div><p class="eyebrow">OPENPRINTTAG</p><h2 id="nfc-title">Tags</h2></div><span id="nfc-badge" class="badge neutral">Disabled</span></div>
+      <article class="card intentional-empty">
+        <span class="empty-icon" aria-hidden="true">◇</span>
+        <h3>NFC reader not configured</h3>
+        <p>OpenTag Station will use this area to read and manage OpenPrintTag-compatible filament tags.</p>
+        <a class="button" href="#settings">NFC Settings</a>
+      </article>
+      <div class="visually-hidden" aria-hidden="true"><span id="nfc-reader-state">Disabled</span><span id="nfc-tag-state">No tag</span><span id="nfc-uid">—</span><span id="nfc-material">—</span><button id="read-tag" type="button" disabled>Read tag</button><pre id="tag-diagnostics">No tag data</pre></div>
     </section>
 
-    <section id="spool" class="section" aria-labelledby="spool-title">
+    <section id="spool" class="section product-page home-support" data-page="home" aria-labelledby="spool-title">
       <div class="section-heading"><div><p class="eyebrow">CURRENT MATERIAL</p><h2 id="spool-title">Spool and reconciliation</h2></div><span id="spool-badge" class="badge neutral">Awaiting spool</span></div>
       <div class="card-grid two-column">
         <article class="card"><dl class="facts">
@@ -157,17 +139,23 @@ const char index_html[] = R"HTML(<!doctype html>
       </div>
     </section>
 
-    <section id="printers" class="section" aria-labelledby="printers-title">
-      <div class="section-heading"><div><p class="eyebrow">PRUSA XL</p><h2 id="printers-title">Backends and toolheads</h2></div><button id="test-backends" class="button quiet" type="button">Test connections</button></div>
-      <div class="backend-grid">
-        <article class="card backend-card"><h3>Spoolman</h3><p id="spoolman-state" class="large-state">Unknown</p><p id="spoolman-version" class="muted">Version —</p><p id="spoolman-capabilities" class="mono small">Capabilities —</p></article>
-        <article class="card backend-card"><h3>FilaBridge</h3><p id="filabridge-state" class="large-state">Unknown</p><p id="filabridge-version" class="muted">Version —</p><p id="filabridge-capabilities" class="mono small">Capabilities —</p></article>
-      </div>
-      <div id="printer-list" class="printer-list"><article class="card empty-state">No printer snapshot available.</article></div>
-      <p class="hint">T1–T5 are display numbers. Requests retain the exact zero-based backend ID and are verified after every mutation.</p>
+    <section id="printers" class="section product-page printer-page" data-page="printer" aria-labelledby="printers-title" hidden>
+      <div class="section-heading"><div><p class="eyebrow">FILAMENT ASSIGNMENT</p><h2 id="printers-title">Printer</h2></div><span id="printer-page-badge" class="badge neutral">Checking</span></div>
+      <div id="printer-list" class="printer-list"><article class="card intentional-empty"><span class="empty-icon">▣</span><h3>No printer configured</h3><p>Choose a printer in Settings to manage its toolheads.</p><a class="button" href="#settings">Open Settings</a></article></div>
     </section>
 
-    <section id="configuration" class="section" aria-labelledby="configuration-title">
+    <section id="settings" class="section product-page settings-page" data-page="settings" aria-labelledby="settings-title" hidden>
+      <div class="section-heading"><div><p class="eyebrow">STATION CONTROL</p><h2 id="settings-title">Settings</h2></div></div>
+      <nav class="settings-nav" aria-label="Settings sections"><a href="#configuration">Configuration</a><a href="#diagnostics">Advanced</a><a href="#maintenance">Device &amp; updates</a></nav>
+      <div class="settings-grid">
+        <article class="card"><h3>Connectivity</h3><dl class="facts compact"><div><dt>Wi-Fi</dt><dd id="wifi-state">—</dd></div><div><dt>LAN address</dt><dd id="device-address">—</dd></div><div><dt>RSSI</dt><dd id="settings-rssi">—</dd></div></dl><a class="button quiet" href="#configuration">Change Wi-Fi</a></article>
+        <article class="card"><div class="card-title-row"><h3>Integrations</h3><button id="test-backends" class="button tiny" type="button">Test</button></div><dl class="facts compact"><div><dt>Spoolman</dt><dd id="spoolman-state">Unknown</dd></div><div><dt>FilaBridge</dt><dd id="filabridge-state">Unknown</dd></div><div><dt>Printer</dt><dd id="settings-selected-printer">Not selected</dd></div></dl><span id="spoolman-version" class="visually-hidden">Version —</span><span id="spoolman-capabilities" class="visually-hidden">Capabilities —</span><span id="filabridge-version" class="visually-hidden">Version —</span><span id="filabridge-capabilities" class="visually-hidden">Capabilities —</span></article>
+        <article class="card"><h3>Hardware</h3><dl class="facts compact"><div><dt>Scale</dt><dd id="scale-calibration">Checking</dd></div><div><dt>Profile</dt><dd id="scale-profile">—</dd></div><div><dt>Capacity</dt><dd id="scale-capacity">—</dd></div><div><dt>NFC</dt><dd>Disabled</dd></div><div><dt>Display</dt><dd>WT32-SC01 Plus</dd></div></dl><details><summary>Scale diagnostics</summary><dl class="facts compact"><div><dt>Raw</dt><dd id="scale-raw">—</dd></div><div><dt>Filtered</dt><dd id="scale-filtered">—</dd></div><div><dt>Zero</dt><dd id="scale-zero">—</dd></div><div><dt>Factor</dt><dd id="scale-factor">—</dd></div><div><dt>Reference</dt><dd id="scale-reference">—</dd></div></dl></details></article>
+        <article class="card"><h3>Device</h3><dl class="facts compact"><div><dt>Firmware</dt><dd id="firmware-version">—</dd></div><div><dt>Git SHA</dt><dd id="git-sha" class="mono">—</dd></div><div><dt>Build</dt><dd id="build-date">—</dd></div><div><dt>Hardware</dt><dd id="hardware-id">—</dd></div><div><dt>Uptime</dt><dd id="uptime">—</dd></div><div><dt>Free heap</dt><dd id="heap-free">—</dd></div><div><dt>Free PSRAM</dt><dd id="psram-free">—</dd></div></dl></article>
+      </div>
+    </section>
+
+    <section id="configuration" class="section product-page settings-detail" data-page="settings" aria-labelledby="configuration-title" hidden>
       <div class="section-heading"><div><p class="eyebrow">PERSISTED SETTINGS</p><h2 id="configuration-title">Configuration</h2></div><span id="config-revision" class="badge neutral">Not loaded</span></div>
       <div class="card config-status-row"><p id="config-load-status" class="setup-status" aria-live="polite">Configuration has not loaded.</p><button id="retry-config" class="button quiet" type="button">Retry</button></div>
       <form id="config-form" class="config-form" autocomplete="off">
@@ -211,7 +199,7 @@ const char index_html[] = R"HTML(<!doctype html>
       <div class="card transfer-card"><h3>Redacted configuration transfer</h3><p class="muted">Exports never include stored credentials. Imported credentials are ignored unless explicitly entered above.</p><div class="action-row"><button id="export-config" class="button" type="button" disabled>Download redacted JSON</button><label id="import-config-label" class="button file-button" for="import-config" aria-disabled="true">Choose JSON to import</label><input id="import-config" class="visually-hidden" type="file" accept="application/json,.json" disabled></div></div>
     </section>
 
-    <section id="diagnostics" class="section" aria-labelledby="diagnostics-title">
+    <section id="diagnostics" class="section product-page settings-detail" data-page="settings" aria-labelledby="diagnostics-title" hidden>
       <div class="section-heading"><div><p class="eyebrow">SUPPORT</p><h2 id="diagnostics-title">Diagnostics and logs</h2></div><button id="refresh-diagnostics" class="button quiet" type="button">Refresh diagnostics</button></div>
       <div class="card-grid two-column">
         <article class="card"><h3>System snapshot</h3><pre id="diagnostics-json" class="json-view tall" tabindex="0">Loading…</pre></article>
@@ -220,7 +208,7 @@ const char index_html[] = R"HTML(<!doctype html>
       <article class="card self-test-card"><div class="card-title-row"><h3>Local interface transport self-test</h3><button id="run-self-test" class="button" type="button">Run Local Interface Self-Test</button></div><p id="self-test-status" class="hint" aria-live="polite">Read-only checks use the existing connection and never display response bodies or credentials.</p><div class="table-scroll"><table class="self-test-table"><thead><tr><th>Check</th><th>Result</th><th>HTTP</th><th>Latency</th><th>Detail</th></tr></thead><tbody id="self-test-results"><tr><td colspan="5">Not run.</td></tr></tbody></table></div></article>
     </section>
 
-    <section id="maintenance" class="section" aria-labelledby="maintenance-title">
+    <section id="maintenance" class="section product-page settings-detail" data-page="settings" aria-labelledby="maintenance-title" hidden>
       <div class="section-heading"><div><p class="eyebrow">MAINTENANCE</p><h2 id="maintenance-title">Updates and device controls</h2></div></div>
       <div class="card-grid two-column">
         <article class="card update-card"><div class="card-title-row"><h3>Firmware update</h3><span id="update-badge" class="badge neutral">Loading</span></div><p id="update-state" class="large-state">Checking update state</p><p id="update-detail" class="muted">A validated image is written only to the inactive application slot.</p>
@@ -235,7 +223,8 @@ const char index_html[] = R"HTML(<!doctype html>
     </section>
   </main>
 
-  <footer><span>OpenTag Station local interface</span><span id="footer-clock">—</span></footer>
+  <footer class="status-strip"><span><i class="status-dot pending"></i>Spoolman <strong id="footer-spoolman">Checking</strong></span><span><i class="status-dot pending"></i>FilaBridge <strong id="footer-filabridge">Checking</strong></span><span>Printer <strong id="footer-printer">Not selected</strong></span><span id="footer-clock">—</span></footer>
+  </div>
   <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
 </body>
 </html>)HTML";
@@ -384,6 +373,109 @@ footer { display: flex; justify-content: space-between; gap: 1rem; padding: 1.2r
 .self-test-pass { color: var(--good); font-weight: 700; }
 .self-test-fail { color: var(--bad); font-weight: 700; }
 
+/* Product UI layer: fixed navigation, appliance pages, and vector scale. */
+:root {
+  --bg: #071018;
+  --surface: #111c29;
+  --surface-2: #182637;
+  --raised: #1b293b;
+  --line: #26384a;
+  --text: #f8fafc;
+  --muted: #94a3b8;
+  --accent: #16d9c2;
+  --accent-ink: #031b19;
+  --good: #22c55e;
+  --warn: #f59e0b;
+  --bad: #ef4444;
+  --focus: #67e8f9;
+  --radius: 18px;
+  --rail: 224px;
+}
+body { min-height: 100vh; background: radial-gradient(circle at 58% 32%, rgba(13, 148, 136, .13), transparent 32rem), linear-gradient(145deg, #050b12, var(--bg)); }
+.product-rail { position: fixed; inset: 0 auto 0 0; z-index: 40; display: flex; width: var(--rail); flex-direction: column; padding: 1.3rem 1rem; border-right: 1px solid #1c2d3d; background: linear-gradient(180deg, rgba(5, 13, 21, .98), rgba(7, 16, 24, .96)); }
+.brand-block { display: flex; align-items: center; gap: .8rem; min-height: 4.2rem; padding: .45rem .35rem 1.25rem; color: var(--text); text-decoration: none; }
+.brand-mark { position: relative; width: 2.75rem; height: 2.75rem; flex: none; border: 3px solid var(--accent); border-radius: 50%; background: transparent; box-shadow: 0 0 24px rgba(22, 217, 194, .2); }
+.brand-mark::before, .brand-mark::after, .brand-mark span { position: absolute; content: ""; border-radius: 50%; }
+.brand-mark::before { inset: 7px; border: 2px solid var(--accent); }
+.brand-mark::after { inset: 13px; background: var(--accent); }
+.brand-mark span { inset: -3px 9px; border-top: 3px solid var(--bg); border-bottom: 3px solid var(--bg); border-radius: 0; }
+.brand-name { font-size: 1.15rem; font-weight: 800; letter-spacing: -.03em; }
+.brand-name small { display: block; color: var(--muted); font-size: .95rem; font-weight: 500; }
+.section-nav { position: static; display: grid; gap: .72rem; overflow: visible; padding: 0; border: 0; background: transparent; }
+.section-nav a { display: grid; min-height: 4.6rem; grid-template-columns: 2.6rem 1fr; align-items: center; gap: .7rem; padding: .7rem .85rem; border: 1px solid #1d3041; border-radius: 13px; background: rgba(17, 28, 41, .58); color: #bdc8d5; font-size: .96rem; font-weight: 700; text-decoration: none; }
+.section-nav a:hover, .section-nav a:focus-visible { border-color: #3a6b70; background: var(--surface); color: var(--text); transform: translateY(-1px); }
+.section-nav a.active { border-color: var(--accent); background: linear-gradient(115deg, rgba(10, 100, 95, .42), rgba(17, 35, 47, .88)); color: var(--accent); box-shadow: inset 3px 0 var(--accent), 0 0 24px rgba(22, 217, 194, .12); }
+.nav-icon { display: grid; width: 2.45rem; height: 2.45rem; place-items: center; color: currentColor; font-size: 1.8rem; font-weight: 400; }
+.rail-live { display: flex; align-items: center; gap: .6rem; margin-top: auto; padding: .9rem .55rem .25rem; color: var(--muted); font-size: .74rem; }
+.app-frame { min-height: 100vh; margin-left: var(--rail); }
+.site-header { position: sticky; top: 0; z-index: 30; min-height: 5rem; padding: 1rem clamp(1.2rem, 3vw, 2.5rem); border-bottom: 1px solid rgba(38, 56, 74, .75); background: rgba(7, 16, 24, .9); backdrop-filter: blur(14px); }
+.site-header h1 { font-size: 1.65rem; }
+.connection-strip { justify-content: flex-end; }
+main { width: min(1280px, 100%); min-height: calc(100vh - 9.6rem); padding: 0 clamp(1.2rem, 3vw, 2.5rem) 3rem; }
+.product-page[hidden] { display: none !important; }
+.section { padding-top: 2rem; }
+.section-heading { align-items: center; margin-bottom: 1.35rem; }
+.card { border-color: var(--line); background: linear-gradient(145deg, rgba(24, 38, 55, .9), rgba(13, 24, 35, .96)); box-shadow: 0 18px 50px rgba(0, 0, 0, .2); }
+.home-hero { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(18rem, .85fr); gap: 1.25rem; align-items: stretch; min-height: 19rem; }
+.home-copy { display: flex; flex-direction: column; justify-content: center; padding: clamp(2rem, 6vw, 5rem); border: 1px solid var(--line); border-radius: 24px; background: radial-gradient(circle at 80% 20%, rgba(22, 217, 194, .18), transparent 18rem), linear-gradient(145deg, #10202e, #09131d); }
+.home-copy h2 { margin-bottom: .7rem; font-size: clamp(2.1rem, 5vw, 4rem); }
+.home-prompt { margin-bottom: .45rem; color: var(--text); font-size: clamp(1.45rem, 3vw, 2.2rem); font-weight: 750; }
+.home-action { display: grid; grid-template-columns: 4rem 1fr auto; align-items: center; gap: 1rem; padding: 1.4rem; border: 1px solid var(--accent); border-radius: 24px; background: linear-gradient(135deg, #087c74, #0dafa1); color: white; cursor: pointer; text-align: left; box-shadow: 0 18px 55px rgba(13, 148, 136, .2); }
+.home-action:hover:not(:disabled) { transform: translateY(-2px); filter: brightness(1.08); }
+.home-action:disabled { opacity: .48; cursor: not-allowed; }
+.home-action strong, .home-action small { display: block; }
+.home-action strong { font-size: 1.25rem; letter-spacing: .03em; }
+.home-action small { margin-top: .35rem; color: #d5fffa; }
+.home-action-icon { display: grid; width: 4rem; height: 4rem; place-items: center; border: 2px solid rgba(255,255,255,.72); border-radius: 50%; font-size: 2.5rem; }
+.home-state { margin: 1rem .25rem 0; color: var(--muted); }
+.home-support { padding-top: 1.5rem; }
+.scale-stage { display: grid; grid-template-columns: minmax(26rem, 1fr) minmax(18rem, 22rem); gap: clamp(1rem, 3vw, 2.5rem); align-items: center; }
+.spool-panel { display: grid; min-height: 37rem; place-items: center; overflow: hidden; border: 1px solid #172b3b; border-radius: 24px; background: radial-gradient(circle, rgba(7, 115, 108, .18), transparent 47%), linear-gradient(145deg, #07121c, #050a10); }
+.spool-visual { --state: var(--accent); position: relative; width: min(35rem, 90%); aspect-ratio: 1; border-radius: 50%; filter: drop-shadow(0 24px 24px rgba(0,0,0,.45)); }
+.spool-visual[data-state="settling"] { --state: var(--warn); }
+.spool-visual[data-state="stable"], .spool-visual[data-state="completed"] { --state: var(--good); }
+.spool-visual[data-state="error"], .spool-visual[data-state="timed_out"], .spool-visual[data-state="failed"] { --state: var(--bad); }
+.spool-ticks { position: absolute; inset: 0; border-radius: 50%; background: repeating-conic-gradient(from -1deg, var(--state) 0 1.5deg, transparent 1.5deg 5deg); -webkit-mask: radial-gradient(circle, transparent 0 83%, #000 84% 88%, transparent 89%); mask: radial-gradient(circle, transparent 0 83%, #000 84% 88%, transparent 89%); opacity: .78; }
+.spool-rim { position: absolute; inset: 7%; overflow: hidden; border: 2px solid #42586b; border-radius: 50%; background: radial-gradient(circle, #071019 0 29%, transparent 30%), repeating-conic-gradient(from 0deg, #1d2b3b 0 7deg, #09121d 8deg 51deg, #354456 52deg 59deg); box-shadow: inset 0 0 0 14px #101c28, inset 0 0 35px #02060a, 0 0 34px color-mix(in srgb, var(--state) 24%, transparent); }
+.spool-rim i { display: none; }
+.spool-hub { position: absolute; inset: 29%; display: flex; flex-direction: column; align-items: center; justify-content: center; border: 2px solid #314658; border-radius: 50%; background: radial-gradient(circle at 50% 38%, #132331, #050a10 70%); box-shadow: 0 0 28px rgba(0,0,0,.8), inset 0 -2px 24px color-mix(in srgb, var(--state) 13%, transparent); text-align: center; }
+.spool-reading { display: flex; align-items: baseline; gap: .45rem; margin: .25rem 0 .55rem; }
+.weight-value { font: 800 clamp(3.5rem, 7vw, 6.6rem)/.82 ui-sans-serif, system-ui, sans-serif; letter-spacing: -.07em; }
+.spool-hub .unit { color: var(--state); font-size: clamp(1.1rem, 2vw, 1.5rem); }
+.spool-hub .quality { margin: 0; color: var(--state); font-size: 1.05rem; }
+.scale-actions { display: grid; gap: .85rem; }
+.action-card { display: grid; width: 100%; min-height: 5.4rem; grid-template-columns: 3.4rem 1fr auto; align-items: center; gap: .8rem; padding: 1rem; border: 1px solid var(--line); border-radius: 15px; background: linear-gradient(130deg, #122231, #0d1824); color: var(--text); cursor: pointer; text-align: left; }
+.action-card:hover:not(:disabled) { border-color: var(--accent); transform: translateX(2px); }
+.action-card:disabled { opacity: .42; cursor: not-allowed; }
+.action-card strong, .action-card small { display: block; }
+.action-card strong { font-size: 1.12rem; }
+.action-card small { margin-top: .18rem; color: var(--muted); }
+.action-icon { color: var(--accent); font-size: 2.2rem; text-align: center; }
+.weigh-action { border-color: var(--accent); background: linear-gradient(135deg, #087d74, #07554f); }
+.weigh-action .action-icon, .weigh-action small { color: white; }
+.calibration-card { display: grid; gap: .55rem; padding: 0; }
+.calibration-card label { color: var(--muted); font-size: .75rem; letter-spacing: .04em; text-transform: uppercase; }
+.scale-guide-status { min-height: 2.6rem; margin: 0; padding: .7rem .85rem; border-left: 3px solid var(--accent); border-radius: 6px; background: rgba(17, 28, 41, .75); color: var(--muted); font-size: .85rem; }
+.calibration-steps { display: flex; flex-wrap: wrap; gap: .45rem; margin: 0; padding: 0; list-style: none; }
+.calibration-steps li { padding: .28rem .5rem; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); font-size: .7rem; }
+.calibration-steps li.active { border-color: var(--warn); color: var(--warn); }
+.calibration-steps li.complete { border-color: var(--good); color: var(--good); }
+.intentional-empty { max-width: 42rem; margin: 5vh auto 0; padding: clamp(2rem, 6vw, 4rem); text-align: center; }
+.intentional-empty .empty-icon { display: grid; width: 5rem; height: 5rem; place-items: center; margin: 0 auto 1.25rem; border: 1px solid var(--accent); border-radius: 50%; color: var(--accent); font-size: 3rem; }
+.intentional-empty p { color: var(--muted); }
+.settings-nav { display: flex; flex-wrap: wrap; gap: .6rem; margin-bottom: 1rem; }
+.settings-nav a { padding: .55rem .85rem; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); text-decoration: none; }
+.settings-nav a:hover { border-color: var(--accent); color: var(--accent); }
+.settings-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
+.settings-detail { padding-top: 2.5rem; }
+.printer-list > .card { padding: 1.5rem; }
+.toolhead { min-height: 10rem; border-radius: 14px; background: rgba(5, 12, 19, .55); }
+.status-strip { position: sticky; bottom: 0; z-index: 25; display: flex; justify-content: space-around; gap: 1rem; margin: 0 1rem 1rem; padding: .75rem 1rem; border: 1px solid var(--line); border-radius: 14px; background: rgba(8, 17, 26, .94); backdrop-filter: blur(12px); }
+.status-strip span { display: flex; align-items: center; gap: .45rem; color: var(--muted); }
+.status-strip .status-dot { display: inline-block; width: .45rem; height: .45rem; }
+.status-strip strong { color: var(--text); font-weight: 650; }
+details summary { cursor: pointer; color: var(--accent); }
+
 @media (max-width: 850px) {
   .site-header { align-items: start; flex-direction: column; }
   .overview-grid, .two-column, .backend-grid, .config-form { grid-template-columns: 1fr; }
@@ -399,6 +491,43 @@ footer { display: flex; justify-content: space-between; gap: 1rem; padding: 1.2r
   .profile-row { grid-template-columns: 1fr 1fr; }
   .form-actions, footer { flex-direction: column; }
 }
+@media (max-width: 1080px) {
+  .scale-stage { grid-template-columns: minmax(22rem, 1fr) 19rem; gap: 1rem; }
+  .spool-panel { min-height: 30rem; }
+  .spool-visual { width: min(29rem, 92%); }
+}
+@media (max-width: 780px) {
+  :root { --rail: 88px; }
+  .product-rail { padding: .8rem .55rem; }
+  .brand-block { justify-content: center; padding: .2rem 0 .8rem; }
+  .brand-name, .rail-live span:not(.status-dot) { display: none; }
+  .section-nav { gap: .45rem; }
+  .section-nav a { min-height: 4.2rem; grid-template-columns: 1fr; justify-items: center; gap: .12rem; padding: .35rem .2rem; font-size: .67rem; }
+  .nav-icon { width: 2rem; height: 2rem; font-size: 1.45rem; }
+  .site-header { min-height: 4.4rem; padding: .7rem 1rem; }
+  .site-header .eyebrow { display: none; }
+  main { padding: 0 1rem 2rem; }
+  .scale-stage { grid-template-columns: 1fr; }
+  .spool-panel { min-height: 27rem; }
+  .spool-visual { width: min(26rem, 92%); }
+  .scale-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .weigh-action, .calibration-card, .scale-guide-status, .calibration-steps { grid-column: 1 / -1; }
+  .settings-grid, .home-hero { grid-template-columns: 1fr; }
+  .home-copy { padding: 2.2rem; }
+  .status-strip { display: none; }
+}
+@media (max-width: 520px) {
+  .connection-strip #health-badge { display: none; }
+  .section-heading { flex-direction: row; align-items: center; }
+  .spool-panel { min-height: 22rem; }
+  .weight-value { font-size: clamp(2.7rem, 14vw, 4.4rem); }
+  .action-card { min-height: 4.7rem; grid-template-columns: 2.6rem 1fr auto; }
+  .action-icon { font-size: 1.7rem; }
+  .scale-actions { grid-template-columns: 1fr; }
+  .scale-actions > * { grid-column: auto; }
+  .status-strip { display: none; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
@@ -424,6 +553,16 @@ const char application_javascript[] = R"JS((function () {
     '/device', '/health', '/network', '/config', '/scale', '/spool',
     '/printers', '/toolheads', '/logs', '/diagnostics', '/update'
   ]);
+  const PRODUCT_PAGES = Object.freeze({
+    home: ['overview', 'spool'],
+    scale: ['scale'],
+    printer: ['printers'],
+    tags: ['nfc'],
+    settings: ['settings', 'configuration', 'diagnostics', 'maintenance']
+  });
+  const PRODUCT_TITLES = Object.freeze({
+    home: 'Home', scale: 'Scale', printer: 'Printer', tags: 'Tags', settings: 'Settings'
+  });
   const state = {
     apiToken: '',
     authMode: 'UNKNOWN',
@@ -464,6 +603,7 @@ const char application_javascript[] = R"JS((function () {
     selfTestGeneration: 0,
     manualRefreshActive: false,
     unloading: false,
+    currentPage: 'home',
     toastTimer: 0
   };
 
@@ -512,6 +652,41 @@ const char application_javascript[] = R"JS((function () {
     if (!badge) return;
     badge.textContent = label;
     badge.className = 'badge ' + (kind || 'neutral');
+  }
+
+  function productPageFromHash(hash) {
+    const value = String(hash || '').replace(/^#/, '');
+    if (Object.prototype.hasOwnProperty.call(PRODUCT_PAGES, value)) return value;
+    if (value === 'overview' || value === 'spool') return 'home';
+    if (value === 'printers') return 'printer';
+    if (value === 'nfc') return 'tags';
+    if (value === 'configuration' || value === 'diagnostics' || value === 'maintenance') return 'settings';
+    return 'home';
+  }
+
+  function activateProductPage(page) {
+    const selected = Object.prototype.hasOwnProperty.call(PRODUCT_PAGES, page) ? page : 'home';
+    Object.keys(PRODUCT_PAGES).forEach(function (candidate) {
+      PRODUCT_PAGES[candidate].forEach(function (id) {
+        const node = byId(id);
+        if (node) node.hidden = candidate !== selected;
+      });
+      const nav = byId('nav-' + candidate);
+      if (nav) {
+        nav.className = candidate === selected ? 'active' : '';
+        nav.setAttribute('aria-current', candidate === selected ? 'page' : 'false');
+      }
+    });
+    state.currentPage = selected;
+    setText('page-title', PRODUCT_TITLES[selected]);
+    if (selected === 'settings') ensureConfigReady();
+    return selected;
+  }
+
+  function navigateProductPage(page) {
+    const selected = activateProductPage(page);
+    if (location.hash !== '#' + selected) location.hash = '#' + selected;
+    return selected;
   }
 
   function showToast(message, error) {
@@ -1275,6 +1450,8 @@ const char application_javascript[] = R"JS((function () {
     applyAuthState(payload.access_token_configured === true, payload.config_revision);
     const system = asObject(payload.system);
     const network = asObject(system.network);
+    setText('settings-rssi', Number.isFinite(Number(network.rssi_dbm))
+      ? Number(network.rssi_dbm) + ' dBm' : '—');
     const provisioning = asObject(network.provisioning);
     state.provisioningActive = provisioning.active === true;
     const portal = byId('setup-portal');
@@ -1329,6 +1506,12 @@ const char application_javascript[] = R"JS((function () {
     setText(prefix + '-version', 'Version ' + String(first(value.version, '—')));
     const capabilities = first(value.capabilities, value.capabilities_bits, value.capability_names);
     setText(prefix + '-capabilities', 'Capabilities ' + (Array.isArray(capabilities) ? capabilities.join(', ') : first(capabilities, '—')));
+    setText('footer-' + prefix, availability);
+  }
+
+  function setCalibrationStep(id, status) {
+    const step = byId('cal-step-' + id);
+    if (step) step.className = status || '';
   }
 
   function updateScaleControls() {
@@ -1336,6 +1519,7 @@ const char application_javascript[] = R"JS((function () {
     const sample = asObject(first(scale.sample, scale));
     const measurement = asObject(scale.measurement);
     const measurementActive = measurement.active === true;
+    const purpose = String(first(measurement.purpose, ''));
     const adcReady = scale.adc_ready === true;
     const rawStable = first(sample.raw_stable, scale.raw_stable, false) === true;
     const samplesInFilter = Number(first(scale.samples_in_filter, sample.samples_in_filter, 0));
@@ -1346,30 +1530,49 @@ const char application_javascript[] = R"JS((function () {
     const maximum = Number(maximumNode ? maximumNode.max : 0);
     const referenceReady = Number.isFinite(reference) && reference > 0 && reference <= maximum;
     const blocked = state.scaleBusy || measurementActive || state.maintenance;
+    const calibrated = first(scale.calibrated, scale.calibration_loaded,
+      asObject(scale.calibration).configured, false) === true;
+    const weighReady = adcReady && calibrated && !blocked;
     const weigh = byId('weigh-scale');
+    const homeWeigh = byId('home-weigh');
     const tare = byId('tare-scale');
     const calibrate = byId('calibrate-scale');
-    if (weigh) weigh.disabled = !adcReady || scale.calibrated !== true || blocked;
-    if (tare) tare.disabled = !adcReady || blocked;
-    if (calibrate) calibrate.disabled = !adcReady || !tareReady || !referenceReady || blocked;
+    if (weigh) weigh.disabled = !weighReady;
+    if (homeWeigh) homeWeigh.disabled = !weighReady;
+    if (tare) tare.disabled = !adcReady || !rawStable || blocked;
+    if (calibrate) calibrate.disabled =
+      !adcReady || !tareReady || !rawStable || !referenceReady || blocked;
+    setText('tare-action-label', measurementActive && purpose === 'tare' ? 'Taring…' : 'Tare');
+    setText('calibrate-action-label',
+      measurementActive && purpose === 'calibration' ? 'Calibrating…' : 'Calibrate');
+
+    setCalibrationStep('empty', !tareReady && !rawStable ? 'active' : 'complete');
+    setCalibrationStep('tare', !tareReady ? (rawStable ? 'active' : '') : 'complete');
+    setCalibrationStep('reference', tareReady && samplesInFilter <= 0 ? 'active' :
+      tareReady ? 'complete' : '');
+    setCalibrationStep('stable', tareReady && samplesInFilter > 0 ?
+      (rawStable ? 'complete' : 'active') : '');
+    setCalibrationStep('calibrate', tareReady && rawStable ?
+      (referenceReady ? 'active' : '') : '');
+
     if (state.scaleBusy) {
       setText('scale-action-status', state.scaleProgress || 'Scale operation in progress…');
     } else if (!state.scale) {
       setText('scale-action-status', 'Waiting for the first scale snapshot.');
     } else if (!adcReady) {
-      setText('scale-action-status', 'Scale hardware is unavailable; tare and calibration are disabled.');
+      setText('scale-action-status', 'Scale hardware is unavailable.');
     } else if (!tareReady && !rawStable) {
-      setText('scale-action-status', 'Waiting for stable empty platform.');
+      setText('scale-action-status', 'Remove all weight. Waiting for a stable empty platform.');
     } else if (!tareReady) {
-      setText('scale-action-status', 'Ready to tare.');
+      setText('scale-action-status', 'Empty platform is stable. Ready to tare.');
     } else if (!Number.isFinite(samplesInFilter) || samplesInFilter <= 0) {
-      setText('scale-action-status', 'Tare complete — place reference weight.');
+      setText('scale-action-status', 'Tare complete — place the reference weight.');
     } else if (!rawStable) {
-      setText('scale-action-status', 'Waiting for stable reference weight.');
+      setText('scale-action-status', 'Reference placed. Waiting for a stable signal.');
     } else if (!referenceReady) {
-      setText('scale-action-status', 'Reference weight is stable. Enter its mass to continue.');
+      setText('scale-action-status', 'Reference is stable. Enter its known mass.');
     } else {
-      setText('scale-action-status', 'Ready to calibrate.');
+      setText('scale-action-status', 'Reference is stable. Ready to calibrate.');
     }
   }
 
@@ -1389,6 +1592,8 @@ const char application_javascript[] = R"JS((function () {
     const profile = asObject(first(scale.profile, scale.scale_profile, {}));
     const measurement = asObject(scale.measurement);
     const measurementActive = measurement.active === true;
+    const samplesInFilter = Number(first(scale.samples_in_filter, sample.samples_in_filter, 0));
+    const stable = first(sample.stable, scale.stable, false) === true;
     const gross = first(sample.gross_grams, scale.gross_grams,
       Number.isFinite(Number(scale.gross_milligrams)) ? Number(scale.gross_milligrams) / 1000 : null);
     const completed = Number(measurement.last_completed_grams);
@@ -1407,22 +1612,48 @@ const char application_javascript[] = R"JS((function () {
     const capturedTime = age === null ? 'unknown time' :
       new Date(Date.now() - age).toLocaleTimeString();
     const measurementState = String(first(measurement.state, 'idle'));
-    setText('weight-quality', !adcReady ? 'Scale hardware unavailable' :
-      overload ? 'OVERLOAD' : measurementActive ? 'Settling…' :
-      Number.isFinite(completed) ? 'Captured at ' + capturedTime : 'Press Weigh');
-    setBadge('scale-badge', normalizeState(measurementState), overload ? 'bad' :
-      measurementState === 'completed' ? 'good' : measurementActive ? 'warning' : 'neutral');
-    setText('scale-profile', first(profile.display_name, profile.id, scale.load_cell_profile, scale.load_cell_model));
-    setText('scale-capacity', formatGrams(first(profile.rated_capacity_grams, scale.rated_capacity_grams, scale.load_cell_capacity_grams)));
+    const activeLabel = stable ? 'Stable' : samplesInFilter < 3 ? 'Measuring…' : 'Settling…';
+    const quality = !adcReady ? 'Scale hardware unavailable' : overload ? 'OVERLOAD' :
+      measurementActive ? activeLabel : Number.isFinite(completed)
+        ? '✓ Stable · Captured at ' + capturedTime
+        : measurementState === 'timed_out' ? 'Timed out — retry' :
+          measurementState === 'failed' ? 'Measurement failed — retry' : 'Press Weigh';
+    setText('weight-quality', quality);
+    setText('weigh-action-label', measurementActive ? activeLabel :
+      Number.isFinite(completed) ? 'Weigh Again' :
+        measurementState === 'timed_out' || measurementState === 'failed' ? 'Retry' : 'Weigh');
+    setText('home-last-weight', Number.isFinite(completed)
+      ? 'Last: ' + Math.round(completed) + ' g' : 'No measurement yet');
+    setText('home-weight-state', !adcReady ? 'Scale unavailable' :
+      measurementActive ? activeLabel : Number.isFinite(completed)
+        ? 'Ready · last measurement captured at ' + capturedTime : 'Ready to weigh');
+    const visualState = overload || !adcReady ? 'error' :
+      measurementState === 'timed_out' || measurementState === 'failed'
+        ? measurementState : measurementActive ? (stable ? 'stable' :
+          samplesInFilter < 3 ? 'measuring' : 'settling') :
+          Number.isFinite(completed) ? 'completed' : 'idle';
+    const visual = byId('scale-visual');
+    if (visual) visual.dataset.state = visualState;
+    setBadge('scale-badge', stable || measurementState === 'completed' ? 'Stable' :
+      measurementActive ? activeLabel.replace('…', '') : normalizeState(measurementState),
+      visualState === 'error' || visualState === 'timed_out' || visualState === 'failed' ? 'bad' :
+        visualState === 'completed' || visualState === 'stable' ? 'good' :
+          visualState === 'settling' ? 'warning' : 'neutral');
+    setText('scale-profile', first(profile.display_name, profile.id,
+      scale.load_cell_profile, scale.load_cell_model));
+    setText('scale-capacity', formatGrams(first(profile.rated_capacity_grams,
+      scale.rated_capacity_grams, scale.load_cell_capacity_grams)));
     const calibrated = first(scale.calibrated, scale.calibration_loaded,
       asObject(scale.calibration).configured, false) === true;
     setText('scale-calibration', calibrated ? 'Calibrated' : 'Calibration required');
     const calibration = asObject(scale.calibration);
     setText('scale-raw', first(sample.raw_counts, scale.raw_counts));
     setText('scale-filtered', first(sample.filtered_counts, scale.filtered_counts));
-    setText('scale-zero', first(scale.tare_zero_offset_counts, calibration.zero_offset_counts, scale.zero_offset_counts));
+    setText('scale-zero', first(scale.tare_zero_offset_counts,
+      calibration.zero_offset_counts, scale.zero_offset_counts));
     setText('scale-factor', first(calibration.counts_per_gram, scale.counts_per_gram));
-    setText('scale-reference', formatGrams(first(calibration.reference_grams, scale.reference_grams)));
+    setText('scale-reference', formatGrams(first(calibration.reference_grams,
+      scale.reference_grams)));
     updateScaleControls();
   }
 
@@ -1433,7 +1664,7 @@ const char application_javascript[] = R"JS((function () {
     const stateText = normalizeState(first(nfc.state, nfc.reader_state, available ? 'ready' : 'unavailable'));
     setText('nfc-reader-state', stateText);
     setText('nfc-tag-state', normalizeState(first(nfc.tag_state, nfc.presence, 'no tag')));
-    setBadge('nfc-badge', stateText, available ? 'good' : 'warning');
+    setBadge('nfc-badge', available ? stateText : 'Disabled', available ? 'good' : 'neutral');
     const readButton = byId('read-tag');
     if (readButton) readButton.disabled = !available || state.maintenance;
   }
@@ -1498,19 +1729,38 @@ const char application_javascript[] = R"JS((function () {
     if (!container) return;
     container.replaceChildren();
     if (!state.printers.length) {
+      setBadge('printer-page-badge', 'Not configured', 'neutral');
+      setText('settings-selected-printer', 'Not selected');
+      setText('footer-printer', 'Not selected');
       const empty = document.createElement('article');
-      empty.className = 'card empty-state';
-      empty.textContent = 'No printer snapshot available.';
+      empty.className = 'card intentional-empty';
+      const icon = document.createElement('span');
+      icon.className = 'empty-icon';
+      icon.textContent = '▣';
+      const title = document.createElement('h3');
+      title.textContent = 'No printer configured';
+      const detail = document.createElement('p');
+      detail.textContent = 'Choose a printer in Settings to manage toolhead assignments.';
+      const link = document.createElement('a');
+      link.className = 'button';
+      link.href = '#settings';
+      link.textContent = 'Open Settings';
+      empty.append(icon, title, detail, link);
       container.appendChild(empty);
       return;
     }
+    const selectedName = String(first(state.printers[0].display_name,
+      state.printers[0].name, 'Selected printer'));
+    setText('settings-selected-printer', selectedName);
+    setText('footer-printer', selectedName);
+    setBadge('printer-page-badge', 'Connected', 'good');
     state.printers.forEach(function (printer) {
       const card = document.createElement('article');
       card.className = 'card';
       const heading = document.createElement('div');
       heading.className = 'printer-heading';
       const title = document.createElement('h3');
-      title.textContent = String(first(printer.display_name, printer.name, printer.id, 'Printer'));
+      title.textContent = String(first(printer.display_name, printer.name, 'Selected printer'));
       const badge = document.createElement('span');
       const printerState = String(first(printer.state, 'unknown'));
       badge.className = 'badge ' + (isOnline(printerState) || printerState === 'idle' ? 'good' : isDangerState(printerState) ? 'warning' : 'neutral');
@@ -1525,17 +1775,25 @@ const char application_javascript[] = R"JS((function () {
         item.className = 'toolhead';
         const name = document.createElement('div');
         name.className = 'toolhead-name';
-        name.textContent = String(first(toolhead.display_name, Number.isInteger(backendId) ? 'T' + (backendId + 1) : null, 'Toolhead'));
-        const mapped = first(toolhead.assigned_spool_id, toolhead.assigned_spool, toolhead.spool_id);
+        name.textContent = String(first(toolhead.display_name,
+          Number.isInteger(backendId) ? 'T' + (backendId + 1) : null, 'Toolhead'));
+        const mapped = first(toolhead.assigned_spool_id,
+          toolhead.assigned_spool, toolhead.spool_id);
         const spoolText = document.createElement('div');
         spoolText.className = 'toolhead-spool';
-        spoolText.textContent = mapped === null ? 'Empty' : 'Spool #' + mapped;
+        spoolText.textContent = mapped === null ? 'Unassigned' : 'Spool assigned';
         const actions = document.createElement('div');
         actions.className = 'toolhead-actions';
-        const revision = first(printer.revision, printer.printer_revision, state.printerRevision);
-        const ready = Number.isInteger(backendId) && state.spool && first(state.spool.id, state.spool.spool_id) !== null && state.spoolGeneration !== null && revision !== null && !state.maintenance;
-        actions.appendChild(makeButton('Assign', 'button primary', function () { assignToolhead(printer, toolhead, revision); }, !ready));
-        actions.appendChild(makeButton('Unassign', 'button quiet', function () { unassignToolhead(printer, toolhead, revision); }, mapped === null || revision === null || state.maintenance));
+        const revision = first(printer.revision,
+          printer.printer_revision, state.printerRevision);
+        const ready = Number.isInteger(backendId) && state.spool &&
+          first(state.spool.id, state.spool.spool_id) !== null &&
+          state.spoolGeneration !== null && revision !== null && !state.maintenance;
+        actions.appendChild(makeButton('Assign', 'button primary',
+          function () { assignToolhead(printer, toolhead, revision); }, !ready));
+        actions.appendChild(makeButton('Unassign', 'button quiet',
+          function () { unassignToolhead(printer, toolhead, revision); },
+          mapped === null || revision === null || state.maintenance));
         item.append(name, spoolText, actions);
         grid.appendChild(item);
       });
@@ -1544,7 +1802,9 @@ const char application_javascript[] = R"JS((function () {
         noTools.className = 'muted';
         noTools.textContent = 'No toolheads reported.';
         card.appendChild(noTools);
-      } else card.appendChild(grid);
+      } else {
+        card.appendChild(grid);
+      }
       container.appendChild(card);
     });
   }
@@ -2722,8 +2982,19 @@ const char application_javascript[] = R"JS((function () {
     setConfigState(CONFIG_STATE.READY);
   }
 
+  function startHomeWeigh() {
+    navigateProductPage('scale');
+    const weigh = byId('weigh-scale');
+    if (!weigh || weigh.disabled) return Promise.resolve(false);
+    return runScaleMutation(
+      weigh, '/scale/weigh', {}, 'Weight captured.').then(function () {
+      return true;
+    });
+  }
+
   function wireActions() {
     byId('refresh-all').addEventListener('click', function () { refreshAll(false); });
+    byId('home-weigh').addEventListener('click', startHomeWeigh);
     byId('weigh-scale').addEventListener('click', function (event) {
       runScaleMutation(event.currentTarget, '/scale/weigh', {}, 'Weight captured.');
     });
@@ -2948,6 +3219,7 @@ const char application_javascript[] = R"JS((function () {
 
   async function start() {
     wireActions();
+    activateProductPage(productPageFromHash(location.hash));
     renderAuthState();
     setConfigState(CONFIG_STATE.UNLOADED);
     updateScaleControls();
@@ -2978,7 +3250,7 @@ const char application_javascript[] = R"JS((function () {
       if (document.hidden) state.live.suspend(); else state.live.resume();
     });
     window.addEventListener('hashchange', function () {
-      if (location.hash === '#configuration') ensureConfigReady();
+      activateProductPage(productPageFromHash(location.hash));
     });
     window.addEventListener('pagehide', function () {
       state.unloading = true;
@@ -2996,9 +3268,8 @@ const char application_javascript[] = R"JS((function () {
         state.live.suspended = document.hidden === true;
         state.live.start();
       }
-      if (location.hash === '#configuration') ensureConfigReady();
+      activateProductPage(productPageFromHash(location.hash));
     });
-    if (location.hash === '#configuration') ensureConfigReady();
   }
 
   if (window.__OPENTAG_TEST__) {
@@ -3009,6 +3280,7 @@ const char application_javascript[] = R"JS((function () {
       PRIORITY: PRIORITY,
       CONFIG_STATE: CONFIG_STATE,
       SELF_TEST_PATHS: SELF_TEST_PATHS,
+      PRODUCT_PAGES: PRODUCT_PAGES,
       state: state,
       scheduler: scheduler,
       api: api,
@@ -3029,7 +3301,11 @@ const char application_javascript[] = R"JS((function () {
       updateScaleControls: updateScaleControls,
       renderScale: renderScale,
       renderNfc: renderNfc,
+      productPageFromHash: productPageFromHash,
+      activateProductPage: activateProductPage,
+      navigateProductPage: navigateProductPage,
       renderPrinters: renderPrinters,
+      startHomeWeigh: startHomeWeigh,
       updateButtons: updateButtons,
       runScaleMutation: runScaleMutation,
       runSelfTest: runSelfTest,

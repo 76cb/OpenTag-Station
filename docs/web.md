@@ -18,11 +18,11 @@ identity checks prevent stale REST/WebSocket responses from replacing newer
 state. The grouped contract/security review and physical browser/LAN matrix are in
 [release-validation.md](release-validation.md).
 
-The 2026-08-22 pre-commit stabilization gates pass 262/262 native cases across
-twenty suites in 00:06:27.085 and 33/33 deterministic browser-transport cases.
-Embedded JavaScript syntax validation passes for the 119,132-byte shipped
-source, and the warning-free WT32 build uses 170,752/327,680 RAM bytes (52.1%)
-and 2,090,973/5,242,880 flash bytes (39.9%). Stack and pre-commit factory-bundle
+The 2026-08-22 pre-commit stabilization gates pass 278/278 native cases across
+twenty-one suites in 00:06:57.037 and 37/37 deterministic browser-transport cases.
+Embedded JavaScript syntax validation passes for the 127,078-byte shipped
+source, and the warning-free WT32 build uses 170,776/327,680 RAM bytes (52.1%)
+and 2,173,233/5,242,880 flash bytes (39.9%). Stack and pre-commit factory-bundle
 measurements are recorded in [release-validation.md](release-validation.md).
 Portable router, parser, patch, and bounded-ledger logic executes in host tests;
 the embedded browser, production context, HTTP/WebSocket transport, and

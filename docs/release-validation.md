@@ -29,15 +29,15 @@ build from physical evidence that does not yet exist.
 
 #### LOCAL STABILIZATION RESULT — 2026-08-22 PRE-COMMIT
 
-- The complete native suite passes **262/262 cases across 20 suites** in
-  **00:06:27.085**.
-- The deterministic embedded-browser transport suite passes **33/33 cases**.
-- Embedded JavaScript syntax validation passes for the **119,132-byte** shipped
+- The complete native suite passes **278/278 cases across 21 suites** in
+  **00:06:57.037**.
+- The deterministic embedded-browser transport suite passes **37/37 cases**.
+- Embedded JavaScript syntax validation passes for the **127,078-byte** shipped
   JavaScript source.
 - The pinned `wt32-sc01-plus` build completes with zero compiler warnings and
-  uses **170,752/327,680 RAM bytes (52.1%)** and
-  **2,090,973/5,242,880 flash bytes (39.9%)**.
-- Stack analysis parses **8,192 frames across 413 files**. Largest project frames,
+  uses **170,776/327,680 RAM bytes (52.1%)** and
+  **2,173,233/5,242,880 flash bytes (39.9%)**.
+- Stack analysis parses **8,232 frames across 413 files**. Largest project frames,
   in bytes and not cumulative call-chain use, are:
   - 7,936 — `Codec::decode`; NFC remains disabled and no NFC owner task runs;
   - 6,512 — `OtaWorker::process`;
@@ -45,14 +45,14 @@ build from physical evidence that does not yet exist.
   - 5,312 — `OtaWorker::cleanup_pre_task_resources`;
   - 5,264 — firmware descriptor;
   - 5,024 — begin streaming upload;
-  - 4,224 — API `snapshot_json`; and
+  - 4,240 — API `snapshot_json`; and
   - 3,232 — upload handler.
 - Eleven project frames report dynamic stack use; their largest analyzer
   estimate is **240 bytes**.
 - The final pre-commit factory bundle passes local source/bundle validation at
-  **2,156,880 bytes**, with embedded version `0.1.0-dev+296d8a47c13d` and
+  **2,239,136 bytes**, with embedded version `0.1.0-dev+7483a07061d2` and
   SHA-256
-  `578cb70758d9364bef5684b4e59fd4c0b2644c6df3660e16b641e61498f51b73`.
+  `8b704d7eecdbb815ba03ef8fca6461109747e7bf99804eda37feda8c8de9bc28`.
   It was generated before the final stabilization commit, so this records local
   structure/size evidence only. It does not claim a final embedded Git SHA,
   final artifact digest, Pages artifact, deployment, or public HTTP result.
