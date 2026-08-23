@@ -83,6 +83,7 @@ class UiService {
   static void weigh_callback(lv_event_t* event);
   static void tare_callback(lv_event_t* event);
   static void calibrate_callback(lv_event_t* event);
+  static void scale_calibration_close_callback(lv_event_t* event);
   static void scale_textarea_callback(lv_event_t* event);
   static void scale_keyboard_callback(lv_event_t* event);
   static void toolhead_callback(lv_event_t* event);
@@ -106,6 +107,7 @@ class UiService {
   void refresh_workflow();
   void refresh_diagnostics(std::uint32_t now_ms);
   void refresh_setup();
+  void set_scale_calibration_panel_open(bool open);
   lv_obj_t* create_setup_textarea(
       std::int16_t y,
       const char* placeholder,
@@ -166,6 +168,11 @@ class UiService {
   lv_obj_t* workflow_calibrate_button_{nullptr};
   lv_obj_t* workflow_reference_input_{nullptr};
   lv_obj_t* workflow_scale_quality_label_{nullptr};
+  lv_obj_t* workflow_scale_capture_label_{nullptr};
+  lv_obj_t* workflow_scale_gauge_{nullptr};
+  lv_obj_t* workflow_scale_indicator_{nullptr};
+  lv_obj_t* workflow_calibration_label_{nullptr};
+  lv_obj_t* workflow_calibration_close_button_{nullptr};
   lv_obj_t* scale_keyboard_{nullptr};
   lv_obj_t* display_test_touch_marker_{nullptr};
   lv_obj_t* display_test_touch_label_{nullptr};
@@ -177,6 +184,7 @@ class UiService {
   std::string pending_printer_id_;
   int pending_backend_toolhead_id_{-1};
   ScaleAction scale_action_{ScaleAction::none};
+  bool scale_calibration_panel_open_{false};
   std::string selected_printer_id_;
   bool pending_replace_confirmation_{false};
   bool pending_active_override_{false};
