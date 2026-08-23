@@ -160,7 +160,9 @@ class UiService {
   lv_obj_t* setup_network_dropdown_{nullptr};
   lv_obj_t* setup_keyboard_{nullptr};
   lv_obj_t* workflow_material_label_{nullptr};
+  lv_obj_t* workflow_home_state_label_{nullptr};
   lv_obj_t* workflow_weight_label_{nullptr};
+  lv_obj_t* workflow_scale_unit_label_{nullptr};
   lv_obj_t* workflow_weigh_button_{nullptr};
   lv_obj_t* workflow_identity_label_{nullptr};
   lv_obj_t* workflow_status_label_{nullptr};

@@ -66,14 +66,14 @@ const char index_html[] = R"HTML(<!doctype html>
     <section id="overview" class="section product-page home-page" data-page="home" aria-labelledby="overview-title">
       <div class="home-hero">
         <article class="home-copy">
-          <p class="eyebrow">READY</p>
+          <p id="home-eyebrow" class="eyebrow">READY</p>
           <h2 id="device-name">OpenTag Station</h2>
           <p id="overview-title" class="home-prompt">Place a spool</p>
-          <p class="muted">Present a spool to begin, or capture its weight directly.</p>
+          <p id="home-description" class="muted">Present a spool to begin, or capture its weight directly.</p>
         </article>
         <button id="home-weigh" class="home-action" type="button" disabled>
           <span class="home-action-icon" aria-hidden="true">◉</span>
-          <span><strong>WEIGH SPOOL</strong><small id="home-last-weight">No measurement yet</small></span>
+          <span><strong id="home-action-label">WEIGH SPOOL</strong><small id="home-last-weight">No measurement yet</small></span>
           <span aria-hidden="true">›</span>
         </button>
       </div>
@@ -628,6 +628,8 @@ const char application_javascript[] = R"JS((function () {
     scaleTareFallback: false,
     scaleRevision: null,
     calibrationOpen: false,
+    calibrationRefreshTimer: 0,
+    calibrationRefreshInFlight: false,
     updateRevision: null,
     requestEpochs: Object.create(null),
     mutationLocks: Object.create(null),
@@ -725,6 +727,7 @@ const char application_javascript[] = R"JS((function () {
     setText('page-title', PRODUCT_TITLES[selected]);
     setText('page-eyebrow', PRODUCT_EYEBROWS[selected]);
     if (selected !== 'scale' && state.calibrationOpen) setCalibrationPanel(false);
+    else syncCalibrationRefresh();
     if (selected === 'settings') ensureConfigReady();
     return selected;
   }
@@ -1560,6 +1563,51 @@ const char application_javascript[] = R"JS((function () {
     if (step) step.className = status || '';
   }
 
+  function calibrationRefreshEligible() {
+    const scale = asObject(state.scale);
+    const calibrated = first(scale.calibrated, scale.calibration_loaded,
+      asObject(scale.calibration).configured, false) === true;
+    return state.calibrationOpen && state.currentPage === 'scale' && !calibrated &&
+      !state.scaleBusy && !state.maintenance && !state.unloading &&
+      document.hidden !== true;
+  }
+
+  function stopCalibrationRefresh() {
+    window.clearTimeout(state.calibrationRefreshTimer);
+    state.calibrationRefreshTimer = 0;
+    scheduler.cancelGroup('calibration-refresh:');
+  }
+
+  function syncCalibrationRefresh() {
+    if (!calibrationRefreshEligible()) {
+      stopCalibrationRefresh();
+      return;
+    }
+    if (state.calibrationRefreshTimer || state.calibrationRefreshInFlight) return;
+    state.calibrationRefreshTimer = window.setTimeout(calibrationRefreshStep, 1000);
+  }
+
+  async function calibrationRefreshStep() {
+    state.calibrationRefreshTimer = 0;
+    if (!calibrationRefreshEligible()) return;
+    const metrics = scheduler.metrics();
+    if (metrics.active || metrics.queued) {
+      syncCalibrationRefresh();
+      return;
+    }
+    state.calibrationRefreshInFlight = true;
+    try {
+      await load('/scale', renderScale, true, PRIORITY.CORE, {
+        dedupe: true,
+        supersedeKey: 'calibration:/scale',
+        group: 'calibration-refresh:'
+      });
+    } finally {
+      state.calibrationRefreshInFlight = false;
+      syncCalibrationRefresh();
+    }
+  }
+
   function setCalibrationPanel(open) {
     const panel = byId('calibration-panel');
     const trigger = byId('calibrate-scale');
@@ -1571,6 +1619,7 @@ const char application_javascript[] = R"JS((function () {
       if (input && typeof input.focus === 'function') input.focus();
     }
     updateScaleControls();
+    syncCalibrationRefresh();
   }
 
   function updateScaleControls() {
@@ -1598,7 +1647,8 @@ const char application_javascript[] = R"JS((function () {
     const calibrate = byId('calibrate-scale');
     const confirmCalibration = byId('confirm-calibration');
     if (weigh) weigh.disabled = !weighReady;
-    if (homeWeigh) homeWeigh.disabled = !weighReady;
+    if (homeWeigh) homeWeigh.disabled = calibrated
+      ? !weighReady : !adcReady || blocked;
     if (tare) tare.disabled = !adcReady || !rawStable || blocked;
     if (calibrate) calibrate.disabled = !adcReady || blocked;
     if (confirmCalibration) confirmCalibration.disabled =
@@ -1623,13 +1673,13 @@ const char application_javascript[] = R"JS((function () {
     } else if (!adcReady) {
       setText('scale-action-status', 'Scale hardware is unavailable.');
     } else if (!tareReady && !rawStable) {
-      setText('scale-action-status', 'Remove all weight. Waiting for a stable empty platform.');
+      setText('scale-action-status', 'Waiting for stable empty platform.');
     } else if (!tareReady) {
-      setText('scale-action-status', 'Empty platform is stable. Ready to tare.');
+      setText('scale-action-status', 'Ready to tare.');
     } else if (!Number.isFinite(samplesInFilter) || samplesInFilter <= 0) {
       setText('scale-action-status', 'Tare complete — place the reference weight.');
     } else if (!rawStable) {
-      setText('scale-action-status', 'Reference placed. Waiting for a stable signal.');
+      setText('scale-action-status', 'Waiting for stable reference weight.');
     } else if (!referenceReady) {
       setText('scale-action-status', 'Reference is stable. Enter its known mass.');
     } else {
@@ -1664,6 +1714,8 @@ const char application_javascript[] = R"JS((function () {
     setText('gross-weight', displayed);
     const overload = first(sample.overload, scale.overload, false) === true;
     const adcReady = scale.adc_ready === true;
+    const calibrated = first(scale.calibrated, scale.calibration_loaded,
+      asObject(scale.calibration).configured, false) === true;
     const reportedAge = Number(measurement.last_completed_age_ms);
     const capturedAt = Number(measurement.last_completed_at_ms);
     const snapshotAt = Number(measurement.snapshot_at_ms);
@@ -1690,8 +1742,16 @@ const char application_javascript[] = R"JS((function () {
         measurementState === 'timed_out' || measurementState === 'failed' ? 'Retry' : 'Weigh');
     setText('home-last-weight', Number.isFinite(completed)
       ? 'Last: ' + Math.round(completed) + ' g' : 'No measurement yet');
-    setText('home-weight-state', !adcReady ? 'Scale unavailable' :
-      measurementActive ? activeLabel : Number.isFinite(completed)
+    setText('home-eyebrow', calibrated ? 'READY' : 'SCALE SETUP REQUIRED');
+    setText('overview-title', calibrated ? 'Place a spool' :
+      'Calibrate the scale before weighing');
+    setText('home-description', calibrated
+      ? 'Present a spool to begin, or capture its weight directly.'
+      : 'Complete the guided tare and reference-weight calibration.');
+    setText('home-action-label', calibrated ? 'WEIGH SPOOL' : 'CALIBRATE SCALE');
+    setText('home-weight-state', !adcReady ? 'Scale unavailable' : !calibrated
+      ? 'Scale calibration required'
+      : measurementActive ? activeLabel : Number.isFinite(completed)
         ? 'Ready · last measurement captured at ' + capturedTime : 'Ready to weigh');
     const visualState = overload || !adcReady ? 'error' :
       measurementState === 'timed_out' || measurementState === 'failed'
@@ -1709,8 +1769,6 @@ const char application_javascript[] = R"JS((function () {
       scale.load_cell_profile, scale.load_cell_model));
     setText('scale-capacity', formatGrams(first(profile.rated_capacity_grams,
       scale.rated_capacity_grams, scale.load_cell_capacity_grams)));
-    const calibrated = first(scale.calibrated, scale.calibration_loaded,
-      asObject(scale.calibration).configured, false) === true;
     setText('scale-calibration', calibrated ? 'Calibrated' : 'Calibration required');
     const calibration = asObject(scale.calibration);
     setText('scale-raw', first(sample.raw_counts, scale.raw_counts));
@@ -1720,6 +1778,7 @@ const char application_javascript[] = R"JS((function () {
     setText('scale-factor', first(calibration.counts_per_gram, scale.counts_per_gram));
     setText('scale-reference', formatGrams(first(calibration.reference_grams,
       scale.reference_grams)));
+    if (calibrated && state.calibrationOpen) setCalibrationPanel(false);
     updateScaleControls();
   }
 
@@ -2431,6 +2490,7 @@ const char application_javascript[] = R"JS((function () {
     const key = requestId();
     button.disabled = true;
     state.maintenance = true;
+    stopCalibrationRefresh();
     scheduler.pauseBackground();
     renderAuthState();
     setConfigState(state.configState, state.configError);
@@ -2455,6 +2515,7 @@ const char application_javascript[] = R"JS((function () {
       state.maintenance = false;
       scheduler.resumeBackground();
       if (state.live) state.live.endMaintenance();
+      syncCalibrationRefresh();
       updateButtons();
       if (!state.unloading) {
         await load('/update', renderUpdate, true, PRIORITY.CORE);
@@ -2943,6 +3004,7 @@ const char application_javascript[] = R"JS((function () {
     }
     state.scaleBusy = true;
     state.scaleProgress = 'Sending scale command…';
+    stopCalibrationRefresh();
     updateScaleControls();
     try {
       const operation = await submitMutation(path, {
@@ -2962,6 +3024,7 @@ const char application_javascript[] = R"JS((function () {
       }
       await load('/scale', renderScale, false, PRIORITY.CORE);
       await loadConfig(true, false);
+      if (path === '/scale/calibrate') setCalibrationPanel(false);
       showToast(operationMessage(operation, success));
     } catch (error) {
       showToast(error.message || String(error), true);
@@ -2969,6 +3032,7 @@ const char application_javascript[] = R"JS((function () {
       state.scaleBusy = false;
       state.scaleProgress = '';
       updateScaleControls();
+      syncCalibrationRefresh();
     }
   }
 
@@ -3072,7 +3136,14 @@ const char application_javascript[] = R"JS((function () {
   }
 
   function startHomeWeigh() {
+    const scale = asObject(state.scale);
+    const calibrated = first(scale.calibrated, scale.calibration_loaded,
+      asObject(scale.calibration).configured, false) === true;
     navigateProductPage('scale');
+    if (!calibrated) {
+      setCalibrationPanel(true);
+      return Promise.resolve(true);
+    }
     const weigh = byId('weigh-scale');
     if (!weigh || weigh.disabled) return Promise.resolve(false);
     return runScaleMutation(
@@ -3341,8 +3412,10 @@ const char application_javascript[] = R"JS((function () {
       if (state.live) state.live.setOnline(false);
     });
     document.addEventListener('visibilitychange', function () {
-      if (!state.live) return;
-      if (document.hidden) state.live.suspend(); else state.live.resume();
+      if (state.live) {
+        if (document.hidden) state.live.suspend(); else state.live.resume();
+      }
+      syncCalibrationRefresh();
     });
     window.addEventListener('hashchange', function () {
       activateProductPage(productPageFromHash(location.hash));
@@ -3352,6 +3425,7 @@ const char application_javascript[] = R"JS((function () {
       state.selfTestGeneration += 1;
       scheduler.cancelGroup('selftest:');
       scheduler.cancelGroup('fallback:');
+      stopCalibrationRefresh();
       setFallbackPolling(false);
       if (state.uploadXhr) state.uploadXhr.abort();
       if (state.live) state.live.stop();
@@ -3364,6 +3438,7 @@ const char application_javascript[] = R"JS((function () {
         state.live.start();
       }
       activateProductPage(productPageFromHash(location.hash));
+      syncCalibrationRefresh();
     });
   }
 
@@ -3395,6 +3470,10 @@ const char application_javascript[] = R"JS((function () {
       resourcePriority: resourcePriority,
       updateScaleControls: updateScaleControls,
       setCalibrationPanel: setCalibrationPanel,
+      calibrationRefreshEligible: calibrationRefreshEligible,
+      calibrationRefreshStep: calibrationRefreshStep,
+      syncCalibrationRefresh: syncCalibrationRefresh,
+      stopCalibrationRefresh: stopCalibrationRefresh,
       renderScale: renderScale,
       renderNfc: renderNfc,
       productPageFromHash: productPageFromHash,

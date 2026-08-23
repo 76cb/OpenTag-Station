@@ -58,6 +58,12 @@ void test_scale_diagnostics_expose_coherent_hardware_and_calibration_state() {
   status.measurement_state = opentag::services::ScaleMeasurementState::completed;
   status.last_completed_grams = 42.0F;
   status.last_completed_at_ms = 12345U;
+  status.tare_ready = true;
+  status.tare_zero_offset_counts = 321;
+  status.persistent_zero_offset_counts = 321;
+  status.runtime_zero_correction_counts = 45;
+  status.effective_zero_offset_counts = 366;
+  status.calibration_reference_settled = true;
   const auto calibration = calibration_for(500.0F, 5000.0F);
 
   store.update(status, calibration, hardware);
@@ -86,6 +92,12 @@ void test_scale_diagnostics_expose_coherent_hardware_and_calibration_state() {
   TEST_ASSERT_EQUAL_INT32(1000, snapshot.scale_raw_counts);
   TEST_ASSERT_EQUAL_INT32(1001, snapshot.scale_filtered_counts);
   TEST_ASSERT_EQUAL_INT32(42125, snapshot.scale_gross_milligrams);
+  TEST_ASSERT_TRUE(snapshot.scale_tare_ready);
+  TEST_ASSERT_EQUAL_INT32(321, snapshot.scale_tare_zero_offset_counts);
+  TEST_ASSERT_EQUAL_INT32(321, snapshot.scale_persistent_zero_offset_counts);
+  TEST_ASSERT_EQUAL_INT32(45, snapshot.scale_runtime_zero_correction_counts);
+  TEST_ASSERT_EQUAL_INT32(366, snapshot.scale_effective_zero_offset_counts);
+  TEST_ASSERT_TRUE(snapshot.scale_calibration_reference_settled);
   TEST_ASSERT_EQUAL_INT32(321, snapshot.scale_zero_offset_counts);
   TEST_ASSERT_EQUAL_INT32(
       1234500, snapshot.scale_factor_millicounts_per_gram);

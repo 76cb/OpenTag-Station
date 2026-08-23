@@ -293,6 +293,14 @@ void write_scale(
   if (value.scale_tare_ready) {
     scale["tare_zero_offset_counts"] = value.scale_tare_zero_offset_counts;
   }
+  scale["persistent_zero_offset_counts"] =
+      value.scale_persistent_zero_offset_counts;
+  scale["runtime_zero_correction_counts"] =
+      value.scale_runtime_zero_correction_counts;
+  scale["effective_zero_offset_counts"] =
+      value.scale_effective_zero_offset_counts;
+  scale["calibration_reference_settled"] =
+      value.scale_calibration_reference_settled;
   scale["samples_in_filter"] = value.scale_samples_in_filter;
   auto measurement = scale["measurement"].to<JsonObject>();
   measurement["snapshot_at_ms"] = snapshot_at_ms;

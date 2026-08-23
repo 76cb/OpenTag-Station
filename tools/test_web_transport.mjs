@@ -1631,6 +1631,133 @@ test('Home Weigh opens Scale and submits one bounded measurement', async () => {
   assert.equal(app.fetchCalls.filter((call) => call.init.method === 'POST').length, 1);
 });
 
+test('Home exposes calibration-required truth and routes its primary action to guidance', async () => {
+  const { T, document, context, fetchCalls } = loadApplication();
+  T.applyAuthState(false, 1);
+  T.renderScale({
+    revision: 1, adc_ready: true, calibrated: false,
+    measurement: { state: 'idle', active: false },
+    sample: { raw_stable: false, stable: false },
+  });
+  assert.equal(document.getElementById('home-eyebrow').textContent,
+    'SCALE SETUP REQUIRED');
+  assert.equal(document.getElementById('overview-title').textContent,
+    'Calibrate the scale before weighing');
+  assert.equal(document.getElementById('home-action-label').textContent,
+    'CALIBRATE SCALE');
+  assert.equal(document.getElementById('home-weight-state').textContent,
+    'Scale calibration required');
+  assert.equal(document.getElementById('home-weigh').disabled, false);
+  assert.equal(await T.startHomeWeigh(), true);
+  assert.equal(T.state.currentPage, 'scale');
+  assert.equal(context.location.hash, '#scale');
+  assert.equal(T.state.calibrationOpen, true);
+  assert.equal(document.getElementById('calibration-panel').hidden, false);
+  assert.equal(fetchCalls.length, 0, 'guidance navigation must not submit a weigh');
+  T.setCalibrationPanel(false);
+
+  T.renderScale({
+    revision: 2, adc_ready: true, calibrated: true,
+    measurement: { state: 'idle', active: false },
+    sample: { raw_stable: true, stable: true },
+  });
+  assert.equal(document.getElementById('home-eyebrow').textContent, 'READY');
+  assert.equal(document.getElementById('overview-title').textContent, 'Place a spool');
+  assert.equal(document.getElementById('home-action-label').textContent, 'WEIGH SPOOL');
+  assert.equal(document.getElementById('home-weight-state').textContent, 'Ready to weigh');
+});
+
+test('guided calibration refresh is one-hertz, single-flight, and strictly scoped', async () => {
+  const clock = new FakeClock();
+  const firstScale = deferred();
+  let scaleReads = 0;
+  const app = loadApplication({
+    clock,
+    fetch: async (url, init) => {
+      const endpoint = String(url).slice('/api/v1'.length);
+      assert.equal(init.method, 'GET');
+      assert.equal(endpoint, '/scale');
+      scaleReads += 1;
+      if (scaleReads === 1) return firstScale.promise;
+      return jsonResponse(200, {
+        revision: scaleReads, adc_ready: true, calibrated: false,
+        tare_ready: true, samples_in_filter: 3,
+        sample: { raw_stable: true, stable: false },
+        measurement: { state: 'idle', active: false },
+      });
+    },
+  });
+  const { T } = app;
+  T.activateProductPage('scale');
+  T.renderScale({
+    revision: 0, adc_ready: true, calibrated: false,
+    tare_ready: false, samples_in_filter: 0,
+    sample: { raw_stable: true, stable: false },
+    measurement: { state: 'idle', active: false },
+  });
+  clock.tick(5000);
+  await flushPromises();
+  assert.equal(scaleReads, 0, 'normal idle Scale page must not poll');
+
+  T.setCalibrationPanel(true);
+  assert.equal(clock.nextTimer().at - clock.now, 1000);
+  clock.runNext();
+  await flushPromises();
+  assert.equal(scaleReads, 1);
+  assert.equal(T.state.calibrationRefreshInFlight, true);
+  clock.tick(5000);
+  await flushPromises();
+  assert.equal(scaleReads, 1, 'an in-flight refresh must not queue another');
+  assert.equal(T.scheduler.metrics().queued, 0);
+  assert.equal(T.scheduler.metrics().maximumActive, 1);
+
+  firstScale.resolve(jsonResponse(200, {
+    revision: 1, adc_ready: true, calibrated: false,
+    tare_ready: true, samples_in_filter: 3,
+    sample: { raw_stable: true, stable: false },
+    measurement: { state: 'idle', active: false },
+  }));
+  await flushPromises(30);
+  assert.equal(T.state.calibrationRefreshInFlight, false);
+  assert.equal(clock.nextTimer().at - clock.now, 1000);
+  clock.runNext();
+  await flushPromises(30);
+  assert.equal(scaleReads, 2);
+  assert.equal(clock.nextTimer().at - clock.now, 1000);
+
+  T.state.scaleBusy = true;
+  T.syncCalibrationRefresh();
+  assert.equal(T.state.calibrationRefreshTimer, 0, 'mutation pauses refresh');
+  T.state.scaleBusy = false;
+  T.syncCalibrationRefresh();
+  assert.ok(T.state.calibrationRefreshTimer);
+  T.state.maintenance = true;
+  T.syncCalibrationRefresh();
+  assert.equal(T.state.calibrationRefreshTimer, 0, 'maintenance stops refresh');
+  T.state.maintenance = false;
+  T.syncCalibrationRefresh();
+  assert.ok(T.state.calibrationRefreshTimer);
+
+  T.activateProductPage('home');
+  assert.equal(T.state.calibrationOpen, false);
+  assert.equal(T.state.calibrationRefreshTimer, 0, 'leaving Scale stops refresh');
+  clock.tick(5000);
+  await flushPromises();
+  assert.equal(scaleReads, 2);
+
+  T.activateProductPage('scale');
+  T.setCalibrationPanel(true);
+  assert.ok(T.state.calibrationRefreshTimer);
+  T.renderScale({
+    revision: 3, adc_ready: true, calibrated: true,
+    sample: { raw_stable: true, stable: true },
+    measurement: { state: 'idle', active: false },
+  });
+  assert.equal(T.state.calibrationOpen, false);
+  assert.equal(T.state.calibrationRefreshTimer, 0,
+    'authoritative calibration completion stops refresh');
+});
+
 test('on-demand scale renders only settling or retained results and gates Weigh', () => {
   const source = readFileSync(ASSET_PATH, 'utf8');
   assert.ok(source.includes('id="scale-visual" class="spool-visual"'));
@@ -1677,7 +1804,7 @@ test('fresh calibration actions automatically wait for raw-stable windows', () =
   assert.equal(calibrate.disabled, false, 'calibrate opens the guided panel');
   assert.equal(confirmCalibration.disabled, true);
   assert.equal(status.textContent,
-    'Remove all weight. Waiting for a stable empty platform.');
+    'Waiting for stable empty platform.');
 
   T.renderScale({
     revision: 2, adc_ready: true, calibrated: false, raw_stable: true,
@@ -1685,7 +1812,7 @@ test('fresh calibration actions automatically wait for raw-stable windows', () =
   });
   assert.equal(tare.disabled, false);
   assert.equal(confirmCalibration.disabled, true);
-  assert.equal(status.textContent, 'Empty platform is stable. Ready to tare.');
+  assert.equal(status.textContent, 'Ready to tare.');
 
   T.renderScale({
     revision: 3, adc_ready: true, calibrated: false, raw_stable: false,
@@ -1703,7 +1830,7 @@ test('fresh calibration actions automatically wait for raw-stable windows', () =
   });
   assert.equal(confirmCalibration.disabled, true);
   assert.equal(status.textContent,
-    'Reference placed. Waiting for a stable signal.');
+    'Waiting for stable reference weight.');
 
   T.renderScale({
     revision: 5, adc_ready: true, calibrated: false, raw_stable: true,

@@ -90,7 +90,11 @@ struct ScaleProcessingConfig {
   float overload_ratio{1.10F};
   float adc_overload_ratio{0.98F};
   float creep_warning_grams{5.0F};
-  float near_zero_deadband_grams{1.0F};
+  float near_zero_deadband_grams{30.0F};
+  std::uint32_t runtime_zero_dwell_ms{3000U};
+  float runtime_zero_step_grams{5.0F};
+  float runtime_zero_maximum_grams{30.0F};
+  std::uint32_t calibration_settle_duration_ms{4000U};
 
   [[nodiscard]] core::Result<void> validate() const;
 };
@@ -115,6 +119,10 @@ struct ScaleStatus {
   bool persistence_available{true};
   bool tare_ready{false};
   std::int32_t tare_zero_offset_counts{0};
+  std::int32_t persistent_zero_offset_counts{0};
+  std::int32_t runtime_zero_correction_counts{0};
+  std::int32_t effective_zero_offset_counts{0};
+  bool calibration_reference_settled{false};
   std::size_t samples_in_filter{0};
   ScaleSample sample;
   ScaleMeasurementPurpose measurement_purpose{ScaleMeasurementPurpose::weigh};
@@ -169,6 +177,8 @@ class ScaleService {
 
   [[nodiscard]] FilterStatistics filter_statistics() const;
   [[nodiscard]] bool raw_filter_stable() const;
+  void update_runtime_zero(std::uint32_t now_ms);
+  void reset_runtime_zero();
   void advance_measurement(std::uint32_t now_ms);
   void fail_active_measurement(const core::Error& error);
   void push_sample(std::int32_t raw_counts, std::uint32_t now_ms);
@@ -189,6 +199,9 @@ class ScaleService {
   std::uint32_t last_sample_ms_{0U};
   std::optional<std::uint32_t> stable_candidate_since_ms_;
   std::optional<float> stable_baseline_grams_;
+  std::optional<std::uint32_t> runtime_zero_candidate_since_ms_;
+  std::optional<std::uint32_t> calibration_stable_since_ms_;
+  std::int32_t runtime_zero_correction_counts_{0};
   std::optional<std::uint32_t> measurement_started_ms_;
 };
 
