@@ -79,6 +79,25 @@
       background: #f7fafb;
     }
 
+    .installer + .installer { margin-top: 1rem; }
+
+    .installer h2 {
+      margin: 0 0 0.35rem;
+      color: var(--accent-dark);
+      font-size: 1.05rem;
+    }
+
+    .installer p {
+      margin: 0 0 1rem;
+      color: var(--muted);
+      line-height: 1.5;
+    }
+
+    .diagnostic {
+      border-color: #d9aa51;
+      background: #fffaf0;
+    }
+
     esp-web-install-button { display: block; }
 
     button {
@@ -155,8 +174,27 @@
     </p>
 
     <div class="installer">
+      <h2>Production / factory (default)</h2>
+      <p>Install or recover the normal OpenTag Station firmware.</p>
       <esp-web-install-button manifest="manifest.json">
         <button slot="activate" type="button">Install OpenTag Station</button>
+        <span slot="unsupported" class="compatibility">
+          This installer requires desktop Chrome or Edge with Web Serial support.
+        </span>
+        <span slot="not-allowed" class="compatibility">
+          Open this installer from its HTTPS GitHub Pages address.
+        </span>
+      </esp-web-install-button>
+    </div>
+
+    <div class="installer diagnostic">
+      <h2>WT32-SC01 Plus — Shared I2C / NFC Test</h2>
+      <p>
+        Opt-in physical diagnostic for the NAU7802 and ST25R3916B on GPIO10/GPIO11.
+        It does not start the normal station application, RFAL, or NFC tag operations.
+      </p>
+      <esp-web-install-button manifest="i2c-test-manifest.json">
+        <button slot="activate" type="button">Flash Shared I2C / NFC Test</button>
         <span slot="unsupported" class="compatibility">
           This installer requires desktop Chrome or Edge with Web Serial support.
         </span>

@@ -44,7 +44,7 @@ For physical panel bring-up, build and flash the opt-in diagnostic environment:
 .venv/bin/pio run --environment wt32-sc01-plus-display-test
 ```
 
-That environment replaces the normal UI with labeled red, green, blue, white,
+The display-test environment replaces the normal UI with labeled red, green, blue, white,
 black, yellow, cyan, and magenta swatches, an eight-step grayscale ramp, a
 full-panel border, true center marker, edge labels, and live touch coordinates.
 The normal `wt32-sc01-plus` environment remains unchanged as the application
@@ -55,6 +55,12 @@ LVGL requests two 480 × 40-line RGB565 buffers from PSRAM. Rendering remains
 available with one PSRAM buffer if the second allocation fails, or a 480 ×
 20-line internal-memory buffer if PSRAM allocation fails entirely. The hardware
 diagnostics screen reports the actual allocation path.
+
+For the physical NAU7802/ST25R3916B shared-bus test, build the separate
+`wt32-sc01-plus-i2c-test` environment. It exclusively owns GPIO10 SDA / GPIO11
+SCL at 100 kHz during initial characterization and uses GPIO12 for NFC IRQ. The
+normal `wt32-sc01-plus` target remains wiring-gated and does not start this
+diagnostic or enable NFC/RFAL.
 
 NVS stores boot count, boot-pending health, and a saturated crash streak. A
 LittleFS partition is always mounted first with formatting disabled and by its
