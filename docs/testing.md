@@ -212,7 +212,7 @@ Run the release checks with:
 git diff --check
 python3 tools/check_web_assets.py
 node --test tools/test_web_transport.mjs
-python3 tools/web_flasher.py validate-source --page web-flasher/index.html --manifest web-flasher/manifest.json
+python3 tools/web_flasher.py validate-source --page web-flasher/index.html --manifest web-flasher/manifest.json --diagnostic-manifest web-flasher/i2c-test-manifest.json
 .venv/bin/pio test --environment native
 .venv/bin/pio run --environment wt32-sc01-plus
 python3 tools/analyze_stack_usage.py
@@ -220,11 +220,18 @@ python3 tools/analyze_stack_usage.py
 python3 tools/web_flasher.py validate-bundle --bundle-dir .pio/build/wt32-sc01-plus/web-flasher --maximum-size 16777216
 ```
 
-The web-flasher checks verify the ESP Web Tools page and manifest paths, the
-single merged image at offset zero, ESP32-S3 chip family, source Git SHA,
-evaluated PlatformIO upload inputs, and the 16 MiB size bound. They generate no
-release or tag and do not prove a physical USB flash; follow
+The web-flasher checks verify the ESP Web Tools page and manifest paths, merged
+images at offset zero, ESP32-S3 chip family, source Git SHA, evaluated
+PlatformIO upload inputs, and the 16 MiB size bound. They generate no release
+or tag and do not prove a physical USB flash; follow
 [web-flasher.md](web-flasher.md) for that pending hardware/browser validation.
+
+The opt-in shared-I2C lane additionally builds
+`wt32-sc01-plus-i2c-test`, generates its `web-flasher` target, validates the
+diagnostic component, and assembles/validates the combined Pages directory as
+shown in [web-flasher.md](web-flasher.md). Host classification coverage lives
+in `test_shared_i2c_diagnostic`; the firmware build cannot claim a physical
+line, ACK, identity, IRQ, or coexistence PASS.
 
 The final count/build measurements and all-UNVERIFIED hardware/soak matrix are
 maintained in [release-validation.md](release-validation.md).

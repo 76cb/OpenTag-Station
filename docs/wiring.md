@@ -32,6 +32,25 @@ sign, swap A+ and A− only after confirming the four-wire mapping.
 
 The exact module is the ELECHOUSE `NFC_ST25R3916B` with this 1.25 mm connector:
 
+The ELECHOUSE ST25R3916B module is assigned only for the opt-in
+`wt32-sc01-plus-i2c-test` physical diagnostic:
+
+| Diagnostic signal | WT32 pin |
+|---|---|
+| SDA | GPIO 10, shared with NAU7802 |
+| SCL | GPIO 11, shared with NAU7802 |
+| IRQ | GPIO 12 |
+| Supply | board 5 V |
+| Ground | GND |
+| I2C target address | `0x50` |
+
+The module's I2C solder bridge must be closed. CS/BSS and MOSI are not used by
+this diagnostic. The target runs the shared bus at 100 kHz and never enables an
+RF field, RFAL, inventory, or tag writes.
+
+**Production RFAL wiring remains unassigned. Do not infer production SPI pins
+from the diagnostic wiring above.**
+
 | Pin | Module signal |
 |---:|---|
 | 1 | IRQ |
@@ -43,10 +62,10 @@ The exact module is the ELECHOUSE `NFC_ST25R3916B` with this 1.25 mm connector:
 | 7 | GND |
 
 It exposes neither reset nor power-enable. Do not assign a fake GPIO for either.
-The recommended future transport is the documented I2C module configuration on
-the existing scale bus, with proposed IRQ on GPIO12:
+The diagnostic transport uses the documented I2C module configuration on the
+existing scale bus, with IRQ on GPIO12:
 
-| Module signal | Proposed WT32 connection |
+| Module signal | Diagnostic WT32 connection |
 |---|---|
 | SDA | GPIO10, shared with NAU7802 |
 | SCL | GPIO11, shared with NAU7802 |
@@ -56,9 +75,9 @@ the existing scale bus, with proposed IRQ on GPIO12:
 | CS / BSS, MOSI | not connected in ELECHOUSE's I2C quick-start hookup |
 | Reset, power-enable | not present on the module |
 
-**This is a recommendation, not an active wiring assignment. Do not wire or
-power the reader from this table yet.** The board profile deliberately retains
-`-1` transport pins. First implement the authoritative ST RFAL I2C adapter and
+**This is active only in the opt-in diagnostic, not in production firmware.**
+The production board profile deliberately retains `-1` transport pins. Before
+production NFC is enabled, implement the authoritative ST RFAL I2C adapter and
 a bounded shared-bus lock used by both NFC and the NAU7802 scale owner, then
 verify the module solder bridge and combined pull-ups. The full rationale and
 ordered procedure are in [nfc-hardware-bringup.md](nfc-hardware-bringup.md).

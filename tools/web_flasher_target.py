@@ -32,6 +32,18 @@ def build_web_flasher(source: object, target: object, env: object) -> None:
     build_env = env
     board = build_env.BoardConfig()
     build_dir = pathlib.Path(build_env.subst("$BUILD_DIR"))
+    diagnostic = build_env.subst("$PIOENV") == "wt32-sc01-plus-i2c-test"
+    image_name = (
+        "opentag-station-i2c-test.bin"
+        if diagnostic
+        else "opentag-station-factory.bin"
+    )
+    manifest_name = "i2c-test-manifest.json" if diagnostic else "manifest.json"
+    product_name = (
+        "OpenTag Station Shared I2C / NFC Test"
+        if diagnostic
+        else "OpenTag Station"
+    )
     application = build_dir / f"{build_env.subst('$PROGNAME')}.bin"
     extra_images = build_env.get("FLASH_EXTRA_IMAGES", [])
     parts = [
@@ -64,7 +76,10 @@ def build_web_flasher(source: object, target: object, env: object) -> None:
         source_sha=git_short_sha(),
         project_version=(PROJECT_DIR / "VERSION").read_text(encoding="utf-8").strip(),
         page_source=PROJECT_DIR / "web-flasher" / "index.html",
-        manifest_source=PROJECT_DIR / "web-flasher" / "manifest.json",
+        manifest_source=PROJECT_DIR / "web-flasher" / manifest_name,
+        manifest_name=manifest_name,
+        image_name=image_name,
+        product_name=product_name,
         output_dir=build_dir / "web-flasher",
     )
     print(f"generated web flasher with {len(command)} merge arguments ({size} bytes)")

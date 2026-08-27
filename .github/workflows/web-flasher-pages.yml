@@ -33,15 +33,20 @@ jobs:
       - run: git diff --check 4b825dc642cb6eb9a060e54bf8d69288fbee4904 HEAD
       - run: python tools/check_web_assets.py
       - run: node --test tools/test_web_transport.mjs
-      - run: python tools/web_flasher.py validate-source --page web-flasher/index.html --manifest web-flasher/manifest.json
+      - run: python tools/web_flasher.py validate-source --page web-flasher/index.html --manifest web-flasher/manifest.json --diagnostic-manifest web-flasher/i2c-test-manifest.json
       - run: pio test --environment native
       - run: pio run --environment wt32-sc01-plus
+      - run: pio run --environment wt32-sc01-plus-i2c-test
       - run: python tools/analyze_stack_usage.py
       - run: pio run --environment wt32-sc01-plus --target web-flasher
       - run: python tools/web_flasher.py validate-bundle --bundle-dir .pio/build/wt32-sc01-plus/web-flasher --maximum-size 16777216
+      - run: pio run --environment wt32-sc01-plus-i2c-test --target web-flasher
+      - run: python tools/web_flasher.py validate-bundle --kind diagnostic --bundle-dir .pio/build/wt32-sc01-plus-i2c-test/web-flasher --maximum-size 16777216
+      - run: python tools/web_flasher.py assemble-pages --factory-bundle .pio/build/wt32-sc01-plus/web-flasher --diagnostic-bundle .pio/build/wt32-sc01-plus-i2c-test/web-flasher --output-dir .pio/build/web-flasher-pages --maximum-size 16777216
+      - run: python tools/web_flasher.py validate-pages --bundle-dir .pio/build/web-flasher-pages --maximum-size 16777216
       - uses: actions/upload-pages-artifact@7b1f4a764d45c48632c6b24a0339c27f5614fb0b # v4.0.0
         with:
-          path: .pio/build/wt32-sc01-plus/web-flasher
+          path: .pio/build/web-flasher-pages
 
   deploy:
     if: github.ref == 'refs/heads/main'

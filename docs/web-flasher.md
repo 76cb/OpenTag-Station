@@ -11,9 +11,18 @@ The published installer is expected at:
 
 The site uses ESP Web Tools and the browser Web Serial API. Use a current
 desktop Chrome or Edge release, open the HTTPS page, connect the WT32-SC01 Plus
-to the computer with a USB data cable, select **Install OpenTag Station**, and
-choose the board's serial device when prompted. Web Serial is not supported by
-Firefox or Safari.
+to the computer with a USB data cable, then select either the default
+**Install OpenTag Station** production image or the opt-in
+**WT32-SC01 Plus — Shared I2C / NFC Test** image. Choose the board's serial
+device when prompted. Web Serial is not supported by Firefox or Safari.
+
+The shared-I2C diagnostic is a separate, no-RFAL image. It samples GPIO10/11,
+performs one bounded recovery attempt when needed, probes only `0x2A` and
+`0x50` before a contention-aware scan, validates the ST25R3916B direct-register
+identity/IRQ path without enabling its RF field, and then runs a bounded
+30-second coexistence test. Its touchscreen is the primary result display. For
+the secondary browser view, join the open `OpenTag-I2C-Test` access point and
+open `http://192.168.4.1`.
 
 ## Download mode
 
@@ -53,8 +62,20 @@ Install the pinned development dependencies, then run:
 
 ```bash
 .venv/bin/pio run --environment wt32-sc01-plus --target web-flasher
+.venv/bin/pio run --environment wt32-sc01-plus-i2c-test --target web-flasher
 python3 tools/web_flasher.py validate-bundle \
   --bundle-dir .pio/build/wt32-sc01-plus/web-flasher \
+  --maximum-size 16777216
+python3 tools/web_flasher.py validate-bundle --kind diagnostic \
+  --bundle-dir .pio/build/wt32-sc01-plus-i2c-test/web-flasher \
+  --maximum-size 16777216
+python3 tools/web_flasher.py assemble-pages \
+  --factory-bundle .pio/build/wt32-sc01-plus/web-flasher \
+  --diagnostic-bundle .pio/build/wt32-sc01-plus-i2c-test/web-flasher \
+  --output-dir .pio/build/web-flasher-pages \
+  --maximum-size 16777216
+python3 tools/web_flasher.py validate-pages \
+  --bundle-dir .pio/build/web-flasher-pages \
   --maximum-size 16777216
 ```
 
@@ -76,8 +97,8 @@ The generator rejects unexpected upload inputs, overlaps, missing files, an
 oversized result, a wrong chip family, or an application that does not contain
 the current 12-character source Git SHA.
 
-GitHub Actions repeats the native suite, WT32 build, stack check, source-asset
-validation, merge, and bundle validation. The Pages artifact contains only
-`index.html`, `manifest.json`, `.nojekyll`, and
-`opentag-station-factory.bin`; deployment never commits generated data to
-`main`.
+GitHub Actions repeats the native suite, both WT32 builds, stack check,
+source-asset validation, merge, and bundle validation. The Pages artifact
+contains only `index.html`, both manifests, `.nojekyll`,
+`opentag-station-factory.bin`, and `opentag-station-i2c-test.bin`; deployment
+never commits generated data to `main`.
