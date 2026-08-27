@@ -1,5 +1,5 @@
 {
-  "name": "OpenTag Station Shared I2C / NFC Test",
+  "name": "OpenTag Station Dual I2C / NFC Test",
   "version": "development",
   "new_install_prompt_erase": true,
   "new_install_improv_wait_time": 0,

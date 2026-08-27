@@ -65,14 +65,16 @@ struct Wt32Sc01PlusRevA {
   static constexpr std::int8_t scale_scl = 11;
   static constexpr std::uint8_t nau7802_address = 0x2A;
 
-  // Opt-in shared-I2C diagnostic wiring. These constants are deliberately
+  // Opt-in dual-I2C diagnostic wiring. These constants are deliberately
   // separate from the production RFAL gate below and do not enable NFC in the
   // normal factory firmware.
+  static constexpr std::int8_t diagnostic_nfc_sda = 13;
+  static constexpr std::int8_t diagnostic_nfc_scl = 14;
   static constexpr std::uint8_t diagnostic_nfc_i2c_address = 0x50;
   static constexpr std::int8_t diagnostic_nfc_interrupt = 12;
 
   // ELECHOUSE NFC_ST25R3916B has neither an external reset nor a power-enable
-  // signal. Transport pins remain deliberately unassigned until the shared-I2C
+  // signal. Transport pins remain deliberately unassigned until the production
   // owner/locking contract and authoritative ST RFAL adapter are implemented.
   static constexpr St25r3916bPins nfc = {
       -1, -1, -1, -1, -1, -1, -1, false, false};

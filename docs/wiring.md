@@ -37,15 +37,15 @@ The ELECHOUSE ST25R3916B module is assigned only for the opt-in
 
 | Diagnostic signal | WT32 pin |
 |---|---|
-| SDA | GPIO 10, shared with NAU7802 |
-| SCL | GPIO 11, shared with NAU7802 |
+| SDA | GPIO 13, dedicated diagnostic NFC `Wire1` bus |
+| SCL | GPIO 14, dedicated diagnostic NFC `Wire1` bus |
 | IRQ | GPIO 12 |
 | Supply | board 5 V |
 | Ground | GND |
 | I2C target address | `0x50` |
 
 The module's I2C solder bridge must be closed. CS/BSS and MOSI are not used by
-this diagnostic. The target runs the shared bus at 100 kHz and never enables an
+this diagnostic. The NFC target runs on `Wire1` at 100 kHz and never enables an
 RF field, RFAL, inventory, or tag writes.
 
 **Production RFAL wiring remains unassigned. Do not infer production SPI pins
@@ -62,13 +62,13 @@ from the diagnostic wiring above.**
 | 7 | GND |
 
 It exposes neither reset nor power-enable. Do not assign a fake GPIO for either.
-The diagnostic transport uses the documented I2C module configuration on the
-existing scale bus, with IRQ on GPIO12:
+The diagnostic transport uses the documented I2C module configuration on its
+own `Wire1` bus, with IRQ on GPIO12:
 
 | Module signal | Diagnostic WT32 connection |
 |---|---|
-| SDA | GPIO10, shared with NAU7802 |
-| SCL | GPIO11, shared with NAU7802 |
+| SDA | GPIO13, dedicated diagnostic NFC `Wire1` bus |
+| SCL | GPIO14, dedicated diagnostic NFC `Wire1` bus |
 | IRQ | GPIO12 |
 | +5V | EXT 5V |
 | GND | EXT GND |

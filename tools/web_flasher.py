@@ -20,7 +20,7 @@ MANIFEST_NAME = "manifest.json"
 DIAGNOSTIC_MANIFEST_NAME = "i2c-test-manifest.json"
 PAGE_NAME = "index.html"
 FACTORY_PRODUCT_NAME = "OpenTag Station"
-DIAGNOSTIC_PRODUCT_NAME = "OpenTag Station Shared I2C / NFC Test"
+DIAGNOSTIC_PRODUCT_NAME = "OpenTag Station Dual I2C / NFC Test"
 ESP_WEB_TOOLS_MODULE = (
     "https://unpkg.com/esp-web-tools@10.4.0/dist/web/install-button.js?module"
 )
@@ -126,8 +126,8 @@ def validate_page(path: pathlib.Path) -> None:
         "OpenTag Station",
         "Browser Firmware Installer",
         "Install OpenTag Station",
-        "WT32-SC01 Plus — Shared I2C / NFC Test",
-        "Flash Shared I2C / NFC Test",
+        "WT32-SC01 Plus — Dual I2C / NFC Test",
+        "Flash Dual I2C / NFC Test",
         "Chrome or Edge",
         "USB connection to a WT32-SC01 Plus",
         'manifest="manifest.json"',

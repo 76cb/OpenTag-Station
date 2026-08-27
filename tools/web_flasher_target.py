@@ -40,7 +40,7 @@ def build_web_flasher(source: object, target: object, env: object) -> None:
     )
     manifest_name = "i2c-test-manifest.json" if diagnostic else "manifest.json"
     product_name = (
-        "OpenTag Station Shared I2C / NFC Test"
+        "OpenTag Station Dual I2C / NFC Test"
         if diagnostic
         else "OpenTag Station"
     )
