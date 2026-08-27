@@ -226,7 +226,7 @@ PlatformIO upload inputs, and the 16 MiB size bound. They generate no release
 or tag and do not prove a physical USB flash; follow
 [web-flasher.md](web-flasher.md) for that pending hardware/browser validation.
 
-The opt-in shared-I2C lane additionally builds
+The opt-in dual-I2C lane additionally builds
 `wt32-sc01-plus-i2c-test`, generates its `web-flasher` target, validates the
 diagnostic component, and assembles/validates the combined Pages directory as
 shown in [web-flasher.md](web-flasher.md). Host classification coverage lives

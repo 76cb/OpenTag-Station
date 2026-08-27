@@ -6,7 +6,7 @@ namespace opentag::hardware::display {
 
 using Board = boards::Wt32Sc01PlusRevA;
 
-Wt32DisplayDevice::Wt32DisplayDevice() {
+Wt32DisplayDevice::Wt32DisplayDevice(bool enable_touch) {
   {
     auto cfg = bus_.config();
     cfg.freq_write = Board::lcd_write_frequency_hz;
@@ -55,7 +55,7 @@ Wt32DisplayDevice::Wt32DisplayDevice() {
     panel_.setLight(&light_);
   }
 
-  {
+  if (enable_touch) {
     auto cfg = touch_.config();
     cfg.x_min = 0;
     cfg.x_max = Board::display_native_width - 1;

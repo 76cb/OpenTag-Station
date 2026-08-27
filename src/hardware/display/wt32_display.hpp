@@ -11,7 +11,7 @@ namespace opentag::hardware::display {
 
 class Wt32DisplayDevice final : public lgfx::LGFX_Device {
  public:
-  Wt32DisplayDevice();
+  explicit Wt32DisplayDevice(bool enable_touch = true);
 
  private:
   lgfx::Panel_ST7796 panel_;

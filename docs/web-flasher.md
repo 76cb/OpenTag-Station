@@ -13,16 +13,17 @@ The site uses ESP Web Tools and the browser Web Serial API. Use a current
 desktop Chrome or Edge release, open the HTTPS page, connect the WT32-SC01 Plus
 to the computer with a USB data cable, then select either the default
 **Install OpenTag Station** production image or the opt-in
-**WT32-SC01 Plus — Shared I2C / NFC Test** image. Choose the board's serial
+**WT32-SC01 Plus — Dual I2C / NFC Test** image. Choose the board's serial
 device when prompted. Web Serial is not supported by Firefox or Safari.
 
-The shared-I2C diagnostic is a separate, no-RFAL image. It samples GPIO10/11,
-performs one bounded recovery attempt when needed, probes only `0x2A` and
-`0x50` before a contention-aware scan, validates the ST25R3916B direct-register
-identity/IRQ path without enabling its RF field, and then runs a bounded
-30-second coexistence test. Its touchscreen is the primary result display. For
-the secondary browser view, join the open `OpenTag-I2C-Test` access point and
-open `http://192.168.4.1`.
+The dual-I2C diagnostic is a separate, no-RFAL image. It samples the NAU7802
+bus on GPIO10/11 (`Wire`) and NFC bus on GPIO13/14 (`Wire1`) independently at
+100 kHz, probes only `0x2A` on the scale bus and `0x50` on the NFC bus, validates
+the ST25R3916B direct-register identity/IRQ path without enabling its RF field,
+and then runs a bounded 30-second coexistence test. Its display is the primary
+result view; touchscreen input is disabled in this diagnostic to reserve I2C
+controller 1 for NFC. For the secondary browser view, join the open
+`OpenTag-I2C-Test` access point and open `http://192.168.4.1`.
 
 ## Download mode
 

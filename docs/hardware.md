@@ -56,11 +56,11 @@ available with one PSRAM buffer if the second allocation fails, or a 480 ×
 20-line internal-memory buffer if PSRAM allocation fails entirely. The hardware
 diagnostics screen reports the actual allocation path.
 
-For the physical NAU7802/ST25R3916B shared-bus test, build the separate
-`wt32-sc01-plus-i2c-test` environment. It exclusively owns GPIO10 SDA / GPIO11
-SCL at 100 kHz during initial characterization and uses GPIO12 for NFC IRQ. The
-normal `wt32-sc01-plus` target remains wiring-gated and does not start this
-diagnostic or enable NFC/RFAL.
+For the physical NAU7802/ST25R3916B dual-I2C test, build the separate
+`wt32-sc01-plus-i2c-test` environment. It uses GPIO10 SDA / GPIO11 SCL for the
+NAU7802 on `Wire` and GPIO13 SDA / GPIO14 SCL for the ST25R3916B on `Wire1`, at
+100 kHz each, with GPIO12 for NFC IRQ. The normal `wt32-sc01-plus` target
+remains wiring-gated and does not start this diagnostic or enable NFC/RFAL.
 
 NVS stores boot count, boot-pending health, and a saturated crash streak. A
 LittleFS partition is always mounted first with formatting disabled and by its

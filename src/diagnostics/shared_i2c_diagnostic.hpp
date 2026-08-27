@@ -1,17 +1,17 @@
 #pragma once
 
-#include <array>
-#include <cstddef>
 #include <cstdint>
 
 namespace opentag::diagnostics::shared_i2c {
 
-inline constexpr std::uint32_t diagnostic_clock_hz = 100000U;
+inline constexpr std::uint32_t scale_clock_hz = 100000U;
+inline constexpr std::uint32_t nfc_clock_hz = 100000U;
+inline constexpr std::int8_t scale_sda_gpio = 10;
+inline constexpr std::int8_t scale_scl_gpio = 11;
+inline constexpr std::int8_t nfc_sda_gpio = 13;
+inline constexpr std::int8_t nfc_scl_gpio = 14;
 inline constexpr std::uint8_t nau7802_address = 0x2AU;
 inline constexpr std::uint8_t st25r3916b_address = 0x50U;
-inline constexpr std::uint8_t first_legal_address = 0x08U;
-inline constexpr std::uint8_t last_legal_address = 0x77U;
-inline constexpr std::size_t maximum_scan_addresses = 32U;
 inline constexpr std::uint8_t st25r3916b_identity_register = 0x3FU;
 inline constexpr std::uint8_t st25r3916b_set_default_command = 0xC1U;
 
@@ -38,9 +38,8 @@ enum class CheckResult : std::uint8_t {
 enum class Phase : std::uint8_t {
   starting,
   line_state,
-  bus_recovery,
-  targeted_probes,
-  full_scan,
+  scale_probe,
+  nfc_probe,
   nfc_register_test,
   nau_test,
   coexistence,
@@ -49,13 +48,14 @@ enum class Phase : std::uint8_t {
 
 enum class FailureStage : std::uint8_t {
   none,
-  sda_stuck_low,
-  scl_stuck_low,
-  bus_recovery,
-  wire_begin,
+  scale_sda_stuck_low,
+  scale_scl_stuck_low,
+  nfc_sda_stuck_low,
+  nfc_scl_stuck_low,
+  scale_wire_begin,
+  nfc_wire_begin,
   nau_probe,
   nfc_probe,
-  invalid_scan,
   nfc_set_default,
   nfc_identity_read,
   nfc_identity_mismatch,
@@ -70,15 +70,6 @@ enum class FailureStage : std::uint8_t {
   insufficient_scale_samples,
 };
 
-struct ScanSummary {
-  std::uint8_t device_count{0U};
-  std::uint8_t reported_count{0U};
-  std::array<std::uint8_t, maximum_scan_addresses> addresses{};
-  bool truncated{false};
-
-  void record(std::uint8_t address);
-};
-
 struct ChipIdentity {
   std::uint8_t raw{0U};
   std::uint8_t product{0U};
@@ -88,22 +79,22 @@ struct ChipIdentity {
 };
 
 struct Snapshot {
-  std::uint32_t clock_hz{diagnostic_clock_hz};
-  LineState sda_idle{LineState::unknown};
-  LineState scl_idle{LineState::unknown};
-  bool bus_recovery_attempted{false};
-  bool bus_recovery_success{false};
+  std::uint32_t scale_clock_hz{shared_i2c::scale_clock_hz};
+  LineState scale_sda_idle{LineState::unknown};
+  LineState scale_scl_idle{LineState::unknown};
   ProbeResult nau_probe_result{ProbeResult::pending};
+  std::uint32_t scale_bus_error_count{0U};
+  std::uint32_t nfc_clock_hz{shared_i2c::nfc_clock_hz};
+  LineState nfc_sda_idle{LineState::unknown};
+  LineState nfc_scl_idle{LineState::unknown};
   ProbeResult nfc_probe_result{ProbeResult::pending};
   CheckResult nfc_identity_result{CheckResult::pending};
   CheckResult nfc_irq_result{CheckResult::pending};
   CheckResult nau_communication_result{CheckResult::pending};
   CheckResult scale_after_test{CheckResult::pending};
   CheckResult nfc_after_scale{CheckResult::pending};
-  ScanSummary scan;
-  bool invalid_scan_detected{false};
   ChipIdentity nfc_identity;
-  std::uint32_t bus_error_count{0U};
+  std::uint32_t nfc_bus_error_count{0U};
   std::uint32_t scale_sample_count{0U};
   std::int32_t last_raw{0};
   std::uint32_t coexistence_elapsed_ms{0U};
@@ -112,7 +103,6 @@ struct Snapshot {
 };
 
 [[nodiscard]] ProbeResult classify_wire_status(std::uint8_t status);
-[[nodiscard]] bool scan_is_implausible(const ScanSummary& scan);
 [[nodiscard]] constexpr std::uint8_t st25r3916b_read_mode(
     std::uint8_t register_address) {
   return static_cast<std::uint8_t>(0x40U | (register_address & 0x3FU));
