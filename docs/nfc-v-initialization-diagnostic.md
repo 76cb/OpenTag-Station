@@ -11,8 +11,8 @@ initialization transaction exposed by the `wt32-sc01-plus-i2c-test` firmware.
   [`7e09cc38df1c8e7824a67f5b1ae93071f52519ad`](https://github.com/OpenPrintTag/openprinttag-specification/tree/7e09cc38df1c8e7824a67f5b1ae93071f52519ad).
   The image algorithm follows `utils/nfc_initialize.py`; its NFC-V configuration
   is `data/config_nfcv.yaml`, with MIME type `application/vnd.openprinttag` and
-  configuration root `nfcv`. The upstream tests use `--size=312` for their
-  SLIX2-shaped vectors.
+  configuration root `nfcv`. The upstream tests use
+  `--size=312 --aux-region=32` for their SLIX2-shaped vectors.
 - [NXP ICODE SLIX2 data sheet, revision 4.2](https://www.nxp.com/docs/en/data-sheet/SL2S2602.pdf),
   sections 9.2 and 9.5.3.6. The IC reports 80 four-byte blocks, but only blocks
   0 through 78 are user memory. Block 79 stores the 16-bit counter and its
@@ -37,14 +37,18 @@ The diagnostic advertises and writes **312 bytes, blocks 0 through 77**.
   not necessary for this tag and discards another complete eight-byte CC unit.
 
 The generated image is exactly 312 bytes: `E1 40 27 01`, an extended NDEF TLV,
-one `application/vnd.openprinttag` MIME record, an empty definite CBOR metadata
-map, an empty main CBOR map, zero-filled allocation space, and a TLV terminator.
-No URI, auxiliary region, material data, or invented values are added. The
-pinned golden image has SHA-256
-`281a10f6e79a69bded06902b6285f6ee28b5cc2e1ed0dd43521a788013e377fb`
-and diagnostic FNV-1a checksum `E99B8F04`.
+one `application/vnd.openprinttag` MIME record, a definite CBOR metadata map
+that records the auxiliary offset, empty main and auxiliary CBOR maps,
+zero-filled allocation space, and a TLV terminator. No URI, material data, or
+invented values are added. The initializer arguments request a 32-byte
+auxiliary region. Upstream's block-alignment rule places it at payload offset
+234 (absolute tag byte 276); because the payload ends at tag byte 310, the
+decoded aligned auxiliary allocation is 35 bytes and its empty CBOR map uses
+one byte. The pinned golden image has SHA-256
+`9abc9642bf66ce1e91dfd765932d279b3b31850e41e0c58ff789aa525bbd418d`
+and diagnostic FNV-1a checksum `6B6EABF1`.
 With the physically verified zero-filled eight-byte preserved tail, the full
-320-byte target checksum is `7BA3EB84`; the preview calculates this from the
+320-byte target checksum is `9E639911`; the preview calculates this from the
 actual preserved tail rather than assuming it.
 
 The read codec remains pinned to its separately proven revision. The initializer
@@ -74,8 +78,9 @@ AFI, DSFID, EAS, password, privacy, or protect-page command.
 
 After all block writes, the device reads the complete 320-byte memory again,
 compares it to the intended image (including the preserved tail), decodes it
-with the local OpenPrintTag codec, verifies the empty-main/no-aux semantics, and
-runs the post-RF I2C/chip-ID health check.
+with the local OpenPrintTag codec, requires the auxiliary region and successful
+empty main/auxiliary CBOR-map decoding, and runs the post-RF I2C/chip-ID health
+check.
 
 ## Bench acceptance
 
@@ -86,10 +91,12 @@ runs the post-RF I2C/chip-ID health check.
 3. Open `http://192.168.4.1`, review the initialization preview, press the
    initialization button, accept the first UID/checksum warning, and type the
    second exact confirmation `INITIALIZE`.
-4. Require image generation, authorization, blank preflight, lock status,
-   block writes, immediate block verifies, full-image verify, post-write decode,
-   RF-field disable, and post-write transport health to pass. No block above 77
-   may be reported as written.
+4. Require the preview to report the 32-byte requested auxiliary allocation,
+   the 35-byte aligned encoded region at tag offset 276, and target checksum
+   `9E639911`. Then require image generation, authorization, blank preflight,
+   lock status, block writes, immediate block verifies, full-image verify,
+   post-write decode, RF-field disable, and post-write transport health to pass.
+   No block above 77 may be reported as written.
 5. Download the post-write raw dump. Require bytes 0 through 311 to equal the
    preview image, bytes 312 through 319 to equal their before values, and a
    stable full-image checksum across two subsequent read-only runs.

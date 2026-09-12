@@ -15,7 +15,7 @@
 #include "nfc/formats/openprinttag/codec.hpp"
 #include "nfc/formats/openprinttag/initializer.hpp"
 #include "nfc/protocols/nfcv/tag.hpp"
-#include "../fixtures/openprinttag_initializer_7e09cc3_312_no_aux.hpp"
+#include "../fixtures/openprinttag_initializer_7e09cc3_312_aux32.hpp"
 
 namespace {
 
@@ -496,8 +496,8 @@ void test_reader_rejects_zero_tags_oversized_geometry_and_truncated_memory() {
 }
 
 void test_initializer_matches_pinned_python_golden_vector_and_decodes() {
-  const auto expected = from_hex(openprinttag_initializer_7e09cc3_312_no_aux_hex);
-  const NfcvInitializationConfig config{312U, 4U, std::nullopt, std::nullopt};
+  const auto expected = from_hex(openprinttag_initializer_7e09cc3_312_aux32_hex);
+  const NfcvInitializationConfig config{312U, 4U, 32U, std::nullopt};
   const auto first = Initializer::generate(config);
   const auto second = Initializer::generate(config);
   TEST_ASSERT_TRUE(first.ok());
@@ -507,6 +507,10 @@ void test_initializer_matches_pinned_python_golden_vector_and_decodes() {
       expected.data(), first.value().bytes.data(), expected.size());
   TEST_ASSERT_EQUAL_UINT8_ARRAY(
       first.value().bytes.data(), second.value().bytes.data(), expected.size());
+  TEST_ASSERT_EQUAL_HEX32(
+      0x6B6EABF1U,
+      opentag::diagnostics::shared_i2c::diagnostic_checksum(
+          first.value().bytes.data(), first.value().bytes.size()));
   TEST_ASSERT_EQUAL_UINT8(0xE1U, first.value().bytes[0]);
   TEST_ASSERT_EQUAL_UINT8(0x40U, first.value().bytes[1]);
   TEST_ASSERT_EQUAL_UINT8(0x27U, first.value().bytes[2]);
@@ -520,10 +524,15 @@ void test_initializer_matches_pinned_python_golden_vector_and_decodes() {
   TEST_ASSERT_EQUAL_UINT(312U, decoded.value().envelope.capability_capacity);
   TEST_ASSERT_EQUAL_UINT(42U, decoded.value().envelope.payload_offset);
   TEST_ASSERT_EQUAL_UINT(269U, decoded.value().envelope.payload_size);
-  TEST_ASSERT_EQUAL_UINT(1U, decoded.value().envelope.meta.used_size);
+  TEST_ASSERT_EQUAL_UINT(4U, decoded.value().envelope.meta.used_size);
   TEST_ASSERT_EQUAL_UINT(1U, decoded.value().envelope.main.used_size);
-  TEST_ASSERT_FALSE(decoded.value().envelope.auxiliary.has_value());
+  TEST_ASSERT_TRUE(decoded.value().envelope.auxiliary.has_value());
+  TEST_ASSERT_EQUAL_UINT(234U, first.value().auxiliary_region_offset.value());
+  TEST_ASSERT_EQUAL_UINT(276U, decoded.value().envelope.auxiliary->absolute_offset);
+  TEST_ASSERT_EQUAL_UINT(35U, decoded.value().envelope.auxiliary->size);
+  TEST_ASSERT_EQUAL_UINT(1U, decoded.value().envelope.auxiliary->used_size);
   TEST_ASSERT_EQUAL_UINT(0U, decoded.value().material.unknown_main_fields);
+  TEST_ASSERT_EQUAL_UINT(0U, decoded.value().material.unknown_auxiliary_fields);
 }
 
 void test_initializer_handles_short_tlv_aux_alignment_and_bounds() {
@@ -581,7 +590,7 @@ void test_blank_guard_authorization_and_bounded_initialization_plan() {
   TEST_ASSERT_FALSE(is_zero_filled(ByteView(current.data(), 312U)));
   current[100U] = 0U;
 
-  const auto generated = Initializer::generate({312U, 4U, std::nullopt, std::nullopt});
+  const auto generated = Initializer::generate({312U, 4U, 32U, std::nullopt});
   TEST_ASSERT_TRUE(generated.ok());
   const auto target = build_initialization_target(
       ByteView(current), ByteView(generated.value().bytes));
@@ -591,7 +600,7 @@ void test_blank_guard_authorization_and_bounded_initialization_plan() {
       generated.value().bytes.data(), target.value().data(), 312U);
   TEST_ASSERT_EQUAL_UINT8_ARRAY(current.data() + 312U, target.value().data() + 312U, 8U);
   TEST_ASSERT_EQUAL_HEX32(
-      0x7BA3EB84U,
+      0x9E639911U,
       diagnostic_checksum(target.value().data(), target.value().size()));
 
   const TagGeometry geometry{4U, 80U};
@@ -610,7 +619,7 @@ void test_blank_guard_authorization_and_bounded_initialization_plan() {
       matching_information, 80U, 4U));
   const auto plan = WritePlan::build(ByteView(current), ByteView(target.value()), geometry);
   TEST_ASSERT_TRUE(plan.ok());
-  TEST_ASSERT_EQUAL_UINT(12U, plan.value().blocks().size());
+  TEST_ASSERT_EQUAL_UINT(14U, plan.value().blocks().size());
   TEST_ASSERT_EQUAL_UINT(0U, plan.value().blocks().front().block_index);
   TEST_ASSERT_EQUAL_UINT(77U, plan.value().blocks().back().block_index);
 
@@ -622,7 +631,7 @@ void test_blank_guard_authorization_and_bounded_initialization_plan() {
 
 void test_initialization_write_stops_on_first_failure_and_final_image_decodes() {
   std::vector<std::uint8_t> current(320U, 0U);
-  const auto generated = Initializer::generate({312U, 4U, std::nullopt, std::nullopt});
+  const auto generated = Initializer::generate({312U, 4U, 32U, std::nullopt});
   TEST_ASSERT_TRUE(generated.ok());
   const auto target = opentag::diagnostics::shared_i2c::build_initialization_target(
       ByteView(current), ByteView(generated.value().bytes));
@@ -651,7 +660,8 @@ void test_initialization_write_stops_on_first_failure_and_final_image_decodes() 
   const auto decoded = Codec::decode(ByteView(successful.memory));
   TEST_ASSERT_TRUE(decoded.ok());
   TEST_ASSERT_EQUAL_UINT(312U, decoded.value().envelope.capability_capacity);
-  TEST_ASSERT_FALSE(decoded.value().envelope.auxiliary.has_value());
+  TEST_ASSERT_TRUE(decoded.value().envelope.auxiliary.has_value());
+  TEST_ASSERT_EQUAL_UINT(1U, decoded.value().envelope.auxiliary->used_size);
 }
 
 int main(int, char**) {

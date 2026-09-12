@@ -18,8 +18,10 @@ OpenPrintTag intentionally avoids an explicit format version. Compatibility is
 therefore recorded by Git revision, MIME type, and fixture corpus revision.
 The opt-in blank-tag initializer is independently pinned to
 [`openprinttag-specification` `7e09cc3`](https://github.com/OpenPrintTag/openprinttag-specification/commit/7e09cc38df1c8e7824a67f5b1ae93071f52519ad).
-CI generates the canonical 312-byte, no-aux image with that revision's Python
-initializer and compares it byte-for-byte with the embedded C++ golden vector.
+CI generates the canonical 312-byte image with that revision's Python
+initializer using `--aux-region=32` and compares it byte-for-byte with the
+embedded C++ golden vector. The initializer therefore reserves the mutable
+auxiliary area used by fields such as consumed weight and workgroup.
 This diagnostic-only pin does not change the production decoder baseline.
 
 ## NFC/RFAL

@@ -19,7 +19,7 @@ def main() -> int:
     parser.add_argument(
         "--fixture",
         type=pathlib.Path,
-        default=pathlib.Path("test/fixtures/openprinttag_initializer_7e09cc3_312_no_aux.hpp"),
+        default=pathlib.Path("test/fixtures/openprinttag_initializer_7e09cc3_312_aux32.hpp"),
     )
     args = parser.parse_args()
     spec_root = args.spec_root.resolve()
@@ -41,6 +41,7 @@ def main() -> int:
             str(spec_root / "utils" / "nfc_initialize.py"),
             "--size=312",
             "--block-size=4",
+            "--aux-region=32",
         ],
         cwd=spec_root,
         check=True,
