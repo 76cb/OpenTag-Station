@@ -148,6 +148,39 @@ void test_diagnostic_checksum_is_stable_and_formatted() {
   TEST_ASSERT_EQUAL_STRING("C3AA51B1", format_diagnostic_checksum(checksum).data());
 }
 
+void test_initialization_failure_stages_are_distinct_and_stable() {
+  TEST_ASSERT_EQUAL_STRING(
+      "OPENPRINTTAG IMAGE GENERATION", to_string(FailureStage::image_generation));
+  TEST_ASSERT_EQUAL_STRING(
+      "OPENPRINTTAG REFERENCE VECTOR MISMATCH",
+      to_string(FailureStage::reference_vector_mismatch));
+  TEST_ASSERT_EQUAL_STRING("TAG NOT BLANK", to_string(FailureStage::tag_not_blank));
+  TEST_ASSERT_EQUAL_STRING(
+      "TAG UID CHANGED BEFORE WRITE",
+      to_string(FailureStage::uid_changed_before_write));
+  TEST_ASSERT_EQUAL_STRING(
+      "TAG GEOMETRY CHANGED", to_string(FailureStage::geometry_changed));
+  TEST_ASSERT_EQUAL_STRING(
+      "TAG LOCKED / WRITE PROTECTED",
+      to_string(FailureStage::tag_locked_write_protected));
+  TEST_ASSERT_EQUAL_STRING(
+      "WRITE AUTHORIZATION", to_string(FailureStage::write_authorization));
+  TEST_ASSERT_EQUAL_STRING(
+      "NFC-V BLOCK WRITE", to_string(FailureStage::block_write));
+  TEST_ASSERT_EQUAL_STRING(
+      "NFC-V BLOCK VERIFY", to_string(FailureStage::block_verify));
+  TEST_ASSERT_EQUAL_STRING(
+      "NFC-V FULL IMAGE VERIFY", to_string(FailureStage::full_image_verify));
+  TEST_ASSERT_EQUAL_STRING(
+      "OPENPRINTTAG POST-WRITE DECODE",
+      to_string(FailureStage::post_write_decode));
+  TEST_ASSERT_EQUAL_STRING(
+      "NFC POST-WRITE TRANSPORT",
+      to_string(FailureStage::post_write_transport));
+  TEST_ASSERT_EQUAL_STRING(
+      "RF FIELD DISABLE", to_string(FailureStage::rf_field_off));
+}
+
 int main(int, char**) {
   UNITY_BEGIN();
   RUN_TEST(test_wire_status_distinguishes_ack_nack_and_bus_error);
@@ -161,5 +194,6 @@ int main(int, char**) {
   RUN_TEST(test_system_information_rejects_error_and_truncated_memory_size);
   RUN_TEST(test_read_response_checks_status_and_exact_length_before_copy);
   RUN_TEST(test_diagnostic_checksum_is_stable_and_formatted);
+  RUN_TEST(test_initialization_failure_stages_are_distinct_and_stable);
   return UNITY_END();
 }

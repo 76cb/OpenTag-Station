@@ -16,13 +16,18 @@ RF-interoperability claims.
 
 OpenPrintTag intentionally avoids an explicit format version. Compatibility is
 therefore recorded by Git revision, MIME type, and fixture corpus revision.
+The opt-in blank-tag initializer is independently pinned to
+[`openprinttag-specification` `7e09cc3`](https://github.com/OpenPrintTag/openprinttag-specification/commit/7e09cc38df1c8e7824a67f5b1ae93071f52519ad).
+CI generates the canonical 312-byte, no-aux image with that revision's Python
+initializer and compares it byte-for-byte with the embedded C++ golden vector.
+This diagnostic-only pin does not change the production decoder baseline.
 
 ## NFC/RFAL
 
 | Component | Baseline | Status |
 |---|---|---|
-| ST25R3916B | [DS13541 Rev 11](https://www.st.com/resource/en/datasheet/st25r3916b.pdf) | Dedicated `Wire1` transport, direct identity, and real IRQ physically PASS on GPIO13/14/12; RF inventory pending |
-| ELECHOUSE RFAL for ESP32 | [`wilson-elechouse/ST25R3916` `16eb6c7`](https://github.com/wilson-elechouse/ST25R3916/commit/16eb6c7fb13e502d320924040d768a9e564209b2) | `ST25R3916_ELECHOUSE` 1.1.1 and `NFC-RFAL` 1.0.2 vendored unchanged for the opt-in diagnostic; object API builds over injected `Wire1`; physical NFC-V RF test pending |
+| ST25R3916B | [DS13541 Rev 11](https://www.st.com/resource/en/datasheet/st25r3916b.pdf) | Dedicated `Wire1` transport, direct identity, IRQ, NFC-V inventory, stable UID, system information, geometry, and repeated full-memory reads physically PASS on GPIO13/14/12 |
+| ELECHOUSE RFAL for ESP32 | [`wilson-elechouse/ST25R3916` `16eb6c7`](https://github.com/wilson-elechouse/ST25R3916/commit/16eb6c7fb13e502d320924040d768a9e564209b2) | `ST25R3916_ELECHOUSE` 1.1.1 and `NFC-RFAL` 1.0.2 vendored unchanged for the opt-in diagnostic; object API runs over injected `Wire1`; physical NFC-V inventory and read-only memory test PASS; guarded blank initialization pending physical validation |
 | ST RFAL | [STSW-ST25RFAL002](https://www.st.com/en/embedded-software/stsw-st25rfal002.html) and [UM2890 Rev 7](https://www.st.com/resource/en/user_manual/um2890-rfnfc-abstraction-layer-rfal-stmicroelectronics.pdf) | Remains the production architecture reference; no production NFC binding is enabled |
 | X-CUBE-NFC6 | [ST product package](https://www.st.com/en/embedded-software/x-cube-nfc6.html) | Port/reference source only, not a build dependency |
 

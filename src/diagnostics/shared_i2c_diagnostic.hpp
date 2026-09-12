@@ -3,6 +3,11 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <string>
+#include <vector>
+
+#include "core/byte_view.hpp"
+#include "core/result.hpp"
 
 namespace opentag::diagnostics::shared_i2c {
 
@@ -55,6 +60,7 @@ enum class Phase : std::uint8_t {
   nfcv_poller,
   coexistence,
   memory_read,
+  initialization,
   complete,
 };
 
@@ -97,6 +103,25 @@ enum class FailureStage : std::uint8_t {
   scale_sample,
   nfc_coexistence_probe,
   insufficient_scale_samples,
+  image_generation,
+  reference_vector_mismatch,
+  tag_not_blank,
+  uid_changed_before_write,
+  geometry_changed,
+  tag_locked_write_protected,
+  write_authorization,
+  block_write,
+  block_verify,
+  full_image_verify,
+  post_write_decode,
+  post_write_transport,
+};
+
+enum class InitializationAuthorizationResult : std::uint8_t {
+  pass,
+  uid_mismatch,
+  checksum_mismatch,
+  confirmation_mismatch,
 };
 
 struct NfcvSystemInformation {
@@ -205,5 +230,23 @@ struct Snapshot {
 
 [[nodiscard]] std::array<char, 9U> format_diagnostic_checksum(
     std::uint32_t checksum);
+
+[[nodiscard]] InitializationAuthorizationResult validate_initialization_authorization(
+    const char* supplied_uid,
+    const char* supplied_checksum,
+    const char* supplied_confirmation,
+    const char* expected_uid,
+    const char* expected_checksum);
+
+[[nodiscard]] bool is_zero_filled(core::ByteView bytes);
+
+[[nodiscard]] bool matches_initialization_geometry(
+    const NfcvSystemInformation& information,
+    std::uint32_t expected_block_count,
+    std::uint16_t expected_block_size);
+
+[[nodiscard]] core::Result<std::vector<std::uint8_t>> build_initialization_target(
+    core::ByteView current_image,
+    core::ByteView initialization_image);
 
 }  // namespace opentag::diagnostics::shared_i2c

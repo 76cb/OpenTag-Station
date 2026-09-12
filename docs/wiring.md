@@ -45,9 +45,11 @@ The ELECHOUSE ST25R3916B module is assigned only for the opt-in
 | I2C target address | `0x50` |
 
 The module's I2C solder bridge must be closed. CS/BSS and MOSI are not used by
-this diagnostic. The NFC target runs on `Wire1` at 100 kHz. The opt-in image now
-enables its RF field only for bounded ELECHOUSE RFAL NFC-V inventory rounds and
-always disables it afterward; it performs no tag-memory reads or writes.
+this diagnostic. The NFC target runs on `Wire1` at 100 kHz. The opt-in image
+enables its RF field only for bounded ELECHOUSE RFAL operations and always
+disables it afterward. Normal boot inventory and complete-memory reads remain
+read-only. The separately confirmed blank-tag initializer is the only write
+path; it is restricted to blocks 0–77 and preserves blocks 78–79.
 
 **Production RFAL wiring remains unassigned. Do not infer production SPI pins
 from the diagnostic wiring above.**
