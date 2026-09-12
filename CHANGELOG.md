@@ -40,6 +40,10 @@ Versioning once releases begin.
 
 ### Added
 
+- Extend the opt-in NFC-V diagnostic with read-only system-information geometry,
+  bounded standard/extended block reads, two complete-image consistency checks,
+  a bounded serial hex dump, and a separate binary dump endpoint. The field is
+  scoped off on every path; no NFC-V mutation or OpenPrintTag parsing is added.
 - Extend the opt-in dual-I2C diagnostic with the unchanged ELECHOUSE
   `ST25R3916_ELECHOUSE`/`NFC-RFAL` libraries pinned at `16eb6c7`, injected over
   `Wire1`, and bounded NFC-V collision-resolution inventory with normalized UID,

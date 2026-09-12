@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cstdarg>
 #include <cstdint>
 #include <cstdio>
@@ -42,6 +43,14 @@ constexpr std::uint32_t coexistence_duration_ms = 30000U;
 constexpr std::uint32_t inventory_interval_ms = 500U;
 constexpr std::uint32_t scale_check_interval_ms = 20U;
 constexpr std::uint32_t minimum_scale_samples = 30U;
+constexpr std::uint32_t stable_uid_rounds_before_read = 2U;
+constexpr std::uint32_t memory_read_duration_ms = 30000U;
+constexpr std::size_t maximum_memory_bytes =
+    opentag::nfc::nfcv::WritePlan::maximum_image_size;
+constexpr std::size_t maximum_blocks_per_request = 8U;
+constexpr std::size_t system_information_buffer_size = 64U;
+constexpr std::size_t read_response_buffer_size =
+    1U + maximum_blocks_per_request * RFAL_NFCV_MAX_BLOCK_LEN;
 constexpr const char* access_point_ssid = "OpenTag-I2C-Test";
 constexpr const char* access_point_url = "http://192.168.4.1";
 
@@ -50,6 +59,7 @@ constexpr std::uint8_t st25r3916b_main_irq_register = 0x1AU;
 constexpr std::uint8_t st25r3916b_last_irq_register = 0x1DU;
 constexpr std::uint8_t st25r3916b_enable_oscillator = 0x80U;
 constexpr std::uint8_t st25r3916b_irq_oscillator_stable = 0x80U;
+static_assert(maximum_memory_bytes == 4096U);
 
 class ScopedRfField {
  public:
@@ -83,6 +93,12 @@ bool is_rfal_i2c_error(ReturnCode result) {
   return (result & 0xFF00U) == ERR_I2C_GRP;
 }
 
+enum class BlockReadResult : std::uint8_t {
+  pass,
+  retryable_command_error,
+  fatal_response_error,
+};
+
 constexpr char diagnostic_page[] PROGMEM = R"HTML(<!doctype html>
 <html lang="en">
 <head>
@@ -102,7 +118,7 @@ constexpr char diagnostic_page[] PROGMEM = R"HTML(<!doctype html>
 </head>
 <body><main>
   <h1>Dual I2C / NFC-V RF Test</h1>
-  <p class="note">Scale: GPIO10/GPIO11 · NFC: GPIO13/GPIO14 · IRQ GPIO12 · 100 kHz each. RF is enabled only during bounded inventory rounds.</p>
+  <p class="note">Scale: GPIO10/GPIO11 · NFC: GPIO13/GPIO14 · IRQ GPIO12 · 100 kHz each. RF and memory reads are bounded and read-only.</p>
   <dl id="results"><dt>Status</dt><dd class="pending">Loading…</dd></dl>
   <button id="refresh" type="button">Refresh now</button>
   <script>
@@ -116,6 +132,12 @@ constexpr char diagnostic_page[] PROGMEM = R"HTML(<!doctype html>
       tag_detected:'Tag detected',devices_found:'Devices found',uid:'UID',
       inventory_round_count:'Inventory rounds',matching_uid_round_count:'Matching UID rounds',
       uid_consistent:'UID consistent',tag_removal_seen:'Removal seen',tag_reinsertion_seen:'Reinsertion seen',
+      system_information_result:'System information',geometry_result:'Tag geometry',
+      block_count:'Block count',block_size:'Block size',memory_capacity_bytes:'Memory capacity (bytes)',
+      first_memory_read_result:'First memory read',second_memory_read_result:'Second memory read',
+      memory_bytes_read:'Raw bytes read',memory_read_consistency_result:'Read consistency',
+      memory_checksum:'Memory checksum (FNV-1a)',memory_uid:'Memory image UID',
+      memory_dump_available:'Raw dump available',
       nfc_bus_error_count:'NFC bus errors',nau_communication_result:'NAU communication',
       scale_after_test:'Scale after test',nfc_after_scale:'NFC after scale',
       scale_sample_count:'Scale samples',last_raw:'Last raw reading',phase:'Phase',failure_stage:'First failing stage'};
@@ -288,6 +310,25 @@ class DualI2cFirmware {
     live_.nfcv_poller_result = CheckResult::skipped;
     live_.rf_field_result = CheckResult::skipped;
     live_.iso15693_inventory_result = CheckResult::skipped;
+    skip_pending_memory_results();
+  }
+
+  void skip_pending_memory_results() {
+    if (live_.system_information_result == CheckResult::pending) {
+      live_.system_information_result = CheckResult::skipped;
+    }
+    if (live_.geometry_result == CheckResult::pending) {
+      live_.geometry_result = CheckResult::skipped;
+    }
+    if (live_.first_memory_read_result == CheckResult::pending) {
+      live_.first_memory_read_result = CheckResult::skipped;
+    }
+    if (live_.second_memory_read_result == CheckResult::pending) {
+      live_.second_memory_read_result = CheckResult::skipped;
+    }
+    if (live_.memory_read_consistency_result == CheckResult::pending) {
+      live_.memory_read_consistency_result = CheckResult::skipped;
+    }
   }
 
   void note_rfal_error(ReturnCode result) {
@@ -304,6 +345,7 @@ class DualI2cFirmware {
       live_.nfcv_poller_result = CheckResult::skipped;
       live_.rf_field_result = CheckResult::skipped;
       live_.iso15693_inventory_result = CheckResult::skipped;
+      skip_pending_memory_results();
       record_failure(FailureStage::rfal_initialize);
       return false;
     }
@@ -316,6 +358,7 @@ class DualI2cFirmware {
       live_.nfcv_poller_result = CheckResult::fail;
       live_.rf_field_result = CheckResult::skipped;
       live_.iso15693_inventory_result = CheckResult::skipped;
+      skip_pending_memory_results();
       record_failure(FailureStage::nfcv_poller_initialize);
       return false;
     }
@@ -545,22 +588,46 @@ class DualI2cFirmware {
     live_.nau_communication_result = CheckResult::pass;
   }
 
-  bool post_inventory_transport_healthy() {
+  bool post_rf_transport_healthy(
+      FailureStage probe_stage,
+      FailureStage identity_stage) {
     if (probe_nfc_target(st25r3916b_address) != ProbeResult::ack) {
-      record_failure(FailureStage::nfc_post_inventory_probe);
+      record_failure(probe_stage);
       return false;
     }
 
     std::uint8_t raw_identity = 0U;
     if (!nfc_read_register(st25r3916b_identity_register, raw_identity)) {
-      record_failure(FailureStage::nfc_post_inventory_identity);
+      record_failure(identity_stage);
       return false;
     }
     const auto identity = decode_st25r3916b_identity(raw_identity);
     if (!identity.is_st25r3916b()) {
-      record_failure(FailureStage::nfc_post_inventory_identity);
+      record_failure(identity_stage);
       return false;
     }
+    return true;
+  }
+
+  bool sample_scale_once() {
+    const auto ready = scale_adc_.sample_ready();
+    if (!ready.ok()) {
+      ++live_.scale_bus_error_count;
+      scale_runtime_failed_ = true;
+      record_failure(FailureStage::scale_sample);
+      return false;
+    }
+    if (!ready.value()) return true;
+
+    const auto raw = scale_adc_.read_raw();
+    if (!raw.ok()) {
+      ++live_.scale_bus_error_count;
+      scale_runtime_failed_ = true;
+      record_failure(FailureStage::scale_sample);
+      return false;
+    }
+    live_.last_raw = raw.value();
+    ++live_.scale_sample_count;
     return true;
   }
 
@@ -610,6 +677,345 @@ class DualI2cFirmware {
     return true;
   }
 
+  bool read_system_information(
+      const std::uint8_t* wire_uid,
+      NfcvSystemInformation& information) {
+    std::array<std::uint8_t, system_information_buffer_size> response{};
+    std::uint16_t received = 0U;
+    auto result = nfc_.rfalNfcvPollerGetSystemInformation(
+        static_cast<std::uint8_t>(RFAL_NFCV_REQ_FLAG_DEFAULT),
+        wire_uid,
+        response.data(),
+        static_cast<std::uint16_t>(response.size()),
+        &received);
+    if (result == ERR_NONE &&
+        parse_nfcv_system_information(response.data(), received, false, information) &&
+        information.memory_size_present) {
+      return true;
+    }
+    if (is_rfal_i2c_error(result)) note_rfal_error(result);
+
+    response.fill(0U);
+    received = 0U;
+    result = nfc_.rfalNfcvPollerExtendedGetSystemInformation(
+        static_cast<std::uint8_t>(RFAL_NFCV_REQ_FLAG_DEFAULT),
+        wire_uid,
+        static_cast<std::uint8_t>(RFAL_NFCV_SYSINFO_REQ_ALL),
+        response.data(),
+        static_cast<std::uint16_t>(response.size()),
+        &received);
+    if (result == ERR_NONE &&
+        parse_nfcv_system_information(response.data(), received, true, information) &&
+        information.memory_size_present) {
+      return true;
+    }
+    if (result != ERR_NONE) note_rfal_error(result);
+    return false;
+  }
+
+  BlockReadResult read_blocks(
+      const std::uint8_t* wire_uid,
+      std::uint16_t first_block,
+      std::size_t requested_blocks,
+      std::size_t block_size,
+      std::uint8_t* destination) {
+    std::array<std::uint8_t, read_response_buffer_size> response{};
+    std::uint16_t received = 0U;
+    ReturnCode result = ERR_PARAM;
+
+    if (requested_blocks == 1U) {
+      if (first_block <= 0xFFU) {
+        result = nfc_.rfalNfcvPollerReadSingleBlock(
+            static_cast<std::uint8_t>(RFAL_NFCV_REQ_FLAG_DEFAULT),
+            wire_uid,
+            static_cast<std::uint8_t>(first_block),
+            response.data(),
+            static_cast<std::uint16_t>(response.size()),
+            &received);
+      } else {
+        result = nfc_.rfalNfcvPollerExtendedReadSingleBlock(
+            static_cast<std::uint8_t>(RFAL_NFCV_REQ_FLAG_DEFAULT),
+            wire_uid,
+            first_block,
+            response.data(),
+            static_cast<std::uint16_t>(response.size()),
+            &received);
+      }
+    } else {
+      // ELECHOUSE forwards this value directly onto the ISO15693 wire, where
+      // the field encodes the requested block count minus one.
+      const auto encoded_count = requested_blocks - 1U;
+      const bool standard_addressing =
+          first_block <= 0xFFU &&
+          static_cast<std::size_t>(first_block) + requested_blocks <= 0x100U;
+      if (standard_addressing) {
+        result = nfc_.rfalNfcvPollerReadMultipleBlocks(
+            static_cast<std::uint8_t>(RFAL_NFCV_REQ_FLAG_DEFAULT),
+            wire_uid,
+            static_cast<std::uint8_t>(first_block),
+            static_cast<std::uint8_t>(encoded_count),
+            response.data(),
+            static_cast<std::uint16_t>(response.size()),
+            &received);
+      } else {
+        result = nfc_.rfalNfcvPollerExtendedReadMultipleBlocks(
+            static_cast<std::uint8_t>(RFAL_NFCV_REQ_FLAG_DEFAULT),
+            wire_uid,
+            first_block,
+            static_cast<std::uint16_t>(encoded_count),
+            response.data(),
+            static_cast<std::uint16_t>(response.size()),
+            &received);
+      }
+    }
+
+    if (result != ERR_NONE) {
+      note_rfal_error(result);
+      return BlockReadResult::retryable_command_error;
+    }
+    const auto response_result = copy_nfcv_read_response(
+        response.data(),
+        received,
+        destination,
+        requested_blocks * block_size);
+    if (response_result == ReadResponseResult::wrong_length) {
+      record_failure(FailureStage::nfcv_response_length);
+      Serial.printf(
+          "NFC-V read response length %u, expected %u\n",
+          static_cast<unsigned>(received),
+          static_cast<unsigned>(requested_blocks * block_size + 1U));
+      return BlockReadResult::fatal_response_error;
+    }
+    if (response_result != ReadResponseResult::pass) {
+      record_failure(FailureStage::nfcv_memory_read);
+      return BlockReadResult::fatal_response_error;
+    }
+    return BlockReadResult::pass;
+  }
+
+  bool read_complete_memory(
+      const std::uint8_t* wire_uid,
+      const opentag::nfc::nfcv::TagGeometry& geometry,
+      std::array<std::uint8_t, maximum_memory_bytes>& image,
+      std::uint32_t operation_started_ms) {
+    std::size_t block = 0U;
+    std::size_t preferred_request_blocks = maximum_blocks_per_request;
+    while (block < geometry.block_count) {
+      if (elapsed(millis(), operation_started_ms, memory_read_duration_ms)) {
+        record_failure(FailureStage::nfcv_memory_read);
+        Serial.println("NFC-V memory read exceeded the 30 second bound");
+        return false;
+      }
+      std::size_t request_blocks = std::min(
+          preferred_request_blocks,
+          geometry.block_count - block);
+      if (block <= 0xFFU) {
+        request_blocks = std::min(request_blocks, 0x100U - block);
+      }
+
+      bool read = false;
+      bool fallback_used = false;
+      while (request_blocks > 0U) {
+        const auto destination_offset = block * geometry.block_size;
+        const auto read_result = read_blocks(
+            wire_uid,
+            static_cast<std::uint16_t>(block),
+            request_blocks,
+            geometry.block_size,
+            image.data() + destination_offset);
+        read = read_result == BlockReadResult::pass;
+        if (read) break;
+        if (read_result == BlockReadResult::fatal_response_error) return false;
+        if (request_blocks == 1U) break;
+        fallback_used = true;
+        request_blocks = std::max<std::size_t>(1U, request_blocks / 2U);
+        Serial.printf(
+            "NFC-V multi-block read fallback: block %u, count %u\n",
+            static_cast<unsigned>(block),
+            static_cast<unsigned>(request_blocks));
+      }
+      if (!read) {
+        if (live_.failure_stage != FailureStage::nfcv_response_length) {
+          record_failure(FailureStage::nfcv_memory_read);
+        }
+        return false;
+      }
+      if (fallback_used) preferred_request_blocks = request_blocks;
+      block += request_blocks;
+      (void)sample_scale_once();
+    }
+    return true;
+  }
+
+  bool confirm_single_uid(const std::uint8_t* expected_wire_uid) {
+    rfalNfcvInventoryRes presence{};
+    const auto presence_result = nfc_.rfalNfcvPollerCheckPresence(&presence);
+    if (presence_result != ERR_NONE) {
+      if (presence_result != ERR_TIMEOUT) note_rfal_error(presence_result);
+      record_failure(FailureStage::nfcv_uid_changed_during_read);
+      return false;
+    }
+
+    std::array<rfalNfcvListenDevice, RFAL_NFC_MAX_DEVICES> devices{};
+    std::uint8_t device_count = 0U;
+    const auto inventory_result = nfc_.rfalNfcvPollerCollisionResolution(
+        RFAL_COMPLIANCE_MODE_NFC,
+        static_cast<std::uint8_t>(devices.size()),
+        devices.data(),
+        &device_count);
+    if (inventory_result != ERR_NONE) {
+      note_rfal_error(inventory_result);
+      record_failure(FailureStage::nfcv_uid_changed_during_read);
+      return false;
+    }
+    if (device_count != 1U ||
+        std::memcmp(devices[0].InvRes.UID, expected_wire_uid, RFAL_NFCV_UID_LEN) != 0) {
+      record_failure(FailureStage::nfcv_uid_changed_during_read);
+      return false;
+    }
+    return true;
+  }
+
+  void print_memory_dump(std::size_t length) const {
+    Serial.println("NFC-V raw memory dump (read-only):");
+    for (std::size_t offset = 0U; offset < length; offset += 16U) {
+      Serial.printf("%04X: ", static_cast<unsigned>(offset));
+      const auto line_length = std::min<std::size_t>(16U, length - offset);
+      for (std::size_t index = 0U; index < line_length; ++index) {
+        Serial.printf("%02X%s", memory_image_first_[offset + index],
+                      index + 1U == line_length ? "" : " ");
+      }
+      Serial.println();
+    }
+  }
+
+  bool run_memory_read_diagnostic(const std::uint8_t* expected_wire_uid) {
+    memory_read_attempted_ = true;
+    if (reference_uid_.has_value()) {
+      live_.memory_uid = format_diagnostic_uid(reference_uid_->bytes);
+    }
+    set_phase(Phase::memory_read);
+    ScopedRfField field(reader_);
+    bool operation_ok = false;
+
+    const auto field_on = field.enable();
+    if (field_on != ERR_NONE) {
+      note_rfal_error(field_on);
+      live_.rf_field_result = CheckResult::fail;
+      record_failure(FailureStage::rf_field_on);
+      skip_pending_memory_results();
+    } else {
+      if (live_.rf_field_result != CheckResult::fail) {
+        live_.rf_field_result = CheckResult::pass;
+      }
+      operation_ok = [&]() {
+        const auto operation_started_ms = millis();
+        NfcvSystemInformation information;
+        if (!read_system_information(expected_wire_uid, information)) {
+          live_.system_information_result = CheckResult::fail;
+          record_failure(FailureStage::nfcv_system_information);
+          skip_pending_memory_results();
+          return false;
+        }
+        live_.system_information_result = CheckResult::pass;
+
+        if (std::memcmp(
+                information.wire_uid.data(),
+                expected_wire_uid,
+                information.wire_uid.size()) != 0) {
+          live_.geometry_result = CheckResult::skipped;
+          record_failure(FailureStage::nfcv_uid_changed_during_read);
+          skip_pending_memory_results();
+          return false;
+        }
+
+        const opentag::nfc::nfcv::TagGeometry geometry{
+            information.block_size,
+            information.block_count};
+        const auto geometry_valid = geometry.validate();
+        if (!geometry_valid.ok() || geometry.block_size > RFAL_NFCV_MAX_BLOCK_LEN ||
+            geometry.capacity() > maximum_memory_bytes) {
+          live_.geometry_result = CheckResult::fail;
+          record_failure(FailureStage::nfcv_invalid_geometry);
+          Serial.println("NFC-V geometry is invalid, unsupported, or exceeds 4096 bytes");
+          skip_pending_memory_results();
+          return false;
+        }
+        live_.geometry_result = CheckResult::pass;
+        live_.block_count = static_cast<std::uint32_t>(geometry.block_count);
+        live_.block_size = static_cast<std::uint16_t>(geometry.block_size);
+        live_.memory_capacity_bytes = static_cast<std::uint32_t>(geometry.capacity());
+
+        if (!read_complete_memory(
+                expected_wire_uid,
+                geometry,
+                memory_image_first_,
+                operation_started_ms)) {
+          live_.first_memory_read_result = CheckResult::fail;
+          skip_pending_memory_results();
+          return false;
+        }
+        live_.first_memory_read_result = CheckResult::pass;
+        live_.memory_bytes_read = static_cast<std::uint32_t>(geometry.capacity());
+
+        if (!confirm_single_uid(expected_wire_uid)) {
+          live_.second_memory_read_result = CheckResult::skipped;
+          live_.memory_read_consistency_result = CheckResult::skipped;
+          return false;
+        }
+
+        if (!read_complete_memory(
+                expected_wire_uid,
+                geometry,
+                memory_image_second_,
+                operation_started_ms)) {
+          live_.second_memory_read_result = CheckResult::fail;
+          live_.memory_read_consistency_result = CheckResult::skipped;
+          return false;
+        }
+        live_.second_memory_read_result = CheckResult::pass;
+        if (!confirm_single_uid(expected_wire_uid)) {
+          live_.memory_read_consistency_result = CheckResult::skipped;
+          return false;
+        }
+        if (std::memcmp(
+                memory_image_first_.data(),
+                memory_image_second_.data(),
+                geometry.capacity()) != 0) {
+          live_.memory_read_consistency_result = CheckResult::fail;
+          record_failure(FailureStage::nfcv_read_consistency);
+          return false;
+        }
+        live_.memory_read_consistency_result = CheckResult::pass;
+        live_.memory_checksum = format_diagnostic_checksum(
+            diagnostic_checksum(memory_image_first_.data(), geometry.capacity()));
+        return true;
+      }();
+    }
+
+    const auto field_off = field.close();
+    if (field_off != ERR_NONE) {
+      note_rfal_error(field_off);
+      live_.rf_field_result = CheckResult::fail;
+      record_failure(FailureStage::rf_field_off);
+      operation_ok = false;
+    }
+
+    const bool transport_healthy = post_rf_transport_healthy(
+        FailureStage::nfc_post_read_transport,
+        FailureStage::nfc_post_read_transport);
+    if (!transport_healthy) operation_ok = false;
+
+    if (operation_ok) {
+      live_.memory_dump_available = true;
+      publish_snapshot();
+      memory_dump_available_.store(true, std::memory_order_release);
+      print_memory_dump(live_.memory_bytes_read);
+    }
+    set_phase(Phase::coexistence);
+    return operation_ok;
+  }
+
   bool run_inventory_round() {
     ++live_.inventory_round_count;
     ScopedRfField field(reader_);
@@ -621,7 +1027,9 @@ class DualI2cFirmware {
       record_failure(FailureStage::rf_field_on);
       return false;
     }
-    live_.rf_field_result = CheckResult::pass;
+    if (live_.rf_field_result != CheckResult::fail) {
+      live_.rf_field_result = CheckResult::pass;
+    }
 
     rfalNfcvInventoryRes presence{};
     const auto presence_result = nfc_.rfalNfcvPollerCheckPresence(&presence);
@@ -646,7 +1054,9 @@ class DualI2cFirmware {
       record_failure(FailureStage::rf_field_off);
     }
 
-    const bool transport_healthy = post_inventory_transport_healthy();
+    const bool transport_healthy = post_rf_transport_healthy(
+        FailureStage::nfc_post_inventory_probe,
+        FailureStage::nfc_post_inventory_identity);
     if (!transport_healthy) nfc_runtime_failed_ = true;
 
     if (!presence_valid) {
@@ -666,7 +1076,12 @@ class DualI2cFirmware {
       return false;
     }
 
-    return record_inventory(devices, device_count);
+    if (!record_inventory(devices, device_count)) return false;
+    if (!memory_read_attempted_ && device_count == 1U &&
+        live_.matching_uid_round_count >= stable_uid_rounds_before_read) {
+      return run_memory_read_diagnostic(devices[0].InvRes.UID);
+    }
+    return true;
   }
 
   void poll_coexistence(std::uint32_t now_ms) {
@@ -676,22 +1091,7 @@ class DualI2cFirmware {
 
     if (elapsed(now_ms, last_scale_check_ms_, scale_check_interval_ms)) {
       last_scale_check_ms_ = now_ms;
-      const auto ready = scale_adc_.sample_ready();
-      if (!ready.ok()) {
-        ++live_.scale_bus_error_count;
-        scale_runtime_failed_ = true;
-        record_failure(FailureStage::scale_sample);
-      } else if (ready.value()) {
-        const auto raw = scale_adc_.read_raw();
-        if (!raw.ok()) {
-          ++live_.scale_bus_error_count;
-          scale_runtime_failed_ = true;
-          record_failure(FailureStage::scale_sample);
-        } else {
-          live_.last_raw = raw.value();
-          ++live_.scale_sample_count;
-        }
-      }
+      (void)sample_scale_once();
     }
 
     if (elapsed(now_ms, last_inventory_ms_, inventory_interval_ms)) {
@@ -703,10 +1103,12 @@ class DualI2cFirmware {
 
     if (!elapsed(now_ms, coexistence_started_ms_, coexistence_duration_ms)) return;
 
-    if (!post_inventory_transport_healthy()) {
+    if (!post_rf_transport_healthy(
+            FailureStage::nfc_coexistence_probe,
+            FailureStage::nfc_coexistence_probe)) {
       nfc_runtime_failed_ = true;
-      record_failure(FailureStage::nfc_coexistence_probe);
     }
+    if (!memory_read_attempted_) skip_pending_memory_results();
     live_.scale_after_test =
         !scale_runtime_failed_ && live_.scale_sample_count >= minimum_scale_samples
         ? CheckResult::pass
@@ -738,6 +1140,17 @@ class DualI2cFirmware {
     Serial.printf("UID consistent        %s\n", live_.uid_consistent ? "PASS" : "FAIL");
     Serial.printf("Tag removal seen      %s\n", live_.tag_removal_seen ? "YES" : "NO");
     Serial.printf("Tag reinsertion seen  %s\n", live_.tag_reinsertion_seen ? "YES" : "NO");
+    Serial.printf("System information    %s\n", to_string(live_.system_information_result));
+    Serial.printf("Tag geometry          %s\n", to_string(live_.geometry_result));
+    Serial.printf("Block count           %lu\n", static_cast<unsigned long>(live_.block_count));
+    Serial.printf("Block size            %u\n", static_cast<unsigned>(live_.block_size));
+    Serial.printf("Memory capacity       %lu\n", static_cast<unsigned long>(live_.memory_capacity_bytes));
+    Serial.printf("First memory read     %s\n", to_string(live_.first_memory_read_result));
+    Serial.printf("Second memory read    %s\n", to_string(live_.second_memory_read_result));
+    Serial.printf("Raw bytes read        %lu\n", static_cast<unsigned long>(live_.memory_bytes_read));
+    Serial.printf("Read consistency      %s\n", to_string(live_.memory_read_consistency_result));
+    Serial.printf("Memory checksum       %s\n",
+                  live_.memory_checksum[0] == '\0' ? "-" : live_.memory_checksum.data());
     Serial.printf("NFC bus errors        %lu\n", static_cast<unsigned long>(live_.nfc_bus_error_count));
     Serial.printf("Scale bus errors      %lu\n", static_cast<unsigned long>(live_.scale_bus_error_count));
     Serial.printf("Scale after test      %s\n", to_string(live_.scale_after_test));
@@ -813,28 +1226,28 @@ class DualI2cFirmware {
             : snapshot.tag_detected == TagDetected::multiple ? TFT_ORANGE : TFT_GREEN);
 
     char value[64]{};
-    std::snprintf(value, sizeof(value), "%u", static_cast<unsigned>(snapshot.devices_found));
-    draw_result_line(150, "DEVICES FOUND", value, TFT_LIGHTGREY);
-    draw_result_line(164, "UID", snapshot.uid[0] == '\0' ? "-" : snapshot.uid.data(), TFT_LIGHTGREY);
-
+    draw_result_line(150, "UID", snapshot.uid[0] == '\0' ? "-" : snapshot.uid.data(), TFT_LIGHTGREY);
+    draw_result_line(164, "SYSTEM INFORMATION", to_string(snapshot.system_information_result),
+                     result_color(snapshot.system_information_result));
+    std::snprintf(
+        value, sizeof(value), "%lu x %u = %lu",
+        static_cast<unsigned long>(snapshot.block_count),
+        static_cast<unsigned>(snapshot.block_size),
+        static_cast<unsigned long>(snapshot.memory_capacity_bytes));
+    draw_result_line(178, "GEOMETRY BLOCKS x BYTES", value,
+                     result_color(snapshot.geometry_result));
+    draw_result_line(192, "FIRST MEMORY READ", to_string(snapshot.first_memory_read_result),
+                     result_color(snapshot.first_memory_read_result));
+    draw_result_line(206, "SECOND MEMORY READ", to_string(snapshot.second_memory_read_result),
+                     result_color(snapshot.second_memory_read_result));
+    draw_result_line(220, "READ CONSISTENCY", to_string(snapshot.memory_read_consistency_result),
+                     result_color(snapshot.memory_read_consistency_result));
     std::snprintf(value, sizeof(value), "%lu", static_cast<unsigned long>(snapshot.nfc_bus_error_count));
-    draw_result_line(178, "NFC BUS ERRORS", value,
+    draw_result_line(234, "NFC BUS ERRORS", value,
                      snapshot.nfc_bus_error_count == 0U ? TFT_GREEN : TFT_RED);
     std::snprintf(value, sizeof(value), "%lu", static_cast<unsigned long>(snapshot.scale_bus_error_count));
-    draw_result_line(192, "SCALE BUS ERRORS", value,
+    draw_result_line(248, "SCALE BUS ERRORS", value,
                      snapshot.scale_bus_error_count == 0U ? TFT_GREEN : TFT_RED);
-    draw_result_line(206, "SCALE AFTER TEST", to_string(snapshot.scale_after_test),
-                     result_color(snapshot.scale_after_test));
-    draw_result_line(220, "NFC AFTER SCALE", to_string(snapshot.nfc_after_scale),
-                     result_color(snapshot.nfc_after_scale));
-    std::snprintf(value, sizeof(value), "%lu", static_cast<unsigned long>(snapshot.scale_sample_count));
-    draw_result_line(234, "SCALE SAMPLES", value, TFT_LIGHTGREY);
-    std::snprintf(
-        value, sizeof(value), "%lu / %lu",
-        static_cast<unsigned long>(snapshot.matching_uid_round_count),
-        static_cast<unsigned long>(snapshot.inventory_round_count));
-    draw_result_line(248, "UID / INVENTORY ROUNDS", value,
-                     snapshot.uid_consistent ? TFT_GREEN : TFT_RED);
 
     screen_.setTextSize(1U);
     screen_.setCursor(8, 266);
@@ -896,6 +1309,12 @@ class DualI2cFirmware {
         "\"tag_detected\":\"%s\",\"devices_found\":%u,\"uid\":\"%s\","
         "\"inventory_round_count\":%lu,\"matching_uid_round_count\":%lu,"
         "\"uid_consistent\":%s,\"tag_removal_seen\":%s,\"tag_reinsertion_seen\":%s,"
+        "\"system_information_result\":\"%s\",\"geometry_result\":\"%s\","
+        "\"block_count\":%lu,\"block_size\":%u,\"memory_capacity_bytes\":%lu,"
+        "\"first_memory_read_result\":\"%s\",\"second_memory_read_result\":\"%s\","
+        "\"memory_bytes_read\":%lu,\"memory_read_consistency_result\":\"%s\","
+        "\"memory_checksum\":\"%s\",\"memory_uid\":\"%s\","
+        "\"memory_dump_available\":%s,"
         "\"nfc_bus_error_count\":%lu,\"nau_communication_result\":\"%s\","
         "\"scale_after_test\":\"%s\",\"nfc_after_scale\":\"%s\","
         "\"scale_sample_count\":%lu,\"last_raw\":%ld,"
@@ -924,6 +1343,18 @@ class DualI2cFirmware {
         snapshot.uid_consistent ? "true" : "false",
         snapshot.tag_removal_seen ? "true" : "false",
         snapshot.tag_reinsertion_seen ? "true" : "false",
+        to_string(snapshot.system_information_result),
+        to_string(snapshot.geometry_result),
+        static_cast<unsigned long>(snapshot.block_count),
+        static_cast<unsigned>(snapshot.block_size),
+        static_cast<unsigned long>(snapshot.memory_capacity_bytes),
+        to_string(snapshot.first_memory_read_result),
+        to_string(snapshot.second_memory_read_result),
+        static_cast<unsigned long>(snapshot.memory_bytes_read),
+        to_string(snapshot.memory_read_consistency_result),
+        snapshot.memory_checksum.data(),
+        snapshot.memory_uid.data(),
+        snapshot.memory_dump_available ? "true" : "false",
         static_cast<unsigned long>(snapshot.nfc_bus_error_count),
         to_string(snapshot.nau_communication_result),
         to_string(snapshot.scale_after_test),
@@ -941,6 +1372,44 @@ class DualI2cFirmware {
     return httpd_resp_send(request, json.data(), static_cast<ssize_t>(used));
   }
 
+  static esp_err_t dump_handler(httpd_req_t* request) {
+    auto* firmware = static_cast<DualI2cFirmware*>(request->user_ctx);
+    if (!firmware->memory_dump_available_.load(std::memory_order_acquire)) {
+      httpd_resp_set_status(request, "409 Conflict");
+      httpd_resp_set_type(request, "text/plain; charset=utf-8");
+      httpd_resp_set_hdr(request, "Cache-Control", "no-store");
+      return httpd_resp_sendstr(
+          request,
+          "A consistent NFC-V memory image is not available.\n");
+    }
+
+    const auto snapshot = firmware->copy_snapshot();
+    std::array<char, 16U> block_count{};
+    std::array<char, 16U> block_size{};
+    std::array<char, 16U> content_length{};
+    std::snprintf(block_count.data(), block_count.size(), "%lu",
+                  static_cast<unsigned long>(snapshot.block_count));
+    std::snprintf(block_size.data(), block_size.size(), "%u",
+                  static_cast<unsigned>(snapshot.block_size));
+    std::snprintf(content_length.data(), content_length.size(), "%lu",
+                  static_cast<unsigned long>(snapshot.memory_bytes_read));
+    httpd_resp_set_type(request, "application/octet-stream");
+    httpd_resp_set_hdr(request, "Cache-Control", "no-store");
+    httpd_resp_set_hdr(
+        request,
+        "Content-Disposition",
+        "attachment; filename=opentag-nfcv-memory.bin");
+    httpd_resp_set_hdr(request, "X-OpenTag-NFCV-UID", snapshot.memory_uid.data());
+    httpd_resp_set_hdr(request, "X-OpenTag-NFCV-Block-Count", block_count.data());
+    httpd_resp_set_hdr(request, "X-OpenTag-NFCV-Block-Size", block_size.data());
+    httpd_resp_set_hdr(request, "X-OpenTag-NFCV-Checksum-FNV1A32", snapshot.memory_checksum.data());
+    httpd_resp_set_hdr(request, "X-OpenTag-NFCV-Bytes", content_length.data());
+    return httpd_resp_send(
+        request,
+        reinterpret_cast<const char*>(firmware->memory_image_first_.data()),
+        static_cast<ssize_t>(snapshot.memory_bytes_read));
+  }
+
   void start_web_server() {
     WiFi.persistent(false);
     WiFi.mode(WIFI_AP);
@@ -951,7 +1420,7 @@ class DualI2cFirmware {
     }
 
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
-    config.max_uri_handlers = 2U;
+    config.max_uri_handlers = 3U;
     config.max_open_sockets = 2U;
     config.lru_purge_enable = true;
     config.stack_size = 6144U;
@@ -973,8 +1442,14 @@ class DualI2cFirmware {
     api.method = HTTP_GET;
     api.handler = api_handler;
     api.user_ctx = this;
+    httpd_uri_t dump{};
+    dump.uri = "/api/v1/nfcv-dump";
+    dump.method = HTTP_GET;
+    dump.handler = dump_handler;
+    dump.user_ctx = this;
     if (httpd_register_uri_handler(server_, &root) != ESP_OK ||
-        httpd_register_uri_handler(server_, &api) != ESP_OK) {
+        httpd_register_uri_handler(server_, &api) != ESP_OK ||
+        httpd_register_uri_handler(server_, &dump) != ESP_OK) {
       Serial.println("Diagnostic HTTP routes failed to register");
       httpd_stop(server_);
       server_ = nullptr;
@@ -990,6 +1465,9 @@ class DualI2cFirmware {
   RfalNfcClass nfc_;
   Snapshot live_;
   mutable Snapshot published_;
+  std::array<std::uint8_t, maximum_memory_bytes> memory_image_first_{};
+  std::array<std::uint8_t, maximum_memory_bytes> memory_image_second_{};
+  std::atomic<bool> memory_dump_available_{false};
   mutable portMUX_TYPE snapshot_mux_ = portMUX_INITIALIZER_UNLOCKED;
   httpd_handle_t server_{nullptr};
   bool screen_ready_{false};
@@ -998,6 +1476,7 @@ class DualI2cFirmware {
   bool nfc_wire_ready_{false};
   bool scale_runtime_failed_{false};
   bool nfc_runtime_failed_{false};
+  bool memory_read_attempted_{false};
   std::uint32_t coexistence_started_ms_{0U};
   std::uint32_t last_scale_check_ms_{0U};
   std::uint32_t last_inventory_ms_{0U};

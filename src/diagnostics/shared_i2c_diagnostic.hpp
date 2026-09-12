@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <cstddef>
 #include <cstdint>
 
 namespace opentag::diagnostics::shared_i2c {
@@ -53,6 +54,7 @@ enum class Phase : std::uint8_t {
   rfal_initialize,
   nfcv_poller,
   coexistence,
+  memory_read,
   complete,
 };
 
@@ -82,12 +84,34 @@ enum class FailureStage : std::uint8_t {
   nfcv_inventory,
   nfcv_uid,
   nfc_uid_changed,
+  nfcv_system_information,
+  nfcv_invalid_geometry,
+  nfcv_memory_read,
+  nfcv_response_length,
+  nfcv_uid_changed_during_read,
+  nfcv_read_consistency,
+  nfc_post_read_transport,
   nfc_post_inventory_probe,
   nfc_post_inventory_identity,
   rf_field_off,
   scale_sample,
   nfc_coexistence_probe,
   insufficient_scale_samples,
+};
+
+struct NfcvSystemInformation {
+  std::array<std::uint8_t, 8U> wire_uid{};
+  std::uint32_t block_count{0U};
+  std::uint16_t block_size{0U};
+  bool memory_size_present{false};
+  bool used_extended_command{false};
+};
+
+enum class ReadResponseResult : std::uint8_t {
+  pass,
+  invalid_argument,
+  tag_error,
+  wrong_length,
 };
 
 struct ChipIdentity {
@@ -122,6 +146,18 @@ struct Snapshot {
   bool uid_consistent{true};
   bool tag_removal_seen{false};
   bool tag_reinsertion_seen{false};
+  CheckResult system_information_result{CheckResult::pending};
+  CheckResult geometry_result{CheckResult::pending};
+  std::uint32_t block_count{0U};
+  std::uint16_t block_size{0U};
+  std::uint32_t memory_capacity_bytes{0U};
+  CheckResult first_memory_read_result{CheckResult::pending};
+  CheckResult second_memory_read_result{CheckResult::pending};
+  CheckResult memory_read_consistency_result{CheckResult::pending};
+  std::uint32_t memory_bytes_read{0U};
+  std::array<char, 9U> memory_checksum{};
+  std::array<char, 24U> memory_uid{};
+  bool memory_dump_available{false};
   CheckResult nau_communication_result{CheckResult::pending};
   CheckResult scale_after_test{CheckResult::pending};
   CheckResult nfc_after_scale{CheckResult::pending};
@@ -150,5 +186,24 @@ struct Snapshot {
 
 [[nodiscard]] std::array<char, 24U> format_diagnostic_uid(
     const std::array<std::uint8_t, 8U>& canonical_uid);
+
+[[nodiscard]] bool parse_nfcv_system_information(
+    const std::uint8_t* response,
+    std::size_t response_length,
+    bool extended,
+    NfcvSystemInformation& information);
+
+[[nodiscard]] ReadResponseResult copy_nfcv_read_response(
+    const std::uint8_t* response,
+    std::size_t response_length,
+    std::uint8_t* destination,
+    std::size_t expected_data_length);
+
+[[nodiscard]] std::uint32_t diagnostic_checksum(
+    const std::uint8_t* data,
+    std::size_t length);
+
+[[nodiscard]] std::array<char, 9U> format_diagnostic_checksum(
+    std::uint32_t checksum);
 
 }  // namespace opentag::diagnostics::shared_i2c
