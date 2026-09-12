@@ -41,5 +41,6 @@ jobs:
           name: opentag-nfc-v-diagnostic-pr
           path: .pio/build/wt32-sc01-plus-i2c-test/web-flasher
           if-no-files-found: error
+          include-hidden-files: true
       - run: python tools/web_flasher.py assemble-pages --factory-bundle .pio/build/wt32-sc01-plus/web-flasher --diagnostic-bundle .pio/build/wt32-sc01-plus-i2c-test/web-flasher --output-dir .pio/build/web-flasher-pages --maximum-size 16777216
       - run: python tools/web_flasher.py validate-pages --bundle-dir .pio/build/web-flasher-pages --maximum-size 16777216
