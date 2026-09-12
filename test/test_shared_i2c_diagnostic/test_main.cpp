@@ -59,11 +59,35 @@ void test_st25r3916b_identity_and_read_framing_are_decoded() {
   TEST_ASSERT_FALSE(decode_st25r3916b_identity(0x18U).is_st25r3916b());
 }
 
+void test_diagnostic_uid_formatter_preserves_canonical_order() {
+  const std::array<std::uint8_t, 8U> uid{
+      0xE0U, 0x04U, 0x01U, 0x02U, 0x03U, 0x04U, 0x05U, 0x06U};
+  const auto formatted = format_diagnostic_uid(uid);
+  TEST_ASSERT_EQUAL_STRING("E0:04:01:02:03:04:05:06", formatted.data());
+}
+
+void test_zero_device_inventory_is_representable_as_a_pass() {
+  Snapshot snapshot;
+  snapshot.iso15693_inventory_result = CheckResult::pass;
+  snapshot.tag_detected = TagDetected::no;
+  snapshot.devices_found = 0U;
+  snapshot.failure_stage = FailureStage::none;
+
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(CheckResult::pass),
+      static_cast<int>(snapshot.iso15693_inventory_result));
+  TEST_ASSERT_EQUAL_STRING("NO", to_string(snapshot.tag_detected));
+  TEST_ASSERT_EQUAL_UINT8(0U, snapshot.devices_found);
+  TEST_ASSERT_EQUAL_STRING("NONE", to_string(snapshot.failure_stage));
+}
+
 int main(int, char**) {
   UNITY_BEGIN();
   RUN_TEST(test_wire_status_distinguishes_ack_nack_and_bus_error);
   RUN_TEST(test_dual_bus_contract_is_fixed_and_independent);
   RUN_TEST(test_snapshot_keeps_bus_state_and_errors_independent);
   RUN_TEST(test_st25r3916b_identity_and_read_framing_are_decoded);
+  RUN_TEST(test_diagnostic_uid_formatter_preserves_canonical_order);
+  RUN_TEST(test_zero_device_inventory_is_representable_as_a_pass);
   return UNITY_END();
 }

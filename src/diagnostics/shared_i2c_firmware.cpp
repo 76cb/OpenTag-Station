@@ -3,18 +3,24 @@
 #include <Wire.h>
 #include <esp_http_server.h>
 
+#include <rfal_nfc.h>
+#include <rfal_rfst25r3916.h>
+#include <st_errno.h>
+
 #include <algorithm>
 #include <array>
 #include <cstdarg>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <optional>
 
 #include "boards/wt32_sc01_plus_rev_a.hpp"
 #include "diagnostics/build_info.hpp"
 #include "diagnostics/shared_i2c_diagnostic.hpp"
 #include "hardware/display/wt32_display.hpp"
 #include "hardware/scale/nau7802_device.hpp"
+#include "nfc/protocols/nfcv/tag.hpp"
 
 namespace opentag::diagnostics::shared_i2c {
 namespace {
@@ -33,7 +39,7 @@ static_assert(Board::scale_sda == scale_sda_gpio && Board::scale_scl == scale_sc
 static_assert(Board::diagnostic_nfc_sda == nfc_sda_gpio && Board::diagnostic_nfc_scl == nfc_scl_gpio);
 constexpr std::uint16_t wire_timeout_ms = 20U;
 constexpr std::uint32_t coexistence_duration_ms = 30000U;
-constexpr std::uint32_t nfc_probe_interval_ms = 5000U;
+constexpr std::uint32_t inventory_interval_ms = 500U;
 constexpr std::uint32_t scale_check_interval_ms = 20U;
 constexpr std::uint32_t minimum_scale_samples = 30U;
 constexpr const char* access_point_ssid = "OpenTag-I2C-Test";
@@ -45,12 +51,44 @@ constexpr std::uint8_t st25r3916b_last_irq_register = 0x1DU;
 constexpr std::uint8_t st25r3916b_enable_oscillator = 0x80U;
 constexpr std::uint8_t st25r3916b_irq_oscillator_stable = 0x80U;
 
+class ScopedRfField {
+ public:
+  explicit ScopedRfField(RfalRfST25R3916Class& reader) : reader_(reader) {}
+  ScopedRfField(const ScopedRfField&) = delete;
+  ScopedRfField& operator=(const ScopedRfField&) = delete;
+
+  [[nodiscard]] ReturnCode enable() {
+    const auto result = reader_.rfalFieldOnAndStartGT();
+    active_ = result == ERR_NONE;
+    return result;
+  }
+
+  [[nodiscard]] ReturnCode close() {
+    if (!active_) return ERR_NONE;
+    const auto result = reader_.rfalFieldOff();
+    active_ = result != ERR_NONE;
+    return result;
+  }
+
+  ~ScopedRfField() {
+    if (active_) (void)reader_.rfalFieldOff();
+  }
+
+ private:
+  RfalRfST25R3916Class& reader_;
+  bool active_{false};
+};
+
+bool is_rfal_i2c_error(ReturnCode result) {
+  return (result & 0xFF00U) == ERR_I2C_GRP;
+}
+
 constexpr char diagnostic_page[] PROGMEM = R"HTML(<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>OpenTag Dual I2C / NFC Test</title>
+  <title>OpenTag Dual I2C / NFC-V RF Test</title>
   <style>
     :root{font-family:system-ui,sans-serif;color:#e9f4f5;background:#10191c}
     body{margin:0;padding:1rem}main{max-width:48rem;margin:auto}
@@ -63,8 +101,8 @@ constexpr char diagnostic_page[] PROGMEM = R"HTML(<!doctype html>
   </style>
 </head>
 <body><main>
-  <h1>Dual I2C / NFC Test</h1>
-  <p class="note">Scale: GPIO10/GPIO11 · NFC: GPIO13/GPIO14 · 100 kHz each. This page polls every 5 seconds only while the bounded test is running.</p>
+  <h1>Dual I2C / NFC-V RF Test</h1>
+  <p class="note">Scale: GPIO10/GPIO11 · NFC: GPIO13/GPIO14 · IRQ GPIO12 · 100 kHz each. RF is enabled only during bounded inventory rounds.</p>
   <dl id="results"><dt>Status</dt><dd class="pending">Loading…</dd></dl>
   <button id="refresh" type="button">Refresh now</button>
   <script>
@@ -73,19 +111,25 @@ constexpr char diagnostic_page[] PROGMEM = R"HTML(<!doctype html>
       nfc_clock_hz:'NFC clock (Hz)',nfc_sda_idle:'NFC SDA idle',nfc_scl_idle:'NFC SCL idle',
       nfc_probe_result:'NFC 0x50',
       nfc_identity_result:'NFC chip ID',nfc_irq_result:'NFC IRQ',
+      rfal_initialize_result:'RFAL initialize',nfcv_poller_result:'NFC-V poller',
+      rf_field_result:'RF field',iso15693_inventory_result:'ISO15693 inventory',
+      tag_detected:'Tag detected',devices_found:'Devices found',uid:'UID',
+      inventory_round_count:'Inventory rounds',matching_uid_round_count:'Matching UID rounds',
+      uid_consistent:'UID consistent',tag_removal_seen:'Removal seen',tag_reinsertion_seen:'Reinsertion seen',
       nfc_bus_error_count:'NFC bus errors',nau_communication_result:'NAU communication',
       scale_after_test:'Scale after test',nfc_after_scale:'NFC after scale',
       scale_sample_count:'Scale samples',last_raw:'Last raw reading',phase:'Phase',failure_stage:'First failing stage'};
     const order=Object.keys(labels);let timer;
     function text(v){return Array.isArray(v)?(v.length?v.join(' '):'none'):String(v)}
-    function cls(v){v=String(v);return v==='PASS'||v==='ACK'||v==='HIGH'||v==='true'?'pass':
+    function cls(k,v){v=String(v);return v==='PASS'||v==='ACK'||v==='HIGH'||v==='true'||
+      (k==='tag_detected'&&(v==='YES'||v==='NO'))?'pass':
       v==='FAIL'||v==='BUS ERROR'||v==='LOW'||v==='true-invalid'?'fail':'pending'}
     async function load(){clearTimeout(timer);try{
       const r=await fetch('/api/v1/i2c-diagnostic',{cache:'no-store'});if(!r.ok)throw Error(r.status);
       const d=await r.json(),root=document.getElementById('results');root.replaceChildren();
       for(const k of order){const dt=document.createElement('dt'),dd=document.createElement('dd');
         dt.textContent=labels[k];const value=d[k];
-        dd.textContent=text(value);dd.className=cls(value);root.append(dt,dd)}
+        dd.textContent=text(value);dd.className=cls(k,value);root.append(dt,dd)}
       if(!d.complete)timer=setTimeout(load,5000);
     }catch(e){document.getElementById('results').textContent='Diagnostic endpoint unavailable: '+e;timer=setTimeout(load,5000)}}
     document.getElementById('refresh').addEventListener('click',load);load();
@@ -126,7 +170,9 @@ class DualI2cFirmware {
                 scale_clock_hz,
                 Nau7802SampleRate::sps_10,
                 7U,
-                5U}) {}
+                5U}),
+        reader_(&Wire1, Board::diagnostic_nfc_interrupt),
+        nfc_(&reader_) {}
 
   void setup() {
     Serial.begin(115200);
@@ -212,18 +258,69 @@ class DualI2cFirmware {
         live_.nau_probe_result == ProbeResult::ack &&
         live_.nfc_probe_result == ProbeResult::ack &&
         live_.nfc_identity_result == CheckResult::pass &&
+        live_.nfc_irq_result == CheckResult::pass &&
         live_.nau_communication_result == CheckResult::pass;
     if (!healthy_for_coexistence) {
+      skip_rf_results();
       live_.scale_after_test = CheckResult::skipped;
       live_.nfc_after_scale = CheckResult::skipped;
       set_phase(Phase::complete);
+      print_final_report();
+      return;
+    }
+
+    if (!initialize_nfcv()) {
+      live_.scale_after_test = CheckResult::skipped;
+      live_.nfc_after_scale = CheckResult::fail;
+      set_phase(Phase::complete);
+      print_final_report();
       return;
     }
 
     coexistence_started_ms_ = millis();
     last_scale_check_ms_ = coexistence_started_ms_;
-    last_nfc_probe_ms_ = coexistence_started_ms_;
+    last_inventory_ms_ = coexistence_started_ms_ - inventory_interval_ms;
     set_phase(Phase::coexistence);
+  }
+
+  void skip_rf_results() {
+    live_.rfal_initialize_result = CheckResult::skipped;
+    live_.nfcv_poller_result = CheckResult::skipped;
+    live_.rf_field_result = CheckResult::skipped;
+    live_.iso15693_inventory_result = CheckResult::skipped;
+  }
+
+  void note_rfal_error(ReturnCode result) {
+    if (is_rfal_i2c_error(result)) ++live_.nfc_bus_error_count;
+    Serial.printf("ELECHOUSE RFAL error: 0x%04X\n", static_cast<unsigned>(result));
+  }
+
+  bool initialize_nfcv() {
+    set_phase(Phase::rfal_initialize);
+    const auto initialized = nfc_.rfalNfcInitialize();
+    if (initialized != ERR_NONE) {
+      note_rfal_error(initialized);
+      live_.rfal_initialize_result = CheckResult::fail;
+      live_.nfcv_poller_result = CheckResult::skipped;
+      live_.rf_field_result = CheckResult::skipped;
+      live_.iso15693_inventory_result = CheckResult::skipped;
+      record_failure(FailureStage::rfal_initialize);
+      return false;
+    }
+    live_.rfal_initialize_result = CheckResult::pass;
+
+    set_phase(Phase::nfcv_poller);
+    const auto poller = nfc_.rfalNfcvPollerInitialize();
+    if (poller != ERR_NONE) {
+      note_rfal_error(poller);
+      live_.nfcv_poller_result = CheckResult::fail;
+      live_.rf_field_result = CheckResult::skipped;
+      live_.iso15693_inventory_result = CheckResult::skipped;
+      record_failure(FailureStage::nfcv_poller_initialize);
+      return false;
+    }
+    live_.nfcv_poller_result = CheckResult::pass;
+    return true;
   }
 
   void sample_idle_lines() {
@@ -448,6 +545,130 @@ class DualI2cFirmware {
     live_.nau_communication_result = CheckResult::pass;
   }
 
+  bool post_inventory_transport_healthy() {
+    if (probe_nfc_target(st25r3916b_address) != ProbeResult::ack) {
+      record_failure(FailureStage::nfc_post_inventory_probe);
+      return false;
+    }
+
+    std::uint8_t raw_identity = 0U;
+    if (!nfc_read_register(st25r3916b_identity_register, raw_identity)) {
+      record_failure(FailureStage::nfc_post_inventory_identity);
+      return false;
+    }
+    const auto identity = decode_st25r3916b_identity(raw_identity);
+    if (!identity.is_st25r3916b()) {
+      record_failure(FailureStage::nfc_post_inventory_identity);
+      return false;
+    }
+    return true;
+  }
+
+  bool record_inventory(
+      const std::array<rfalNfcvListenDevice, RFAL_NFC_MAX_DEVICES>& devices,
+      std::uint8_t device_count) {
+    live_.devices_found = device_count;
+    live_.uid.fill('\0');
+
+    std::array<opentag::nfc::nfcv::Uid, RFAL_NFC_MAX_DEVICES> normalized{};
+    for (std::uint8_t index = 0U; index < device_count; ++index) {
+      const auto uid = opentag::nfc::nfcv::Uid::from_wire_lsb_first(
+          core::ByteView(
+              devices[index].InvRes.UID,
+              RFAL_NFCV_UID_LEN));
+      if (!uid.ok()) {
+        live_.iso15693_inventory_result = CheckResult::fail;
+        record_failure(FailureStage::nfcv_uid);
+        Serial.printf("NFC-V UID rejected: %s\n", uid.error().message.c_str());
+        return false;
+      }
+      normalized[index] = uid.value();
+    }
+
+    live_.iso15693_inventory_result = CheckResult::pass;
+    if (device_count == 0U) {
+      live_.tag_detected = TagDetected::no;
+      if (last_devices_found_ > 0U) live_.tag_removal_seen = true;
+    } else if (device_count == 1U) {
+      live_.tag_detected = TagDetected::yes;
+      live_.uid = format_diagnostic_uid(normalized[0].bytes);
+      if (!reference_uid_.has_value()) {
+        reference_uid_ = normalized[0];
+        live_.matching_uid_round_count = 1U;
+      } else if (*reference_uid_ == normalized[0]) {
+        ++live_.matching_uid_round_count;
+        if (live_.tag_removal_seen) live_.tag_reinsertion_seen = true;
+      } else {
+        live_.uid_consistent = false;
+        record_failure(FailureStage::nfc_uid_changed);
+        return false;
+      }
+    } else {
+      live_.tag_detected = TagDetected::multiple;
+    }
+    last_devices_found_ = device_count;
+    return true;
+  }
+
+  bool run_inventory_round() {
+    ++live_.inventory_round_count;
+    ScopedRfField field(reader_);
+    const auto field_on = field.enable();
+    if (field_on != ERR_NONE) {
+      note_rfal_error(field_on);
+      live_.rf_field_result = CheckResult::fail;
+      live_.iso15693_inventory_result = CheckResult::skipped;
+      record_failure(FailureStage::rf_field_on);
+      return false;
+    }
+    live_.rf_field_result = CheckResult::pass;
+
+    rfalNfcvInventoryRes presence{};
+    const auto presence_result = nfc_.rfalNfcvPollerCheckPresence(&presence);
+    const bool presence_valid =
+        presence_result == ERR_NONE || presence_result == ERR_TIMEOUT;
+
+    std::array<rfalNfcvListenDevice, RFAL_NFC_MAX_DEVICES> devices{};
+    std::uint8_t device_count = 0U;
+    ReturnCode inventory_result = ERR_WRONG_STATE;
+    if (presence_valid) {
+      inventory_result = nfc_.rfalNfcvPollerCollisionResolution(
+          RFAL_COMPLIANCE_MODE_NFC,
+          static_cast<std::uint8_t>(devices.size()),
+          devices.data(),
+          &device_count);
+    }
+
+    const auto field_off = field.close();
+    if (field_off != ERR_NONE) {
+      note_rfal_error(field_off);
+      live_.rf_field_result = CheckResult::fail;
+      record_failure(FailureStage::rf_field_off);
+    }
+
+    const bool transport_healthy = post_inventory_transport_healthy();
+    if (!transport_healthy) nfc_runtime_failed_ = true;
+
+    if (!presence_valid) {
+      note_rfal_error(presence_result);
+      live_.iso15693_inventory_result = CheckResult::fail;
+      record_failure(FailureStage::nfcv_presence);
+      return false;
+    }
+    if (inventory_result != ERR_NONE) {
+      note_rfal_error(inventory_result);
+      live_.iso15693_inventory_result = CheckResult::fail;
+      record_failure(FailureStage::nfcv_inventory);
+      return false;
+    }
+    if (field_off != ERR_NONE || !transport_healthy) {
+      live_.iso15693_inventory_result = CheckResult::fail;
+      return false;
+    }
+
+    return record_inventory(devices, device_count);
+  }
+
   void poll_coexistence(std::uint32_t now_ms) {
     live_.coexistence_elapsed_ms = std::min<std::uint32_t>(
         static_cast<std::uint32_t>(now_ms - coexistence_started_ms_),
@@ -473,18 +694,16 @@ class DualI2cFirmware {
       }
     }
 
-    if (elapsed(now_ms, last_nfc_probe_ms_, nfc_probe_interval_ms)) {
-      last_nfc_probe_ms_ = now_ms;
-      if (probe_nfc_target(st25r3916b_address) != ProbeResult::ack) {
+    if (elapsed(now_ms, last_inventory_ms_, inventory_interval_ms)) {
+      last_inventory_ms_ = now_ms;
+      if (!run_inventory_round()) {
         nfc_runtime_failed_ = true;
-        record_failure(FailureStage::nfc_coexistence_probe);
       }
     }
 
     if (!elapsed(now_ms, coexistence_started_ms_, coexistence_duration_ms)) return;
 
-    const auto final_nfc_probe = probe_nfc_target(st25r3916b_address);
-    if (final_nfc_probe != ProbeResult::ack) {
+    if (!post_inventory_transport_healthy()) {
       nfc_runtime_failed_ = true;
       record_failure(FailureStage::nfc_coexistence_probe);
     }
@@ -499,6 +718,31 @@ class DualI2cFirmware {
         ? CheckResult::pass
         : CheckResult::fail;
     set_phase(Phase::complete);
+    print_final_report();
+  }
+
+  void print_final_report() const {
+    Serial.printf("Scale 0x2A            %s\n", to_string(live_.nau_probe_result));
+    Serial.printf("NFC 0x50              %s\n", to_string(live_.nfc_probe_result));
+    Serial.printf("NFC chip ID           %s\n", to_string(live_.nfc_identity_result));
+    Serial.printf("NFC IRQ               %s\n", to_string(live_.nfc_irq_result));
+    Serial.printf("RFAL initialize       %s\n", to_string(live_.rfal_initialize_result));
+    Serial.printf("NFC-V poller          %s\n", to_string(live_.nfcv_poller_result));
+    Serial.printf("RF field              %s\n", to_string(live_.rf_field_result));
+    Serial.printf("ISO15693 inventory    %s\n", to_string(live_.iso15693_inventory_result));
+    Serial.printf("Tag detected          %s\n", to_string(live_.tag_detected));
+    Serial.printf("Devices found         %u\n", static_cast<unsigned>(live_.devices_found));
+    Serial.printf("UID                   %s\n", live_.uid[0] == '\0' ? "-" : live_.uid.data());
+    Serial.printf("Inventory rounds      %lu\n", static_cast<unsigned long>(live_.inventory_round_count));
+    Serial.printf("Matching UID rounds   %lu\n", static_cast<unsigned long>(live_.matching_uid_round_count));
+    Serial.printf("UID consistent        %s\n", live_.uid_consistent ? "PASS" : "FAIL");
+    Serial.printf("Tag removal seen      %s\n", live_.tag_removal_seen ? "YES" : "NO");
+    Serial.printf("Tag reinsertion seen  %s\n", live_.tag_reinsertion_seen ? "YES" : "NO");
+    Serial.printf("NFC bus errors        %lu\n", static_cast<unsigned long>(live_.nfc_bus_error_count));
+    Serial.printf("Scale bus errors      %lu\n", static_cast<unsigned long>(live_.scale_bus_error_count));
+    Serial.printf("Scale after test      %s\n", to_string(live_.scale_after_test));
+    Serial.printf("NFC after scale       %s\n", to_string(live_.nfc_after_scale));
+    Serial.printf("First failing stage   %s\n", to_string(live_.failure_stage));
   }
 
   void publish_snapshot() {
@@ -528,12 +772,12 @@ class DualI2cFirmware {
       const char* label,
       const char* value,
       std::uint16_t color) {
-    screen_.setTextSize(2U);
+    screen_.setTextSize(1U);
     screen_.setTextColor(TFT_LIGHTGREY, TFT_BLACK);
     screen_.setCursor(8, y);
     screen_.print(label);
     screen_.setTextColor(color, TFT_BLACK);
-    screen_.setCursor(276, y);
+    screen_.setCursor(230, y);
     screen_.print(value);
   }
 
@@ -542,51 +786,58 @@ class DualI2cFirmware {
     screen_.setTextSize(2U);
     screen_.setTextColor(TFT_CYAN, TFT_BLACK);
     screen_.setCursor(8, 4);
-    screen_.print("DUAL I2C / NFC TEST");
+    screen_.print("DUAL I2C / NFC-V RF TEST");
 
-    draw_result_line(25, "SCALE SDA", to_string(snapshot.scale_sda_idle),
-                     snapshot.scale_sda_idle == LineState::high ? TFT_GREEN : TFT_RED);
-    draw_result_line(44, "SCALE SCL", to_string(snapshot.scale_scl_idle),
-                     snapshot.scale_scl_idle == LineState::high ? TFT_GREEN : TFT_RED);
-    draw_result_line(63, "NAU7802 0x2A", to_string(snapshot.nau_probe_result),
+    draw_result_line(24, "SCALE 0x2A", to_string(snapshot.nau_probe_result),
                      result_color(snapshot.nau_probe_result));
-    draw_result_line(82, "NFC SDA", to_string(snapshot.nfc_sda_idle),
-                     snapshot.nfc_sda_idle == LineState::high ? TFT_GREEN : TFT_RED);
-    draw_result_line(101, "NFC SCL", to_string(snapshot.nfc_scl_idle),
-                     snapshot.nfc_scl_idle == LineState::high ? TFT_GREEN : TFT_RED);
-    draw_result_line(120, "NFC 0x50", to_string(snapshot.nfc_probe_result),
+    draw_result_line(38, "NFC 0x50", to_string(snapshot.nfc_probe_result),
                      result_color(snapshot.nfc_probe_result));
-    draw_result_line(139, "NFC CHIP ID", to_string(snapshot.nfc_identity_result),
+    draw_result_line(52, "NFC CHIP ID", to_string(snapshot.nfc_identity_result),
                      result_color(snapshot.nfc_identity_result));
-    draw_result_line(158, "NFC IRQ", to_string(snapshot.nfc_irq_result),
+    draw_result_line(66, "NFC IRQ", to_string(snapshot.nfc_irq_result),
                      result_color(snapshot.nfc_irq_result));
-    draw_result_line(177, "NAU COMM", to_string(snapshot.nau_communication_result),
-                     result_color(snapshot.nau_communication_result));
-    draw_result_line(196, "SCALE AFTER", to_string(snapshot.scale_after_test),
-                     result_color(snapshot.scale_after_test));
-    draw_result_line(215, "NFC AFTER SCALE", to_string(snapshot.nfc_after_scale),
-                     result_color(snapshot.nfc_after_scale));
+    draw_result_line(80, "RFAL INITIALIZE", to_string(snapshot.rfal_initialize_result),
+                     result_color(snapshot.rfal_initialize_result));
+    draw_result_line(94, "NFC-V POLLER", to_string(snapshot.nfcv_poller_result),
+                     result_color(snapshot.nfcv_poller_result));
+    draw_result_line(108, "RF FIELD", to_string(snapshot.rf_field_result),
+                     result_color(snapshot.rf_field_result));
+    draw_result_line(122, "ISO15693 INVENTORY", to_string(snapshot.iso15693_inventory_result),
+                     result_color(snapshot.iso15693_inventory_result));
+    draw_result_line(
+        136,
+        "TAG DETECTED",
+        to_string(snapshot.tag_detected),
+        snapshot.tag_detected == TagDetected::pending
+            ? TFT_YELLOW
+            : snapshot.tag_detected == TagDetected::multiple ? TFT_ORANGE : TFT_GREEN);
 
-    char counters[48]{};
+    char value[64]{};
+    std::snprintf(value, sizeof(value), "%u", static_cast<unsigned>(snapshot.devices_found));
+    draw_result_line(150, "DEVICES FOUND", value, TFT_LIGHTGREY);
+    draw_result_line(164, "UID", snapshot.uid[0] == '\0' ? "-" : snapshot.uid.data(), TFT_LIGHTGREY);
+
+    std::snprintf(value, sizeof(value), "%lu", static_cast<unsigned long>(snapshot.nfc_bus_error_count));
+    draw_result_line(178, "NFC BUS ERRORS", value,
+                     snapshot.nfc_bus_error_count == 0U ? TFT_GREEN : TFT_RED);
+    std::snprintf(value, sizeof(value), "%lu", static_cast<unsigned long>(snapshot.scale_bus_error_count));
+    draw_result_line(192, "SCALE BUS ERRORS", value,
+                     snapshot.scale_bus_error_count == 0U ? TFT_GREEN : TFT_RED);
+    draw_result_line(206, "SCALE AFTER TEST", to_string(snapshot.scale_after_test),
+                     result_color(snapshot.scale_after_test));
+    draw_result_line(220, "NFC AFTER SCALE", to_string(snapshot.nfc_after_scale),
+                     result_color(snapshot.nfc_after_scale));
+    std::snprintf(value, sizeof(value), "%lu", static_cast<unsigned long>(snapshot.scale_sample_count));
+    draw_result_line(234, "SCALE SAMPLES", value, TFT_LIGHTGREY);
     std::snprintf(
-        counters,
-        sizeof(counters),
-        "%lu  NFC %lu",
-        static_cast<unsigned long>(snapshot.scale_bus_error_count),
-        static_cast<unsigned long>(snapshot.nfc_bus_error_count));
-    draw_result_line(234, "SCALE ERRORS", counters,
-                     snapshot.scale_bus_error_count == 0U && snapshot.nfc_bus_error_count == 0U
-                         ? TFT_GREEN
-                         : TFT_RED);
-    std::snprintf(
-        counters,
-        sizeof(counters),
-        "%lu",
-        static_cast<unsigned long>(snapshot.scale_sample_count));
-    draw_result_line(253, "SCALE SAMPLES", counters, TFT_LIGHTGREY);
+        value, sizeof(value), "%lu / %lu",
+        static_cast<unsigned long>(snapshot.matching_uid_round_count),
+        static_cast<unsigned long>(snapshot.inventory_round_count));
+    draw_result_line(248, "UID / INVENTORY ROUNDS", value,
+                     snapshot.uid_consistent ? TFT_GREEN : TFT_RED);
 
     screen_.setTextSize(1U);
-    screen_.setCursor(8, 272);
+    screen_.setCursor(8, 266);
     screen_.setTextColor(TFT_YELLOW, TFT_BLACK);
     if (snapshot.phase == Phase::coexistence) {
       screen_.printf(
@@ -596,12 +847,12 @@ class DualI2cFirmware {
     } else {
       screen_.printf("PHASE: %s", to_string(snapshot.phase));
     }
-    screen_.setCursor(8, 286);
+    screen_.setCursor(8, 280);
     screen_.setTextColor(
         snapshot.failure_stage == FailureStage::none ? TFT_GREEN : TFT_RED,
         TFT_BLACK);
     screen_.printf("FIRST FAILURE: %s", to_string(snapshot.failure_stage));
-    screen_.setCursor(8, 300);
+    screen_.setCursor(8, 294);
     screen_.setTextColor(TFT_CYAN, TFT_BLACK);
     screen_.printf("Wi-Fi: %s   %s", access_point_ssid, access_point_url);
   }
@@ -631,7 +882,7 @@ class DualI2cFirmware {
   static esp_err_t api_handler(httpd_req_t* request) {
     auto* firmware = static_cast<DualI2cFirmware*>(request->user_ctx);
     const auto snapshot = firmware->copy_snapshot();
-    std::array<char, 2048U> json{};
+    std::array<char, 3072U> json{};
     std::size_t used = 0U;
     append_json(
         json.data(), json.size(), used,
@@ -640,6 +891,11 @@ class DualI2cFirmware {
         "\"nfc_clock_hz\":%lu,\"nfc_sda_idle\":\"%s\",\"nfc_scl_idle\":\"%s\","
         "\"nfc_probe_result\":\"%s\","
         "\"nfc_identity_result\":\"%s\",\"nfc_irq_result\":\"%s\","
+        "\"rfal_initialize_result\":\"%s\",\"nfcv_poller_result\":\"%s\","
+        "\"rf_field_result\":\"%s\",\"iso15693_inventory_result\":\"%s\","
+        "\"tag_detected\":\"%s\",\"devices_found\":%u,\"uid\":\"%s\","
+        "\"inventory_round_count\":%lu,\"matching_uid_round_count\":%lu,"
+        "\"uid_consistent\":%s,\"tag_removal_seen\":%s,\"tag_reinsertion_seen\":%s,"
         "\"nfc_bus_error_count\":%lu,\"nau_communication_result\":\"%s\","
         "\"scale_after_test\":\"%s\",\"nfc_after_scale\":\"%s\","
         "\"scale_sample_count\":%lu,\"last_raw\":%ld,"
@@ -656,6 +912,18 @@ class DualI2cFirmware {
         to_string(snapshot.nfc_probe_result),
         to_string(snapshot.nfc_identity_result),
         to_string(snapshot.nfc_irq_result),
+        to_string(snapshot.rfal_initialize_result),
+        to_string(snapshot.nfcv_poller_result),
+        to_string(snapshot.rf_field_result),
+        to_string(snapshot.iso15693_inventory_result),
+        to_string(snapshot.tag_detected),
+        static_cast<unsigned>(snapshot.devices_found),
+        snapshot.uid.data(),
+        static_cast<unsigned long>(snapshot.inventory_round_count),
+        static_cast<unsigned long>(snapshot.matching_uid_round_count),
+        snapshot.uid_consistent ? "true" : "false",
+        snapshot.tag_removal_seen ? "true" : "false",
+        snapshot.tag_reinsertion_seen ? "true" : "false",
         static_cast<unsigned long>(snapshot.nfc_bus_error_count),
         to_string(snapshot.nau_communication_result),
         to_string(snapshot.scale_after_test),
@@ -718,6 +986,8 @@ class DualI2cFirmware {
 
   Wt32DisplayDevice screen_{false};
   Nau7802Device scale_adc_;
+  RfalRfST25R3916Class reader_;
+  RfalNfcClass nfc_;
   Snapshot live_;
   mutable Snapshot published_;
   mutable portMUX_TYPE snapshot_mux_ = portMUX_INITIALIZER_UNLOCKED;
@@ -730,8 +1000,10 @@ class DualI2cFirmware {
   bool nfc_runtime_failed_{false};
   std::uint32_t coexistence_started_ms_{0U};
   std::uint32_t last_scale_check_ms_{0U};
-  std::uint32_t last_nfc_probe_ms_{0U};
+  std::uint32_t last_inventory_ms_{0U};
   std::uint32_t last_render_ms_{0U};
+  std::uint8_t last_devices_found_{0U};
+  std::optional<opentag::nfc::nfcv::Uid> reference_uid_;
 };
 
 DualI2cFirmware firmware;

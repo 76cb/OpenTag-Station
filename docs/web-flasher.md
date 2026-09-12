@@ -13,15 +13,17 @@ The site uses ESP Web Tools and the browser Web Serial API. Use a current
 desktop Chrome or Edge release, open the HTTPS page, connect the WT32-SC01 Plus
 to the computer with a USB data cable, then select either the default
 **Install OpenTag Station** production image or the opt-in
-**WT32-SC01 Plus — Dual I2C / NFC Test** image. Choose the board's serial
+**WT32-SC01 Plus — Dual I2C / NFC-V RF Test** image. Choose the board's serial
 device when prompted. Web Serial is not supported by Firefox or Safari.
 
-The dual-I2C diagnostic is a separate, no-RFAL image. It samples the NAU7802
-bus on GPIO10/11 (`Wire`) and NFC bus on GPIO13/14 (`Wire1`) independently at
-100 kHz, probes only `0x2A` on the scale bus and `0x50` on the NFC bus, validates
-the ST25R3916B direct-register identity/IRQ path without enabling its RF field,
-and then runs a bounded 30-second coexistence test. Its display is the primary
-result view; touchscreen input is disabled in this diagnostic to reserve I2C
+The dual-I2C diagnostic samples the NAU7802 bus on GPIO10/11 (`Wire`) and NFC
+bus on GPIO13/14 (`Wire1`) independently at 100 kHz, probes `0x2A` and `0x50`,
+and retains the direct-register ST25R3916B chip-ID/IRQ checks. It then uses the
+pinned ELECHOUSE object API to initialize RFAL and the NFC-V poller and run
+bounded ISO15693 inventory rounds while continuing scale sampling. Zero tags is
+a healthy inventory PASS; one tag reports its normalized eight-byte UID. The RF
+field is scoped to each round and no tag memory is read or written. The display
+is the primary result view; touchscreen input is disabled to reserve I2C
 controller 1 for NFC. For the secondary browser view, join the open
 `OpenTag-I2C-Test` access point and open `http://192.168.4.1`.
 

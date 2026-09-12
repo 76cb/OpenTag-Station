@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cstdint>
 
 namespace opentag::diagnostics::shared_i2c {
@@ -35,6 +36,13 @@ enum class CheckResult : std::uint8_t {
   skipped,
 };
 
+enum class TagDetected : std::uint8_t {
+  pending,
+  no,
+  yes,
+  multiple,
+};
+
 enum class Phase : std::uint8_t {
   starting,
   line_state,
@@ -42,6 +50,8 @@ enum class Phase : std::uint8_t {
   nfc_probe,
   nfc_register_test,
   nau_test,
+  rfal_initialize,
+  nfcv_poller,
   coexistence,
   complete,
 };
@@ -65,6 +75,16 @@ enum class FailureStage : std::uint8_t {
   nfc_irq_status,
   nfc_irq_not_cleared,
   nau_initialize,
+  rfal_initialize,
+  nfcv_poller_initialize,
+  rf_field_on,
+  nfcv_presence,
+  nfcv_inventory,
+  nfcv_uid,
+  nfc_uid_changed,
+  nfc_post_inventory_probe,
+  nfc_post_inventory_identity,
+  rf_field_off,
   scale_sample,
   nfc_coexistence_probe,
   insufficient_scale_samples,
@@ -90,6 +110,18 @@ struct Snapshot {
   ProbeResult nfc_probe_result{ProbeResult::pending};
   CheckResult nfc_identity_result{CheckResult::pending};
   CheckResult nfc_irq_result{CheckResult::pending};
+  CheckResult rfal_initialize_result{CheckResult::pending};
+  CheckResult nfcv_poller_result{CheckResult::pending};
+  CheckResult rf_field_result{CheckResult::pending};
+  CheckResult iso15693_inventory_result{CheckResult::pending};
+  TagDetected tag_detected{TagDetected::pending};
+  std::uint8_t devices_found{0U};
+  std::array<char, 24U> uid{};
+  std::uint32_t inventory_round_count{0U};
+  std::uint32_t matching_uid_round_count{0U};
+  bool uid_consistent{true};
+  bool tag_removal_seen{false};
+  bool tag_reinsertion_seen{false};
   CheckResult nau_communication_result{CheckResult::pending};
   CheckResult scale_after_test{CheckResult::pending};
   CheckResult nfc_after_scale{CheckResult::pending};
@@ -112,7 +144,11 @@ struct Snapshot {
 [[nodiscard]] const char* to_string(LineState value);
 [[nodiscard]] const char* to_string(ProbeResult value);
 [[nodiscard]] const char* to_string(CheckResult value);
+[[nodiscard]] const char* to_string(TagDetected value);
 [[nodiscard]] const char* to_string(Phase value);
 [[nodiscard]] const char* to_string(FailureStage value);
+
+[[nodiscard]] std::array<char, 24U> format_diagnostic_uid(
+    const std::array<std::uint8_t, 8U>& canonical_uid);
 
 }  // namespace opentag::diagnostics::shared_i2c

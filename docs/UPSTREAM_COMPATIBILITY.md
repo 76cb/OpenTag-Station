@@ -1,8 +1,9 @@
 # Upstream compatibility baseline
 
-Research baseline established **2026-08-17** and OpenPrintTag rechecked
-**2026-08-20**. Source/API inspection and host-fixture success are not physical
-interoperability claims.
+Research baseline established **2026-08-17**, OpenPrintTag rechecked
+**2026-08-20**, and the ELECHOUSE diagnostic RFAL baseline pinned
+**2026-09-12**. Source/API inspection and host-fixture success are not physical
+RF-interoperability claims.
 
 ## Application integrations
 
@@ -20,20 +21,16 @@ therefore recorded by Git revision, MIME type, and fixture corpus revision.
 
 | Component | Baseline | Status |
 |---|---|---|
-| ST25R3916B | [DS13541 Rev 11](https://www.st.com/resource/en/datasheet/st25r3916b.pdf) | Direct product/revision and oscillator-IRQ backend implemented and host-tested; ELECHOUSE module identified, shared-I2C/RFAL binding and physical result pending |
-| RFAL | [STSW-ST25RFAL002](https://www.st.com/en/embedded-software/stsw-st25rfal002.html) and [UM2890 Rev 7](https://www.st.com/resource/en/user_manual/um2890-rfnfc-abstraction-layer-rfal-stmicroelectronics.pdf) | ESP32 SPI primitives compiled; shared-I2C adapter pending; vendor source release not yet acquired/pinned |
+| ST25R3916B | [DS13541 Rev 11](https://www.st.com/resource/en/datasheet/st25r3916b.pdf) | Dedicated `Wire1` transport, direct identity, and real IRQ physically PASS on GPIO13/14/12; RF inventory pending |
+| ELECHOUSE RFAL for ESP32 | [`wilson-elechouse/ST25R3916` `16eb6c7`](https://github.com/wilson-elechouse/ST25R3916/commit/16eb6c7fb13e502d320924040d768a9e564209b2) | `ST25R3916_ELECHOUSE` 1.1.1 and `NFC-RFAL` 1.0.2 vendored unchanged for the opt-in diagnostic; object API builds over injected `Wire1`; physical NFC-V RF test pending |
+| ST RFAL | [STSW-ST25RFAL002](https://www.st.com/en/embedded-software/stsw-st25rfal002.html) and [UM2890 Rev 7](https://www.st.com/resource/en/user_manual/um2890-rfnfc-abstraction-layer-rfal-stmicroelectronics.pdf) | Remains the production architecture reference; no production NFC binding is enabled |
 | X-CUBE-NFC6 | [ST product package](https://www.st.com/en/embedded-software/x-cube-nfc6.html) | Port/reference source only, not a build dependency |
 
-RFAL cannot yet be called reproducibly pinned. ST's product delivery is not a
-stable public source revision suitable for an unattended vendoring step, and
-the exact delivered archive plus its license/redistribution terms have not been
-accepted and captured for this repository. Before import, record the exact ST
-archive/release identifier, archive SHA-256, internal RFAL version, complete
-license text, redistribution decision, and any project modifications. Until
-then RFAL initialization returns a categorized configuration error, the
-production enable flag remains false, and diagnostics identify the unresolved
-transport/vendor gates. Direct silicon identity and IRQ validation do not remove
-the RFAL acquisition requirement.
+The diagnostic pin is reproducible and isolated under
+`third_party/ELECHOUSE_ST25R3916`; its provenance and licenses are recorded in
+that directory. It does not silently replace the still-gated production RFAL
+binding. The production enable flag remains false until the RF diagnostic and a
+separate production-integration review pass.
 
 ## Build dependencies
 

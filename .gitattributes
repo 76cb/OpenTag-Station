@@ -1,0 +1,2 @@
+# Preserve byte-for-byte pinned upstream sources; do not normalize or whitespace-fix them.
+third_party/ELECHOUSE_ST25R3916/** -whitespace

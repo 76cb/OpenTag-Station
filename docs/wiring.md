@@ -2,10 +2,10 @@
 
 ## Release validation boundary
 
-All wiring and polarity checks remain UNVERIFIED. Record physical evidence
-against the scale and NFC procedures in
-[release-validation.md](release-validation.md) before enabling NFC or claiming
-scale accuracy.
+The dedicated dual-I2C scale/NFC transport below is physically validated on a
+WT32-SC01 Plus. NFC-V RF inventory remains a separate pending bench checkpoint,
+and production NFC remains disabled. Scale accuracy and calibration still need
+their own physical evidence.
 
 ## Rule
 
@@ -45,8 +45,9 @@ The ELECHOUSE ST25R3916B module is assigned only for the opt-in
 | I2C target address | `0x50` |
 
 The module's I2C solder bridge must be closed. CS/BSS and MOSI are not used by
-this diagnostic. The NFC target runs on `Wire1` at 100 kHz and never enables an
-RF field, RFAL, inventory, or tag writes.
+this diagnostic. The NFC target runs on `Wire1` at 100 kHz. The opt-in image now
+enables its RF field only for bounded ELECHOUSE RFAL NFC-V inventory rounds and
+always disables it afterward; it performs no tag-memory reads or writes.
 
 **Production RFAL wiring remains unassigned. Do not infer production SPI pins
 from the diagnostic wiring above.**
@@ -77,7 +78,8 @@ own `Wire1` bus, with IRQ on GPIO12:
 
 **This is active only in the opt-in diagnostic, not in production firmware.**
 The production board profile deliberately retains `-1` transport pins. Before
-production NFC is enabled, implement the authoritative ST RFAL I2C adapter and
-a bounded shared-bus lock used by both NFC and the NAU7802 scale owner, then
-verify the module solder bridge and combined pull-ups. The full rationale and
-ordered procedure are in [nfc-hardware-bringup.md](nfc-hardware-bringup.md).
+production NFC is enabled, complete the physical NFC-V inventory/UID checkpoint
+and design the separately reviewed production owner. The diagnostic's dedicated
+`Wire1` path must not be generalized into production behavior by implication.
+The ordered procedure is in
+[nfc-hardware-bringup.md](nfc-hardware-bringup.md).

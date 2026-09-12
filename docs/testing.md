@@ -333,17 +333,21 @@ full spools without NFC field interference.
 
 ### ST25R3916B / NFC-V
 
-1. Verify supply and clock electrically before RF.
-2. Read the IC identity over the selected RFAL transport and exercise IRQ/Set Default recovery.
-3. Initialize RFAL and field-on guard time.
-4. Inventory a known NFC-V tag and normalize UID.
-5. Read geometry, single/multiple blocks, and a full official tag.
-6. Write an allowed auxiliary field, read affected blocks, decode, and verify.
-7. Repeat after tag removal/replacement.
+The dedicated 100 kHz `Wire1` transport on GPIO13/14, `0x50` ACK, chip ID, and
+GPIO12 IRQ have passed on physical hardware. The next scoped test is:
 
-Fault cases: removal during read/write, two tags, unsupported tag, malformed
-NDEF/CBOR, protected block, CRC/protocol error, timeout, field cycling, and
-recovery without reboot.
+1. Initialize the pinned ELECHOUSE RFAL and NFC-V poller.
+2. With no tag, require inventory PASS, zero devices, post-inventory `0x50` and
+   chip-ID health, and no failing stage.
+3. Inventory one known NFC-V tag repeatedly and require one stable normalized
+   eight-byte `E0...` UID.
+4. Remove it and require a clean transition to zero devices; reinsert it and
+   require recovery of the same UID.
+5. Require zero NFC/scale bus errors, continuing scale samples, both post-test
+   health checks, and RF field cleanup on every round.
+
+Do not read or write tag memory, decode OpenPrintTag, or exercise backend
+integration in this checkpoint.
 
 ### OTA
 

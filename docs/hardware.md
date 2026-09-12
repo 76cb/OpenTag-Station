@@ -13,9 +13,9 @@ in [release-validation.md](release-validation.md).
 | MCU/display | WT32-SC01 Plus, ESP32-S3, 480 × 320 ST7796 | Driver implemented and compiled; hardware test pending |
 | Touch | FT6336U-compatible controller at I2C `0x38` | Driver implemented and compiled; hardware test pending |
 | Flash/PSRAM | 16 MB flash, QSPI PSRAM configuration | Diagnostics/buffer policy compiled; hardware test pending |
-| Scale ADC | NAU7802 at I2C `0x2A` | Driver/service implemented, compiled, and host-tested; hardware test pending |
+| Scale ADC | NAU7802 at I2C `0x2A` | Dedicated GPIO10/11 transport physically validated; calibration/accuracy pending |
 | Load cell | YZC-133, 5 kg actual/default profile; 2 kg supported | Software implemented and host-tested; physical validation pending |
-| NFC frontend | ELECHOUSE NFC_ST25R3916B; 5 V module, 3.3 V logic, integrated antenna, SPI/I2C | Control-line contract host-tested; shared-I2C/RFAL implementation and physical wiring remain gated |
+| NFC frontend | ELECHOUSE NFC_ST25R3916B; 5 V module, 3.3 V logic, integrated antenna, SPI/I2C | Dedicated GPIO13/14 `Wire1` transport, chip ID, and GPIO12 IRQ physically validated; RF inventory pending |
 | Tag technology | NFC-V / ISO15693 | Confirmed by current OpenPrintTag specification |
 
 The built-in display/touch and external scale pins are centralized in
@@ -61,6 +61,8 @@ For the physical NAU7802/ST25R3916B dual-I2C test, build the separate
 NAU7802 on `Wire` and GPIO13 SDA / GPIO14 SCL for the ST25R3916B on `Wire1`, at
 100 kHz each, with GPIO12 for NFC IRQ. The normal `wt32-sc01-plus` target
 remains wiring-gated and does not start this diagnostic or enable NFC/RFAL.
+The diagnostic now uses the pinned ELECHOUSE object API for bounded NFC-V
+inventory; production remains gated and unchanged.
 
 NVS stores boot count, boot-pending health, and a saturated crash streak. A
 LittleFS partition is always mounted first with formatting disabled and by its
@@ -108,13 +110,14 @@ The existing ESP32 SPI primitives remain available for boards that expose that
 transport. Reset and power control are now explicit capabilities: a board that
 declares either external line must provide a real GPIO, while the ELECHOUSE
 module declares neither and uses the chip's Set Default command. No fake pin is
-accepted. The recommended shared-I2C path is not implemented or enabled yet.
+accepted. The opt-in diagnostic's dedicated `Wire1` I2C path is implemented;
+that does not enable or select a production NFC transport.
 
-The concrete direct-register backend now validates the ST25R3916B product and
-revision register and requires a real oscillator-stable IRQ transition before
-RFAL can initialize. These are host-tested software contracts, not physical
-results. Details, authoritative register sources, and the blocked procedure are
-in [nfc-hardware-bringup.md](nfc-hardware-bringup.md).
+The diagnostic validates the ST25R3916B product/revision register and a real
+oscillator-stable IRQ transition before RFAL initialization. Both checks and
+the dedicated transport have passed on physical hardware. NFC-V field and UID
+results remain pending. Details are in
+[nfc-hardware-bringup.md](nfc-hardware-bringup.md).
 
 OpenPrintTag's current physical specification expects a circular reader antenna
 72–80 mm in diameter, 13.56 MHz resonance, typically 1 W RF output (1.6 W max),
@@ -135,19 +138,17 @@ SPI connection needs five signals and cannot fit on the four remaining GPIOs.
 The on-board SD SPI signals (GPIO39/38/40 with SD CS GPIO41) are not exposed on
 EXT and have no documented safe NFC access point.
 
-Before assigning pins or enabling `OPENTAG_ENABLE_ST25R3916B`:
+Before assigning production pins or enabling `OPENTAG_ENABLE_ST25R3916B`:
 
-1. acquire and pin the authoritative ST RFAL delivery and license record;
-2. implement the RFAL I2C platform path and one bounded bus-arbitration contract
-   shared with the NAU7802 owner;
-3. verify the module's I2C solder bridge, fixed address `0x50`, combined pull-up
-   resistance/rise time, 5 V input, 3.3 V bus levels, and GPIO12 IRQ proposal;
-4. measure antenna behavior in the final enclosure with the load cell, display,
-   and representative spools.
+1. pass repeated known-tag NFC-V inventory with a stable normalized UID;
+2. pass removal-to-zero and reinsertion recovery without transport errors;
+3. measure antenna behavior in the final enclosure with the load cell, display,
+   and representative spools;
+4. separately design and review production NFC ownership and recovery.
 
-Until then, all NFC transport pins remain `-1`, RFAL is not vendored, and the
-factory firmware reports NFC disabled. The detailed option comparison and
-blocked procedure are in [nfc-hardware-bringup.md](nfc-hardware-bringup.md).
+Until then, production NFC pins remain `-1` and the factory firmware reports
+NFC disabled. The diagnostic-only RFAL procedure is in
+[nfc-hardware-bringup.md](nfc-hardware-bringup.md).
 
 ## Scale assumptions
 
