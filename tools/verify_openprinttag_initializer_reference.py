@@ -22,10 +22,12 @@ def main() -> int:
         default=pathlib.Path("test/fixtures/openprinttag_initializer_7e09cc3_312_no_aux.hpp"),
     )
     args = parser.parse_args()
+    spec_root = args.spec_root.resolve()
+    fixture = args.fixture.resolve()
 
     revision = subprocess.run(
-        ["git", "-c", f"safe.directory={args.spec_root.resolve()}", "rev-parse", "HEAD"],
-        cwd=args.spec_root,
+        ["git", "-c", f"safe.directory={spec_root}", "rev-parse", "HEAD"],
+        cwd=spec_root,
         check=True,
         capture_output=True,
         text=True,
@@ -36,16 +38,16 @@ def main() -> int:
     generated = subprocess.run(
         [
             sys.executable,
-            str(args.spec_root / "utils" / "nfc_initialize.py"),
+            str(spec_root / "utils" / "nfc_initialize.py"),
             "--size=312",
             "--block-size=4",
         ],
-        cwd=args.spec_root,
+        cwd=spec_root,
         check=True,
-        capture_output=True,
+        stdout=subprocess.PIPE,
     ).stdout
 
-    fixture_text = args.fixture.read_text(encoding="utf-8")
+    fixture_text = fixture.read_text(encoding="utf-8")
     segments = re.findall(r'"([0-9a-f]+)"', fixture_text)
     expected = bytes.fromhex("".join(segments))
     if generated != expected:
