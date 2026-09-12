@@ -21,11 +21,15 @@ bus on GPIO13/14 (`Wire1`) independently at 100 kHz, probes `0x2A` and `0x50`,
 and retains the direct-register ST25R3916B chip-ID/IRQ checks. It then uses the
 pinned ELECHOUSE object API to initialize RFAL and the NFC-V poller and run
 bounded ISO15693 inventory rounds while continuing scale sampling. Zero tags is
-a healthy inventory PASS; one tag reports its normalized eight-byte UID. The RF
-field is scoped to each round and no tag memory is read or written. The display
-is the primary result view; touchscreen input is disabled to reserve I2C
-controller 1 for NFC. For the secondary browser view, join the open
-`OpenTag-I2C-Test` access point and open `http://192.168.4.1`.
+a healthy inventory PASS; one stable tag reports its normalized eight-byte UID,
+system information, validated geometry, and two read-only full-memory images.
+The images must match exactly before the diagnostic exposes the first image at
+`GET /api/v1/nfcv-dump` as `application/octet-stream`; summary JSON never embeds
+the dump. The RF field is scoped to every RF operation and no NFC-V write or
+lock command is present. The display is the primary result view; touchscreen
+input is disabled to reserve I2C controller 1 for NFC. For the secondary browser
+view, join the open `OpenTag-I2C-Test` access point and open
+`http://192.168.4.1`.
 
 ## Download mode
 

@@ -333,21 +333,34 @@ full spools without NFC field interference.
 
 ### ST25R3916B / NFC-V
 
-The dedicated 100 kHz `Wire1` transport on GPIO13/14, `0x50` ACK, chip ID, and
-GPIO12 IRQ have passed on physical hardware. The next scoped test is:
+The dedicated 100 kHz `Wire1` transport on GPIO13/14, `0x50` ACK, chip ID,
+GPIO12 IRQ, ELECHOUSE RFAL initialization, and NFC-V inventory have passed on
+physical hardware. Sixty consecutive inventory rounds returned the normalized
+UID `E0:04:01:08:66:27:D8:D4`; removal transitioned cleanly to zero devices and
+reinsertion recovered the same UID. Both buses remained error-free and scale
+sampling continued.
 
-1. Initialize the pinned ELECHOUSE RFAL and NFC-V poller.
-2. With no tag, require inventory PASS, zero devices, post-inventory `0x50` and
-   chip-ID health, and no failing stage.
-3. Inventory one known NFC-V tag repeatedly and require one stable normalized
-   eight-byte `E0...` UID.
-4. Remove it and require a clean transition to zero devices; reinsert it and
-   require recovery of the same UID.
-5. Require zero NFC/scale bus errors, continuing scale samples, both post-test
-   health checks, and RF field cleanup on every round.
+The next read-only checkpoint uses exactly one stable tag:
 
-Do not read or write tag memory, decode OpenPrintTag, or exercise backend
-integration in this checkpoint.
+1. Require standard system information or the ELECHOUSE extended-command
+   fallback to return memory geometry for that same UID.
+2. Validate nonzero block size/count with `TagGeometry::validate()` and require
+   total capacity to be at most 4096 bytes.
+3. Read the complete memory twice in conservative chunks, falling back to
+   smaller or single-block commands when necessary. Standard commands must not
+   cross the one-byte block-address limit; extended commands cover later blocks.
+4. Require every successful response to contain a clear status byte and exactly
+   the expected data length, and inventory the same UID between and after the
+   two images.
+5. Require both images to equal the validated capacity and match byte-for-byte.
+   Record the deterministic checksum and verify the binary dump endpoint returns
+   the same image and metadata.
+6. Require zero NFC/scale bus errors, continuing scale samples, post-read `0x50`
+   and chip-ID health, and RF field cleanup on every path.
+
+No tag writes, locks, AFI/DSFID changes, privacy commands, NDEF/OpenPrintTag
+parsing, or backend integration are permitted in this checkpoint. An absent tag
+remains a normal inventory PASS with the memory checks reported as skipped.
 
 ### OTA
 
