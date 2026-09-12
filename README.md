@@ -145,7 +145,7 @@ OpenTag Station is under active hardware bring-up and validation.
 | A/B OTA / rollback | Implemented; full hardware rollback matrix still pending |
 | Spoolman integration | Implemented and host-tested; live-instance validation pending |
 | FilaBridge integration | Implemented and host-tested; live-instance validation pending |
-| ST25R3916B / NFC | Intentionally disabled until RFAL/wiring checkpoint is completed |
+| ST25R3916B / NFC | Dual-I2C transport physically validated; opt-in NFC-V RF inventory test ready; production disabled |
 
 The firmware intentionally reports unavailable hardware rather than pretending a subsystem is ready.
 
@@ -179,7 +179,9 @@ The firmware intentionally reports unavailable hardware rather than pretending a
 - per-block presence checks
 - exact readback verification
 
-NFC hardware remains disabled until the physical ST25R3916B integration is signed off.
+Production NFC remains disabled until the opt-in ST25R3916B RF inventory test is
+physically signed off. No production OpenPrintTag integration is part of that
+diagnostic.
 
 ### Spoolman
 
@@ -317,10 +319,12 @@ See [Architecture](docs/architecture.md).
 
 ## Known limitations
 
-- ST RFAL is selected but not yet acquired/pinned/vendored.
-- The ELECHOUSE `NFC_ST25R3916B` module and integrated antenna are identified;
-  shared-I2C/RFAL integration, pin activation, and physical validation remain unresolved.
-- NFC-V/OpenPrintTag behavior is host-tested but not yet physically validated through RFAL.
+- The ELECHOUSE I2C RFAL implementation is pinned and vendored only for the
+  opt-in diagnostic; production NFC remains disabled.
+- Dedicated `Wire` scale and `Wire1` NFC transport, chip ID, and IRQ are
+  physically validated; NFC-V RF inventory and UID stability are pending.
+- OpenPrintTag behavior is host-tested but no physical tag-memory read or write
+  has been validated.
 - Scale calibration accuracy, repeatability, drift, and persistence still require complete physical validation.
 - Wi-Fi provisioning and reconnect behavior are still undergoing physical hardware validation.
 - Spoolman and FilaBridge integrations still require validation against live target instances.
@@ -336,4 +340,6 @@ OpenTag Station is distributed under the [PolyForm Noncommercial License 1.0.0](
 
 It permits noncommercial use and distribution but is **not** an OSI-approved open-source license.
 
-ST RFAL is distributed separately under ST's terms and is not currently vendored.
+The diagnostic vendors ELECHOUSE's RFAL-derived libraries under their included
+license files; see `third_party/ELECHOUSE_ST25R3916/README.md`. The production
+RFAL path remains separately gated.

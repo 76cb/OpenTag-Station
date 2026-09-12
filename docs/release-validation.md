@@ -339,24 +339,24 @@ adds deterministic coverage for every truncated prefix and every single-byte
 mutation of the official 312-byte fixture. Unsupported/malformed tags fail with
 structured errors.
 
-Physical NFC remains transport-gated. The exact ELECHOUSE module is documented;
-before enabling it:
+The dedicated dual-I2C transport is physically validated: NAU7802 on `Wire`
+GPIO10/11 and ST25R3916B on `Wire1` GPIO13/14 with GPIO12 IRQ, both at 100 kHz.
+Both targets ACK, chip ID and IRQ pass, both bus-error counts are zero, and scale
+sampling plus both post-test checks pass. The next opt-in checkpoint is limited
+to the pinned ELECHOUSE RFAL object path:
 
-1. Acquire/pin the authoritative ST RFAL delivery and implement its I2C platform
-   path with one bounded lock shared by NFC and the NAU7802 owner.
-2. With power removed, configure the module's I2C solder bridge; verify 5 V
-   supply, 3.3 V bus levels, combined pull-ups, SDA/SCL, GPIO12 IRQ proposal,
-   and the absence of reset/power-enable wiring.
-3. Verify Set Default initialization, chip identity, and continued scale sampling.
-4. Verify IRQ polarity/clearing, shared-I2C locking, RF field on/off, and recovery.
-5. Inventory one NFC-V tag, reject multiple tags, read geometry/security status,
-   and read the bounded image.
-6. Decode official and real OpenPrintTag records; reject malformed, unsupported,
-   oversized, locked, removed, and changed tags.
-7. Repeat read-only validation at position/orientation/range limits and after
-   frontend reset-to-default/reboot. Do not perform tag writes in this phase.
+1. Require RFAL and NFC-V poller initialization plus bounded RF field on/off.
+2. With no tag, require collision-resolution inventory PASS with zero devices
+   and an immediate passing `0x50`/chip-ID health check.
+3. Inventory one known NFC-V tag repeatedly and require one identical normalized
+   eight-byte UID on every round.
+4. Remove the tag and require zero devices without failure; reinsert it and
+   require recovery of the same UID.
+5. Require continued scale sampling, zero bus errors, both post-test checks, and
+   `First failing stage NONE`.
 
-All steps are UNVERIFIED.
+RF inventory remains UNVERIFIED. No memory read/write, OpenPrintTag decoding, or
+backend integration is permitted in this checkpoint.
 
 ## Spoolman, FilaBridge, and Prusa XL findings
 
@@ -572,9 +572,12 @@ Every item below starts and remains **UNVERIFIED** until real evidence is added.
 - [x] **DOCUMENTED, NOT PHYSICALLY VERIFIED** — ELECHOUSE
   `NFC_ST25R3916B`, integrated antenna, connector, voltage, and control-line
   absence.
-- [ ] **UNVERIFIED** — shared-I2C wiring/locking, RFAL binding, and IRQ proposal.
-- [ ] **UNVERIFIED** — bring-up, identity, IRQ, RF field and recovery.
-- [ ] **UNVERIFIED** — NFC-V inventory/geometry/security/multi-tag behavior.
+- [x] **PHYSICALLY VERIFIED** — dedicated scale/NFC I2C wiring, `0x2A`/`0x50`
+  ACK, ST25R3916B chip ID, GPIO12 IRQ, zero bus errors, and coexistence sampling.
+- [x] **IMPLEMENTED, BENCH TEST PENDING** — pinned ELECHOUSE diagnostic RFAL
+  binding over `Wire1`, scoped RF field, and post-inventory health check.
+- [ ] **UNVERIFIED** — NFC-V repeated inventory, normalized UID, removal, and
+  reinsertion behavior.
 - [ ] **UNVERIFIED** — OpenPrintTag real-tag read/decode.
 
 ### Integrations

@@ -409,9 +409,10 @@ already absent). Local workflow state is not advanced on failed verification.
 
 ## NFC behavior in Phase 9
 
-The ST25R3916B transport remains compile-time disabled. The exact ELECHOUSE
-module is identified, but the shared-I2C owner, pin activation, and RFAL binding
-are not yet implemented or physically verified. `GET /api/v1/nfc` returns a
+The production ST25R3916B transport remains compile-time disabled. The opt-in
+diagnostic has a separate, pinned ELECHOUSE `Wire1` RFAL inventory binding, but
+the production NFC owner/binding is not implemented and the diagnostic RF test
+is not yet physically verified. `GET /api/v1/nfc` returns a
 bounded 200 diagnostic snapshot that explicitly reports `available=false`, the
 incomplete transport/vendor gates, zero IRQ activity, and no tag. `GET /api/v1/nfc/tag` and
 authenticated `POST /api/v1/nfc/read` return HTTP 503 `nfc_unavailable`. The UI

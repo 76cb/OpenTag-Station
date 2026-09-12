@@ -48,6 +48,16 @@ const char* to_string(CheckResult value) {
   return "FAIL";
 }
 
+const char* to_string(TagDetected value) {
+  switch (value) {
+    case TagDetected::pending: return "PENDING";
+    case TagDetected::no: return "NO";
+    case TagDetected::yes: return "YES";
+    case TagDetected::multiple: return "MULTIPLE";
+  }
+  return "PENDING";
+}
+
 const char* to_string(Phase value) {
   switch (value) {
     case Phase::starting: return "STARTING";
@@ -56,7 +66,9 @@ const char* to_string(Phase value) {
     case Phase::nfc_probe: return "NFC TARGET PROBE";
     case Phase::nfc_register_test: return "NFC REGISTER TEST";
     case Phase::nau_test: return "NAU7802 TEST";
-    case Phase::coexistence: return "30 SECOND COEXISTENCE";
+    case Phase::rfal_initialize: return "RFAL INITIALIZE";
+    case Phase::nfcv_poller: return "NFC-V POLLER";
+    case Phase::coexistence: return "30 SECOND RF / SCALE TEST";
     case Phase::complete: return "COMPLETE";
   }
   return "UNKNOWN";
@@ -82,11 +94,36 @@ const char* to_string(FailureStage value) {
     case FailureStage::nfc_irq_status: return "NFC I_OSC STATUS READ";
     case FailureStage::nfc_irq_not_cleared: return "NFC IRQ CLEAR";
     case FailureStage::nau_initialize: return "NAU7802 INITIALIZATION";
+    case FailureStage::rfal_initialize: return "RFAL INITIALIZATION";
+    case FailureStage::nfcv_poller_initialize: return "NFC-V POLLER INITIALIZATION";
+    case FailureStage::rf_field_on: return "RF FIELD ENABLE";
+    case FailureStage::nfcv_presence: return "NFC-V PRESENCE CHECK";
+    case FailureStage::nfcv_inventory: return "ISO15693 INVENTORY";
+    case FailureStage::nfcv_uid: return "NFC-V UID NORMALIZATION";
+    case FailureStage::nfc_uid_changed: return "NFC-V UID CHANGED";
+    case FailureStage::nfc_post_inventory_probe: return "NFC POST-INVENTORY PROBE";
+    case FailureStage::nfc_post_inventory_identity: return "NFC POST-INVENTORY CHIP ID";
+    case FailureStage::rf_field_off: return "RF FIELD DISABLE";
     case FailureStage::scale_sample: return "NAU7802 SCALE SAMPLE";
     case FailureStage::nfc_coexistence_probe: return "NFC PROBE DURING SCALE";
     case FailureStage::insufficient_scale_samples: return "SCALE READINGS DID NOT UPDATE";
   }
   return "UNKNOWN";
+}
+
+std::array<char, 24U> format_diagnostic_uid(
+    const std::array<std::uint8_t, 8U>& canonical_uid) {
+  constexpr char hex[] = "0123456789ABCDEF";
+  std::array<char, 24U> output{};
+  std::size_t offset = 0U;
+  for (std::size_t index = 0U; index < canonical_uid.size(); ++index) {
+    const auto byte = canonical_uid[index];
+    output[offset++] = hex[(byte >> 4U) & 0x0FU];
+    output[offset++] = hex[byte & 0x0FU];
+    if (index + 1U < canonical_uid.size()) output[offset++] = ':';
+  }
+  output[offset] = '\0';
+  return output;
 }
 
 }  // namespace opentag::diagnostics::shared_i2c

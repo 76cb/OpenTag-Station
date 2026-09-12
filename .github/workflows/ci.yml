@@ -34,5 +34,12 @@ jobs:
       - run: python tools/web_flasher.py validate-bundle --bundle-dir .pio/build/wt32-sc01-plus/web-flasher --maximum-size 16777216
       - run: pio run --environment wt32-sc01-plus-i2c-test --target web-flasher
       - run: python tools/web_flasher.py validate-bundle --kind diagnostic --bundle-dir .pio/build/wt32-sc01-plus-i2c-test/web-flasher --maximum-size 16777216
+      - name: Upload PR NFC-V diagnostic bundle
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: opentag-nfc-v-diagnostic-pr
+          path: .pio/build/wt32-sc01-plus-i2c-test/web-flasher
+          if-no-files-found: error
       - run: python tools/web_flasher.py assemble-pages --factory-bundle .pio/build/wt32-sc01-plus/web-flasher --diagnostic-bundle .pio/build/wt32-sc01-plus-i2c-test/web-flasher --output-dir .pio/build/web-flasher-pages --maximum-size 16777216
       - run: python tools/web_flasher.py validate-pages --bundle-dir .pio/build/web-flasher-pages --maximum-size 16777216

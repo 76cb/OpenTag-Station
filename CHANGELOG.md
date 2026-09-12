@@ -40,6 +40,13 @@ Versioning once releases begin.
 
 ### Added
 
+- Extend the opt-in dual-I2C diagnostic with the unchanged ELECHOUSE
+  `ST25R3916_ELECHOUSE`/`NFC-RFAL` libraries pinned at `16eb6c7`, injected over
+  `Wire1`, and bounded NFC-V collision-resolution inventory with normalized UID,
+  zero-tag PASS semantics, post-inventory transport checks, and scoped RF-field
+  cleanup while scale sampling continues on `Wire`.
+- Record the physically validated dual-I2C transport: NAU7802 on GPIO10/11 and
+  ST25R3916B on GPIO13/14 with GPIO12 IRQ, both at 100 kHz and zero bus errors.
 - A temporary `OpenTag-Setup-XXXX` AP/captive portal for browser-first Wi-Fi
   provisioning and recovery, with AP-scoped scan/connect authorization,
   asynchronous deduplicated scans, AP+STA connection progress, a 30-second
