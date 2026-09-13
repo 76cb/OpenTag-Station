@@ -41,4 +41,3 @@ enum class ReadResponseResult : std::uint8_t {
 [[nodiscard]] std::array<char, 9U> format_diagnostic_checksum(
     std::uint32_t checksum);
 }  // namespace opentag::nfc::nfcv
-

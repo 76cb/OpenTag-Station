@@ -113,4 +113,3 @@ std::array<char, 9U> format_diagnostic_checksum(std::uint32_t checksum) {
   return output;
 }
 }  // namespace opentag::nfc::nfcv
-
