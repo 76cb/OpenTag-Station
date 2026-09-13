@@ -39,6 +39,12 @@ core::Error stale_request(const std::string& message) {
 void StationWorkflow::clear() {
   std::lock_guard<std::mutex> lock(mutex_);
   auto empty = std::make_unique<WorkflowSnapshot>();
+  empty->printers = std::move(state_.printers);
+  empty->filabridge = state_.filabridge;
+  empty->filabridge_assignment_available = state_.filabridge_assignment_available;
+  empty->filabridge_error = state_.filabridge_error;
+  empty->spoolman = state_.spoolman;
+  empty->spoolman_error = state_.spoolman_error;
   state_ = std::move(*empty);
   state_.spool_generation = next_spool_generation_++;
   state_.printer_revision = next_printer_revision_++;
@@ -58,6 +64,8 @@ std::uint64_t StationWorkflow::begin_identified_spool(
   pending->printers = std::move(state_.printers);
   pending->printer_revision = state_.printer_revision;
   pending->filabridge_error = state_.filabridge_error;
+  pending->spoolman = state_.spoolman;
+  pending->spoolman_error = state_.spoolman_error;
   state_ = std::move(*pending);
   return state_.spool_generation;
 }
@@ -68,7 +76,8 @@ WorkflowSnapshot StationWorkflow::accept_identified_spool(
     domain::WeightReading physical_weight,
     domain::EmptyWeightCandidates supplemental_empty_weights,
     ReconciliationTolerances tolerances,
-    std::optional<std::uint64_t> expected_generation) {
+    std::optional<std::uint64_t> expected_generation,
+    const domain::Spool* confirmed_spool) {
   const auto generation = expected_generation.has_value()
       ? *expected_generation : begin_identified_spool(material, uid);
   {
@@ -83,7 +92,10 @@ WorkflowSnapshot StationWorkflow::accept_identified_spool(
   if (!physical_weight.stable) return snapshot();
 
   const auto identity = identity_from_openprinttag(material, uid);
-  const auto resolution = spool_resolver_.resolve(identity);
+  auto resolution = confirmed_spool
+      ? core::Result<SpoolResolution>::success({SpoolResolutionStatus::matched,
+          SpoolMatchSource::confirmed_identity_cache, {*confirmed_spool}})
+      : spool_resolver_.resolve(identity);
   if (!resolution.ok()) {
     std::lock_guard<std::mutex> lock(mutex_);
     if (state_.spool_generation != generation) return state_;

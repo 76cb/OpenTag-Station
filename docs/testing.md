@@ -2,6 +2,10 @@
 
 ## Current checks
 
+The MVP completion suite adds fallible PSRAM body/JSON allocation, repeated probe and parser release, backend fault classification, explicit spool confirmation and browser invalidation coverage. Run the full CI matrix; see [release validation](release-validation.md) for current evidence and the single physical acceptance procedure.
+
+### Historical baseline coverage
+
 The validated Phase 9 baseline contains 163 host-only cases across eighteen
 suites. The final Phase 10 run contains 223/223 passing host-only cases across
 twenty suites. This is the runner result after the final safety fixes:
@@ -14,7 +18,7 @@ twenty suites. This is the runner result after the final safety fixes:
 - debounced stationary-tag suppression and removal/re-presentation;
 - bounded queue/deadline contracts for UI, web, configuration, scale, NFC,
   network, backend, device-control, and OTA owners;
-- unresolved NFC wiring remains disabled.
+- production NFC is read-only on the physically validated Wire1 bus.
 - the required ST25R3916B bring-up order, safe failure shutdown, and complete
   recovery without reboot;
 - exact layout and field decoding of an official OpenPrintTag FFF fixture;

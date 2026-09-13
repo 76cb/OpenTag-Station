@@ -80,7 +80,8 @@ class StationWorkflow final {
       domain::WeightReading physical_weight,
       domain::EmptyWeightCandidates supplemental_empty_weights,
       ReconciliationTolerances tolerances,
-      std::optional<std::uint64_t> expected_generation = std::nullopt);
+      std::optional<std::uint64_t> expected_generation = std::nullopt,
+      const domain::Spool* confirmed_spool = nullptr);
   [[nodiscard]] WorkflowSnapshot refresh_printers();
   void set_spoolman_probe(
       bool online,

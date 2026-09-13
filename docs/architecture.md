@@ -5,8 +5,7 @@ and project-created task. With the production read-only NFC owner, the configure
 dynamic stack total is 100,352 bytes (plus the separate 16,384-byte Arduino loop).
 NFC is a logical owner on the existing backend task, whose stack is now 16 KiB;
 there is no separate NFC task or stack. See [shared owner](backend-nfc-owner.md).
-The ownership and dynamic task-stack inventory are in
-[release-validation.md](release-validation.md); changes to task creation or
+The ownership and dynamic task-stack inventory are below; changes to task creation or
 ownership must update that inventory.
 
 ## Design objective
@@ -47,16 +46,16 @@ Dependency arrows point inward toward stable interfaces. In particular:
 
 ## Runtime model
 
-FreeRTOS tasks will own slow or blocking work:
+FreeRTOS tasks own slow or blocking work:
 
 | Task | Owns | Must not own |
 |---|---|---|
 | UI | LVGL calls and view state | HTTP, long NFC operations, flash writes |
 | Configuration | serialized document commits and setup progress | LVGL calls |
-| NFC | RFAL worker, presence state, tag I/O | OpenPrintTag business decisions |
+| NFC logical worker on backend | RFAL/Wire1, presence, read-only tag I/O and decode | Separate RTOS task, tag writes |
 | Scale | ADC sampling, filtering, stability | inventory writes |
-| Network | Wi-Fi, DNS, HTTP transport | UI transitions |
-| Backend | adapters, cache, assignment verification | LVGL calls |
+| Network | Wi-Fi, scan, mDNS, local web-server lifecycle | Backend HTTP, RFAL or decode |
+| Backend | NFC logical worker, backend HTTP/JSON, adapters, resolution and verified assignment | LVGL calls |
 | Update | inactive-slot writes, digest/image validation, activation, candidate health | web sockets, UI, backend availability policy |
 
 Tasks exchange bounded events/commands. Payload ownership is explicit and
@@ -84,7 +83,7 @@ scale, configuration, or backend work.
 
 ## Local web/API boundary
 
-The embedded browser client and transport-neutral router expose 30
+The embedded browser client and transport-neutral router expose 32
 metadata-declared routes under `/api/v1`. Read routes cover station/device
 health, scale, NFC status/tag data, spool state, printers/toolheads,
 configuration, network provisioning/scan state, diagnostics, logs, operation
@@ -121,7 +120,7 @@ token. When a token is configured, the browser prompts for it when a protected
 mutation needs authentication, keeps it only in JavaScript memory for the
 current tab, never places it in storage or a URL, and clears it after HTTP 401.
 
-The RFAL/wiring-gated firmware still reports NFC explicitly unavailable. NFC
+Production NFC is enabled read-only after Wi-Fi provisioning closes. NFC
 availability is not an OTA candidate-health requirement.
 
 ## OTA ownership and durable lifecycle
@@ -194,11 +193,7 @@ required for protected mutations. The image is not cryptographically signed and
 the local HTTP transport is not TLS-protected; deployments must use a trusted
 isolated LAN.
 
-The NFC protocol, configurable ESP32 RFAL primitives, and frontend orchestration
-are implemented behind bounded interfaces. Separately, the opt-in dual-I2C
-diagnostic vendors a pinned ELECHOUSE RFAL implementation and injects `Wire1`
-for physical NFC-V inventory testing. That diagnostic binding is not linked by
-the production environment; production code cannot bypass the wiring guard.
+Production NFC uses the pinned ELECHOUSE Wire1 implementation on the backend task. Legacy SPI abstractions remain unbound in production. See [production NFC](production-nfc.md) for the validated hardware and read-only boundary.
 
 ## Application states
 
@@ -304,6 +299,23 @@ architecture theatre is avoided, but new code must land in the boundary above.
 
 ## Memory policy
 
+See [backend memory](backend-memory.md) for PSRAM lifetimes, allocation bounds,
+health/discovery scheduling, error handling and compiler regression guards.
+
+| Runtime task | Stack bytes |
+|---|---:|
+| UI | 12,288 |
+| Configuration | 8,192 |
+| Scale | 6,144 |
+| Backend and logical NFC owner | 16,384 |
+| Network | 16,384 |
+| Device control | 4,096 |
+| OTA | 24,576 |
+| ESP-IDF httpd | 12,288 |
+
+The Arduino loop separately reserves 16,384 bytes. Framework tasks retain their
+pinned reservations. This completion change adds no task and increases no stack.
+
 Network bodies, JSON documents, browser assets, tag dumps, caches, and log rings
 receive fixed maximum sizes. The OpenPrintTag section maximum is 512 bytes; tag
 buffers are sized from verified memory geometry and capped. Firmware bodies are
@@ -321,14 +333,14 @@ bounded diagnostic export, not for hiding unbounded growth.
 |---:|---|---|
 | 0 | Research and foundation | Current upstream revisions are recorded; both native tests and pinned WT32 firmware build pass; unverified hardware is labeled. |
 | 1 | Board bring-up | Implemented and compiled; serial, display, full-screen touch, storage, PSRAM, reset diagnostics, and responsive LVGL loop must still pass on the actual board. |
-| 2 | ST25R3916B bring-up | Dedicated dual-I2C transport, chip ID, IRQ, and scale coexistence are physically validated; production remains gated. |
-| 3 | NFC-V | Diagnostic ELECHOUSE RFAL inventory/UID path is implemented and builds; repeated real-tag inventory/removal/reinsertion remains the next physical gate. |
-| 4 | OpenPrintTag | Official host fixtures decode and safely modify with semantic verification; real-tag transaction through ST25R3916B remains gated. |
+| 2 | ST25R3916B bring-up | Dedicated dual-I2C transport, chip ID, IRQ, and scale coexistence are physically validated; production read-only NFC has passed its physical soak. |
+| 3 | NFC-V | Production ELECHOUSE RFAL inventory, decode, removal/reinsertion and read-only soak physically passed. |
+| 4 | OpenPrintTag | Official host fixtures decode and safely modify with semantic verification; physical initialization/reread and production decode passed; production writes are post-MVP. |
 | 5 | Scale | NAU7802 raw/tare/calibration/filter/stability behavior passes with reference weights; calibration survives power cycles and export/import. |
 | 6 | Configuration + networking | One migrated settings service, resilient first-run setup, Wi-Fi/backoff/status, and bounded CA-verified HTTP(S) pass host/build gates; physical LAN behavior remains gated. |
 | 7 | Spoolman | Version/capability probes and pinned contract tests pass; identity resolution is deterministic; remaining-weight writes are stable, explicit, merge-safe, and verified. |
 | 8 | FilaBridge + main workflow | Pinned contract tests pass for printer/toolheads/mappings/map/unmap; numbering normalizes once; place → identify → weigh → resolve → T1–T5 → assign → verify degrades safely. |
-| 9 | Web UI/API | Portable 31-route router, parser, patch, and bounded-ledger logic is host-tested; embedded assets, production context, HTTP/WebSocket transport, owner queues, optional conditional bearer authentication, reset control, and the update placeholder are firmware-compiled. Physical-browser, target-LAN, and hardware validation remain outstanding. |
+| 9 | Web UI/API | Portable 32-route router, parser, patch, and bounded-ledger logic is host-tested; embedded assets, production context, HTTP/WebSocket transport, owner queues, optional conditional bearer authentication, reset control, and streaming A/B OTA are firmware-compiled. Physical-browser, target-LAN, and hardware validation remain outstanding. |
 | 10 | OTA | Portable state/record/health/exclusion policy is host-tested and the fixed-buffer owner, streaming API/UI, ESP-IDF inactive-slot adapter, image/manifest validation, activation, confirmation, and rollback integration are firmware-compiled. Physical A→B/B→A, failure rollback, power cuts, restart, and browser recovery remain gated. |
 | 11 | Release hardening | Pinned compatibility, parser, migration, fault, performance, memory, HIL, and rollback suites pass; recovery artifacts and release documentation are published. |
 

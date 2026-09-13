@@ -1,4 +1,5 @@
 #include "web/api_router.hpp"
+#include "network/backend_json.hpp"
 
 #include <ArduinoJson.h>
 
@@ -13,6 +14,9 @@
 
 namespace opentag::web::api {
 namespace {
+// Router is owned exclusively by httpd; backend parsing has a separate allocator.
+network::BackendJsonAllocator api_json_allocator;
+using ApiDocument = network::AllocatedDocument<api_json_allocator>;
 
 constexpr std::size_t maximum_error_message_bytes = 512U;
 constexpr std::size_t maximum_json_nesting = 8U;
@@ -66,7 +70,7 @@ Response error_response(
     const char* code,
     std::string message,
     bool retryable = false) {
-  JsonDocument document;
+  ApiDocument document;
   document["api_version"] = version;
   document["ok"] = false;
   auto error = document["error"].to<JsonObject>();
@@ -74,6 +78,9 @@ Response error_response(
   error["message"] = bounded_text(
       std::move(message), maximum_error_message_bytes);
   error["retryable"] = retryable;
+  if (document.overflowed()) {
+    return base_response(503, R"({"api_version":"v1","ok":false,"error":{"code":"resource_unavailable","message":"Local JSON workspace unavailable; retry","retryable":true}})");
+  }
   std::string body;
   serializeJson(document, body);
   return base_response(status, std::move(body));
@@ -142,6 +149,7 @@ const char* mutation_name(MutationKind kind) {
     case MutationKind::toolhead_unassignment: return "toolhead_unassignment";
     case MutationKind::configuration_patch: return "configuration";
     case MutationKind::backend_test: return "backend_probe";
+    case MutationKind::spool_confirmation: return "spool_confirmation";
     case MutationKind::update_reboot: return "update_reboot";
     case MutationKind::update_cancel: return "update_cancel";
     case MutationKind::reboot: return "reboot";
@@ -177,13 +185,15 @@ std::uint64_t mutation_payload_digest(
 }
 
 Response operation_response(MutationKind kind, std::uint64_t operation_id) {
-  JsonDocument document;
+  ApiDocument document;
   document["api_version"] = version;
   document["ok"] = true;
   auto data = document["data"].to<JsonObject>();
   data["operation_id"] = operation_id;
   data["kind"] = mutation_name(kind);
   data["state"] = "queued";
+  if (document.overflowed()) return error_response(503, "resource_unavailable",
+      "Command accepted but its receipt could not be encoded; retry with the same request key", true);
   std::string body;
   serializeJson(document, body);
   auto response = base_response(202, std::move(body));
@@ -231,7 +241,7 @@ Response payload_response(
         "invalid_snapshot",
         "The application snapshot is empty or exceeds its configured bound");
   }
-  JsonDocument source;
+  ApiDocument source;
   const auto parsed = deserializeJson(
       source,
       payload,
@@ -416,21 +426,25 @@ core::Result<std::string> validate_mutation_headers(const Request& request) {
   return core::Result<std::string>::success(*idempotency.value());
 }
 
-core::Result<JsonDocument> parse_object_body(const Request& request) {
+core::Result<ApiDocument> parse_object_body(const Request& request) {
   if (request.body.empty()) {
-    return core::Result<JsonDocument>::failure(
+    return core::Result<ApiDocument>::failure(
         invalid_request("request JSON body is required"));
   }
-  JsonDocument document;
+  ApiDocument document;
   const auto parsed = deserializeJson(
       document,
       request.body,
       DeserializationOption::NestingLimit(maximum_json_nesting));
+  if (parsed == DeserializationError::NoMemory) {
+    return core::Result<ApiDocument>::failure({core::ErrorCategory::backend_unavailable,
+        "Local request parser workspace unavailable", true});
+  }
   if (parsed || !document.is<JsonObjectConst>()) {
-    return core::Result<JsonDocument>::failure(
+    return core::Result<ApiDocument>::failure(
         invalid_request("request body must be one valid JSON object"));
   }
-  return core::Result<JsonDocument>::success(std::move(document));
+  return core::Result<ApiDocument>::success(std::move(document));
 }
 
 bool has_key(JsonObjectConst object, const char* key) {
@@ -629,24 +643,24 @@ core::Result<ToolheadMutationPreconditions> parse_preconditions(
   return core::Result<ToolheadMutationPreconditions>::success(std::move(result));
 }
 
-core::Result<ConfigurationPatchMutation> parse_configuration_patch(
-    JsonObjectConst root) {
+core::Result<void> parse_configuration_patch(
+    JsonObjectConst root, ConfigurationPatchMutation& result) {
   if (!keys_allowed(
           root,
           {"expected_revision", "device", "wifi", "web", "spoolman", "filabridge",
            "scale_profile", "toolheads", "reconciliation"}) ||
       !has_key(root, "expected_revision") ||
       !root["expected_revision"].is<std::uint64_t>()) {
-    return core::Result<ConfigurationPatchMutation>::failure(
+    return core::Result<void>::failure(
         invalid_request("configuration patch fields or expected revision are invalid"));
   }
-  ConfigurationPatchMutation result;
+
   result.expected_revision = root["expected_revision"].as<std::uint64_t>();
   std::size_t changed_sections = 0U;
 
   if (has_key(root, "device")) {
     if (!root["device"].is<JsonObjectConst>()) {
-      return core::Result<ConfigurationPatchMutation>::failure(
+      return core::Result<void>::failure(
           invalid_request("device patch must be an object"));
     }
     const auto object = root["device"].as<JsonObjectConst>();
@@ -658,12 +672,12 @@ core::Result<ConfigurationPatchMutation> parse_configuration_patch(
         !read_optional_unsigned(object, "dim_after_ms", 1U, 86400000U, patch.dim_after_ms) ||
         !read_optional_unsigned(object, "sleep_after_ms", 1U, 86400000U, patch.sleep_after_ms) ||
         !read_optional_string(object, "update_channel", 16U, patch.update_channel, false)) {
-      return core::Result<ConfigurationPatchMutation>::failure(
+      return core::Result<void>::failure(
           invalid_request("device patch contains invalid fields or values"));
     }
     if (patch.update_channel.has_value() && *patch.update_channel != "stable" &&
         *patch.update_channel != "beta" && *patch.update_channel != "development") {
-      return core::Result<ConfigurationPatchMutation>::failure(
+      return core::Result<void>::failure(
           invalid_request("device update channel is invalid"));
     }
     result.device = std::move(patch);
@@ -672,7 +686,7 @@ core::Result<ConfigurationPatchMutation> parse_configuration_patch(
 
   if (has_key(root, "wifi")) {
     if (!root["wifi"].is<JsonObjectConst>()) {
-      return core::Result<ConfigurationPatchMutation>::failure(
+      return core::Result<void>::failure(
           invalid_request("Wi-Fi patch must be an object"));
     }
     const auto object = root["wifi"].as<JsonObjectConst>();
@@ -685,7 +699,7 @@ core::Result<ConfigurationPatchMutation> parse_configuration_patch(
         !read_optional_unsigned(object, "connect_timeout_ms", 1000U, 60000U, patch.connect_timeout_ms) ||
         !read_optional_unsigned(object, "reconnect_initial_ms", 500U, 60000U, patch.reconnect_initial_ms) ||
         !read_optional_unsigned(object, "reconnect_max_ms", 500U, 600000U, patch.reconnect_max_ms)) {
-      return core::Result<ConfigurationPatchMutation>::failure(
+      return core::Result<void>::failure(
           invalid_request("Wi-Fi patch contains invalid fields or values"));
     }
     result.wifi = std::move(patch);
@@ -694,7 +708,7 @@ core::Result<ConfigurationPatchMutation> parse_configuration_patch(
 
   if (has_key(root, "web")) {
     if (!root["web"].is<JsonObjectConst>()) {
-      return core::Result<ConfigurationPatchMutation>::failure(
+      return core::Result<void>::failure(
           invalid_request("web patch must be an object"));
     }
     const auto object = root["web"].as<JsonObjectConst>();
@@ -705,7 +719,7 @@ core::Result<ConfigurationPatchMutation> parse_configuration_patch(
             object, "access_token", 128U, patch.access_token, true) ||
         !patch.access_token.has_value() ||
         !valid_web_access_token(*patch.access_token)) {
-      return core::Result<ConfigurationPatchMutation>::failure(
+      return core::Result<void>::failure(
           invalid_request("web patch contains an invalid access token"));
     }
     result.web = std::move(patch);
@@ -714,7 +728,7 @@ core::Result<ConfigurationPatchMutation> parse_configuration_patch(
 
   if (has_key(root, "spoolman")) {
     if (!root["spoolman"].is<JsonObjectConst>()) {
-      return core::Result<ConfigurationPatchMutation>::failure(
+      return core::Result<void>::failure(
           invalid_request("Spoolman patch must be an object"));
     }
     const auto object = root["spoolman"].as<JsonObjectConst>();
@@ -726,7 +740,7 @@ core::Result<ConfigurationPatchMutation> parse_configuration_patch(
         !read_optional_string(object, "identity_field", 64U, patch.identity_field, false) ||
         !read_optional_string(object, "nfc_uid_field", 64U, patch.nfc_uid_field, false) ||
         !read_optional_string(object, "ca_certificate_pem", 4096U, patch.ca_certificate_pem, true, true)) {
-      return core::Result<ConfigurationPatchMutation>::failure(
+      return core::Result<void>::failure(
           invalid_request("Spoolman patch contains invalid fields or values"));
     }
     result.spoolman = std::move(patch);
@@ -735,7 +749,7 @@ core::Result<ConfigurationPatchMutation> parse_configuration_patch(
 
   if (has_key(root, "filabridge")) {
     if (!root["filabridge"].is<JsonObjectConst>()) {
-      return core::Result<ConfigurationPatchMutation>::failure(
+      return core::Result<void>::failure(
           invalid_request("FilaBridge patch must be an object"));
     }
     const auto object = root["filabridge"].as<JsonObjectConst>();
@@ -746,7 +760,7 @@ core::Result<ConfigurationPatchMutation> parse_configuration_patch(
         !read_optional_string(object, "authentication_token", 512U, patch.authentication_token) ||
         !read_optional_string(object, "selected_printer_id", 128U, patch.selected_printer_id) ||
         !read_optional_string(object, "ca_certificate_pem", 4096U, patch.ca_certificate_pem, true, true)) {
-      return core::Result<ConfigurationPatchMutation>::failure(
+      return core::Result<void>::failure(
           invalid_request("FilaBridge patch contains invalid fields or values"));
     }
     result.filabridge = std::move(patch);
@@ -755,7 +769,7 @@ core::Result<ConfigurationPatchMutation> parse_configuration_patch(
 
   if (has_key(root, "scale_profile")) {
     if (!root["scale_profile"].is<JsonObjectConst>()) {
-      return core::Result<ConfigurationPatchMutation>::failure(
+      return core::Result<void>::failure(
           invalid_request("scale profile patch must be an object"));
     }
     const auto object = root["scale_profile"].as<JsonObjectConst>();
@@ -768,7 +782,7 @@ core::Result<ConfigurationPatchMutation> parse_configuration_patch(
         !read_optional_string(object, "load_cell_model", 32U, preferred_model, false) ||
         !read_optional_unsigned(object, "rated_capacity_grams", 1U, 100000U, patch.rated_capacity_grams) ||
         !read_optional_float(object, "overload_ratio", 1.01F, 2.0F, patch.overload_ratio)) {
-      return core::Result<ConfigurationPatchMutation>::failure(
+      return core::Result<void>::failure(
           invalid_request("scale profile patch contains invalid fields or values"));
     }
     if (preferred_model.has_value()) patch.model = std::move(preferred_model);
@@ -784,7 +798,7 @@ core::Result<ConfigurationPatchMutation> parse_configuration_patch(
         (patch.id == std::optional<std::string>{"yzc-133-5kg"} &&
          patch.rated_capacity_grams.has_value() &&
          *patch.rated_capacity_grams != 5000U)) {
-      return core::Result<ConfigurationPatchMutation>::failure(
+      return core::Result<void>::failure(
           invalid_request("scale profile supports only YZC-133 2 kg or 5 kg"));
     }
     result.scale_profile = std::move(patch);
@@ -793,12 +807,12 @@ core::Result<ConfigurationPatchMutation> parse_configuration_patch(
 
   if (has_key(root, "toolheads")) {
     if (!root["toolheads"].is<JsonArrayConst>()) {
-      return core::Result<ConfigurationPatchMutation>::failure(
+      return core::Result<void>::failure(
           invalid_request("toolheads patch must be an array"));
     }
     const auto array = root["toolheads"].as<JsonArrayConst>();
     if (array.size() > 8U) {
-      return core::Result<ConfigurationPatchMutation>::failure(
+      return core::Result<void>::failure(
           invalid_request("toolheads patch exceeds the profile limit"));
     }
     std::vector<ToolheadProfilePatch> profiles;
@@ -806,7 +820,7 @@ core::Result<ConfigurationPatchMutation> parse_configuration_patch(
     profiles.reserve(array.size());
     for (const auto value : array) {
       if (!value.is<JsonObjectConst>()) {
-        return core::Result<ConfigurationPatchMutation>::failure(
+        return core::Result<void>::failure(
             invalid_request("each toolhead profile must be an object"));
       }
       const auto object = value.as<JsonObjectConst>();
@@ -817,7 +831,7 @@ core::Result<ConfigurationPatchMutation> parse_configuration_patch(
           !has_key(object, "enabled") || !object["enabled"].is<bool>() ||
           !has_key(object, "nozzle_material") || !object["nozzle_material"].is<const char*>() ||
           !has_key(object, "maximum_temperature_c") || !object["maximum_temperature_c"].is<std::uint16_t>()) {
-        return core::Result<ConfigurationPatchMutation>::failure(
+        return core::Result<void>::failure(
             invalid_request("toolhead profile fields or types are invalid"));
       }
       ToolheadProfilePatch profile;
@@ -830,7 +844,7 @@ core::Result<ConfigurationPatchMutation> parse_configuration_patch(
           object["maximum_temperature_c"].as<std::uint16_t>();
       if (has_key(object, "notes")) {
         if (!object["notes"].is<const char*>()) {
-          return core::Result<ConfigurationPatchMutation>::failure(
+          return core::Result<void>::failure(
               invalid_request("toolhead notes must be text"));
         }
         profile.notes = object["notes"].as<const char*>();
@@ -848,7 +862,7 @@ core::Result<ConfigurationPatchMutation> parse_configuration_patch(
           profile.maximum_temperature_c > 500U ||
           profile.notes.size() > 256U || !safe_text_value(profile.notes) ||
           !backend_ids.insert(profile.backend_id).second) {
-        return core::Result<ConfigurationPatchMutation>::failure(
+        return core::Result<void>::failure(
             invalid_request("toolhead profile values are invalid or duplicated"));
       }
       profiles.push_back(std::move(profile));
@@ -859,7 +873,7 @@ core::Result<ConfigurationPatchMutation> parse_configuration_patch(
 
   if (has_key(root, "reconciliation")) {
     if (!root["reconciliation"].is<JsonObjectConst>()) {
-      return core::Result<ConfigurationPatchMutation>::failure(
+      return core::Result<void>::failure(
           invalid_request("reconciliation patch must be an object"));
     }
     const auto object = root["reconciliation"].as<JsonObjectConst>();
@@ -871,7 +885,7 @@ core::Result<ConfigurationPatchMutation> parse_configuration_patch(
         (patch.normal_tolerance_grams.has_value() &&
          patch.warning_tolerance_grams.has_value() &&
          *patch.warning_tolerance_grams < *patch.normal_tolerance_grams)) {
-      return core::Result<ConfigurationPatchMutation>::failure(
+      return core::Result<void>::failure(
           invalid_request("reconciliation patch contains invalid values"));
     }
     result.reconciliation = std::move(patch);
@@ -879,10 +893,10 @@ core::Result<ConfigurationPatchMutation> parse_configuration_patch(
   }
 
   if (changed_sections == 0U) {
-    return core::Result<ConfigurationPatchMutation>::failure(
+    return core::Result<void>::failure(
         invalid_request("configuration patch does not contain any changes"));
   }
-  return core::Result<ConfigurationPatchMutation>::success(std::move(result));
+  return core::Result<void>::success();
 }
 
 core::Result<Mutation> parse_mutation(
@@ -891,7 +905,10 @@ core::Result<Mutation> parse_mutation(
   const auto parsed = parse_object_body(request);
   if (!parsed.ok()) return core::Result<Mutation>::failure(parsed.error());
   const auto object = parsed.value().as<JsonObjectConst>();
-  Mutation mutation;
+  auto mutation_storage = network::make_external<Mutation>([] { return Mutation{}; });
+  if (!mutation_storage) return core::Result<Mutation>::failure({core::ErrorCategory::backend_unavailable,
+      "Mutation workspace unavailable", true});
+  auto& mutation = *mutation_storage;
   mutation.idempotency_key = idempotency_key;
 
   if (request.path == "/api/v1/scale/weigh" ||
@@ -971,11 +988,30 @@ core::Result<Mutation> parse_mutation(
     return core::Result<Mutation>::success(std::move(mutation));
   }
 
+  if (request.path == "/api/v1/spool/confirm") {
+    SpoolConfirmationMutation payload;
+    if (!keys_allowed(object, {"spool_generation", "spool_id", "confirmed"}) ||
+        object.size() != 3U || !object["confirmed"].is<bool>() ||
+        !object["confirmed"].as<bool>() || !object["spool_id"].is<std::int32_t>() ||
+        object["spool_id"].as<std::int32_t>() <= 0 ||
+        !read_required_positive_uint64(object, "spool_generation", payload.spool_generation)) {
+      return core::Result<Mutation>::failure(invalid_request(
+          "Spool confirmation requires a current generation, positive spool ID and confirmed=true"));
+    }
+    payload.spool_id = object["spool_id"].as<std::int32_t>();
+    mutation.kind = MutationKind::spool_confirmation;
+    mutation.payload = payload;
+    return core::Result<Mutation>::success(std::move(mutation));
+  }
+
   if (request.path == "/api/v1/config") {
-    const auto patch = parse_configuration_patch(object);
-    if (!patch.ok()) return core::Result<Mutation>::failure(patch.error());
+    auto patch = network::make_external<ConfigurationPatchMutation>([] { return ConfigurationPatchMutation{}; });
+    if (!patch) return core::Result<Mutation>::failure({core::ErrorCategory::backend_unavailable,
+        "Configuration parser workspace unavailable", true});
+    const auto parsed_patch = parse_configuration_patch(object, *patch);
+    if (!parsed_patch.ok()) return core::Result<Mutation>::failure(parsed_patch.error());
     mutation.kind = MutationKind::configuration_patch;
-    mutation.payload = patch.value();
+    mutation.payload = std::move(*patch);
     return core::Result<Mutation>::success(std::move(mutation));
   }
 
@@ -1272,11 +1308,13 @@ Response Router::handle(const Request& request) {
   if (!headers.ok()) {
     return error_response(400, "invalid_request_headers", headers.error().message);
   }
-  const auto mutation = parse_mutation(request, headers.value());
+  auto mutation = parse_mutation(request, headers.value());
   if (!mutation.ok()) {
+    if (mutation.error().category == core::ErrorCategory::backend_unavailable)
+      return response_for_context_error(mutation.error());
     return error_response(400, "invalid_request", mutation.error().message);
   }
-  auto command = mutation.value();
+  auto& command = mutation.value();
   command.provisioning_transport = request.provisioning_transport;
   command.payload_digest = mutation_payload_digest(
       command.kind, request.path, request.body);

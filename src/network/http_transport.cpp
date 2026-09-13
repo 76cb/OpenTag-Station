@@ -7,6 +7,8 @@
 #include <WiFi.h>
 #include <WiFiClient.h>
 #include <WiFiClientSecure.h>
+#include "network/tcp_connect.hpp"
+#include "network/bounded_dns.hpp"
 #endif
 
 #include <algorithm>
@@ -26,23 +28,34 @@ core::Error network_error(const std::string& message, bool retryable = true) {
   return {core::ErrorCategory::network, message, retryable};
 }
 
+class BackendWiFiClient final : public WiFiClient {
+ public:
+  explicit BackendWiFiClient(IPAddress resolved) : resolved_(resolved) {}
+  int connect(const char*, std::uint16_t port, std::int32_t timeout) override {
+    return connect(resolved_, port, timeout);
+  }
+  int connect(IPAddress ip, std::uint16_t port, std::int32_t timeout) override {
+    stop();
+    const auto connected = connect_tcp_ipv4(static_cast<std::uint32_t>(ip), port, timeout);
+    if (connected.socket < 0) { errno = connected.error; return 0; }
+    WiFiClient::operator=(WiFiClient(connected.socket));
+    _timeout = timeout;
+    return 1;
+  }
+ private:
+  IPAddress resolved_;
+};
+
 class BoundedResponseStream final : public Stream {
  public:
-  explicit BoundedResponseStream(std::size_t maximum) : maximum_(maximum) {
-    data_.reserve(std::min<std::size_t>(maximum, 1024U));
-  }
+  explicit BoundedResponseStream(std::size_t maximum) : data_(maximum) {}
 
   std::size_t write(std::uint8_t value) override {
     return write(&value, 1U);
   }
 
   std::size_t write(const std::uint8_t* data, std::size_t size) override {
-    if (data_.size() + size > maximum_) {
-      overflowed_ = true;
-      return 0U;
-    }
-    data_.append(reinterpret_cast<const char*>(data), size);
-    return size;
+    return data_.append(reinterpret_cast<const char*>(data), size) ? size : 0U;
   }
 
   int available() override { return 0; }
@@ -50,13 +63,12 @@ class BoundedResponseStream final : public Stream {
   int peek() override { return -1; }
   void flush() override {}
 
-  [[nodiscard]] bool overflowed() const { return overflowed_; }
-  [[nodiscard]] std::string take() { return std::move(data_); }
+  [[nodiscard]] bool overflowed() const { return data_.overflowed(); }
+  [[nodiscard]] bool failed() const { return data_.failed(); }
+  [[nodiscard]] ResponseBody take() { return std::move(data_); }
 
  private:
-  std::size_t maximum_;
-  bool overflowed_{false};
-  std::string data_;
+  ResponseBody data_;
 };
 
 bool valid_method(const std::string& method) {
@@ -146,12 +158,19 @@ core::Result<ParsedUrl> parse_http_url(const std::string& url) {
 
 #ifdef ARDUINO
 core::Result<HttpResponse> HttpTransport::perform(const HttpRequest& request) {
+  const auto started = millis();
+  BackendPhaseGuard released{"http_released", started};
+  backend_memory_phase("before_http", 0, 0, started);
   const auto deadline_error = []() {
     return core::Result<HttpResponse>::failure(network_error("Backend operation deadline exceeded"));
   };
   if (budget_.expired(millis())) return deadline_error();
   const auto parsed = parse_http_url(request.url);
   if (!parsed.ok()) return core::Result<HttpResponse>::failure(parsed.error());
+  if (!backend_admitted(backend_heap(), parsed.value().secure)) {
+    return core::Result<HttpResponse>::failure({core::ErrorCategory::backend_unavailable,
+        "Backend deferred: insufficient internal memory; local controls remain available", true});
+  }
   if (!valid_method(request.method) || request.connect_timeout_ms < 100U ||
       request.connect_timeout_ms > 60000U || request.read_timeout_ms < 100U ||
       request.read_timeout_ms > 60000U || request.maximum_response_bytes == 0U ||
@@ -170,22 +189,25 @@ core::Result<HttpResponse> HttpTransport::perform(const HttpRequest& request) {
   }
 
   IPAddress resolved;
-  if (!WiFi.hostByName(parsed.value().host.c_str(), resolved)) {
+  if (!resolve_backend_host(parsed.value().host.c_str(), resolved, budget_)) {
+    if (budget_.expired(millis())) return deadline_error();
     return core::Result<HttpResponse>::failure(
-        network_error("DNS resolution failed for " + parsed.value().host));
+        network_error("DNS resolution failed or is still pending for " + parsed.value().host));
   }
   if (budget_.expired(millis())) return deadline_error();
 
   std::unique_ptr<WiFiClient> client;
   if (parsed.value().secure) {
-    auto secure = std::make_unique<WiFiClientSecure>();
+    auto secure = std::unique_ptr<WiFiClientSecure>(new (std::nothrow) WiFiClientSecure);
+    if (!secure) return core::Result<HttpResponse>::failure(network_error("TLS client allocation failed"));
     secure->setCACert(request.ca_certificate_pem.c_str());
     secure->setHandshakeTimeout(
         std::max<std::uint32_t>(1U, (request.connect_timeout_ms + 999U) / 1000U));
     client = std::move(secure);
   } else {
-    client = std::make_unique<WiFiClient>();
+    client.reset(new (std::nothrow) BackendWiFiClient(resolved));
   }
+  if (!client) return core::Result<HttpResponse>::failure(network_error("HTTP client allocation failed"));
 
   const auto clock = []() { return static_cast<std::uint32_t>(millis()); };
   DeadlineClient<WiFiClient, IPAddress, decltype(clock)> bounded(*client, budget_, clock);
@@ -218,6 +240,11 @@ core::Result<HttpResponse> HttpTransport::perform(const HttpRequest& request) {
       reinterpret_cast<std::uint8_t*>(const_cast<char*>(request.body.data())),
       request.body.size());
   if (status_code <= 0) {
+    if (budget_.expired(millis())) { http.end(); return deadline_error(); }
+    if (const auto* reason = connection_failure_message(bounded.connection_errno())) {
+      http.end();
+      return core::Result<HttpResponse>::failure(network_error(reason));
+    }
     const auto message = std::string("HTTP transport failed: ") +
         HTTPClient::errorToString(status_code).c_str();
     http.end();
@@ -231,6 +258,11 @@ core::Result<HttpResponse> HttpTransport::perform(const HttpRequest& request) {
   }
   BoundedResponseStream response_stream(request.maximum_response_bytes);
   const auto copied = http.writeToStream(&response_stream);
+  if (response_stream.failed()) {
+    http.end();
+    return core::Result<HttpResponse>::failure({core::ErrorCategory::backend_unavailable,
+        "Backend response PSRAM allocation failed; retry later", true});
+  }
   if (budget_.expired(millis())) {
     http.end();
     return deadline_error();
@@ -245,6 +277,7 @@ core::Result<HttpResponse> HttpTransport::perform(const HttpRequest& request) {
   response.content_type = http.header("Content-Type").c_str();
   response.body = response_stream.take();
   http.end();
+  backend_memory_phase("after_http", response.body.size(), 0, started);
   return core::Result<HttpResponse>::success(std::move(response));
 }
 #else

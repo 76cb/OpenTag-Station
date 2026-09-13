@@ -85,7 +85,7 @@ class ScriptedTransport final : public IHttpTransport {
     TEST_ASSERT_EQUAL_UINT32(5000U, request.connect_timeout_ms);
     TEST_ASSERT_EQUAL_UINT32(7000U, request.read_timeout_ms);
     TEST_ASSERT_TRUE(request.maximum_response_bytes <= 65536U);
-    return expected.response;
+    return std::move(expected.response);
   }
 
   void expect(
@@ -304,8 +304,59 @@ void test_malformed_mapping_is_rejected_as_api_change() {
   assert_consumed(transport);
 }
 
+void test_periodic_health_never_downloads_printer_datasets() {
+  ScriptedTransport transport;
+  FilaBridgeAdapter adapter(transport, settings());
+  for (int cycle = 0; cycle < 100; ++cycle) {
+    transport.expect("GET", "/healthz", "{\"status\":\"ok\",\"version\":\"1.2.2\"}");
+    TEST_ASSERT_TRUE(adapter.probe(false).ok());
+    assert_consumed(transport);
+  }
+}
+void test_live_v121_contract_enables_five_tool_mapping_after_discovery() {
+  ScriptedTransport transport;
+  script_probe(transport, "v1.2.1");
+  FilaBridgeAdapter adapter(transport, settings());
+  TEST_ASSERT_TRUE(adapter.probe().ok());
+  TEST_ASSERT_TRUE(adapter.capabilities().has(BackendCapability::map_toolhead));
+  const auto printers = adapter.list_printers();
+  TEST_ASSERT_TRUE(printers.ok());
+  TEST_ASSERT_EQUAL_UINT(5, printers.value()[0].toolheads.size());
+  assert_consumed(transport); // Discovery is transferred, not fetched twice.
+}
+void test_health_errors_are_distinct_and_do_not_retry() {
+  ScriptedTransport transport;
+  FilaBridgeAdapter adapter(transport, settings());
+  for (int status : {401, 403, 404, 500}) {
+    transport.expect("GET", "/healthz", "{}", status);
+    const auto result = adapter.probe(false);
+    TEST_ASSERT_FALSE(result.ok());
+    TEST_ASSERT_EQUAL(static_cast<int>(status < 404 ? ErrorCategory::authentication :
+        status == 404 ? ErrorCategory::api_changed : ErrorCategory::backend_unavailable),
+        static_cast<int>(result.error().category));
+    assert_consumed(transport);
+  }
+  for (auto* body : {"{}", "broken", "{\"status\":", "{\"status\":\"bad\"}"}) {
+    transport.expect("GET", "/healthz", body);
+    TEST_ASSERT_FALSE(adapter.probe(false).ok());
+    TEST_ASSERT_FALSE(adapter.status().healthy);
+  }
+}
+void test_malformed_printer_and_status_contracts_fail_closed() {
+  ScriptedTransport transport;
+  FilaBridgeAdapter adapter(transport, settings());
+  transport.expect("GET", "/api/printers", "{\"printers\":[]}");
+  TEST_ASSERT_FALSE(adapter.list_printers().ok());
+  script_read(transport, "{\"printers\":[],\"toolhead_mappings\":{}}");
+  TEST_ASSERT_FALSE(adapter.list_printers().ok());
+  assert_consumed(transport);
+}
 int main(int, char**) {
   UNITY_BEGIN();
+  RUN_TEST(test_malformed_printer_and_status_contracts_fail_closed);
+  RUN_TEST(test_periodic_health_never_downloads_printer_datasets);
+  RUN_TEST(test_live_v121_contract_enables_five_tool_mapping_after_discovery);
+  RUN_TEST(test_health_errors_are_distinct_and_do_not_retry);
   RUN_TEST(test_probe_known_version_enables_reads_and_guarded_mapping);
   RUN_TEST(test_unknown_version_keeps_reads_but_refuses_writes);
   RUN_TEST(test_printers_use_stable_ids_and_normalize_complete_t1_to_t5_list);

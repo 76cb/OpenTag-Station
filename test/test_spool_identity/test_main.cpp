@@ -282,8 +282,18 @@ void test_openprinttag_uuid_and_nfc_uid_are_normalized() {
   TEST_ASSERT_EQUAL_STRING("E004010203040506", identity.nfc_uid->c_str());
 }
 
+void test_empty_metadata_never_selects_arbitrary_inventory() {
+  FakeInventory inventory;
+  MemoryMappings mappings;
+  SpoolIdentityResolver resolver(inventory, mappings, settings());
+  const auto result = resolver.resolve({});
+  TEST_ASSERT_TRUE(result.ok());
+  TEST_ASSERT_EQUAL(static_cast<int>(SpoolResolutionStatus::not_found), static_cast<int>(result.value().status));
+  TEST_ASSERT_TRUE(inventory.filters.empty());
+}
 int main(int, char**) {
   UNITY_BEGIN();
+  RUN_TEST(test_empty_metadata_never_selects_arbitrary_inventory);
   RUN_TEST(test_configured_instance_uuid_is_first_and_unique_match_wins);
   RUN_TEST(test_duplicate_instance_uuid_is_reported_as_conflict);
   RUN_TEST(test_confirmed_instance_cache_precedes_nfc_and_metadata);

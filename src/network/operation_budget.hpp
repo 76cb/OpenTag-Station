@@ -12,6 +12,11 @@ class OperationBudget {
   bool expired(std::uint32_t now) const {
     return active_ && static_cast<std::uint32_t>(now - started_) >= duration_ms;
   }
+  std::uint32_t remaining(std::uint32_t now) const {
+    if (!active_) return duration_ms;
+    const auto elapsed = static_cast<std::uint32_t>(now - started_);
+    return elapsed >= duration_ms ? 0U : duration_ms - elapsed;
+  }
  private:
   std::uint32_t started_{0};
   bool active_{false};

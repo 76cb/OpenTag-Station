@@ -365,7 +365,12 @@ void test_backend_operation_budget_bounds_trickling_http() {
   budget.begin(now);
   TEST_ASSERT_EQUAL(1, client.connect("server", 80, 5000));
   unsigned bytes = 0;
-  while (client.available()) { TEST_ASSERT_EQUAL('x', client.read()); ++bytes; }
+  while (client.available()) {
+    const auto byte = client.read();
+    // Time can expire between available() and read(). It must then fail closed.
+    if (byte == -1) { TEST_ASSERT_TRUE(budget.expired(now)); break; }
+    TEST_ASSERT_EQUAL('x', byte); ++bytes;
+  }
   TEST_ASSERT_LESS_THAN(OperationBudget::duration_ms, bytes);
   TEST_ASSERT_GREATER_THAN(0, socket.stops);
   TEST_ASSERT_EQUAL(0, client.connected());

@@ -14,6 +14,7 @@
 #include "diagnostics/build_info.hpp"
 #include "ui/weight_format.hpp"
 #include "nfc/presentation.hpp"
+#include "services/workflow_presentation.hpp"
 #include "web/local_access_policy.hpp"
 
 namespace opentag::ui {
@@ -1710,7 +1711,7 @@ void UiService::refresh_workflow() {
       lv_label_set_text(
           workflow_home_state_label_,
           calibration_required ? "! SCALE SETUP REQUIRED" :
-                                 LV_SYMBOL_OK " READY");
+              services::workflow_guidance(workflow.stage));
       lv_obj_set_style_text_color(
           workflow_home_state_label_,
           lv_color_hex(calibration_required ? 0xF4C95D : 0x24D6A1), 0);
@@ -1723,13 +1724,15 @@ void UiService::refresh_workflow() {
           "Open Scale to tare, then place a known reference.");
     } else if (workflow.openprinttag_available) {
       const std::string material = workflow.material.material_name.value_or(
-          workflow.material.material_abbreviation.value_or("Spool detected"));
+          workflow.material.material_abbreviation.value_or("OpenPrintTag recognized"));
       lv_label_set_text(workflow_material_label_, material.c_str());
-      lv_label_set_text(
-          workflow_identity_label_,
-          workflow.spool.has_value()
-              ? "Spool ready for measurement."
-              : "Material detected. Resolve it when needed.");
+      std::string identity = workflow.spool ? workflow.spool->display_name : workflow.uid.hex();
+      if (workflow.reconciliation.measured_remaining_grams) {
+        identity += " | Remaining " + std::to_string(static_cast<int>(
+            std::lround(*workflow.reconciliation.measured_remaining_grams))) + " g";
+      }
+      if (workflow.spoolman_error) identity = workflow.spoolman_error->message;
+      lv_label_set_text(workflow_identity_label_, identity.c_str());
     } else {
       lv_label_set_text(workflow_material_label_, "Place a spool");
       lv_label_set_text(
@@ -1960,6 +1963,10 @@ void UiService::refresh_workflow() {
     status += "   FilaBridge ";
     status += availability_text(workflow.filabridge);
     if (!workflow_feedback_.empty()) status += "   " + workflow_feedback_;
+    if (workflow.assignment_error) status = workflow.assignment_error->message;
+    else if (workflow.filabridge_error) status = workflow.filabridge_error->message;
+    else if (workflow.stage == services::WorkflowStage::assignment_complete)
+      status = "Assignment verified by FilaBridge readback";
     lv_label_set_text(workflow_status_label_, status.c_str());
     return;
   }

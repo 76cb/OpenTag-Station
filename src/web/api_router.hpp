@@ -77,7 +77,7 @@ struct RouteMetadata {
   BodyTransport body_transport{BodyTransport::buffered_json};
 };
 
-inline constexpr std::array<RouteMetadata, 31U> routes = {{
+inline constexpr std::array<RouteMetadata, 32U> routes = {{
     {Method::get, "/api/v1/status", 0U, false},
     {Method::get, "/api/v1/device", 0U, false},
     {Method::get, "/api/v1/health", 0U, false},
@@ -93,6 +93,7 @@ inline constexpr std::array<RouteMetadata, 31U> routes = {{
     {Method::get, "/api/v1/nfc/tag", 0U, false},
     {Method::post, "/api/v1/nfc/read", 256U, true},
     {Method::get, "/api/v1/spool", 0U, false},
+    {Method::post, "/api/v1/spool/confirm", 512U, true},
     {Method::get, "/api/v1/printers", 0U, false},
     {Method::get, "/api/v1/toolheads", 0U, false},
     {Method::post, "/api/v1/toolheads/{id}/assign", 2048U, true},
@@ -136,6 +137,10 @@ enum class Resource : std::uint8_t {
 };
 
 struct EmptyMutation {};
+struct SpoolConfirmationMutation {
+  std::uint64_t spool_generation{0};
+  std::int32_t spool_id{0};
+};
 
 struct ScaleCalibrationMutation {
   float reference_grams{0.0F};
@@ -260,6 +265,7 @@ enum class MutationKind : std::uint8_t {
   toolhead_unassignment,
   configuration_patch,
   backend_test,
+  spool_confirmation,
   update_reboot,
   update_cancel,
   reboot,
@@ -271,6 +277,7 @@ enum class MutationKind : std::uint8_t {
 
 using MutationPayload = std::variant<
     EmptyMutation,
+    SpoolConfirmationMutation,
     ScaleCalibrationMutation,
     NetworkConnectMutation,
     ToolheadAssignmentMutation,

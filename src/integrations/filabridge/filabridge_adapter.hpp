@@ -30,7 +30,7 @@ class FilaBridgeAdapter final : public IPrinterAssignmentService {
       : transport_(transport), settings_(std::move(settings)) {}
 
   void configure(config::FilaBridgeSettings settings);
-  [[nodiscard]] core::Result<FilaBridgeStatus> probe();
+  [[nodiscard]] core::Result<FilaBridgeStatus> probe(bool full = true);
   [[nodiscard]] FilaBridgeStatus status() const { return status_; }
 
   [[nodiscard]] core::Result<std::vector<domain::Printer>> list_printers() override;
@@ -63,6 +63,7 @@ class FilaBridgeAdapter final : public IPrinterAssignmentService {
   network::IHttpTransport& transport_;
   config::FilaBridgeSettings settings_;
   FilaBridgeStatus status_;
+  std::optional<std::vector<domain::Printer>> discovery_;
 };
 
 }  // namespace opentag::integrations::filabridge

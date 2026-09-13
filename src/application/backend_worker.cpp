@@ -274,6 +274,26 @@ CommandReceipt BackendWorker::submit_refresh() {
   return {true, operation_id};
 }
 
+CommandReceipt BackendWorker::submit_spool_confirmation(domain::SpoolId id, std::uint64_t generation) {
+  const auto operation = operations_.begin(OperationKind::backend_probe, millis(), "Spool confirmation queued");
+  if (!operation) return {false, 0};
+  auto* command = new (std::nothrow) Command;
+  if (!command) {
+    operations_.fail(operation, millis(), {core::ErrorCategory::backend_unavailable, "Spool confirmation allocation failed", true});
+    return {false, operation};
+  }
+  command->type = CommandType::confirm_spool;
+  command->expected_spool_id = id;
+  command->expected_spool_generation = generation;
+  command->operation_id = operation;
+  command->enqueued_at_ms = millis();
+  if (!enqueue(command)) {
+    operations_.fail(operation, millis(), {core::ErrorCategory::backend_unavailable, "Backend queue is full", true});
+    return {false, operation};
+  }
+  return {true, operation};
+}
+
 BackendWorkerSnapshot BackendWorker::snapshot() const {
   std::lock_guard<std::mutex> lock(status_mutex_);
   auto result = status_;
@@ -304,6 +324,8 @@ bool BackendWorker::apply_backend_settings_if_changed() {
   spoolman_.configure(std::move(configured.spoolman));
   filabridge_.configure(std::move(configured.filabridge));
   applied_backend_settings_revision_ = configured.revision;
+  discovery_required_ = true;
+  network::backend_memory_phase("settings_applied");
   wifi_offline_published_ = false;
 
   std::optional<core::Error> spoolman_error;
@@ -331,13 +353,15 @@ bool BackendWorker::apply_backend_settings_if_changed() {
   return true;
 }
 
-void BackendWorker::probe_backends(std::uint64_t operation_id) {
+void BackendWorker::probe_backends(std::uint64_t operation_id, bool full) {
   const auto now_ms = millis();
+  network::BackendPhaseGuard completed{"probe_released", now_ms};
   if (operation_id != 0U) {
     operations_.mark_running(operation_id, now_ms, "Probing backends");
   }
 
   (void)apply_backend_settings_if_changed();
+  full = full || discovery_required_;
   if (!spoolman_configured_ && !filabridge_configured_) {
     if (operation_id != 0U) {
       operations_.fail(operation_id, now_ms, spoolman_unconfigured_error());
@@ -374,14 +398,16 @@ void BackendWorker::probe_backends(std::uint64_t operation_id) {
   std::optional<core::Error> filabridge_error;
   std::optional<core::Error> printer_refresh_error;
   if (spoolman_configured_) {
-    const auto result = spoolman_.probe();
+    const auto result = spoolman_.probe(full);
     if (!result.ok()) spoolman_error = result.error();
     workflow_.set_spoolman_probe(
         result.ok() && result.value().healthy,
         spoolman_error);
   }
   if (filabridge_configured_) {
-    const auto result = filabridge_.probe();
+    const bool was_healthy = filabridge_.status().healthy;
+    const auto result = filabridge_.probe(full);
+    if (!full && !was_healthy && result.ok()) discovery_required_ = true;
     if (!result.ok()) {
       filabridge_error = result.error();
       workflow_.set_filabridge_probe(false, false, filabridge_error);
@@ -394,8 +420,10 @@ void BackendWorker::probe_backends(std::uint64_t operation_id) {
           true,
           assignment_available,
           result.value().last_error);
-      const auto refreshed = workflow_.refresh_printers();
-      printer_refresh_error = refreshed.filabridge_error;
+      if (full) {
+        const auto refreshed = workflow_.refresh_printers();
+        printer_refresh_error = refreshed.filabridge_error;
+      }
     }
   }
   {
@@ -408,6 +436,11 @@ void BackendWorker::probe_backends(std::uint64_t operation_id) {
     }
     ++status_.revision;
   }
+  if (full) {
+    discovery_required_ = false;
+    last_full_probe_ms_ = millis();
+  }
+  network::backend_memory_phase("probe_complete", 0, 0, now_ms);
   if (operation_id != 0U) {
     if (!spoolman_configured_) {
       operations_.fail(operation_id, millis(), spoolman_unconfigured_error());
@@ -431,17 +464,57 @@ void BackendWorker::process(Command& command) {
     probe_backends(command.operation_id);
     return;
   }
-  const auto configured = configuration_.snapshot();
+  auto configured_storage = network::make_external<config::Configuration>([&] { return configuration_.snapshot(); });
+  if (!configured_storage) {
+    const core::Error error{core::ErrorCategory::backend_unavailable, "Backend configuration workspace unavailable", true};
+    if (command.operation_id) operations_.fail(command.operation_id, millis(), error);
+    workflow_.set_spoolman_probe(false, error);
+    return;
+  }
+  const auto& configured = *configured_storage;
+  if (command.type == CommandType::confirm_spool) {
+    operations_.mark_running(command.operation_id, millis(), "Reading selected Spoolman spool");
+    auto state_storage = network::make_external<services::WorkflowSnapshot>([&] { return workflow_.snapshot(); });
+    if (!state_storage) {
+      operations_.fail(command.operation_id, millis(), {core::ErrorCategory::backend_unavailable, "Confirmation workspace unavailable", true});
+      return;
+    }
+    const auto& state = *state_storage;
+    if (!state.openprinttag_available || state.spool_generation != command.expected_spool_generation ||
+        !state.physical_weight.stable ||
+        static_cast<std::uint32_t>(millis() - command.enqueued_at_ms) > destructive_command_expiry_ms) {
+      operations_.fail(command.operation_id, millis(), {core::ErrorCategory::conflict,
+          "Spool changed or weight is not ready; refresh before confirming", false});
+      return;
+    }
+    const auto selected = spoolman_.get_spool(command.expected_spool_id.value_or(0));
+    if (!selected.ok()) { operations_.fail(command.operation_id, millis(), selected.error()); return; }
+    const auto confirmed = resolver_.confirm(
+        services::identity_from_openprinttag(state.material, state.uid), selected.value().id);
+    if (!confirmed.ok()) { operations_.fail(command.operation_id, millis(), confirmed.error()); return; }
+    auto result_storage = network::make_external<services::WorkflowSnapshot>([&] { return workflow_.accept_identified_spool(state.material, state.uid, state.physical_weight, {},
+        {configured.reconciliation.normal_tolerance_grams, configured.reconciliation.warning_tolerance_grams},
+        state.spool_generation, &selected.value()); });
+    if (!result_storage) { operations_.fail(command.operation_id, millis(), {core::ErrorCategory::backend_unavailable, "Confirmation result workspace unavailable", true}); return; }
+    const auto& result = *result_storage;
+    if (result.spool_generation != state.spool_generation) {
+      operations_.fail(command.operation_id, millis(), {core::ErrorCategory::conflict, "Spool changed during confirmation", false});
+    } else {
+      operations_.succeed(command.operation_id, millis(), "Spool confirmed; select a printer toolhead");
+    }
+    return;
+  }
   if (command.type == CommandType::identified_spool) {
-    const auto state = workflow_.accept_identified_spool(
+    const auto state = network::make_external<services::WorkflowSnapshot>([&] { return workflow_.accept_identified_spool(
         command.material,
         command.uid,
         command.physical_weight,
         command.supplemental_empty_weights,
         {configured.reconciliation.normal_tolerance_grams,
          configured.reconciliation.warning_tolerance_grams},
-        command.expected_spool_generation);
-    (void)state;
+        command.expected_spool_generation); });
+    if (!state) workflow_.set_spoolman_probe(false, core::Error{
+        core::ErrorCategory::backend_unavailable, "Spool resolution workspace unavailable; retry", true});
     return;
   }
   if (command.type == CommandType::assign) {
@@ -540,10 +613,12 @@ void BackendWorker::run() {
     }
     poll_nfc();
     const auto now_ms = millis();
-    if (static_cast<std::uint32_t>(now_ms - last_probe_ms_) >=
+    const bool changed = apply_backend_settings_if_changed();
+    if (changed || static_cast<std::uint32_t>(now_ms - last_probe_ms_) >=
         probe_interval_ms) {
       transport_.begin_operation(millis());
-      probe_backends();
+      probe_backends(0U, changed || discovery_required_ ||
+          static_cast<std::uint32_t>(now_ms - last_full_probe_ms_) >= 300000U);
       transport_.end_operation();
       poll_nfc();
       // Schedule from completion, not from the timestamp captured before a

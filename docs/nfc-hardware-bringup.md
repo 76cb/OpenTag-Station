@@ -1,15 +1,6 @@
 # NFC hardware bring-up checkpoint
 
-Status as of 2026-09-13: **dual-I2C transport, NFC-V RF inventory, stable UID,
-system information, geometry, repeated complete-memory reads, and the one-time
-guarded blank-tag initialization are physically validated; read-only browser
-preview soak is the next bench checkpoint**.
-
-The supported reader architecture is the ELECHOUSE ST25R3916B module with its
-hardware-validated I2C RFAL implementation and NFC-V / ISO15693 tags. The normal
-`wt32-sc01-plus` build still keeps `OPENTAG_ENABLE_ST25R3916B=0`, all production
-NFC board-profile pins at `-1`, and creates neither an NFC task nor an RF field.
-This checkpoint changes only the opt-in `wt32-sc01-plus-i2c-test` image.
+Production NFC inventory, full reads, OpenPrintTag decode, removal/reinsertion and stationary soak have passed. The historical diagnostic evidence below records how the transport was brought up; it is not another acceptance gate. Production now uses the same Wire1 mapping read-only on the shared backend task. Use [production NFC](production-nfc.md) for current ownership and [release validation](release-validation.md) for the one integrated physical procedure.
 
 ## Proven transport
 
@@ -111,7 +102,4 @@ The completed follow-up also proved an 80 × 4 geometry and two matching
 320-byte reads of UID `E0:04:01:08:66:27:D8:D4`; the blank image checksum was
 `97B79EC5`. The one-time guarded initializer subsequently passed and the stable
 initialized image checksum is `9E639911`. Its UI and POST route are now
-disabled. The current acceptance test is the read-only browser preview soak in
-[`nfc-v-initialization-diagnostic.md`](nfc-v-initialization-diagnostic.md).
-Production NFC, normal OpenPrintTag behavior, and backend integration remain
-disabled.
+disabled. Production read-only recognition and soak subsequently passed; the current integrated acceptance is in [release validation](release-validation.md).

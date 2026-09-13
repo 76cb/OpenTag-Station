@@ -84,7 +84,12 @@ class BackendWorker final {
       services::ToolheadMutationPrecondition precondition,
       std::optional<std::uint64_t> expected_printer_revision = std::nullopt);
   [[nodiscard]] CommandReceipt submit_refresh();
+  [[nodiscard]] CommandReceipt submit_spool_confirmation(domain::SpoolId, std::uint64_t);
   [[nodiscard]] BackendWorkerSnapshot snapshot() const;
+  [[nodiscard]] std::uint64_t revision() const {
+    std::lock_guard<std::mutex> lock(status_mutex_);
+    return status_.revision;
+  }
   [[nodiscard]] TaskHandle_t task_handle() const { return task_; }
   [[nodiscard]] std::size_t pending() const {
     return pending_.load(std::memory_order_relaxed);
@@ -96,6 +101,7 @@ class BackendWorker final {
     assign,
     unassign,
     refresh,
+    confirm_spool,
   };
 
   struct Command {
@@ -119,7 +125,7 @@ class BackendWorker final {
   static void task_entry(void* context);
   void run();
   void poll_nfc();
-  void probe_backends(std::uint64_t operation_id = 0U);
+  void probe_backends(std::uint64_t operation_id = 0U, bool full = true);
   [[nodiscard]] bool apply_backend_settings_if_changed();
   void process(Command& command);
   [[nodiscard]] bool enqueue(Command* command);
@@ -137,6 +143,8 @@ class BackendWorker final {
   TaskHandle_t task_{nullptr};
   std::atomic_size_t pending_{0U};
   std::uint32_t last_probe_ms_{0U};
+  std::uint32_t last_full_probe_ms_{0U};
+  bool discovery_required_{true};
   std::optional<std::uint64_t> applied_backend_settings_revision_;
   bool spoolman_configured_{false};
   bool filabridge_configured_{false};

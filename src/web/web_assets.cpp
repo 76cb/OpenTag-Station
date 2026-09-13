@@ -118,10 +118,10 @@ const char index_html[] = R"HTML(<!doctype html>
     </section>
 
     <section id="nfc" class="section product-page tags-page" data-page="tags" aria-labelledby="nfc-title" hidden>
-      <div class="section-heading"><div><p class="eyebrow">OPENPRINTTAG</p><h2 id="nfc-title">Tags</h2></div><span id="nfc-badge" class="badge neutral">Disabled</span></div>
+      <div class="section-heading"><div><p class="eyebrow">OPENPRINTTAG</p><h2 id="nfc-title">Tags</h2></div><span id="nfc-badge" class="badge neutral">Checking</span></div>
       <article class="card intentional-empty">
         <span class="empty-icon" aria-hidden="true">◇</span>
-        <h3 id="nfc-summary">NFC hardware disabled</h3>
+        <h3 id="nfc-summary">Checking NFC reader</h3>
         <p id="nfc-guidance">Reader wiring and ST RFAL are not configured.</p>
         <dl class="facts">
           <div><dt>Reader</dt><dd id="nfc-reader-state">OFF</dd></div>
@@ -166,6 +166,16 @@ const char index_html[] = R"HTML(<!doctype html>
       </div>
     </section>
 
+    <section id="spool-resolution" class="section product-page home-support" data-page="home">
+      <p id="spool-guidance" class="hint" role="status"></p>
+      <form id="confirm-spool-form" hidden>
+        <label for="confirm-spool-id">Confirm the Spoolman spool on this station</label>
+        <input id="confirm-spool-id" type="number" min="1" step="1" required list="spool-candidates" placeholder="Spoolman spool ID">
+        <datalist id="spool-candidates"></datalist>
+        <button type="submit">Confirm spool</button>
+      </form>
+    </section>
+
     <section id="printers" class="section product-page printer-page" data-page="printer" aria-labelledby="printers-title" hidden>
       <div class="section-heading"><div><p class="eyebrow">FILAMENT ASSIGNMENT</p><h2 id="printers-title">Printer</h2></div><span id="printer-page-badge" class="badge neutral">Checking</span></div>
       <div id="printer-list" class="printer-list"><article class="card intentional-empty"><span class="empty-icon">▣</span><h3>No printer configured</h3><p>Choose a printer in Settings to manage its toolheads.</p><a class="button" href="#settings">Open Settings</a></article></div>
@@ -177,7 +187,7 @@ const char index_html[] = R"HTML(<!doctype html>
       <div class="settings-grid">
         <article class="card"><h3>Connectivity</h3><dl class="facts compact"><div><dt>Wi-Fi</dt><dd id="wifi-state">—</dd></div><div><dt>LAN address</dt><dd id="device-address">—</dd></div><div><dt>RSSI</dt><dd id="settings-rssi">—</dd></div></dl><a class="button quiet" href="#configuration">Change Wi-Fi</a></article>
         <article class="card"><div class="card-title-row"><h3>Integrations</h3><button id="test-backends" class="button tiny" type="button">Test</button></div><dl class="facts compact"><div><dt>Spoolman</dt><dd id="spoolman-state">Unknown</dd></div><div><dt>FilaBridge</dt><dd id="filabridge-state">Unknown</dd></div><div><dt>Printer</dt><dd id="settings-selected-printer">Not selected</dd></div></dl><span id="spoolman-version" class="visually-hidden">Version —</span><span id="spoolman-capabilities" class="visually-hidden">Capabilities —</span><span id="filabridge-version" class="visually-hidden">Version —</span><span id="filabridge-capabilities" class="visually-hidden">Capabilities —</span></article>
-        <article class="card"><h3>Hardware</h3><dl class="facts compact"><div><dt>Scale</dt><dd id="scale-calibration">Checking</dd></div><div><dt>Profile</dt><dd id="scale-profile">—</dd></div><div><dt>Capacity</dt><dd id="scale-capacity">—</dd></div><div><dt>NFC</dt><dd>Disabled</dd></div><div><dt>Display</dt><dd>WT32-SC01 Plus</dd></div></dl><details><summary>Scale diagnostics</summary><dl class="facts compact"><div><dt>Raw</dt><dd id="scale-raw">—</dd></div><div><dt>Filtered</dt><dd id="scale-filtered">—</dd></div><div><dt>Zero</dt><dd id="scale-zero">—</dd></div><div><dt>Factor</dt><dd id="scale-factor">—</dd></div><div><dt>Reference</dt><dd id="scale-reference">—</dd></div></dl></details></article>
+        <article class="card"><h3>Hardware</h3><dl class="facts compact"><div><dt>Scale</dt><dd id="scale-calibration">Checking</dd></div><div><dt>Profile</dt><dd id="scale-profile">—</dd></div><div><dt>Capacity</dt><dd id="scale-capacity">—</dd></div><div><dt>NFC</dt><dd>Read-only NFC-V</dd></div><div><dt>Display</dt><dd>WT32-SC01 Plus</dd></div></dl><details><summary>Scale diagnostics</summary><dl class="facts compact"><div><dt>Raw</dt><dd id="scale-raw">—</dd></div><div><dt>Filtered</dt><dd id="scale-filtered">—</dd></div><div><dt>Zero</dt><dd id="scale-zero">—</dd></div><div><dt>Factor</dt><dd id="scale-factor">—</dd></div><div><dt>Reference</dt><dd id="scale-reference">—</dd></div></dl></details></article>
         <article class="card"><h3>Device</h3><dl class="facts compact"><div><dt>Firmware</dt><dd id="firmware-version">—</dd></div><div><dt>Git SHA</dt><dd id="git-sha" class="mono">—</dd></div><div><dt>Build</dt><dd id="build-date">—</dd></div><div><dt>Hardware</dt><dd id="hardware-id">—</dd></div><div><dt>Uptime</dt><dd id="uptime">—</dd></div><div><dt>Free heap</dt><dd id="heap-free">—</dd></div><div><dt>Free PSRAM</dt><dd id="psram-free">—</dd></div></dl></article>
       </div>
     </section>
@@ -611,7 +621,7 @@ const char application_javascript[] = R"JS((function () {
     '/printers', '/toolheads', '/logs', '/diagnostics', '/update'
   ]);
   const PRODUCT_PAGES = Object.freeze({
-    home: ['overview', 'spool'],
+    home: ['overview', 'spool', 'spool-resolution'],
     scale: ['scale'],
     printer: ['printers'],
     tags: ['nfc'],
@@ -1931,6 +1941,26 @@ const char application_javascript[] = R"JS((function () {
     setText('reconciliation-state', normalizeState(first(reconciliation.decision, reconciliation.status)));
     setText('reconciliation-difference', formatGrams(first(reconciliation.maximum_absolute_difference_grams, reconciliation.difference_grams)));
     setBadge('spool-badge', state.spool ? 'Spool ready' : stage, state.spool ? 'good' : 'neutral');
+    const guidance = {
+      waiting_for_stable_weight: 'OpenPrintTag recognized. Waiting for a stable weight; calibrate the scale if required.',
+      resolving_spool: 'Finding the matching Spoolman spool…',
+      spool_not_found: 'No Spoolman spool matched. Enter its Spoolman ID to confirm a local mapping.',
+      spool_selection_required: 'Multiple spools matched. Select and confirm the spool on the station.',
+      spool_resolution_unavailable: 'Spoolman resolution failed. Check the backend connection, then reinsert the spool or confirm its ID.',
+      spool_ready: 'Spool resolved. Open Printer and select T1–T5.',
+      assignment_complete: 'Assignment verified by FilaBridge readback.'
+    };
+    setText('spool-guidance', workflow.error || guidance[workflow.stage] || 'Place an OpenPrintTag spool on the station.');
+    byId('confirm-spool-form').hidden = !workflow.openprinttag_available ||
+      !['spool_not_found', 'spool_selection_required', 'spool_resolution_unavailable'].includes(workflow.stage);
+    const choices = byId('spool-candidates');
+    choices.replaceChildren();
+    asArray(workflow.candidates).forEach(function (candidate) {
+      const option = document.createElement('option');
+      option.value = candidate.id;
+      option.textContent = candidate.display_name || ('Spool #' + candidate.id);
+      choices.appendChild(option);
+    });
   }
 
   function normalizePrinters(payload) {
@@ -2797,6 +2827,9 @@ const char application_javascript[] = R"JS((function () {
 
   function refreshResource(resource) {
     const name = String(resource || '').toLowerCase();
+    if (name === 'backends') return load('/health', renderHealth, true, PRIORITY.CORE, { supersedeKey: 'live:/health' })
+      .then(function () { return load('/status', renderStatus, true, PRIORITY.SECONDARY, { supersedeKey: 'live:/status' }); })
+      .then(function () { return refreshPrinters(true); });
     if (name === 'nfc') return load('/nfc', renderNfc, true, PRIORITY.SECONDARY, { supersedeKey: 'live:/nfc' })
       .then(function () { return load('/spool', renderSpool, true, PRIORITY.SECONDARY, { supersedeKey: 'live:/spool' }); });
     if (name === 'scale') return load('/scale', renderScale, true, PRIORITY.CORE, { supersedeKey: 'live:/scale' });
@@ -3268,6 +3301,17 @@ const char application_javascript[] = R"JS((function () {
 
   function wireActions() {
     byId('refresh-all').addEventListener('click', function () { refreshAll(false); });
+    byId('confirm-spool-form').addEventListener('submit', async function (event) {
+      event.preventDefault();
+      const id = Number(byId('confirm-spool-id').value);
+      const generation = state.spoolGeneration;
+      if (!Number.isInteger(id) || id <= 0 || !generation) return;
+      if (!window.confirm('Confirm that Spoolman spool #' + id + ' is on the station?')) return;
+      try {
+        await submitMutation('/spool/confirm', {body: {spool_id: id, spool_generation: generation, confirmed: true}});
+        await load('/spool', renderSpool, true, PRIORITY.SECONDARY);
+      } catch (error) { showToast(error.message || String(error), true); }
+    });
     byId('home-weigh').addEventListener('click', startHomeWeigh);
     byId('weigh-scale').addEventListener('click', function (event) {
       runScaleMutation(event.currentTarget, '/scale/weigh', {}, 'Weight captured.');
@@ -3367,6 +3411,9 @@ const char application_javascript[] = R"JS((function () {
         if (verified) {
           showToast(operationMessage(operation,
             'Configuration updated and verified. Hidden credentials were preserved unless explicitly changed.'));
+          if (patch.spoolman || patch.filabridge) {
+            setText('config-load-status', 'Configuration saved. Testing / refreshing backends…');
+          }
         } else {
           showToast('Configuration was saved, but its verification reload failed. Use Retry before making more edits.', true);
         }
@@ -3589,6 +3636,7 @@ const char application_javascript[] = R"JS((function () {
       syncCalibrationRefresh: syncCalibrationRefresh,
       stopCalibrationRefresh: stopCalibrationRefresh,
       renderScale: renderScale,
+      renderSpool: renderSpool,
       renderNfc: renderNfc,
       renderTag: renderTag,
       productPageFromHash: productPageFromHash,

@@ -246,8 +246,8 @@ void setUp() {}
 void tearDown() {}
 
 void test_route_table_contains_the_complete_versioned_surface() {
-  TEST_ASSERT_EQUAL_UINT(31U, opentag::web::api::routes.size());
-  const std::array<std::pair<Method, const char*>, 31U> expected = {{
+  TEST_ASSERT_EQUAL_UINT(32U, opentag::web::api::routes.size());
+  const std::array<std::pair<Method, const char*>, 32U> expected = {{
       {Method::get, "/api/v1/status"},
       {Method::get, "/api/v1/device"},
       {Method::get, "/api/v1/health"},
@@ -263,6 +263,7 @@ void test_route_table_contains_the_complete_versioned_surface() {
       {Method::get, "/api/v1/nfc/tag"},
       {Method::post, "/api/v1/nfc/read"},
       {Method::get, "/api/v1/spool"},
+      {Method::post, "/api/v1/spool/confirm"},
       {Method::get, "/api/v1/printers"},
       {Method::get, "/api/v1/toolheads"},
       {Method::post, "/api/v1/toolheads/{id}/assign"},
@@ -1499,8 +1500,26 @@ void test_disabled_nfc_snapshot_is_bounded_read_only_and_diagnostic() {
       std::string::npos);
 }
 
+void test_spool_confirmation_is_explicit_bounded_and_queued() {
+  FakeContext context;
+  Router router(context);
+  const auto response = router.handle(mutation_request(Method::post, "/api/v1/spool/confirm",
+      "{\"spool_generation\":7,\"spool_id\":17,\"confirmed\":true}"));
+  TEST_ASSERT_EQUAL(202, response.status);
+  TEST_ASSERT_EQUAL(1, context.submit_calls);
+  const auto& payload = std::get<opentag::web::api::SpoolConfirmationMutation>(context.last_mutation->payload);
+  TEST_ASSERT_EQUAL_UINT64(7, payload.spool_generation);
+  TEST_ASSERT_EQUAL(17, payload.spool_id);
+  for (auto* body : {"{}", "{\"spool_generation\":0,\"spool_id\":17,\"confirmed\":true}",
+      "{\"spool_generation\":7,\"spool_id\":17,\"confirmed\":false}",
+      "{\"spool_generation\":7,\"spool_id\":-1,\"confirmed\":true}"}) {
+    TEST_ASSERT_EQUAL(400, router.handle(mutation_request(Method::post, "/api/v1/spool/confirm", body)).status);
+  }
+  TEST_ASSERT_EQUAL(1, context.submit_calls);
+}
 int main(int, char**) {
   UNITY_BEGIN();
+  RUN_TEST(test_spool_confirmation_is_explicit_bounded_and_queued);
   RUN_TEST(
       test_local_access_policy_keeps_tokenless_control_healthy_and_enabled);
   RUN_TEST(test_route_table_contains_the_complete_versioned_surface);

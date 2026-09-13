@@ -309,7 +309,7 @@ distinct outcomes.
 | Repeated candidate crash/watchdog reset | Candidate never self-confirms; previous slot recovers | Physical test pending |
 | Reset during candidate health window | Pending image is not marked valid prematurely | Physical test pending |
 | Spoolman and FilaBridge offline | Local owners remain healthy and candidate can confirm | Physical test pending |
-| NFC unavailable by design | Candidate can confirm | Physical test pending |
+| Optional NFC unavailable or degraded | Candidate can confirm | Physical test pending |
 | Factory reset raced with upload/reboot | Exactly one lifecycle lease wins; no mixed reset/OTA state | Physical test pending |
 | Browser loses connection during reboot | Client reconnects and resumes candidate/confirmation/rollback status | Physical test pending |
 

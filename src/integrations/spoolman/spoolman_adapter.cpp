@@ -1,9 +1,10 @@
 #include "integrations/spoolman/spoolman_adapter.hpp"
 
-#include <ArduinoJson.h>
+#include "network/backend_json.hpp"
 
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 #include <cstdint>
 #include <iomanip>
 #include <limits>
@@ -15,7 +16,7 @@ namespace opentag::integrations::spoolman {
 namespace {
 
 constexpr std::size_t maximum_json_bytes = 65536U;
-constexpr std::size_t page_size = 64U;
+constexpr std::size_t page_size = 8U;
 constexpr std::size_t maximum_extra_fields = 64U;
 constexpr const char* tested_version = "0.26.1";
 
@@ -83,20 +84,9 @@ std::string url_encode(const std::string& value) {
   return output.str();
 }
 
-core::Result<JsonDocument> parse_json(
-    const std::string& body,
-    const char* context) {
-  if (body.empty() || body.size() > maximum_json_bytes) {
-    return core::Result<JsonDocument>::failure(
-        contract_error(std::string(context) + " response size is invalid"));
-  }
-  JsonDocument document;
-  const auto parsed = deserializeJson(document, body);
-  if (parsed) {
-    return core::Result<JsonDocument>::failure(
-        contract_error(std::string(context) + " returned invalid JSON"));
-  }
-  return core::Result<JsonDocument>::success(std::move(document));
+core::Result<network::BackendDocument> parse_json(
+    network::ResponseBody& body, const char* context) {
+  return network::parse_backend_json(body, context);
 }
 
 std::optional<std::string> optional_text(
@@ -104,6 +94,7 @@ std::optional<std::string> optional_text(
     std::size_t maximum) {
   if (value.isNull()) return std::nullopt;
   if (!value.is<const char*>()) return std::nullopt;
+  if (std::strlen(value.as<const char*>()) > maximum) return std::nullopt;
   std::string result = value.as<const char*>();
   return result.size() <= maximum
              ? std::optional<std::string>(std::move(result))
@@ -130,6 +121,7 @@ core::Result<std::optional<float>> optional_weight(
 
 std::optional<domain::Color> parse_color(JsonVariantConst value) {
   if (!value.is<const char*>()) return std::nullopt;
+  if (std::strlen(value.as<const char*>()) > 8U) return std::nullopt;
   std::string text = value.as<const char*>();
   if (text.size() != 6U && text.size() != 8U) return std::nullopt;
   const auto nibble = [](char character) -> int {
@@ -155,10 +147,11 @@ std::optional<domain::Color> parse_color(JsonVariantConst value) {
 }
 
 std::optional<std::string> decode_json_string(const std::string& encoded) {
-  JsonDocument decoded;
+  network::BackendDocument decoded;
   if (deserializeJson(decoded, encoded) || !decoded.is<const char*>()) {
     return std::nullopt;
   }
+  if (std::strlen(decoded.as<const char*>()) > 128U) return std::nullopt;
   std::string value = decoded.as<const char*>();
   return !value.empty() && value.size() <= 128U
              ? std::optional<std::string>(std::move(value))
@@ -248,10 +241,16 @@ core::Result<domain::Spool> parse_spool_object(
       return core::Result<domain::Spool>::failure(
           contract_error("Spoolman returned too many extra fields"));
     }
+    std::size_t extra_bytes = 0;
     for (JsonPairConst field : extra) {
       if (!field.value().is<const char*>()) {
         return core::Result<domain::Spool>::failure(
             contract_error("Spoolman extra field value is not JSON text"));
+      }
+      const auto length = std::strlen(field.value().as<const char*>());
+      extra_bytes += length + std::strlen(field.key().c_str());
+      if (length > 1024U || extra_bytes > 2048U || std::strlen(field.key().c_str()) > 64U) {
+        return core::Result<domain::Spool>::failure(contract_error("Spoolman extra fields exceed normalized storage limit"));
       }
       std::string key = field.key().c_str();
       std::string value = field.value().as<const char*>();
@@ -340,8 +339,10 @@ core::Result<network::HttpResponse> SpoolmanAdapter::request(
   return response;
 }
 
-core::Result<SpoolmanStatus> SpoolmanAdapter::probe() {
-  status_ = {};
+core::Result<SpoolmanStatus> SpoolmanAdapter::probe(bool full) {
+  if (full) status_ = {};
+  status_.healthy = false;
+  {
   auto health = request("GET", "/health", {}, 1024U);
   if (!health.ok()) return core::Result<SpoolmanStatus>::failure(health.error());
   auto health_json = parse_json(health.value().body, "Spoolman health");
@@ -355,15 +356,17 @@ core::Result<SpoolmanStatus> SpoolmanAdapter::probe() {
   }
   status_.healthy = true;
   status_.capabilities.add(BackendCapability::health);
+  }
+  if (!full) return core::Result<SpoolmanStatus>::success(status_);
 
   auto info = request("GET", "/info", {}, 4096U);
   if (info.ok()) {
     auto info_json = parse_json(info.value().body, "Spoolman info");
-    if (info_json.ok() && info_json.value()["version"].is<const char*>()) {
+    if (info_json.ok() && optional_text(info_json.value()["version"], 64U)) {
       status_.version = info_json.value()["version"].as<const char*>();
       status_.version_formally_tested = status_.version == tested_version;
       status_.capabilities.add(BackendCapability::runtime_version);
-      if (info_json.value()["git_commit"].is<const char*>()) {
+      if (optional_text(info_json.value()["git_commit"], 64U)) {
         status_.git_commit = info_json.value()["git_commit"].as<const char*>();
       }
     }
@@ -396,7 +399,7 @@ core::Result<void> SpoolmanAdapter::probe_read_capabilities() {
 }
 
 core::Result<std::vector<domain::Spool>> SpoolmanAdapter::parse_spool_list(
-    const std::string& body) const {
+    network::ResponseBody& body) const {
   auto parsed = parse_json(body, "Spoolman spool list");
   if (!parsed.ok()) {
     return core::Result<std::vector<domain::Spool>>::failure(parsed.error());
@@ -411,8 +414,17 @@ core::Result<std::vector<domain::Spool>> SpoolmanAdapter::parse_spool_list(
         contract_error("Spoolman spool page exceeds its requested limit"));
   }
   std::vector<domain::Spool> result;
+  if (!network::backend_admitted(network::backend_heap()) ||
+      network::backend_heap().largest_internal < input.size() * sizeof(domain::Spool) + 2048U) {
+    return core::Result<std::vector<domain::Spool>>::failure({core::ErrorCategory::backend_unavailable,
+        "Spool page deferred: insufficient memory for normalized spools", true});
+  }
   result.reserve(input.size());
   for (const auto value : input) {
+    if (!network::backend_admitted(network::backend_heap())) {
+      return core::Result<std::vector<domain::Spool>>::failure({core::ErrorCategory::backend_unavailable,
+          "Spool inventory exceeds available memory; use an exact tag identity", true});
+    }
     if (!value.is<JsonObjectConst>()) {
       return core::Result<std::vector<domain::Spool>>::failure(
           contract_error("Spoolman spool list contains a non-object"));
@@ -427,7 +439,7 @@ core::Result<std::vector<domain::Spool>> SpoolmanAdapter::parse_spool_list(
 }
 
 core::Result<domain::Spool> SpoolmanAdapter::parse_spool(
-    const std::string& body) const {
+    network::ResponseBody& body) const {
   auto parsed = parse_json(body, "Spoolman spool");
   if (!parsed.ok()) return core::Result<domain::Spool>::failure(parsed.error());
   if (!parsed.value().is<JsonObjectConst>()) {
@@ -490,6 +502,19 @@ core::Result<std::vector<domain::Spool>> SpoolmanAdapter::find_spools(
       return page;
     }
     const auto count = page.value().size();
+    if (count > limit) {
+      return core::Result<std::vector<domain::Spool>>::failure(
+          contract_error("Spoolman ignored the requested pagination limit"));
+    }
+    const auto required = (result.size() + count) * sizeof(domain::Spool);
+    const auto heap = network::backend_heap();
+    if (!network::backend_admitted(heap) || heap.largest_internal < required + 2048U ||
+        heap.free_internal < required + 18000U) {
+      return core::Result<std::vector<domain::Spool>>::failure({core::ErrorCategory::backend_unavailable,
+          "Spool results exceed available memory; use an exact identity or confirm a spool ID", true});
+    }
+    // Avoid std::vector's implicit doubling past the admitted contiguous bound.
+    result.reserve(result.size() + count);
     for (auto& spool : page.value()) result.push_back(std::move(spool));
     if (count < limit) break;
   }
@@ -526,7 +551,7 @@ core::Result<domain::Spool> SpoolmanAdapter::create_spool(
     return core::Result<domain::Spool>::failure(
         configuration_error("Spoolman create-spool request is invalid"));
   }
-  JsonDocument body;
+  network::BackendDocument body;
   body["filament_id"] = request_value.filament_id;
   if (request_value.initial_grams) body["initial_weight"] = *request_value.initial_grams;
   if (request_value.remaining_grams) body["remaining_weight"] = *request_value.remaining_grams;
@@ -539,6 +564,10 @@ core::Result<domain::Spool> SpoolmanAdapter::create_spool(
           configuration_error("Spoolman create-spool extra field is invalid"));
     }
     extra[field.first] = field.second;
+  }
+  if (body.overflowed()) {
+    return core::Result<domain::Spool>::failure({core::ErrorCategory::backend_unavailable,
+        "Spoolman mutation JSON workspace unavailable; no request sent", true});
   }
   std::string serialized;
   serializeJson(body, serialized);
@@ -575,8 +604,12 @@ core::Result<domain::Spool> SpoolmanAdapter::set_remaining_weight(
          "Spoolman usage changed after the reconciliation snapshot",
          false});
   }
-  JsonDocument body;
+  network::BackendDocument body;
   body["remaining_weight"] = update.remaining_grams;
+  if (body.overflowed()) {
+    return core::Result<domain::Spool>::failure({core::ErrorCategory::backend_unavailable,
+        "Spoolman mutation JSON workspace unavailable; no request sent", true});
+  }
   std::string serialized;
   serializeJson(body, serialized);
   auto response = request("PATCH", "/spool/" + std::to_string(id), serialized);
@@ -683,18 +716,22 @@ core::Result<domain::Spool> SpoolmanAdapter::set_extra_field(
         configuration_error("Spoolman extra-field update is invalid"));
   }
   if (json_encoded_value.has_value()) {
-    JsonDocument validation;
+    network::BackendDocument validation;
     if (deserializeJson(validation, *json_encoded_value)) {
       return core::Result<domain::Spool>::failure(
           configuration_error("Spoolman extra-field value is not valid JSON text"));
     }
   }
-  JsonDocument body;
+  network::BackendDocument body;
   auto extra = body["extra"].to<JsonObject>();
   if (json_encoded_value.has_value()) {
     extra[key] = *json_encoded_value;
   } else {
     extra[key] = nullptr;
+  }
+  if (body.overflowed()) {
+    return core::Result<domain::Spool>::failure({core::ErrorCategory::backend_unavailable,
+        "Spoolman mutation JSON workspace unavailable; no request sent", true});
   }
   std::string serialized;
   serializeJson(body, serialized);

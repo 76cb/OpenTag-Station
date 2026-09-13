@@ -51,7 +51,7 @@ class ScriptedTransport final : public IHttpTransport {
     }
     TEST_ASSERT_EQUAL_UINT32(5000U, request.connect_timeout_ms);
     TEST_ASSERT_EQUAL_UINT32(7000U, request.read_timeout_ms);
-    return expected.response;
+    return std::move(expected.response);
   }
 
   void expect(
@@ -356,8 +356,74 @@ void test_location_and_field_shapes_are_bounded_and_typed() {
   assert_transport_consumed(transport);
 }
 
+void test_periodic_health_never_downloads_inventory() {
+  ScriptedTransport transport;
+  SpoolmanAdapter adapter(transport, settings());
+  for (int cycle = 0; cycle < 100; ++cycle) {
+    transport.expect("GET", "/health", "{\"status\":\"healthy\"}");
+    TEST_ASSERT_TRUE(adapter.probe(false).ok());
+    assert_transport_consumed(transport);
+  }
+}
+void test_health_failures_are_bounded_and_classified() {
+  ScriptedTransport transport;
+  SpoolmanAdapter adapter(transport, settings());
+  for (int status : {401, 403, 404, 500}) {
+    transport.expect("GET", "/health", "{}", status);
+    const auto result = adapter.probe(false);
+    TEST_ASSERT_FALSE(result.ok());
+    TEST_ASSERT_EQUAL(static_cast<int>(status < 404 ? ErrorCategory::authentication :
+        status == 404 ? ErrorCategory::api_changed : ErrorCategory::backend_unavailable),
+        static_cast<int>(result.error().category));
+    assert_transport_consumed(transport);
+  }
+  for (auto* body : {"{}", "broken", "{\"status\":", "{\"status\":\"bad\"}"}) {
+    transport.expect("GET", "/health", body);
+    TEST_ASSERT_FALSE(adapter.probe(false).ok());
+    TEST_ASSERT_FALSE(adapter.status().healthy);
+  }
+}
+void test_pagination_uses_eight_spool_pages_and_exact_offsets() {
+  ScriptedTransport transport;
+  std::string page = "[";
+  for (int i = 0; i < 8; ++i) page += (i ? "," : "") + spool_json();
+  page += "]";
+  transport.expect("GET", "/spool?allow_archived=false&limit=8&offset=0", page);
+  transport.expect("GET", "/spool?allow_archived=false&limit=2&offset=8", "[" + spool_json() + "]");
+  SpoolmanAdapter adapter(transport, settings());
+  SpoolFilter filter;
+  filter.maximum_results = 10;
+  const auto result = adapter.find_spools(filter);
+  TEST_ASSERT_TRUE(result.ok());
+  TEST_ASSERT_EQUAL_UINT(9, result.value().size());
+  assert_transport_consumed(transport);
+}
+void test_server_cannot_ignore_requested_page_limit() {
+  ScriptedTransport transport;
+  transport.expect("GET", "/spool?allow_archived=false&limit=1&offset=0",
+      "[" + spool_json() + "," + spool_json() + "]");
+  SpoolmanAdapter adapter(transport, settings());
+  SpoolFilter filter;
+  filter.maximum_results = 1;
+  const auto result = adapter.find_spools(filter);
+  TEST_ASSERT_FALSE(result.ok());
+  TEST_ASSERT_EQUAL(static_cast<int>(ErrorCategory::api_changed), static_cast<int>(result.error().category));
+  assert_transport_consumed(transport);
+}
+void test_extra_fields_reject_large_values_before_normalized_copy() {
+  ScriptedTransport transport;
+  transport.expect("GET", "/spool/17", spool_json(250, 750, "{\"large\":\"" + std::string(1025, 'x') + "\"}"));
+  SpoolmanAdapter adapter(transport, settings());
+  TEST_ASSERT_FALSE(adapter.get_spool(17).ok());
+  assert_transport_consumed(transport);
+}
 int main(int, char**) {
   UNITY_BEGIN();
+  RUN_TEST(test_pagination_uses_eight_spool_pages_and_exact_offsets);
+  RUN_TEST(test_server_cannot_ignore_requested_page_limit);
+  RUN_TEST(test_extra_fields_reject_large_values_before_normalized_copy);
+  RUN_TEST(test_periodic_health_never_downloads_inventory);
+  RUN_TEST(test_health_failures_are_bounded_and_classified);
   RUN_TEST(test_probe_known_version_enables_proven_reads_and_guarded_writes);
   RUN_TEST(test_unknown_version_stays_connected_but_write_capabilities_are_off);
   RUN_TEST(test_spool_response_is_normalized_and_identity_values_are_decoded);
