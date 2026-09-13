@@ -140,6 +140,11 @@ class Codec {
  public:
   static constexpr std::size_t maximum_tag_image_size = 4096U;
 
+  // Decodes into caller-owned storage so constrained task stacks can keep the
+  // comparatively large DecodedTag outside their automatic frame.
+  static core::Result<void> decode(
+      core::ByteView tag_image,
+      DecodedTag& output);
   static core::Result<DecodedTag> decode(core::ByteView tag_image);
   static core::Result<std::vector<std::uint8_t>> update_consumed_weight(
       core::ByteView tag_image,

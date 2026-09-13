@@ -216,6 +216,9 @@ python3 tools/web_flasher.py validate-source --page web-flasher/index.html --man
 .venv/bin/pio test --environment native
 .venv/bin/pio run --environment wt32-sc01-plus
 python3 tools/analyze_stack_usage.py
+.venv/bin/pio run --environment wt32-sc01-plus-i2c-test
+python3 tools/analyze_stack_usage.py .pio/build/wt32-sc01-plus-i2c-test
+python3 tools/check_diagnostic_stack_usage.py
 .venv/bin/pio run --environment wt32-sc01-plus --target web-flasher
 python3 tools/web_flasher.py validate-bundle --bundle-dir .pio/build/wt32-sc01-plus/web-flasher --maximum-size 16777216
 ```

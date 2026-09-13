@@ -34,6 +34,7 @@ using opentag::nfc::nfcv::VerifiedWriter;
 using opentag::nfc::nfcv::WritePlan;
 using opentag::nfc::openprinttag::CborMapView;
 using opentag::nfc::openprinttag::Codec;
+using opentag::nfc::openprinttag::DecodedTag;
 using opentag::nfc::openprinttag::Initializer;
 using opentag::nfc::openprinttag::NfcvInitializationConfig;
 using opentag::diagnostics::shared_i2c::InitializationAuthorizationResult;
@@ -521,6 +522,16 @@ void test_initializer_matches_pinned_python_golden_vector_and_decodes() {
 
   const auto decoded = Codec::decode(ByteView(first.value().bytes));
   TEST_ASSERT_TRUE(decoded.ok());
+  DecodedTag decoded_into;
+  const auto decoded_into_status =
+      Codec::decode(ByteView(first.value().bytes), decoded_into);
+  TEST_ASSERT_TRUE(decoded_into_status.ok());
+  TEST_ASSERT_EQUAL_UINT(
+      decoded.value().envelope.payload_offset,
+      decoded_into.envelope.payload_offset);
+  TEST_ASSERT_EQUAL_UINT(
+      decoded.value().envelope.auxiliary->absolute_offset,
+      decoded_into.envelope.auxiliary->absolute_offset);
   TEST_ASSERT_EQUAL_UINT(312U, decoded.value().envelope.capability_capacity);
   TEST_ASSERT_EQUAL_UINT(42U, decoded.value().envelope.payload_offset);
   TEST_ASSERT_EQUAL_UINT(269U, decoded.value().envelope.payload_size);
