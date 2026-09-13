@@ -25,6 +25,16 @@ void NfcWorker::run_once() {
     if (!handoff_.submitted() || !measurement_requested_) {
       const auto scale = diagnostics_.scale_snapshot();
       const auto now = millis();
+      // A serialized backend request can outlive a successful scale sample's
+      // freshness window. Refresh that sample instead of accepting stale weight
+      // or getting stuck waiting forever; failed measurements are not retried.
+      if (measurement_requested_ && scale.scale_last_completed_available &&
+          static_cast<std::int32_t>(scale.scale_last_completed_at_ms -
+                                    measurement_requested_at_) >= 0 &&
+          static_cast<std::uint32_t>(now - scale.scale_last_completed_at_ms) >= 5000U &&
+          scale.scale_measurement_purpose == services::ScaleMeasurementPurpose::weigh &&
+          !scale.scale_overload && scale.scale_adc_ready && scale.scale_calibrated)
+        measurement_requested_ = false;
       if (!measurement_requested_ && scale.scale_calibrated &&
           scale.scale_adc_ready && !diagnostics_.scale_measurement_active() &&
           scale_.pending() == 0U) {
@@ -47,7 +57,7 @@ void NfcWorker::run_once() {
         weight = domain::WeightReading{
             scale.scale_last_completed_milligrams / 1000.0F, true};
       // A failed/timed-out measurement remains waiting; another explicit Weigh
-      // may satisfy it. No autonomous retry loop is queued on the scale owner.
+      // may satisfy it. Only successful-but-aged samples are refreshed above.
     }
   }
   handoff_.observe(current, weight);
