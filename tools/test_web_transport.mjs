@@ -1517,6 +1517,22 @@ test('heartbeat and snapshot events cause no REST storm while invalidation refre
 });
 
 
+test('production Tags recognizes empty metadata, clears removal, and exposes no write action', () => {
+  const { T, document } = loadApplication();
+  T.renderNfc({ state: 'openprinttag', read_only: true, available: true,
+    bringup_state: 'ready', uid: 'E0:04:01:08:66:27:D8:D4', checksum: '9E639911',
+    decode: 'pass', material_name: null, brand_name: null,
+    inventory: { present: true, tag_count: 1, uid: 'E0:04:01:08:66:27:D8:D4' } });
+  assert.equal(document.getElementById('nfc-summary').textContent, 'OpenPrintTag recognized');
+  assert.equal(document.getElementById('nfc-material').textContent, 'Unavailable');
+  assert.equal(document.getElementById('nfc-checksum').textContent, '9E639911');
+  assert.equal(document.getElementById('read-tag').hidden, true);
+  T.renderNfc({ state: 'idle', read_only: true, available: true, bringup_state: 'ready',
+    uid: null, checksum: null, decode: 'pending', inventory: { present: false, tag_count: 0 } });
+  assert.equal(document.getElementById('nfc-summary').textContent, 'Reader ready');
+  assert.equal(document.getElementById('nfc-checksum').textContent, 'Unavailable');
+});
+
 test('Tags renders bounded disabled, initializing, ready, detected, multiple, and error states', () => {
   const { T, document } = loadApplication();
 

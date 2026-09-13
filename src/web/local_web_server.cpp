@@ -1200,6 +1200,13 @@ void LocalWebServer::publish(std::uint32_t now_ms) {
   }
 
   const bool scale_session_active = api_context_.scale_measurement_active();
+  const auto nfc_revision = api_context_.nfc_revision();
+  if (nfc_revision != last_nfc_revision_) {
+    if (send_to_websocket_clients(R"({"type":"invalidate","data":{"resource":"nfc"}})") > 0U) {
+      last_nfc_revision_ = nfc_revision;
+      return;
+    }
+  }
   const bool scale_session_finished =
       scale_session_was_active_ && !scale_session_active;
   if ((scale_session_active &&

@@ -32,7 +32,8 @@ reference image and offers a read-only preview and download. The one-time
 guarded blank-tag initialization has passed physical acceptance, so its browser
 control is removed and its POST route and loop processing are compiled behind a
 false developer gate. The shipped diagnostic exposes no NFC write action,
-reinitialize path, or force path. Production NFC remains disabled.
+reinitialize path, or force path. The normal factory bundle now includes
+production read-only NFC; see [production NFC](production-nfc.md).
 
 The RF field is scoped to every RF operation. The display is the primary result
 view; touchscreen input is disabled to reserve I2C controller 1 for NFC. For

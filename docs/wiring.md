@@ -3,9 +3,9 @@
 ## Release validation boundary
 
 The dedicated dual-I2C scale/NFC transport below is physically validated on a
-WT32-SC01 Plus. NFC-V RF inventory remains a separate pending bench checkpoint,
-and production NFC remains disabled. Scale accuracy and calibration still need
-their own physical evidence.
+WT32-SC01 Plus, including NFC-V RF inventory, full reads and OpenPrintTag decode.
+Production now uses that Wire1 mapping read-only. Normal UI/touch coexistence and
+scale accuracy still need their own physical evidence; see [production NFC](production-nfc.md).
 
 ## Rule
 
@@ -32,8 +32,8 @@ sign, swap A+ and A− only after confirming the four-wire mapping.
 
 The exact module is the ELECHOUSE `NFC_ST25R3916B` with this 1.25 mm connector:
 
-The ELECHOUSE ST25R3916B module is assigned only for the opt-in
-`wt32-sc01-plus-i2c-test` physical diagnostic:
+The ELECHOUSE ST25R3916B module uses the same mapping for production and the
+opt-in `wt32-sc01-plus-i2c-test` physical diagnostic:
 
 | Diagnostic signal | WT32 pin |
 |---|---|
@@ -53,8 +53,8 @@ transaction that was physically run; it was restricted to blocks 0–77 and
 preserved blocks 78–79. Its UI and route are now disabled, so the current
 diagnostic exposes no NFC write path.
 
-**Production RFAL wiring remains unassigned. Do not infer production SPI pins
-from the diagnostic wiring above.**
+Production binds only the pinned ELECHOUSE I2C backend. Touch uses LovyanGFX's
+software I2C port -1 on GPIO6/5; it does not own Wire1 or either hardware I2C controller.
 
 | Pin | Module signal |
 |---:|---|

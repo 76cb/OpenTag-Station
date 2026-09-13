@@ -1485,14 +1485,11 @@ void test_disabled_nfc_snapshot_is_bounded_read_only_and_diagnostic() {
   TEST_ASSERT_TRUE(start != std::string::npos);
   TEST_ASSERT_TRUE(end != std::string::npos);
   TEST_ASSERT_TRUE(end > start);
-  const auto branch = source.substr(start, end - start);
+  const auto branch = read_project_source("src/web/nfc_json.hpp");
   for (const auto* field : {
-           "available", "enabled", "wiring_complete", "bringup_state",
-           "spi_ok", "irq_configured", "irq_line_state", "irq_latched",
-           "irq_count", "last_irq_at_ms", "rfal_initialized",
-           "rf_field_enabled", "inventory", "tag_count", "present",
-           "technology", "last_seen_ms", "inventory_result", "last_error",
-           "recovery_count"}) {
+           "available", "enabled", "bringup_state", "read_only",
+           "inventory", "tag_count", "present", "checksum", "decode",
+           "technology", "last_seen_ms", "last_error", "bus_errors"}) {
     TEST_ASSERT_TRUE_MESSAGE(branch.find(field) != std::string::npos, field);
   }
   TEST_ASSERT_TRUE(branch.find("raw_blocks") == std::string::npos);

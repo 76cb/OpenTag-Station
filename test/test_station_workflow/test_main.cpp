@@ -15,6 +15,8 @@
 #include "nfc/formats/openprinttag/codec.hpp"
 #include "services/spool_identity_resolver.hpp"
 #include "services/station_workflow.hpp"
+#include "services/nfc_workflow_handoff.hpp"
+#include <functional>
 
 namespace {
 
@@ -45,10 +47,12 @@ class FakeResolver final : public ISpoolIdentityResolver {
  public:
   Result<SpoolResolution> next = Result<SpoolResolution>::success({});
   int calls{0};
+  std::function<void()> during_resolve;
 
   Result<SpoolResolution> resolve(
       const opentag::domain::SpoolIdentity&) override {
     ++calls;
+    if (during_resolve) during_resolve();
     return next;
   }
 };
@@ -445,6 +449,55 @@ void test_stale_printer_revision_rejects_assignment() {
       std::string::npos, result.error().message.find("changed"));
 }
 
+void test_nfc_handoff_waits_submits_once_and_clears() {
+  FakeResolver resolver;
+  FakePrinterBackend printers;
+  StationWorkflow workflow(resolver, printers);
+  int submissions = 0;
+  opentag::services::NfcWorkflowHandoff handoff(workflow,
+      [&](const opentag::nfc::IdentifiedTag& tag, opentag::domain::WeightReading weight, std::uint64_t generation) {
+        ++submissions;
+        (void)workflow.accept_identified_spool(tag.decoded.material,tag.uid,weight,{}, {},generation);
+        return true;
+      });
+  auto tag = std::make_shared<opentag::nfc::IdentifiedTag>();
+  tag->generation = 1;
+  opentag::nfc::ReadSnapshot s;
+  s.tag = tag;
+  handoff.observe(s,std::nullopt);
+  const auto generation = workflow.snapshot().spool_generation;
+  TEST_ASSERT_TRUE(workflow.snapshot().openprinttag_available);
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(WorkflowStage::waiting_for_stable_weight), static_cast<int>(workflow.snapshot().stage));
+  handoff.observe(s,opentag::domain::WeightReading{900,false});
+  TEST_ASSERT_EQUAL(0,submissions);
+  for (int i=0;i<20;++i) handoff.observe(s,opentag::domain::WeightReading{900,true});
+  TEST_ASSERT_EQUAL(1,submissions);
+  TEST_ASSERT_EQUAL(generation,workflow.snapshot().spool_generation);
+  s.tag.reset();
+  handoff.observe(s,std::nullopt);
+  TEST_ASSERT_FALSE(workflow.snapshot().openprinttag_available);
+  const auto cleared = workflow.snapshot().spool_generation;
+  handoff.observe(s,std::nullopt);
+  TEST_ASSERT_EQUAL(cleared,workflow.snapshot().spool_generation);
+}
+
+void test_removed_tag_rejects_queued_and_inflight_resolution() {
+  FakeResolver resolver;
+  FakePrinterBackend printers;
+  StationWorkflow workflow(resolver,printers);
+  const auto record = material();
+  const auto generation = workflow.begin_identified_spool(record,Uid{});
+  workflow.clear();
+  (void)workflow.accept_identified_spool(record,Uid{},{900,true},{},{},generation);
+  TEST_ASSERT_EQUAL(0,resolver.calls);
+  const auto next = workflow.begin_identified_spool(record,Uid{});
+  resolver.during_resolve = [&](){workflow.clear();};
+  (void)workflow.accept_identified_spool(record,Uid{},{900,true},{},{},next);
+  TEST_ASSERT_EQUAL(1,resolver.calls);
+  TEST_ASSERT_FALSE(workflow.snapshot().openprinttag_available);
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(WorkflowStage::awaiting_spool),static_cast<int>(workflow.snapshot().stage));
+}
+
 int main(int, char**) {
   UNITY_BEGIN();
   RUN_TEST(test_complete_decoded_tag_to_verified_t3_assignment_slice);
@@ -457,5 +510,7 @@ int main(int, char**) {
   RUN_TEST(test_workflow_unassignment_uses_shared_verified_safety_path);
   RUN_TEST(test_stale_workflow_generation_rejects_assignment);
   RUN_TEST(test_stale_printer_revision_rejects_assignment);
+  RUN_TEST(test_nfc_handoff_waits_submits_once_and_clears);
+  RUN_TEST(test_removed_tag_rejects_queued_and_inflight_resolution);
   return UNITY_END();
 }

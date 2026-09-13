@@ -112,7 +112,8 @@ bool BackendWorker::submit_identified_spool(
     const nfc::openprinttag::MaterialRecord& material,
     const nfc::nfcv::Uid& uid,
     domain::WeightReading physical_weight,
-    domain::EmptyWeightCandidates supplemental_empty_weights) {
+    domain::EmptyWeightCandidates supplemental_empty_weights,
+    std::optional<std::uint64_t> expected_generation) {
   auto* command = new (std::nothrow) Command;
   if (command == nullptr) return false;
   command->type = CommandType::identified_spool;
@@ -120,6 +121,7 @@ bool BackendWorker::submit_identified_spool(
   command->uid = uid;
   command->physical_weight = physical_weight;
   command->supplemental_empty_weights = supplemental_empty_weights;
+  command->expected_spool_generation = expected_generation;
   return enqueue(command);
 }
 
@@ -427,7 +429,8 @@ void BackendWorker::process(Command& command) {
         command.physical_weight,
         command.supplemental_empty_weights,
         {configured.reconciliation.normal_tolerance_grams,
-         configured.reconciliation.warning_tolerance_grams});
+         configured.reconciliation.warning_tolerance_grams},
+        command.expected_spool_generation);
     (void)state;
     return;
   }

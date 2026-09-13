@@ -60,7 +60,8 @@ class BackendWorker final {
       const nfc::openprinttag::MaterialRecord& material,
       const nfc::nfcv::Uid& uid,
       domain::WeightReading physical_weight,
-      domain::EmptyWeightCandidates supplemental_empty_weights = {});
+      domain::EmptyWeightCandidates supplemental_empty_weights = {},
+      std::optional<std::uint64_t> expected_generation = std::nullopt);
   [[nodiscard]] CommandReceipt submit_assignment_operation(
       std::string printer_id,
       int backend_toolhead_id,

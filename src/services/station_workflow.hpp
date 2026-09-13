@@ -71,12 +71,16 @@ class StationWorkflow final {
         assignment_service_(printer_backend) {}
 
   void clear();
+  // Publishes identification immediately; resolution runs on the backend owner.
+  std::uint64_t begin_identified_spool(const nfc::openprinttag::MaterialRecord&,
+      const nfc::nfcv::Uid&);
   [[nodiscard]] WorkflowSnapshot accept_identified_spool(
       const nfc::openprinttag::MaterialRecord& material,
       const nfc::nfcv::Uid& uid,
       domain::WeightReading physical_weight,
       domain::EmptyWeightCandidates supplemental_empty_weights,
-      ReconciliationTolerances tolerances);
+      ReconciliationTolerances tolerances,
+      std::optional<std::uint64_t> expected_generation = std::nullopt);
   [[nodiscard]] WorkflowSnapshot refresh_printers();
   void set_spoolman_probe(
       bool online,
@@ -103,6 +107,10 @@ class StationWorkflow final {
       ToolheadMutationPrecondition precondition = {},
       std::optional<std::uint64_t> expected_printer_revision = std::nullopt);
   [[nodiscard]] WorkflowSnapshot snapshot() const;
+  [[nodiscard]] std::uint64_t identification_revision() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return state_.spool_generation * 16U + static_cast<unsigned>(state_.stage);
+  }
 
  private:
   mutable std::mutex mutex_;

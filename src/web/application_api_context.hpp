@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <array>
 #include <cstdint>
 #include <mutex>
 #include <optional>
@@ -8,6 +9,7 @@
 #include <string_view>
 
 #include "application/backend_worker.hpp"
+#include "application/nfc_worker.hpp"
 #include "application/configuration_worker.hpp"
 #include "application/device_control_worker.hpp"
 #include "application/ota_worker.hpp"
@@ -50,7 +52,8 @@ class ApplicationApiContext final : public api::IApiContext {
       logging::BoundedLog& logs,
       application::DeviceControlWorker& device_control,
       application::OtaWorker& ota_worker,
-      network::WifiService& network)
+      network::WifiService& network,
+      application::NfcWorker& nfc)
       : diagnostics_(diagnostics),
         configuration_(configuration),
         configuration_worker_(configuration_worker),
@@ -61,7 +64,7 @@ class ApplicationApiContext final : public api::IApiContext {
         logs_(logs),
         device_control_(device_control),
         ota_worker_(ota_worker),
-        network_(network) {}
+        network_(network), nfc_(nfc) {}
 
   [[nodiscard]] bool authorize_mutation(
       std::string_view bearer_token) override;
@@ -99,6 +102,11 @@ class ApplicationApiContext final : public api::IApiContext {
   [[nodiscard]] std::uint64_t update_revision() const {
     return ota_worker_.snapshot().revision;
   }
+  [[nodiscard]] std::array<std::uint64_t, 3> nfc_revision() const {
+    const auto s = nfc_.snapshot();
+    return {s.generation, static_cast<std::uint64_t>(s.state),
+        workflow_.identification_revision()};
+  }
   [[nodiscard]] diagnostics::TransportDiagnosticStore&
   transport_diagnostics() noexcept {
     return diagnostics_.transport_diagnostics();
@@ -123,6 +131,7 @@ class ApplicationApiContext final : public api::IApiContext {
   application::DeviceControlWorker& device_control_;
   application::OtaWorker& ota_worker_;
   network::WifiService& network_;
+  application::NfcWorker& nfc_;
 
   std::mutex idempotency_mutex_;
   IdempotencyLedger idempotency_;
