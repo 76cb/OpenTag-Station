@@ -49,7 +49,9 @@ this diagnostic. The NFC target runs on `Wire1` at 100 kHz. The opt-in image
 enables its RF field only for bounded ELECHOUSE RFAL operations and always
 disables it afterward. Normal boot inventory and complete-memory reads remain
 read-only. The separately confirmed blank-tag initializer is the only write
-path; it is restricted to blocks 0–77 and preserves blocks 78–79.
+transaction that was physically run; it was restricted to blocks 0–77 and
+preserved blocks 78–79. Its UI and route are now disabled, so the current
+diagnostic exposes no NFC write path.
 
 **Production RFAL wiring remains unassigned. Do not infer production SPI pins
 from the diagnostic wiring above.**

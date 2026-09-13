@@ -324,9 +324,10 @@ See [Architecture](docs/architecture.md).
 - Dedicated `Wire` scale and `Wire1` NFC transport, chip ID, IRQ, NFC-V RF
   inventory, stable UID, and repeated 320-byte tag-memory reads are physically
   validated.
-- OpenPrintTag decoding remains host-tested. Guarded initialization of one
-  physically verified blank tag is the next opt-in diagnostic checkpoint; no
-  physical tag write has yet been validated.
+- The one-time guarded initialization of the physically verified blank NFC-V
+  tag passed, and subsequent full-memory reads consistently report checksum
+  `9E639911`. The diagnostic write UI/route is now disabled; read-only browser
+  preview soak remains the current physical checkpoint.
 - Scale calibration accuracy, repeatability, drift, and persistence still require complete physical validation.
 - Wi-Fi provisioning and reconnect behavior are still undergoing physical hardware validation.
 - Spoolman and FilaBridge integrations still require validation against live target instances.

@@ -9,7 +9,7 @@ RF-interoperability claims.
 
 | Upstream | Revision/version | Status | Dependency boundary |
 |---|---|---|---|
-| OpenPrintTag | [`e0dab1a`](https://github.com/prusa3d/OpenPrintTag/commit/e0dab1ae16838d2c342e7cfc509455441b7d8eba), 2026-07-02 | Rechecked 2026-08-20; implemented and host-tested against official fixtures; physical tag pending | MIME record, regions, field maps, transaction rules |
+| OpenPrintTag | [`e0dab1a`](https://github.com/prusa3d/OpenPrintTag/commit/e0dab1ae16838d2c342e7cfc509455441b7d8eba), 2026-07-02 | Rechecked 2026-08-20; implemented and host-tested against official fixtures; one-time physical initialization and checksum readback PASS, read-only browser preview soak pending | MIME record, regions, field maps, transaction rules |
 | Spoolman | v0.26.1 / current `master` [`8d9eb73`](https://github.com/Donkie/Spoolman/commit/8d9eb7395da9553bdbf14b21231afe4e153f0a79), 2026-08-20 | Source contract revalidated and host fixtures pass; no live instance tested | `integrations/spoolman` only |
 | FilaBridge | latest tag v1.2.2; main [`f35cde8`](https://github.com/sargonas/filabridge/commit/f35cde87505e7a617307527b8e8431dd2dc65f62), 2026-08-11 | Correct maintained repository revalidated; adapter and host contract fixtures pass; no live instance tested | `integrations/filabridge` only |
 | SpoolmanScale | [`ea0515a`](https://github.com/Niko11111/SpoolmanScale/commit/ea0515ad92ec2fcb65af8c5f0e2bc1a4d01d305b), 2026-08-16 | Hardware facts inspected only | No code/architecture dependency |
@@ -29,7 +29,7 @@ This diagnostic-only pin does not change the production decoder baseline.
 | Component | Baseline | Status |
 |---|---|---|
 | ST25R3916B | [DS13541 Rev 11](https://www.st.com/resource/en/datasheet/st25r3916b.pdf) | Dedicated `Wire1` transport, direct identity, IRQ, NFC-V inventory, stable UID, system information, geometry, and repeated full-memory reads physically PASS on GPIO13/14/12 |
-| ELECHOUSE RFAL for ESP32 | [`wilson-elechouse/ST25R3916` `16eb6c7`](https://github.com/wilson-elechouse/ST25R3916/commit/16eb6c7fb13e502d320924040d768a9e564209b2) | `ST25R3916_ELECHOUSE` 1.1.1 and `NFC-RFAL` 1.0.2 vendored unchanged for the opt-in diagnostic; object API runs over injected `Wire1`; physical NFC-V inventory and read-only memory test PASS; guarded blank initialization pending physical validation |
+| ELECHOUSE RFAL for ESP32 | [`wilson-elechouse/ST25R3916` `16eb6c7`](https://github.com/wilson-elechouse/ST25R3916/commit/16eb6c7fb13e502d320924040d768a9e564209b2) | `ST25R3916_ELECHOUSE` 1.1.1 and `NFC-RFAL` 1.0.2 vendored unchanged for the opt-in diagnostic; object API runs over injected `Wire1`; physical NFC-V inventory, read-only memory, and one-time guarded blank initialization PASS; write control retired |
 | ST RFAL | [STSW-ST25RFAL002](https://www.st.com/en/embedded-software/stsw-st25rfal002.html) and [UM2890 Rev 7](https://www.st.com/resource/en/user_manual/um2890-rfnfc-abstraction-layer-rfal-stmicroelectronics.pdf) | Remains the production architecture reference; no production NFC binding is enabled |
 | X-CUBE-NFC6 | [ST product package](https://www.st.com/en/embedded-software/x-cube-nfc6.html) | Port/reference source only, not a build dependency |
 

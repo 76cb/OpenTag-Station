@@ -27,17 +27,12 @@ The images must match exactly before the diagnostic exposes the first image at
 `GET /api/v1/nfcv-dump` as `application/octet-stream`; summary JSON never embeds
 the dump.
 
-The same opt-in diagnostic also exposes a separately labeled, guarded blank-tag
-initializer. It generates a deterministic 312-byte OpenPrintTag image, offers
-a read-only preview and download, and refuses to write unless a fresh preflight
-finds exactly one matching, unlocked tag with the expected geometry, checksum,
-and all-zero writable range. Initialization requires the exact UID, expected
-checksum, a first browser confirmation, and the literal confirmation
-`INITIALIZE`. Each changed block is written once and immediately read back;
-there is no write retry, recovery pass, tag lock, AFI/DSFID/EAS, password,
-privacy, or protection command. A full reread, image comparison, local decode,
-checksum, RF-field shutdown, and transport health check complete the attempt.
-This behavior is diagnostic-only; production NFC remains disabled.
+The same opt-in diagnostic generates the deterministic 312-byte OpenPrintTag
+reference image and offers a read-only preview and download. The one-time
+guarded blank-tag initialization has passed physical acceptance, so its browser
+control is removed and its POST route and loop processing are compiled behind a
+false developer gate. The shipped diagnostic exposes no NFC write action,
+reinitialize path, or force path. Production NFC remains disabled.
 
 The RF field is scoped to every RF operation. The display is the primary result
 view; touchscreen input is disabled to reserve I2C controller 1 for NFC. For

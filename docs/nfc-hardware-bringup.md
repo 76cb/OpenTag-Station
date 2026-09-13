@@ -1,8 +1,9 @@
 # NFC hardware bring-up checkpoint
 
-Status as of 2026-09-12: **dual-I2C transport, NFC-V RF inventory, stable UID,
-system information, geometry, and repeated complete-memory reads physically
-validated; guarded blank-tag initialization ready for bench validation**.
+Status as of 2026-09-13: **dual-I2C transport, NFC-V RF inventory, stable UID,
+system information, geometry, repeated complete-memory reads, and the one-time
+guarded blank-tag initialization are physically validated; read-only browser
+preview soak is the next bench checkpoint**.
 
 The supported reader architecture is the ELECHOUSE ST25R3916B module with its
 hardware-validated I2C RFAL implementation and NFC-V / ISO15693 tags. The normal
@@ -108,7 +109,9 @@ For the known-tag test:
 
 The completed follow-up also proved an 80 × 4 geometry and two matching
 320-byte reads of UID `E0:04:01:08:66:27:D8:D4`; the blank image checksum was
-`97B79EC5`. The next opt-in checkpoint is the guarded initializer described in
+`97B79EC5`. The one-time guarded initializer subsequently passed and the stable
+initialized image checksum is `9E639911`. Its UI and POST route are now
+disabled. The current acceptance test is the read-only browser preview soak in
 [`nfc-v-initialization-diagnostic.md`](nfc-v-initialization-diagnostic.md).
 Production NFC, normal OpenPrintTag behavior, and backend integration remain
 disabled.

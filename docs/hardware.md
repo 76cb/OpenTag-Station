@@ -15,7 +15,7 @@ in [release-validation.md](release-validation.md).
 | Flash/PSRAM | 16 MB flash, QSPI PSRAM configuration | Diagnostics/buffer policy compiled; hardware test pending |
 | Scale ADC | NAU7802 at I2C `0x2A` | Dedicated GPIO10/11 transport physically validated; calibration/accuracy pending |
 | Load cell | YZC-133, 5 kg actual/default profile; 2 kg supported | Software implemented and host-tested; physical validation pending |
-| NFC frontend | ELECHOUSE NFC_ST25R3916B; 5 V module, 3.3 V logic, integrated antenna, SPI/I2C | Dedicated GPIO13/14 `Wire1` transport, chip ID, GPIO12 IRQ, NFC-V inventory, and full read-only tag-memory test physically validated; guarded blank-tag write pending |
+| NFC frontend | ELECHOUSE NFC_ST25R3916B; 5 V module, 3.3 V logic, integrated antenna, SPI/I2C | Dedicated GPIO13/14 `Wire1` transport, chip ID, GPIO12 IRQ, NFC-V inventory, full read-only memory, and one-time guarded initialization physically validated; diagnostic write control retired and read-only preview soak pending |
 | Tag technology | NFC-V / ISO15693 | Confirmed by current OpenPrintTag specification |
 
 The built-in display/touch and external scale pins are centralized in

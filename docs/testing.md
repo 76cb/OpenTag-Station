@@ -219,6 +219,7 @@ python3 tools/analyze_stack_usage.py
 .venv/bin/pio run --environment wt32-sc01-plus-i2c-test
 python3 tools/analyze_stack_usage.py .pio/build/wt32-sc01-plus-i2c-test
 python3 tools/check_diagnostic_stack_usage.py
+python3 tools/check_diagnostic_http_stack_usage.py
 .venv/bin/pio run --environment wt32-sc01-plus --target web-flasher
 python3 tools/web_flasher.py validate-bundle --bundle-dir .pio/build/wt32-sc01-plus/web-flasher --maximum-size 16777216
 ```
@@ -363,7 +364,10 @@ The subsequent read-only checkpoint passed on the same physical tag:
 
 The result was 80 four-byte blocks, two identical 320-byte all-zero images, and
 checksum `97B79EC5`, with zero scale/NFC bus errors and healthy post-read
-transport. The next checkpoint is the explicit, blank-only initialization in
+transport. The subsequent one-time guarded initialization passed; repeated
+read-only checks now report initialized checksum `9E639911` and successful
+OpenPrintTag decoding. The write UI and POST route are disabled. The current
+checkpoint is the read-only browser preview soak in
 [`nfc-v-initialization-diagnostic.md`](nfc-v-initialization-diagnostic.md).
 Production NFC and backend integration remain out of scope.
 
