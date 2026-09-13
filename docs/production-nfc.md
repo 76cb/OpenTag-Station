@@ -1,8 +1,7 @@
 # Production read-only NFC / OpenPrintTag
 
 The normal `wt32-sc01-plus` / **Install OpenTag Station** image now includes the
-read-only path. Diagnostic physical acceptance is complete; production-firmware
-bench acceptance below is still required. No NFC write is authorized by this PR.
+read-only path. Production NFC recognition, removal/reinsertion and long stationary soak have passed on the physical station. Shared backend/NFC runtime free stack was 9776–9872 bytes with bus_errors=0. The remaining integrated acceptance is in [release validation](release-validation.md). Production NFC writes are outside the MVP.
 
 ## Owners and boundaries
 
@@ -95,21 +94,6 @@ bundles and combined Pages validation. PR artifacts include
 `opentag-production-nfc-pr` and the separate diagnostic bundle. PR branches do
 not deploy to production Pages.
 
-## Physical acceptance (pending; read-only)
+## Physical acceptance
 
-Flash the PR's normal factory bundle with the normal web flasher, not the
-diagnostic. Do not use any initialization/write command.
-
-- Boot normally with no reset; normal display, four-corner touch and scale work.
-- No diagnostic AP is required; normal setup/network behavior is unchanged.
-- Present the initialized tag: UID `E0:04:01:08:66:27:D8:D4`, 80 × 4 = 320
-  bytes, checksum `9E639911`, decode PASS. Envelope usable312, aux35 at276.
-- Empty metadata is shown as unavailable, with recognition on touchscreen and
-  browser/API. Stable weight advances the existing workflow; absent calibration
-  or unstable weight stays waiting with the tag retained.
-- Remove: active tag/spool clears. Reinsert: same UID/checksum returns. A stationary
-  tag does not increment workflow generations every poll or trigger full rereads.
-- Keep browser polling and touchscreen active for several minutes; no panic,
-  watchdog/reset, bus errors or decreasing stack headroom. Record all task minima;
-  NFC must retain at least 4 KiB under the tested production conditions.
-- No NFC write occurs. No automatic merge.
+Use the single [MVP acceptance procedure](release-validation.md). Basic NFC bring-up is already complete.

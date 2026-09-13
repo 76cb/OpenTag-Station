@@ -1,11 +1,12 @@
 #include "integrations/filabridge/filabridge_adapter.hpp"
 
-#include <ArduinoJson.h>
+#include "network/backend_json.hpp"
 
 #include <algorithm>
 #include <cctype>
 #include <cstdint>
 #include <cstdlib>
+#include <cstring>
 #include <string>
 #include <utility>
 #include <vector>
@@ -58,19 +59,9 @@ core::Error response_error(std::int32_t status) {
           false};
 }
 
-core::Result<JsonDocument> parse_json(
-    const std::string& body,
-    const char* context) {
-  if (body.empty() || body.size() > maximum_json_bytes) {
-    return core::Result<JsonDocument>::failure(
-        contract_error(std::string(context) + " response size is invalid"));
-  }
-  JsonDocument document;
-  if (deserializeJson(document, body)) {
-    return core::Result<JsonDocument>::failure(
-        contract_error(std::string(context) + " returned invalid JSON"));
-  }
-  return core::Result<JsonDocument>::success(std::move(document));
+core::Result<network::BackendDocument> parse_json(
+    network::ResponseBody& body, const char* context) {
+  return network::parse_backend_json(body, context);
 }
 
 domain::PrinterState parse_state(const std::string& value) {
@@ -110,6 +101,7 @@ std::optional<int> parse_object_index(const char* key) {
 void FilaBridgeAdapter::configure(config::FilaBridgeSettings settings) {
   settings_ = std::move(settings);
   status_ = {};
+  discovery_.reset();
 }
 
 std::string FilaBridgeAdapter::endpoint(const std::string& path) const {
@@ -163,9 +155,15 @@ core::Result<network::HttpResponse> FilaBridgeAdapter::request(
   return response;
 }
 
-core::Result<FilaBridgeStatus> FilaBridgeAdapter::probe() {
-  status_ = {};
-  const auto health = request("GET", "/healthz", {}, 2048U);
+core::Result<FilaBridgeStatus> FilaBridgeAdapter::probe(bool full) {
+  const auto previous_version = status_.version;
+  discovery_.reset();
+  if (full) status_ = {};
+  status_.healthy = false;
+  status_.version.clear();
+  status_.version_formally_tested = false;
+  {
+  auto health = request("GET", "/healthz", {}, 2048U);
   if (!health.ok()) return core::Result<FilaBridgeStatus>::failure(health.error());
   const auto parsed = parse_json(health.value().body, "FilaBridge health");
   if (!parsed.ok() || !parsed.value()["status"].is<const char*>() ||
@@ -178,14 +176,25 @@ core::Result<FilaBridgeStatus> FilaBridgeAdapter::probe() {
   }
   status_.healthy = true;
   status_.capabilities.add(BackendCapability::health);
-  if (parsed.value()["version"].is<const char*>()) {
+  if (parsed.value()["version"].is<const char*>() &&
+      std::strlen(parsed.value()["version"].as<const char*>()) <= 64U) {
     status_.version = parsed.value()["version"].as<const char*>();
     status_.version_formally_tested =
-        status_.version == tested_version || status_.version == "1.2.2";
+        status_.version == tested_version || status_.version == "1.2.2" ||
+        status_.version == "v1.2.1" || status_.version == "1.2.1";
     status_.capabilities.add(BackendCapability::runtime_version);
   }
 
-  const auto printers = read_printers();
+  }
+  if (!full) {
+    if (status_.version != previous_version) {
+      status_.capabilities = {};
+      status_.capabilities.add(BackendCapability::health);
+      status_.last_error = contract_error("FilaBridge version changed; use Test backends to verify capabilities");
+    }
+    return core::Result<FilaBridgeStatus>::success(status_);
+  }
+  auto printers = read_printers();
   if (printers.ok()) {
     status_.capabilities.add(BackendCapability::get_printers);
     status_.capabilities.add(BackendCapability::get_toolheads);
@@ -199,11 +208,14 @@ core::Result<FilaBridgeStatus> FilaBridgeAdapter::probe() {
     status_.capabilities.add(BackendCapability::map_toolhead);
     status_.capabilities.add(BackendCapability::unmap_toolhead);
   }
+  if (printers.ok()) discovery_ = std::move(printers.value());
   return core::Result<FilaBridgeStatus>::success(status_);
 }
 
 core::Result<std::vector<domain::Printer>> FilaBridgeAdapter::read_printers() {
-  const auto configured_response = request("GET", "/api/printers", {}, 32768U);
+  std::vector<domain::Printer> result;
+  {
+  auto configured_response = request("GET", "/api/printers", {}, 32768U);
   if (!configured_response.ok()) {
     return core::Result<std::vector<domain::Printer>>::failure(
         configured_response.error());
@@ -223,14 +235,27 @@ core::Result<std::vector<domain::Printer>> FilaBridgeAdapter::read_printers() {
         contract_error("FilaBridge returned too many printers"));
   }
 
-  std::vector<domain::Printer> result;
+  const auto heap = network::backend_heap();
+  if (!network::backend_admitted(heap) ||
+      heap.largest_internal < configurations.size() * sizeof(domain::Printer) + 2048U) {
+    return core::Result<std::vector<domain::Printer>>::failure({core::ErrorCategory::backend_unavailable,
+        "Printer discovery deferred: normalized storage unavailable", true});
+  }
   result.reserve(configurations.size());
   for (JsonPairConst entry : configurations) {
+    if (!network::backend_admitted(network::backend_heap())) {
+      return core::Result<std::vector<domain::Printer>>::failure({core::ErrorCategory::backend_unavailable,
+          "Printer discovery deferred: insufficient memory for normalized printers", true});
+    }
     if (!entry.value().is<JsonObjectConst>()) {
       return core::Result<std::vector<domain::Printer>>::failure(
           contract_error("FilaBridge printer entry is not an object"));
     }
     const auto input = entry.value().as<JsonObjectConst>();
+    if (std::strlen(entry.key().c_str()) > 128U ||
+        (input["name"].is<const char*>() && std::strlen(input["name"].as<const char*>()) > 64U)) {
+      return core::Result<std::vector<domain::Printer>>::failure(contract_error("FilaBridge printer text exceeds limits"));
+    }
     std::string id = entry.key().c_str();
     if (!valid_identifier(id) || !input["name"].is<const char*>() ||
         !input["toolheads"].is<int>()) {
@@ -251,11 +276,17 @@ core::Result<std::vector<domain::Printer>> FilaBridgeAdapter::read_printers() {
       names = input["toolhead_names"].as<JsonObjectConst>();
     }
     for (int id_value = 0; id_value < toolhead_count; ++id_value) {
+      if (!network::backend_admitted(network::backend_heap())) {
+        return core::Result<std::vector<domain::Printer>>::failure({core::ErrorCategory::backend_unavailable,
+            "Toolhead discovery deferred: insufficient memory", true});
+      }
       auto toolhead = domain::Toolhead::from_zero_based_backend(
           printer.id, id_value);
       const auto name_key = std::to_string(id_value);
       const auto name = names[name_key.c_str()];
       if (name.is<const char*>()) {
+        if (std::strlen(name.as<const char*>()) > 64U)
+          return core::Result<std::vector<domain::Printer>>::failure(contract_error("FilaBridge toolhead name exceeds limits"));
         const std::string display_name = name.as<const char*>();
         if (display_name.empty() || display_name.size() > 64U) {
           return core::Result<std::vector<domain::Printer>>::failure(
@@ -268,7 +299,8 @@ core::Result<std::vector<domain::Printer>> FilaBridgeAdapter::read_printers() {
     result.push_back(std::move(printer));
   }
 
-  const auto status_response = request("GET", "/api/status", {}, maximum_json_bytes);
+  }  // Release configuration JSON before downloading status/mappings.
+  auto status_response = request("GET", "/api/status", {}, maximum_json_bytes);
   if (!status_response.ok()) {
     return core::Result<std::vector<domain::Printer>>::failure(status_response.error());
   }
@@ -294,6 +326,8 @@ core::Result<std::vector<domain::Printer>> FilaBridgeAdapter::read_printers() {
       return core::Result<std::vector<domain::Printer>>::failure(
           contract_error("FilaBridge printer state is not text"));
     }
+    if (std::strlen(state_object["state"].as<const char*>()) > 32U)
+      return core::Result<std::vector<domain::Printer>>::failure(contract_error("FilaBridge printer state exceeds limits"));
     printer.raw_state = state_object["state"].as<const char*>();
     if (printer.raw_state.size() > 32U) {
       return core::Result<std::vector<domain::Printer>>::failure(
@@ -319,8 +353,7 @@ core::Result<std::vector<domain::Printer>> FilaBridgeAdapter::read_printers() {
       }
       const auto mapping = mapping_entry.value().as<JsonObjectConst>();
       if (!mapping["printer_name"].is<const char*>() ||
-          std::string(mapping["printer_name"].as<const char*>()) !=
-              printer.display_name ||
+          std::strcmp(mapping["printer_name"].as<const char*>(), printer.display_name.c_str()) != 0 ||
           !mapping["toolhead_id"].is<int>() ||
           !mapping["spool_id"].is<std::int32_t>() ||
           mapping["toolhead_id"].as<int>() != *key_index ||
@@ -333,6 +366,8 @@ core::Result<std::vector<domain::Printer>> FilaBridgeAdapter::read_printers() {
       const auto spool_id = mapping["spool_id"].as<std::int32_t>();
       if (spool_id > 0) toolhead.assigned_spool = spool_id;
       if (mapping["display_name"].is<const char*>()) {
+        if (std::strlen(mapping["display_name"].as<const char*>()) > 64U)
+          return core::Result<std::vector<domain::Printer>>::failure(contract_error("FilaBridge mapping name exceeds limits"));
         const std::string display_name = mapping["display_name"].as<const char*>();
         if (!display_name.empty() && display_name.size() <= 64U) {
           toolhead.display_name = display_name;
@@ -344,6 +379,11 @@ core::Result<std::vector<domain::Printer>> FilaBridgeAdapter::read_printers() {
 }
 
 core::Result<std::vector<domain::Printer>> FilaBridgeAdapter::list_printers() {
+  if (discovery_) {
+    auto result = std::move(*discovery_);
+    discovery_.reset();
+    return core::Result<std::vector<domain::Printer>>::success(std::move(result));
+  }
   auto result = read_printers();
   if (!result.ok()) status_.last_error = result.error();
   return result;
@@ -376,6 +416,7 @@ core::Result<void> FilaBridgeAdapter::mutate_mapping(
     const std::string& printer_id,
     int backend_toolhead_id,
     domain::SpoolId spool_id) {
+  discovery_.reset();  // Never allow pre-mutation discovery to satisfy readback.
   if (!valid_identifier(printer_id) || backend_toolhead_id < 0 ||
       backend_toolhead_id >= static_cast<int>(maximum_toolheads) || spool_id < 0) {
     return core::Result<void>::failure(
@@ -398,10 +439,14 @@ core::Result<void> FilaBridgeAdapter::mutate_mapping(
     return core::Result<void>::failure(
         configuration_error("FilaBridge printer or toolhead no longer exists"));
   }
-  JsonDocument body;
+  network::BackendDocument body;
   body["printer_name"] = found->display_name;
   body["toolhead_id"] = backend_toolhead_id;
   body["spool_id"] = spool_id;
+  if (body.overflowed()) {
+    return core::Result<void>::failure({core::ErrorCategory::backend_unavailable,
+        "Assignment JSON workspace unavailable; no request sent", true});
+  }
   std::string serialized;
   serializeJson(body, serialized);
   const auto response = request("POST", "/api/map_toolhead", serialized, 4096U);

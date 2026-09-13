@@ -28,7 +28,7 @@ class SpoolmanAdapter final : public ISpoolInventory {
       : transport_(transport), settings_(std::move(settings)) {}
 
   void configure(config::SpoolmanSettings settings);
-  [[nodiscard]] core::Result<SpoolmanStatus> probe();
+  [[nodiscard]] core::Result<SpoolmanStatus> probe(bool full = true);
   [[nodiscard]] SpoolmanStatus status() const { return status_; }
 
   [[nodiscard]] core::Result<std::vector<domain::Spool>> list_spools() override;
@@ -60,9 +60,9 @@ class SpoolmanAdapter final : public ISpoolInventory {
       const std::string& body = {},
       std::size_t maximum_response_bytes = 32768U);
   [[nodiscard]] core::Result<std::vector<domain::Spool>> parse_spool_list(
-      const std::string& body) const;
+      network::ResponseBody& body) const;
   [[nodiscard]] core::Result<domain::Spool> parse_spool(
-      const std::string& body) const;
+      network::ResponseBody& body) const;
   [[nodiscard]] core::Result<void> probe_read_capabilities();
   [[nodiscard]] std::string endpoint(const std::string& path) const;
 

@@ -107,6 +107,9 @@ class ApplicationApiContext final : public api::IApiContext {
     return {s.generation, static_cast<std::uint64_t>(s.state),
         workflow_.identification_revision(), s.bus_errors};
   }
+  [[nodiscard]] std::uint64_t backend_revision() const {
+    return backend_worker_.revision();
+  }
   [[nodiscard]] diagnostics::TransportDiagnosticStore&
   transport_diagnostics() noexcept {
     return diagnostics_.transport_diagnostics();

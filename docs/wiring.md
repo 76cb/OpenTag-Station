@@ -37,8 +37,8 @@ opt-in `wt32-sc01-plus-i2c-test` physical diagnostic:
 
 | Diagnostic signal | WT32 pin |
 |---|---|
-| SDA | GPIO 13, dedicated diagnostic NFC `Wire1` bus |
-| SCL | GPIO 14, dedicated diagnostic NFC `Wire1` bus |
+| SDA | GPIO 13, production/diagnostic NFC `Wire1` bus |
+| SCL | GPIO 14, production/diagnostic NFC `Wire1` bus |
 | IRQ | GPIO 12 |
 | Supply | board 5 V |
 | Ground | GND |
@@ -72,18 +72,12 @@ own `Wire1` bus, with IRQ on GPIO12:
 
 | Module signal | Diagnostic WT32 connection |
 |---|---|
-| SDA | GPIO13, dedicated diagnostic NFC `Wire1` bus |
-| SCL | GPIO14, dedicated diagnostic NFC `Wire1` bus |
+| SDA | GPIO13, production/diagnostic NFC `Wire1` bus |
+| SCL | GPIO14, production/diagnostic NFC `Wire1` bus |
 | IRQ | GPIO12 |
 | +5V | EXT 5V |
 | GND | EXT GND |
 | CS / BSS, MOSI | not connected in ELECHOUSE's I2C quick-start hookup |
 | Reset, power-enable | not present on the module |
 
-**This is active only in the opt-in diagnostic, not in production firmware.**
-The production board profile deliberately retains `-1` transport pins. Before
-production NFC is enabled, complete the physical NFC-V inventory/UID checkpoint
-and design the separately reviewed production owner. The diagnostic's dedicated
-`Wire1` path must not be generalized into production behavior by implication.
-The ordered procedure is in
-[nfc-hardware-bringup.md](nfc-hardware-bringup.md).
+This wiring is active in both production read-only firmware and the diagnostic. Production NFC runs on the shared backend task and touch remains enabled through software I2C. The physical NFC bring-up is complete; use [release validation](release-validation.md) for integrated acceptance.

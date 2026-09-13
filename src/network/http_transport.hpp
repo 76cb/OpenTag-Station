@@ -5,11 +5,20 @@
 #include <string>
 #include <utility>
 #include <vector>
+#include <cerrno>
 
 #include "core/result.hpp"
 #include "network/operation_budget.hpp"
+#include "network/backend_memory.hpp"
 
 namespace opentag::network {
+inline const char* connection_failure_message(int error) {
+  if (error == ECONNREFUSED) return "Backend connection refused";
+  if (error == ENETUNREACH || error == EHOSTUNREACH) return "Backend network/host unreachable; check routing or VLAN firewall";
+  if (error == ETIMEDOUT) return "Backend connection timed out; check routing or server availability";
+  if (error == ENOMEM || error == ENOBUFS) return "Backend connection deferred: network memory unavailable";
+  return nullptr;
+}
 
 struct ParsedUrl {
   bool secure{false};
@@ -33,7 +42,7 @@ struct HttpRequest {
 
 struct HttpResponse {
   std::int32_t status_code{0};
-  std::string body;
+  ResponseBody body;
   std::string content_type;
 };
 

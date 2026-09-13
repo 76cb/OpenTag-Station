@@ -130,7 +130,7 @@ See [Hardware assumptions](docs/hardware.md) and [Wiring](docs/wiring.md).
 
 ## Current project status
 
-OpenTag Station is under active hardware bring-up and validation.
+OpenTag Station is completing the end-to-end MVP. Production read-only NFC has passed physical validation; the consolidated live-backend acceptance is documented in [release validation](docs/release-validation.md).
 
 | Area | Status |
 |---|---|
@@ -143,9 +143,9 @@ OpenTag Station is under active hardware bring-up and validation.
 | Browser Wi-Fi provisioning | Implemented; physical reliability validation in progress |
 | Web flasher | Published and working through GitHub Pages |
 | A/B OTA / rollback | Implemented; full hardware rollback matrix still pending |
-| Spoolman integration | Implemented and host-tested; live-instance validation pending |
-| FilaBridge integration | Implemented and host-tested; live-instance validation pending |
-| ST25R3916B / NFC | Production read-only Wire1 NFC-V → OpenPrintTag → workflow/UI/API implemented; production bench validation pending |
+| Spoolman integration | Implemented and host-tested; live health/discovery checked; integrated assignment acceptance pending |
+| FilaBridge integration | Implemented and host-tested; live health/discovery checked; integrated assignment acceptance pending |
+| ST25R3916B / NFC | Production read-only Wire1 NFC-V → OpenPrintTag → workflow/UI/API implemented; physically validated; shared backend owner and read-only soak passed |
 
 The firmware intentionally reports unavailable hardware rather than pretending a subsystem is ready.
 
@@ -179,11 +179,12 @@ The firmware intentionally reports unavailable hardware rather than pretending a
 - per-block presence checks
 - exact readback verification
 
-Production uses the physically validated ELECHOUSE I2C implementation. A dedicated
-worker reads and decodes each stable insertion, hands it to StationWorkflow once
+Production uses the physically validated ELECHOUSE I2C implementation. The
+logical NFC worker on the shared backend task reads each stable insertion,
+decodes it, hands it to StationWorkflow once
 weight is stable, and clears it on removal. There is no production tag-write
 binding. See [production NFC](docs/production-nfc.md) for ownership, stack budgets,
-API fields, and the remaining production-firmware bench checklist.
+API fields, and the consolidated end-to-end acceptance procedure.
 
 ### Spoolman
 

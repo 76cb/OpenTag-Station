@@ -51,7 +51,7 @@ env.Append(  # type: ignore[name-defined]
         ("OPENTAG_BUILD_DATE", quoted(build_date())),
         ("OPENTAG_ESP32_PLATFORM", quoted("espressif32@6.13.0")),
         ("OPENTAG_ARDUINO_FRAMEWORK", quoted("2.0.17")),
-        ("OPENTAG_RFAL_REVISION", quoted("not-vendored")),
+        ("OPENTAG_RFAL_REVISION", quoted("ELECHOUSE/NFC-RFAL@1.0.2:16eb6c7fb13e502d320924040d768a9e564209b2")),
         ("OPENTAG_OPENPRINTTAG_REVISION", quoted("e0dab1ae16838d2c342e7cfc509455441b7d8eba")),
     ]
 )

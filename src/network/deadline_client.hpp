@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <cerrno>
 #include "network/operation_budget.hpp"
 
 namespace opentag::network {
@@ -18,12 +19,16 @@ class DeadlineClient final : public Base {
   int connect(const char* host, std::uint16_t port) override { return connect(host, port, 5000); }
   int connect(Address ip, std::uint16_t port, std::int32_t timeout) override {
     if (expired()) return 0;
-    const auto result = client_.connect(ip, port, timeout);
+    const auto result = client_.connect(ip, port,
+        std::min<std::int32_t>(timeout, budget_.remaining(clock_())));
+    connection_errno_ = result ? 0 : errno;
     return expired() ? 0 : result;
   }
   int connect(const char* host, std::uint16_t port, std::int32_t timeout) override {
     if (expired()) return 0;
-    const auto result = client_.connect(host, port, timeout);
+    const auto result = client_.connect(host, port,
+        std::min<std::int32_t>(timeout, budget_.remaining(clock_())));
+    connection_errno_ = result ? 0 : errno;
     return expired() ? 0 : result;
   }
   std::size_t write(std::uint8_t byte) override { return write(&byte, 1U); }
@@ -54,6 +59,7 @@ class DeadlineClient final : public Base {
     return client_.setTimeout(seconds);
   }
   int fd() const override { return client_.fd(); }
+  int connection_errno() const { return connection_errno_; }
  private:
   bool expired() {
     if (!budget_.expired(clock_())) return false;
@@ -63,5 +69,6 @@ class DeadlineClient final : public Base {
   Base& client_;
   const OperationBudget& budget_;
   Clock clock_;
+  int connection_errno_{0};
 };
 }  // namespace opentag::network

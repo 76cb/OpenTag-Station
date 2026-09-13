@@ -15,6 +15,7 @@ class Result {
   static Result failure(Error error) { return Result(std::move(error)); }
 
   [[nodiscard]] bool ok() const { return std::holds_alternative<T>(value_); }
+  [[nodiscard]] T& value() { return std::get<T>(value_); }
   [[nodiscard]] const T& value() const { return std::get<T>(value_); }
   [[nodiscard]] const Error& error() const { return std::get<Error>(value_); }
 

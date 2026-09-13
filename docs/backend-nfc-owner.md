@@ -80,20 +80,6 @@ loop/UI/network/httpd/scale/config/backend/control/OTA stack margins. NFC logs
 `owner=opentag-backend` with that task's high-water value; `/nfc` reports
 `owner_task=opentag-backend`. There is no misleading separate NFC task metric.
 
-## Read-only physical acceptance (pending)
+## Physical evidence
 
-1. Recheck unconfigured AP association/DHCP/setup/scan/persistence and AP grace;
-   NFC stays deferred and provisioning stays usable with the extra 4 KiB backend
-   stack. Require early `Backend task allocation PASS`.
-2. After configuration/grace, require no NFC task allocation attempt/failure,
-   RFAL=0, UID `E0:04:01:08:66:27:D8:D4`, checksum `9E639911`, OpenPrintTag PASS,
-   generation stable at 1 while stationary and bus_errors=0. Remove to clear,
-   reinsert to recognize. Touch, scale and normal API must remain responsive.
-3. Soak at least five minutes; record internal free/minimum/largest and all task
-   high-water readings. Repeat removal during slow/unreachable backend probes,
-   and ensure it clears after the bounded operation. Backend runtime stack margin
-   must remain >=4 KiB. Record measurements rather than inferring them from CI.
-
-Production stays read-only. No NFC write, physical flash/test or automatic merge
-is performed by this change. Transport pins/clock, tag bytes, UID normalization,
-codec and block/write protections are unchanged.
+Production read-only NFC and stationary soak passed. Observed backend/NFC free stack was 9776–9872 bytes after decode, RFAL=0, bus_errors=0. UID E0:04:01:08:66:27:D8:D4 and initialized checksum 9E639911 were retained. Further physical work uses the single [integrated acceptance](release-validation.md), including ten health cycles under backend load.

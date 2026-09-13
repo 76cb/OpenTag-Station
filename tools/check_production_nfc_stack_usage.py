@@ -60,8 +60,11 @@ def main():
     identify = frame(workflow, "StationWorkflow::accept_identified_spool(") + 2 * largest("services/spool_identity_resolver") + 2 * largest(spoolman)
     assignment = frame(workflow, "StationWorkflow::assign(") + 2 * largest("services/toolhead_assignment_service") + 2 * largest(filabridge)
     backend = backend_owner + frame("application/backend_worker", "BackendWorker::process(") + max(probe, identify, assignment) + frame("network/http_transport", "HttpTransport::perform(") + 2048
-    worst = max(decoded, transport, backend)
-    print(f"Shared backend stack={stack}; nested NFC decode={decoded}; NFC transport={transport}; backend HTTP={backend}; remaining={stack-worst}; required={safety}")
+    # Explicit spool confirmation adds a serialized configuration persistence
+    # path on this owner. It runs after HTTP has returned, not beneath it.
+    persistence = backend_owner + frame("application/backend_worker", "BackendWorker::process(") + frame("services/spool_identity_resolver", "SpoolIdentityResolver::confirm(") + frame("config/configuration_service", "ConfigurationService::confirm_spool_identity_mapping(") + frame("config/configuration_service", "ConfigurationService::persist_locked(") + 2 * largest("config/configuration_service") + 2048
+    worst = max(decoded, transport, backend, persistence)
+    print(f"Shared backend stack={stack}; nested NFC decode={decoded}; NFC transport={transport}; backend HTTP={backend}; confirmation persistence={persistence}; remaining={stack-worst}; required={safety}")
     assert stack - worst >= safety, "Shared backend/NFC stack headroom below 4 KiB budget"
 
 

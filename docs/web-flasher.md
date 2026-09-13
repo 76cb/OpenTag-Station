@@ -118,3 +118,10 @@ source-asset validation, merge, and bundle validation. The Pages artifact
 contains only `index.html`, both manifests, `.nojekyll`,
 `opentag-station-factory.bin`, and `opentag-station-i2c-test.bin`; deployment
 never commits generated data to `main`.
+
+## MVP candidate installation
+
+Use the normal **Install OpenTag Station** bundle for the complete workflow.
+Production NFC is already physically validated and remains read-only. The
+separate diagnostic bundle is for recovery/inspection, not a required setup
+phase. Follow the single [MVP acceptance procedure](release-validation.md).

@@ -234,9 +234,21 @@ core::Result<SpoolResolution> SpoolIdentityResolver::resolve(
                         : identity.material_name;
   filter.allow_archived = false;
   filter.maximum_results = 128U;
+  // Empty initialized tags are recognized, but cannot identify an arbitrary
+  // inventory spool simply because it happens to be the only spool returned.
+  if (!identity.brand_name && !identity.material_abbreviation && !identity.material_name &&
+      !identity.gtin && !identity.package_uuid && !identity.material_uuid &&
+      !identity.brand_specific_package_id && !identity.brand_specific_material_id) {
+    return core::Result<SpoolResolution>::success(
+        resolved(SpoolResolutionStatus::not_found, SpoolMatchSource::none));
+  }
   auto candidates = inventory_.find_spools(filter);
   if (!candidates.ok()) {
     return core::Result<SpoolResolution>::failure(candidates.error());
+  }
+  if (candidates.value().size() >= filter.maximum_results) {
+    return core::Result<SpoolResolution>::failure({core::ErrorCategory::conflict,
+        "Too many matching spools; configure an exact OpenPrintTag UUID or NFC UID", false});
   }
 
   std::vector<domain::Spool> identifier_matches;

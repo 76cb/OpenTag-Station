@@ -2388,3 +2388,35 @@ test('persisted network recovery applies a cleared API token before authoritativ
     '/api/v1/config', '/api/v1/network',
   ]);
 });
+
+test('spool resolution guides confirmation and clears stale candidates on removal', () => {
+  const { T, document } = loadApplication();
+  T.renderSpool({workflow: {openprinttag_available: true, spool_generation: 7,
+    stage: 'spool_selection_required', candidates: [{id: 17, display_name: 'PLA Black'}, {id: 18, display_name: 'PLA White'}]}});
+  assert.equal(document.getElementById('confirm-spool-form').hidden, false);
+  assert.match(document.getElementById('spool-guidance').textContent, /Multiple spools/);
+  assert.equal(document.getElementById('spool-candidates').children.length, 2);
+  T.renderSpool({workflow: {openprinttag_available: false, spool_generation: 8, stage: 'awaiting_spool'}});
+  assert.equal(T.state.spool, null);
+  assert.equal(document.getElementById('confirm-spool-form').hidden, true);
+  assert.equal(document.getElementById('spool-candidates').children.length, 0);
+});
+
+test('repeated backend failure invalidations drain without starting another backend probe', async () => {
+  const app = loadApplication({fetch: async (url, init) => {
+    assert.equal(init.method, 'GET');
+    const endpoint = String(url).slice('/api/v1'.length);
+    if (endpoint === '/health') return jsonResponse(200, {backends: {filabridge: {healthy: false, last_error: {message: 'Connection refused'}}}});
+    if (endpoint === '/status') return jsonResponse(200, {backends: {filabridge: {healthy: false, last_error: {message: 'Connection refused'}}}});
+    if (endpoint === '/printers') return jsonResponse(200, {printers: []});
+    if (endpoint === '/toolheads') return jsonResponse(200, {toolheads: []});
+    assert.fail('unexpected backend invalidation request: ' + endpoint);
+  }});
+  for (let cycle = 0; cycle < 20; ++cycle) {
+    app.T.handleLiveEvent({type: 'invalidate', data: {resource: 'backends'}});
+    await drainScheduler(app.T.scheduler);
+  }
+  assert.equal(app.T.scheduler.metrics().active, 0);
+  assert.equal(app.T.scheduler.metrics().queued, 0);
+  assert.ok(app.fetchCalls.length >= 20);
+});

@@ -16,6 +16,7 @@
 #include "web/nfc_json.hpp"
 #include "web/configuration_patch.hpp"
 #include "web/local_access_policy.hpp"
+#include "network/backend_json.hpp"
 
 namespace opentag::web {
 namespace {
@@ -162,6 +163,10 @@ void add_optional(JsonObject destination, const char* key, const std::optional<T
 }
 
 core::Result<std::string> serialized(JsonDocument& document) {
+  if (document.overflowed()) {
+    return core::Result<std::string>::failure(unavailable(
+        core::ErrorCategory::backend_unavailable, "Local API JSON workspace unavailable", true));
+  }
   const auto measured = measureJson(document);
   if (measured == 0U || measured > api::maximum_snapshot_json_bytes) {
     return core::Result<std::string>::failure(unavailable(
@@ -770,7 +775,8 @@ bool ApplicationApiContext::acknowledge_network_connect_receipt(
 }
 
 core::Result<std::string> ApplicationApiContext::scale_event_json() {
-  JsonDocument document;
+  network::BackendJsonAllocator allocator;
+  JsonDocument document(&allocator);
   document["type"] = "scale";
   write_scale(
       document["data"].to<JsonObject>(),
@@ -783,7 +789,8 @@ core::Result<std::string> ApplicationApiContext::update_event_json(
     std::uint64_t& revision) {
   const auto update = ota_worker_.snapshot();
   revision = update.revision;
-  JsonDocument document;
+  network::BackendJsonAllocator allocator;
+  JsonDocument document(&allocator);
   document["type"] = "update";
   write_update(
       document["data"].to<JsonObject>(), update, ota_worker_.ready());
@@ -794,11 +801,15 @@ core::Result<std::string> ApplicationApiContext::snapshot_json(
     api::Resource resource) {
   const auto now_ms = millis();
 
-  JsonDocument document;
+  network::BackendJsonAllocator allocator;
+  JsonDocument document(&allocator);
   switch (resource) {
     case api::Resource::status: {
       const auto system = diagnostics_.snapshot(now_ms);
-      const auto workflow = workflow_.snapshot();
+      auto workflow_storage = network::make_external<services::WorkflowSnapshot>([&] { return workflow_.snapshot(); });
+      if (!workflow_storage) return core::Result<std::string>::failure(unavailable(
+          core::ErrorCategory::backend_unavailable, "Workflow snapshot workspace unavailable", true));
+      const auto& workflow = *workflow_storage;
       const auto backends = backend_worker_.snapshot();
       write_system(document["system"].to<JsonObject>(), system);
       auto encoded_backends = document["backends"].to<JsonObject>();
@@ -832,7 +843,10 @@ core::Result<std::string> ApplicationApiContext::snapshot_json(
     }
     case api::Resource::health: {
       const auto system = diagnostics_.snapshot(now_ms);
-      const auto workflow = workflow_.snapshot();
+      auto workflow_storage = network::make_external<services::WorkflowSnapshot>([&] { return workflow_.snapshot(); });
+      if (!workflow_storage) return core::Result<std::string>::failure(unavailable(
+          core::ErrorCategory::backend_unavailable, "Workflow snapshot workspace unavailable", true));
+      const auto& workflow = *workflow_storage;
       const auto configured =
           configuration_.local_interface_settings_snapshot();
       const auto local_access = local_access_policy(
@@ -901,7 +915,10 @@ core::Result<std::string> ApplicationApiContext::snapshot_json(
       break;
     }
     case api::Resource::spool: {
-      const auto workflow = workflow_.snapshot();
+      auto workflow_storage = network::make_external<services::WorkflowSnapshot>([&] { return workflow_.snapshot(); });
+      if (!workflow_storage) return core::Result<std::string>::failure(unavailable(
+          core::ErrorCategory::backend_unavailable, "Workflow snapshot workspace unavailable", true));
+      const auto& workflow = *workflow_storage;
       auto encoded = document["workflow"].to<JsonObject>();
       encoded["stage"] = workflow_stage_name(workflow.stage);
       encoded["spool_generation"] = workflow.spool_generation;
@@ -910,6 +927,12 @@ core::Result<std::string> ApplicationApiContext::snapshot_json(
       encoded["printer_revision"] = workflow.printer_revision;
       encoded["spoolman"] = availability_name(workflow.spoolman);
       encoded["filabridge"] = availability_name(workflow.filabridge);
+      auto candidates = encoded["candidates"].to<JsonArray>();
+      for (const auto& candidate : workflow.spool_candidates) {
+        write_spool(candidates.add<JsonObject>(), candidate);
+      }
+      if (workflow.spoolman_error) encoded["error"] = workflow.spoolman_error->message;
+      if (workflow.assignment_error) encoded["error"] = workflow.assignment_error->message;
       if (workflow.spool.has_value()) {
         write_spool(encoded["spool"].to<JsonObject>(), *workflow.spool);
       }
@@ -918,7 +941,10 @@ core::Result<std::string> ApplicationApiContext::snapshot_json(
       break;
     }
     case api::Resource::printers: {
-      const auto workflow = workflow_.snapshot();
+      auto workflow_storage = network::make_external<services::WorkflowSnapshot>([&] { return workflow_.snapshot(); });
+      if (!workflow_storage) return core::Result<std::string>::failure(unavailable(
+          core::ErrorCategory::backend_unavailable, "Workflow snapshot workspace unavailable", true));
+      const auto& workflow = *workflow_storage;
       document["revision"] = workflow.printer_revision;
       auto printers = document["printers"].to<JsonArray>();
       for (const auto& printer : workflow.printers) {
@@ -928,7 +954,10 @@ core::Result<std::string> ApplicationApiContext::snapshot_json(
       break;
     }
     case api::Resource::toolheads: {
-      const auto workflow = workflow_.snapshot();
+      auto workflow_storage = network::make_external<services::WorkflowSnapshot>([&] { return workflow_.snapshot(); });
+      if (!workflow_storage) return core::Result<std::string>::failure(unavailable(
+          core::ErrorCategory::backend_unavailable, "Workflow snapshot workspace unavailable", true));
+      const auto& workflow = *workflow_storage;
       document["revision"] = workflow.printer_revision;
       const auto configured = configuration_.snapshot();
       auto toolheads = document["toolheads"].to<JsonArray>();
@@ -1028,7 +1057,8 @@ ApplicationApiContext::operation_status_json(std::uint64_t operation_id) {
   if (!record.has_value()) {
     return core::Result<std::optional<std::string>>::success(std::nullopt);
   }
-  JsonDocument document;
+  network::BackendJsonAllocator allocator;
+  JsonDocument document(&allocator);
   document["operation_id"] = record->id;
   document["kind"] = application::to_string(record->kind);
   document["state"] = application::to_string(record->state);
@@ -1087,6 +1117,11 @@ core::Result<api::OperationReceipt> ApplicationApiContext::submit_fresh(
     case api::MutationKind::backend_test:
       return receipt_result(
           backend_worker_.submit_refresh(), "Backend command queue is unavailable");
+    case api::MutationKind::spool_confirmation: {
+      const auto& payload = std::get<api::SpoolConfirmationMutation>(mutation.payload);
+      return receipt_result(backend_worker_.submit_spool_confirmation(payload.spool_id, payload.spool_generation),
+          "Spool confirmation queue is unavailable");
+    }
     case api::MutationKind::toolhead_assignment: {
       const auto& payload =
           std::get<api::ToolheadAssignmentMutation>(mutation.payload);
@@ -1130,14 +1165,19 @@ core::Result<api::OperationReceipt> ApplicationApiContext::submit_fresh(
     case api::MutationKind::configuration_patch: {
       const auto& patch =
           std::get<api::ConfigurationPatchMutation>(mutation.payload);
-      auto proposed = apply_configuration_patch(
-          configuration_.versioned_snapshot(), patch);
-      if (!proposed.ok()) {
-        return core::Result<api::OperationReceipt>::failure(proposed.error());
+      auto versioned = network::make_external<config::VersionedConfiguration>([&] { return configuration_.versioned_snapshot(); });
+      if (!versioned) return core::Result<api::OperationReceipt>::failure(unavailable(
+          core::ErrorCategory::backend_unavailable, "Configuration workspace unavailable", true));
+      auto proposed = network::make_external<core::Result<config::Configuration>>(
+          [&] { return apply_configuration_patch(*versioned, patch); });
+      if (!proposed) return core::Result<api::OperationReceipt>::failure(unavailable(
+          core::ErrorCategory::backend_unavailable, "Configuration patch workspace unavailable", true));
+      if (!proposed->ok()) {
+        return core::Result<api::OperationReceipt>::failure(proposed->error());
       }
       return receipt_result(
           configuration_worker_.submit_replace(
-              std::move(proposed.value()),
+              std::move(proposed->value()),
               patch.expected_revision,
               now_ms,
               application::OperationKind::configuration,
@@ -1189,7 +1229,10 @@ core::Result<api::OperationReceipt> ApplicationApiContext::submit_fresh(
     case api::MutationKind::network_connect: {
       const auto& payload =
           std::get<api::NetworkConnectMutation>(mutation.payload);
-      const auto current = configuration_.versioned_snapshot();
+      auto current_storage = network::make_external<config::VersionedConfiguration>([&] { return configuration_.versioned_snapshot(); });
+      if (!current_storage) return core::Result<api::OperationReceipt>::failure(unavailable(
+          core::ErrorCategory::backend_unavailable, "Network settings workspace unavailable", true));
+      const auto& current = *current_storage;
       if (current.revision != payload.expected_revision) {
         return core::Result<api::OperationReceipt>::failure(conflict_error(
             "Configuration revision changed before Wi-Fi connection was submitted"));
@@ -1201,7 +1244,10 @@ core::Result<api::OperationReceipt> ApplicationApiContext::submit_fresh(
             core::ErrorCategory::configuration,
             "Recovery provisioning cannot replace an existing API access token"));
       }
-      api::ConfigurationPatchMutation patch;
+      auto patch_storage = network::make_external<api::ConfigurationPatchMutation>([] { return api::ConfigurationPatchMutation{}; });
+      if (!patch_storage) return core::Result<api::OperationReceipt>::failure(unavailable(
+          core::ErrorCategory::backend_unavailable, "Network patch workspace unavailable", true));
+      auto& patch = *patch_storage;
       patch.expected_revision = payload.expected_revision;
       api::WifiPatch wifi;
       wifi.ssid = payload.ssid;
@@ -1221,12 +1267,14 @@ core::Result<api::OperationReceipt> ApplicationApiContext::submit_fresh(
         web.access_token = payload.access_token;
         patch.web = std::move(web);
       }
-      auto proposed = apply_configuration_patch(current, patch);
-      if (!proposed.ok()) {
-        return core::Result<api::OperationReceipt>::failure(proposed.error());
+      auto proposed = network::make_external<core::Result<config::Configuration>>([&] { return apply_configuration_patch(current, patch); });
+      if (!proposed) return core::Result<api::OperationReceipt>::failure(unavailable(
+          core::ErrorCategory::backend_unavailable, "Network result workspace unavailable", true));
+      if (!proposed->ok()) {
+        return core::Result<api::OperationReceipt>::failure(proposed->error());
       }
       const auto receipt = configuration_worker_.submit_replace(
-          std::move(proposed.value()),
+          std::move(proposed->value()),
           patch.expected_revision,
           now_ms,
           application::OperationKind::network_connect);

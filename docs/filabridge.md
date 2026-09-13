@@ -1,10 +1,10 @@
 # FilaBridge adapter strategy
 
-## Phase 11 release status
+## MVP release status
 
 The release audit rechecked zero-based T1-T5 translation, printer revisions,
 spool generations, expiry, non-replayed mutation, and exact readback. Live
-FilaBridge/Prusa XL behavior and backend-outage recovery remain UNVERIFIED in
+read-only discovery passed on v1.2.1; physical assignment and outage recovery remain in
 [release-validation.md](release-validation.md).
 
 ## Baseline
@@ -95,8 +95,22 @@ but write capabilities stay guarded. Any changed path/shape is isolated to this
 adapter and returned as a structured error, never as raw credential-bearing
 request data.
 
-Formal release support currently covers FilaBridge v1.2.2. Current main commit
+Contract-tested support covers FilaBridge v1.2.1 and v1.2.2. The v1.2.1 source is pinned at 854185e3c9880c7dbc8db9b06d080b7f0e0ac772; its map/unmap endpoint, payload and zero-based IDs match the adapter. Current main commit
 `f35cde8` was separately source-inspected; its runtime reports `dev`, so it is a
-tracking fixture rather than a formal version declaration. A live v1.2.2
+tracking fixture rather than a formal version declaration. The live v1.2.1
 instance and real Prusa XL still must pass mapping, reassignment, active-print,
 and unmapping acceptance tests before release signoff.
+
+## MVP live discovery evidence (2026-09-13)
+
+Read-only queries to the supplied LAN services returned FilaBridge v1.2.1,
+Casy's Prusa XL, stable printer ID printer_1785006977542801400_535, type
+prusalink, and five toolheads named Toolhead 1 through Toolhead 5. Status and
+complete mappings match the strict parser contract. The printer was PRINTING;
+no live mapping was changed. Spoolman reported 0.26.0 and healthy. End-to-end
+physical assignment/readback remains part of the consolidated acceptance.
+
+Health checks do not download printer/status datasets. Full discovery transfers
+its bounded normalized result to the workflow once; it is discarded before any
+mutation. Mutation readback always makes a fresh request. Unknown versions and
+version changes do not inherit mapping permission from a previous known server.

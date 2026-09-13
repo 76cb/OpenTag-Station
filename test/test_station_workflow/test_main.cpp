@@ -533,8 +533,38 @@ void test_mapping_completion_does_not_restore_removed_or_replaced_tag() {
       static_cast<int>(workflow.snapshot().stage));
 }
 
+void test_removal_preserves_discovery_and_reinsertion_can_assign() {
+  FakeResolver resolver;
+  resolver.next = Result<SpoolResolution>::success({SpoolResolutionStatus::matched,
+      SpoolMatchSource::configured_identity_field, {spool()}});
+  FakePrinterBackend printers;
+  StationWorkflow workflow(resolver, printers);
+  (void)workflow.refresh_printers();
+  workflow.clear();
+  TEST_ASSERT_EQUAL_UINT(1, workflow.snapshot().printers.size());
+  TEST_ASSERT_TRUE(workflow.snapshot().filabridge_assignment_available);
+  (void)workflow.accept_identified_spool(material(), Uid{}, {900, true}, {}, {});
+  const auto assigned = workflow.assign("xl-stable-id", 2, false, false, {});
+  TEST_ASSERT_TRUE(assigned.ok());
+  TEST_ASSERT_TRUE(assigned.value().verified());
+}
+void test_explicit_spool_confirmation_is_generation_fenced() {
+  FakeResolver resolver;
+  FakePrinterBackend printers;
+  StationWorkflow workflow(resolver, printers);
+  const auto generation = workflow.begin_identified_spool(material(), Uid{});
+  const auto selected = spool();
+  const auto confirmed = workflow.accept_identified_spool(material(), Uid{}, {900, true}, {}, {}, generation, &selected);
+  TEST_ASSERT_TRUE(confirmed.spool.has_value());
+  TEST_ASSERT_EQUAL(0, resolver.calls);
+  workflow.clear();
+  (void)workflow.accept_identified_spool(material(), Uid{}, {900, true}, {}, {}, generation, &selected);
+  TEST_ASSERT_FALSE(workflow.snapshot().spool.has_value());
+}
 int main(int, char**) {
   UNITY_BEGIN();
+  RUN_TEST(test_removal_preserves_discovery_and_reinsertion_can_assign);
+  RUN_TEST(test_explicit_spool_confirmation_is_generation_fenced);
   RUN_TEST(test_complete_decoded_tag_to_verified_t3_assignment_slice);
   RUN_TEST(test_unstable_scale_defers_spoolman_resolution);
   RUN_TEST(test_spoolman_outage_preserves_tag_and_physical_weight);

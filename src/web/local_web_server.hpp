@@ -21,9 +21,9 @@ class LocalWebServer final {
  public:
   static constexpr std::size_t maximum_open_sockets = 5U;
   static constexpr std::size_t maximum_websocket_clients = 2U;
-  // Physical ordinary HTTPD use was 1,088 bytes. The compiler reports the
-  // nested upload handler/begin frames at 3,232 + 5,024 bytes, so the bounded
-  // worst-route budget is 9,344 bytes and the 12 KiB reservation leaves 2,944.
+  // Keep the reservation unchanged. check_production_http_stack_usage.py
+  // audits compiler-emitted ordinary routes (4 KiB reserve) and the existing
+  // OTA upload path (2 KiB reserve). Physical high-water must be remeasured.
   static constexpr std::uint32_t http_task_stack_bytes = 12288U;
   static constexpr std::uint32_t http_worst_case_stack_use_bytes = 9344U;
   static constexpr std::uint32_t minimum_http_stack_safety_bytes = 2048U;
@@ -119,6 +119,7 @@ class LocalWebServer final {
   std::uint32_t next_publish_check_ms_{0U};
   std::uint64_t last_update_revision_{0U};
   std::array<std::uint64_t, 4> last_nfc_revision_{};
+  std::uint64_t last_backend_revision_{0};
   bool scale_published_{false};
   bool scale_session_was_active_{false};
   bool heartbeat_published_{false};
