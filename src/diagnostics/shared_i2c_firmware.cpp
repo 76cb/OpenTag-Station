@@ -1,4 +1,5 @@
 #include <Arduino.h>
+#include <ArduinoJson.h>
 #include <WiFi.h>
 #include <Wire.h>
 #include <esp_http_server.h>
@@ -15,12 +16,15 @@
 #include <cstdio>
 #include <cstring>
 #include <optional>
+#include <vector>
 
 #include "boards/wt32_sc01_plus_rev_a.hpp"
 #include "diagnostics/build_info.hpp"
 #include "diagnostics/shared_i2c_diagnostic.hpp"
 #include "hardware/display/wt32_display.hpp"
 #include "hardware/scale/nau7802_device.hpp"
+#include "nfc/formats/openprinttag/codec.hpp"
+#include "nfc/formats/openprinttag/initializer.hpp"
 #include "nfc/protocols/nfcv/tag.hpp"
 
 namespace opentag::diagnostics::shared_i2c {
@@ -51,6 +55,17 @@ constexpr std::size_t maximum_blocks_per_request = 8U;
 constexpr std::size_t system_information_buffer_size = 64U;
 constexpr std::size_t read_response_buffer_size =
     1U + maximum_blocks_per_request * RFAL_NFCV_MAX_BLOCK_LEN;
+constexpr std::size_t slix2_physical_bytes = 320U;
+constexpr std::size_t slix2_block_size = 4U;
+constexpr std::size_t slix2_block_count = 80U;
+constexpr std::size_t initialization_usable_bytes = 312U;
+constexpr std::size_t initialization_auxiliary_requested_bytes = 32U;
+constexpr std::size_t initialization_auxiliary_payload_offset = 234U;
+constexpr std::size_t initialization_auxiliary_tag_offset = 276U;
+constexpr std::size_t initialization_auxiliary_encoded_bytes = 35U;
+constexpr std::size_t initialization_last_block = 77U;
+constexpr std::uint32_t initialization_reference_checksum = 0x6B6EABF1U;
+constexpr std::uint32_t initialization_duration_ms = 60000U;
 constexpr const char* access_point_ssid = "OpenTag-I2C-Test";
 constexpr const char* access_point_url = "http://192.168.4.1";
 
@@ -60,6 +75,13 @@ constexpr std::uint8_t st25r3916b_last_irq_register = 0x1DU;
 constexpr std::uint8_t st25r3916b_enable_oscillator = 0x80U;
 constexpr std::uint8_t st25r3916b_irq_oscillator_stable = 0x80U;
 static_assert(maximum_memory_bytes == 4096U);
+static_assert(initialization_usable_bytes / slix2_block_size == 78U);
+static_assert(initialization_last_block + 1U ==
+              initialization_usable_bytes / slix2_block_size);
+static_assert(initialization_auxiliary_tag_offset % slix2_block_size == 0U);
+static_assert(initialization_auxiliary_tag_offset +
+                  initialization_auxiliary_encoded_bytes ==
+              initialization_usable_bytes - 1U);
 
 class ScopedRfField {
  public:
@@ -99,12 +121,70 @@ enum class BlockReadResult : std::uint8_t {
   fatal_response_error,
 };
 
+enum class InitializationState : std::uint8_t {
+  unavailable,
+  ready,
+  queued,
+  running,
+  refused,
+  pass,
+  fail,
+};
+
+const char* to_string(InitializationState value) {
+  switch (value) {
+    case InitializationState::unavailable: return "UNAVAILABLE";
+    case InitializationState::ready: return "READY";
+    case InitializationState::queued: return "QUEUED";
+    case InitializationState::running: return "RUNNING";
+    case InitializationState::refused: return "REFUSED";
+    case InitializationState::pass: return "PASS";
+    case InitializationState::fail: return "FAIL";
+  }
+  return "FAIL";
+}
+
+struct InitializationStatus {
+  InitializationState state{InitializationState::unavailable};
+  CheckResult image_generation{CheckResult::pending};
+  CheckResult reference_vector{CheckResult::pending};
+  CheckResult current_decode{CheckResult::pending};
+  CheckResult authorization{CheckResult::pending};
+  CheckResult preflight{CheckResult::pending};
+  CheckResult preflight_transport{CheckResult::pending};
+  CheckResult block_security{CheckResult::pending};
+  CheckResult block_write{CheckResult::pending};
+  CheckResult block_verify{CheckResult::pending};
+  CheckResult full_image_verify{CheckResult::pending};
+  CheckResult post_write_decode{CheckResult::pending};
+  CheckResult post_write_transport{CheckResult::pending};
+  CheckResult rf_field_disable{CheckResult::pending};
+  std::array<char, 24U> uid{};
+  std::array<char, 24U> uid_after_write{};
+  std::array<char, 9U> before_checksum{};
+  std::array<char, 9U> generated_checksum{};
+  std::array<char, 9U> target_checksum{};
+  std::array<char, 9U> final_checksum{};
+  std::array<char, 112U> message{};
+  FailureStage failure_stage{FailureStage::none};
+  std::int32_t failed_block{-1};
+  std::uint16_t differing_blocks{0U};
+  std::uint16_t planned_blocks{0U};
+  std::uint16_t written_blocks{0U};
+  bool blank{false};
+};
+
+struct InitializationRequest {
+  std::array<char, 24U> uid{};
+  std::array<char, 9U> checksum{};
+};
+
 constexpr char diagnostic_page[] PROGMEM = R"HTML(<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>OpenTag Dual I2C / NFC-V RF Test</title>
+  <title>OpenTag NFC-V Read / Blank Initialization Test</title>
   <style>
     :root{font-family:system-ui,sans-serif;color:#e9f4f5;background:#10191c}
     body{margin:0;padding:1rem}main{max-width:48rem;margin:auto}
@@ -113,14 +193,23 @@ constexpr char diagnostic_page[] PROGMEM = R"HTML(<!doctype html>
        padding:1rem;border:1px solid #345057;border-radius:.75rem;background:#172327}
     dt{color:#9fb4ba}dd{margin:0;font-family:ui-monospace,monospace;overflow-wrap:anywhere}
     .pass{color:#69d591}.fail{color:#ff8d7f}.pending{color:#f4ce68}
-    button{padding:.65rem 1rem;border:0;border-radius:.5rem;background:#167d82;color:white;font-weight:700}
+    section{margin-top:1.2rem;padding:1rem;border:1px solid #5c4c26;border-radius:.75rem;background:#211d14}
+    button,a.action{display:inline-block;margin:.35rem .35rem .35rem 0;padding:.65rem 1rem;border:0;border-radius:.5rem;background:#167d82;color:white;font-weight:700;text-decoration:none}
+    button.danger{background:#a5362d}button:disabled{opacity:.45}
   </style>
 </head>
 <body><main>
-  <h1>Dual I2C / NFC-V RF Test</h1>
-  <p class="note">Scale: GPIO10/GPIO11 · NFC: GPIO13/GPIO14 · IRQ GPIO12 · 100 kHz each. RF and memory reads are bounded and read-only.</p>
+  <h1>Dual I2C / NFC-V Diagnostic</h1>
+  <p class="note">Scale: GPIO10/GPIO11 · NFC: GPIO13/GPIO14 · IRQ GPIO12 · 100 kHz each. Boot and normal operation remain read-only.</p>
   <dl id="results"><dt>Status</dt><dd class="pending">Loading…</dd></dl>
   <button id="refresh" type="button">Refresh now</button>
+  <section>
+    <h2>Explicit blank-tag initialization</h2>
+    <p class="note">Writes only blocks 0–77 after a fresh UID, checksum, blank, geometry, and lock preflight. Blocks 78–79 are preserved. There is no write retry, force, or reinitialization path.</p>
+    <dl id="initialization"><dt>Status</dt><dd class="pending">Waiting for the read-only diagnostic…</dd></dl>
+    <a class="action" href="/api/v1/openprinttag/image" download>Download generated image</a>
+    <button class="danger" id="initialize" type="button" disabled>Initialize this blank tag</button>
+  </section>
   <script>
     const labels={scale_clock_hz:'Scale clock (Hz)',scale_sda_idle:'Scale SDA idle',scale_scl_idle:'Scale SCL idle',
       nau_probe_result:'NAU7802 0x2A',scale_bus_error_count:'Scale bus errors',
@@ -141,20 +230,46 @@ constexpr char diagnostic_page[] PROGMEM = R"HTML(<!doctype html>
       nfc_bus_error_count:'NFC bus errors',nau_communication_result:'NAU communication',
       scale_after_test:'Scale after test',nfc_after_scale:'NFC after scale',
       scale_sample_count:'Scale samples',last_raw:'Last raw reading',phase:'Phase',failure_stage:'First failing stage'};
-    const order=Object.keys(labels);let timer;
+    const initLabels={state:'Initialization state',uid:'Authorized UID',uid_after_write:'UID after write',block_count:'Physical blocks',block_size:'Block size',
+      memory_capacity_bytes:'Physical bytes',usable_bytes:'OpenPrintTag usable bytes',generated_bytes:'Generated bytes',
+      before_checksum:'Before checksum',generated_checksum:'Generated checksum',target_checksum:'Target full checksum',final_checksum:'Final full checksum',
+      differing_blocks:'Differing blocks',planned_blocks:'Planned blocks',written_blocks:'Written blocks',
+      mime_type:'MIME type',auxiliary_region:'Auxiliary region',
+      auxiliary_requested_bytes:'Auxiliary requested bytes',auxiliary_encoded_bytes:'Auxiliary encoded bytes',
+      auxiliary_tag_offset:'Auxiliary tag offset',blank:'Writable range blank',
+      image_generation:'Image generation',reference_vector:'Reference vector',current_decode:'Current OpenPrintTag decode',authorization:'Write authorization',
+      preflight:'Fresh preflight',preflight_transport:'Preflight transport',block_security:'Block security',block_write:'Block write',block_verify:'Block verify',
+      full_image_verify:'Full image verify',post_write_decode:'Post-write decode',post_write_transport:'Post-write transport',
+      rf_field_disable:'RF field disable',failed_block:'Failed block',failure_stage:'First failing stage',message:'Message'};
+    const order=Object.keys(labels);let timer,initTimer,lastPreview;
     function text(v){return Array.isArray(v)?(v.length?v.join(' '):'none'):String(v)}
     function cls(k,v){v=String(v);return v==='PASS'||v==='ACK'||v==='HIGH'||v==='true'||
       (k==='tag_detected'&&(v==='YES'||v==='NO'))?'pass':
-      v==='FAIL'||v==='BUS ERROR'||v==='LOW'||v==='true-invalid'?'fail':'pending'}
+      v==='FAIL'||v==='BUS ERROR'||v==='LOW'||(k==='blank'&&v==='false')||v==='true-invalid'?'fail':'pending'}
     async function load(){clearTimeout(timer);try{
       const r=await fetch('/api/v1/i2c-diagnostic',{cache:'no-store'});if(!r.ok)throw Error(r.status);
       const d=await r.json(),root=document.getElementById('results');root.replaceChildren();
       for(const k of order){const dt=document.createElement('dt'),dd=document.createElement('dd');
         dt.textContent=labels[k];const value=d[k];
         dd.textContent=text(value);dd.className=cls(k,value);root.append(dt,dd)}
-      if(!d.complete)timer=setTimeout(load,5000);
+      if(!d.complete)timer=setTimeout(load,5000);else loadPreview();
     }catch(e){document.getElementById('results').textContent='Diagnostic endpoint unavailable: '+e;timer=setTimeout(load,5000)}}
+    async function loadPreview(){clearTimeout(initTimer);try{
+      const r=await fetch('/api/v1/openprinttag/preview',{cache:'no-store'}),d=await r.json();lastPreview=d;
+      const root=document.getElementById('initialization');root.replaceChildren();
+      for(const k of Object.keys(initLabels)){const dt=document.createElement('dt'),dd=document.createElement('dd');
+        dt.textContent=initLabels[k];dd.textContent=text(d[k]??'-');dd.className=cls(k,d[k]);root.append(dt,dd)}
+      document.getElementById('initialize').disabled=!(r.ok&&d.state==='READY'&&d.blank===true);
+      if(d.state==='QUEUED'||d.state==='RUNNING')initTimer=setTimeout(loadPreview,1500);
+    }catch(e){document.getElementById('initialization').textContent='Preview unavailable: '+e}}
+    async function initializeTag(){await loadPreview();const d=lastPreview;if(!d||d.state!=='READY'||!d.blank)return;
+      if(!confirm(`Initialize ONLY blank tag ${d.uid}?\nBefore checksum: ${d.before_checksum}\nBlocks 0-77 may be written; blocks 78-79 are preserved.`))return;
+      if(prompt('Second confirmation: type INITIALIZE exactly')!=='INITIALIZE')return;
+      const r=await fetch('/api/v1/openprinttag/initialize',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({uid:d.uid,expected_before_checksum:d.before_checksum,confirmation:'INITIALIZE'})});
+      const response=await r.json();if(!r.ok)alert(response.message||`Initialization rejected (${r.status})`);await loadPreview()}
     document.getElementById('refresh').addEventListener('click',load);load();
+    document.getElementById('initialize').addEventListener('click',initializeTag);
   </script>
 </main></body></html>)HTML";
 
@@ -205,6 +320,7 @@ class DualI2cFirmware {
         OPENTAG_GIT_SHA);
 
     initialize_screen();
+    prepare_initialization_image();
     publish_and_render(true);
     start_web_server();
     characterize_bus();
@@ -212,12 +328,108 @@ class DualI2cFirmware {
 
   void loop() {
     const auto now_ms = millis();
+    InitializationRequest request;
+    if (take_initialization_request(request)) {
+      run_initialization(request);
+    }
     if (live_.phase == Phase::coexistence) poll_coexistence(now_ms);
     if (elapsed(now_ms, last_render_ms_, 250U)) publish_and_render(false);
     delay(2U);
   }
 
  private:
+  void prepare_initialization_image() {
+    InitializationStatus status;
+    const auto generated = opentag::nfc::openprinttag::Initializer::generate({
+        initialization_usable_bytes,
+        slix2_block_size,
+        initialization_auxiliary_requested_bytes,
+        std::nullopt,
+    });
+    const auto decoded = generated.ok()
+        ? opentag::nfc::openprinttag::Codec::decode(core::ByteView(generated.value().bytes))
+        : core::Result<opentag::nfc::openprinttag::DecodedTag>::failure({
+              core::ErrorCategory::invalid_openprinttag,
+              "OpenPrintTag image generation failed",
+              false,
+          });
+    if (!generated.ok() || generated.value().bytes.size() != initialization_usable_bytes ||
+        !generated.value().auxiliary_region_offset.has_value() ||
+        *generated.value().auxiliary_region_offset !=
+            initialization_auxiliary_payload_offset ||
+        !decoded.ok() || !decoded.value().envelope.auxiliary.has_value() ||
+        decoded.value().envelope.auxiliary->absolute_offset !=
+            initialization_auxiliary_tag_offset ||
+        decoded.value().envelope.auxiliary->size !=
+            initialization_auxiliary_encoded_bytes ||
+        decoded.value().envelope.auxiliary->used_size != 1U) {
+      status.state = InitializationState::fail;
+      status.image_generation = CheckResult::fail;
+      status.reference_vector = CheckResult::skipped;
+      status.failure_stage = FailureStage::image_generation;
+      publish_initialization_status(status);
+      record_failure(FailureStage::image_generation);
+      return;
+    }
+    status.image_generation = CheckResult::pass;
+    const auto checksum = diagnostic_checksum(
+        generated.value().bytes.data(), generated.value().bytes.size());
+    status.generated_checksum = format_diagnostic_checksum(checksum);
+    if (checksum != initialization_reference_checksum) {
+      status.state = InitializationState::fail;
+      status.reference_vector = CheckResult::fail;
+      status.failure_stage = FailureStage::reference_vector_mismatch;
+      publish_initialization_status(status);
+      record_failure(FailureStage::reference_vector_mismatch);
+      return;
+    }
+    std::copy(
+        generated.value().bytes.begin(),
+        generated.value().bytes.end(),
+        initialization_image_.begin());
+    initialization_image_ready_ = true;
+    status.state = InitializationState::unavailable;
+    status.reference_vector = CheckResult::pass;
+    publish_initialization_status(status);
+  }
+
+  void record_initialization_failure(
+      InitializationStatus& status,
+      FailureStage stage,
+      std::int32_t block = -1) {
+    if (status.failure_stage == FailureStage::none) status.failure_stage = stage;
+    if (status.failed_block < 0 && block >= 0) status.failed_block = block;
+    status.state = InitializationState::fail;
+    record_failure(stage);
+    publish_initialization_status(status);
+  }
+
+  void publish_initialization_status(const InitializationStatus& status) {
+    portENTER_CRITICAL(&initialization_mux_);
+    initialization_status_ = status;
+    portEXIT_CRITICAL(&initialization_mux_);
+  }
+
+  InitializationStatus copy_initialization_status() const {
+    InitializationStatus status;
+    portENTER_CRITICAL(&initialization_mux_);
+    status = initialization_status_;
+    portEXIT_CRITICAL(&initialization_mux_);
+    return status;
+  }
+
+  bool take_initialization_request(InitializationRequest& request) {
+    bool pending = false;
+    portENTER_CRITICAL(&initialization_mux_);
+    if (initialization_request_pending_) {
+      request = initialization_request_;
+      initialization_request_pending_ = false;
+      pending = true;
+    }
+    portEXIT_CRITICAL(&initialization_mux_);
+    return pending;
+  }
+
   void initialize_screen() {
     screen_ready_ = screen_.init();
     if (!screen_ready_) {
@@ -718,7 +930,8 @@ class DualI2cFirmware {
       std::uint16_t first_block,
       std::size_t requested_blocks,
       std::size_t block_size,
-      std::uint8_t* destination) {
+      std::uint8_t* destination,
+      FailureStage read_failure_stage = FailureStage::nfcv_memory_read) {
     std::array<std::uint8_t, read_response_buffer_size> response{};
     std::uint16_t received = 0U;
     ReturnCode result = ERR_PARAM;
@@ -779,7 +992,10 @@ class DualI2cFirmware {
         destination,
         requested_blocks * block_size);
     if (response_result == ReadResponseResult::wrong_length) {
-      record_failure(FailureStage::nfcv_response_length);
+      record_failure(
+          read_failure_stage == FailureStage::nfcv_memory_read
+              ? FailureStage::nfcv_response_length
+              : read_failure_stage);
       Serial.printf(
           "NFC-V read response length %u, expected %u\n",
           static_cast<unsigned>(received),
@@ -787,7 +1003,7 @@ class DualI2cFirmware {
       return BlockReadResult::fatal_response_error;
     }
     if (response_result != ReadResponseResult::pass) {
-      record_failure(FailureStage::nfcv_memory_read);
+      record_failure(read_failure_stage);
       return BlockReadResult::fatal_response_error;
     }
     return BlockReadResult::pass;
@@ -797,13 +1013,15 @@ class DualI2cFirmware {
       const std::uint8_t* wire_uid,
       const opentag::nfc::nfcv::TagGeometry& geometry,
       std::array<std::uint8_t, maximum_memory_bytes>& image,
-      std::uint32_t operation_started_ms) {
+      std::uint32_t operation_started_ms,
+      FailureStage read_failure_stage = FailureStage::nfcv_memory_read,
+      std::uint32_t duration_ms = memory_read_duration_ms) {
     std::size_t block = 0U;
     std::size_t preferred_request_blocks = maximum_blocks_per_request;
     while (block < geometry.block_count) {
-      if (elapsed(millis(), operation_started_ms, memory_read_duration_ms)) {
-        record_failure(FailureStage::nfcv_memory_read);
-        Serial.println("NFC-V memory read exceeded the 30 second bound");
+      if (elapsed(millis(), operation_started_ms, duration_ms)) {
+        record_failure(read_failure_stage);
+        Serial.println("NFC-V memory read exceeded its bounded duration");
         return false;
       }
       std::size_t request_blocks = std::min(
@@ -822,7 +1040,8 @@ class DualI2cFirmware {
             static_cast<std::uint16_t>(block),
             request_blocks,
             geometry.block_size,
-            image.data() + destination_offset);
+            image.data() + destination_offset,
+            read_failure_stage);
         read = read_result == BlockReadResult::pass;
         if (read) break;
         if (read_result == BlockReadResult::fatal_response_error) return false;
@@ -835,9 +1054,7 @@ class DualI2cFirmware {
             static_cast<unsigned>(request_blocks));
       }
       if (!read) {
-        if (live_.failure_stage != FailureStage::nfcv_response_length) {
-          record_failure(FailureStage::nfcv_memory_read);
-        }
+        record_failure(read_failure_stage);
         return false;
       }
       if (fallback_used) preferred_request_blocks = request_blocks;
@@ -847,12 +1064,14 @@ class DualI2cFirmware {
     return true;
   }
 
-  bool confirm_single_uid(const std::uint8_t* expected_wire_uid) {
+  bool confirm_single_uid(
+      const std::uint8_t* expected_wire_uid,
+      FailureStage failure_stage = FailureStage::nfcv_uid_changed_during_read) {
     rfalNfcvInventoryRes presence{};
     const auto presence_result = nfc_.rfalNfcvPollerCheckPresence(&presence);
     if (presence_result != ERR_NONE) {
       if (presence_result != ERR_TIMEOUT) note_rfal_error(presence_result);
-      record_failure(FailureStage::nfcv_uid_changed_during_read);
+      record_failure(failure_stage);
       return false;
     }
 
@@ -865,12 +1084,12 @@ class DualI2cFirmware {
         &device_count);
     if (inventory_result != ERR_NONE) {
       note_rfal_error(inventory_result);
-      record_failure(FailureStage::nfcv_uid_changed_during_read);
+      record_failure(failure_stage);
       return false;
     }
     if (device_count != 1U ||
         std::memcmp(devices[0].InvRes.UID, expected_wire_uid, RFAL_NFCV_UID_LEN) != 0) {
-      record_failure(FailureStage::nfcv_uid_changed_during_read);
+      record_failure(failure_stage);
       return false;
     }
     return true;
@@ -1014,6 +1233,466 @@ class DualI2cFirmware {
     }
     set_phase(Phase::coexistence);
     return operation_ok;
+  }
+
+  std::array<std::uint8_t, RFAL_NFCV_UID_LEN> wire_uid_for(
+      const opentag::nfc::nfcv::Uid& uid) const {
+    std::array<std::uint8_t, RFAL_NFCV_UID_LEN> wire{};
+    std::reverse_copy(uid.bytes.begin(), uid.bytes.end(), wire.begin());
+    return wire;
+  }
+
+  bool read_block_security(
+      const std::uint8_t* wire_uid,
+      std::uint16_t block,
+      std::size_t block_size,
+      bool& locked,
+      bool& data_matches,
+      const std::uint8_t* expected_data) {
+    std::array<std::uint8_t, 2U + RFAL_NFCV_MAX_BLOCK_LEN> response{};
+    std::uint16_t received = 0U;
+    const auto flags = static_cast<std::uint8_t>(
+        RFAL_NFCV_REQ_FLAG_DEFAULT | RFAL_NFCV_REQ_FLAG_OPTION);
+    ReturnCode result = ERR_PARAM;
+    if (block <= 0xFFU) {
+      result = nfc_.rfalNfcvPollerReadSingleBlock(
+          flags,
+          wire_uid,
+          static_cast<std::uint8_t>(block),
+          response.data(),
+          static_cast<std::uint16_t>(response.size()),
+          &received);
+    } else {
+      result = nfc_.rfalNfcvPollerExtendedReadSingleBlock(
+          flags,
+          wire_uid,
+          block,
+          response.data(),
+          static_cast<std::uint16_t>(response.size()),
+          &received);
+    }
+    if (result != ERR_NONE) {
+      note_rfal_error(result);
+      return false;
+    }
+    if (received != block_size + 2U || (response[0] & 0x01U) != 0U) {
+      Serial.printf(
+          "NFC-V block %u security response length/flags invalid (%u, 0x%02X)\n",
+          static_cast<unsigned>(block),
+          static_cast<unsigned>(received),
+          static_cast<unsigned>(response[0]));
+      return false;
+    }
+    // ISO/IEC 15693 block security status bit 0 is the permanent lock bit.
+    locked = (response[1] & 0x01U) != 0U;
+    data_matches = expected_data == nullptr ||
+        std::memcmp(response.data() + 2U, expected_data, block_size) == 0;
+    if (!data_matches) {
+      Serial.printf("NFC-V block %u changed during lock preflight\n",
+                    static_cast<unsigned>(block));
+    }
+    return true;
+  }
+
+  ReturnCode write_block_once(
+      const std::uint8_t* wire_uid,
+      const opentag::nfc::nfcv::BlockWrite& block) {
+    if (block.block_index <= 0xFFU) {
+      return nfc_.rfalNfcvPollerWriteSingleBlock(
+          static_cast<std::uint8_t>(RFAL_NFCV_REQ_FLAG_DEFAULT),
+          wire_uid,
+          static_cast<std::uint8_t>(block.block_index),
+          block.data.data(),
+          static_cast<std::uint8_t>(block.data.size()));
+    }
+    return nfc_.rfalNfcvPollerExtendedWriteSingleBlock(
+        static_cast<std::uint8_t>(RFAL_NFCV_REQ_FLAG_DEFAULT),
+        wire_uid,
+        block.block_index,
+        block.data.data(),
+        static_cast<std::uint8_t>(block.data.size()));
+  }
+
+  void run_initialization(const InitializationRequest& request) {
+    InitializationStatus status;
+    status.state = InitializationState::running;
+    status.image_generation = initialization_image_ready_
+        ? CheckResult::pass : CheckResult::fail;
+    status.reference_vector = initialization_image_ready_
+        ? CheckResult::pass : CheckResult::fail;
+    status.generated_checksum =
+        format_diagnostic_checksum(initialization_reference_checksum);
+    status.uid = request.uid;
+    status.before_checksum = request.checksum;
+    status.authorization = CheckResult::pass;
+    std::snprintf(status.message.data(), status.message.size(),
+                  "Fresh hardware preflight running; no bytes written yet");
+    publish_initialization_status(status);
+    set_phase(Phase::initialization);
+
+    bool operation_ok = false;
+    ScopedRfField field(reader_);
+    const auto field_on = field.enable();
+    if (field_on != ERR_NONE) {
+      note_rfal_error(field_on);
+      status.preflight = CheckResult::fail;
+      record_initialization_failure(status, FailureStage::rf_field_on);
+    } else {
+      operation_ok = [&]() {
+        if (!initialization_image_ready_ || !reference_uid_.has_value()) {
+          status.authorization = CheckResult::fail;
+          record_initialization_failure(status, FailureStage::write_authorization);
+          return false;
+        }
+        const auto expected_uid = format_diagnostic_uid(reference_uid_->bytes);
+        if (reference_uid_->bytes[0] != 0xE0U ||
+            reference_uid_->bytes[1] != 0x04U ||
+            reference_uid_->bytes[2] != 0x01U ||
+            std::strcmp(expected_uid.data(), request.uid.data()) != 0) {
+          status.authorization = CheckResult::fail;
+          record_initialization_failure(status, FailureStage::write_authorization);
+          return false;
+        }
+
+        const auto wire_uid = wire_uid_for(*reference_uid_);
+        if (!confirm_single_uid(
+                wire_uid.data(), FailureStage::uid_changed_before_write)) {
+          status.preflight = CheckResult::fail;
+          record_initialization_failure(status, FailureStage::uid_changed_before_write);
+          return false;
+        }
+
+        NfcvSystemInformation information;
+        if (!read_system_information(wire_uid.data(), information)) {
+          status.preflight = CheckResult::fail;
+          record_initialization_failure(
+              status, FailureStage::nfcv_system_information);
+          return false;
+        }
+        if (std::memcmp(
+                information.wire_uid.data(), wire_uid.data(), wire_uid.size()) != 0) {
+          status.preflight = CheckResult::fail;
+          record_initialization_failure(
+              status, FailureStage::uid_changed_before_write);
+          return false;
+        }
+        if (!matches_initialization_geometry(
+                information, slix2_block_count, slix2_block_size)) {
+          status.preflight = CheckResult::fail;
+          record_initialization_failure(status, FailureStage::geometry_changed);
+          return false;
+        }
+        const opentag::nfc::nfcv::TagGeometry geometry{
+            information.block_size, information.block_count};
+        const auto geometry_valid = geometry.validate();
+        if (!geometry_valid.ok() || geometry.capacity() != slix2_physical_bytes) {
+          status.preflight = CheckResult::fail;
+          record_initialization_failure(status, FailureStage::geometry_changed);
+          return false;
+        }
+
+        const auto started_ms = millis();
+        initialization_before_image_.fill(0U);
+        if (!read_complete_memory(
+                wire_uid.data(),
+                geometry,
+                initialization_before_image_,
+                started_ms,
+                FailureStage::full_image_verify,
+                initialization_duration_ms)) {
+          status.preflight = CheckResult::fail;
+          record_initialization_failure(status, FailureStage::full_image_verify);
+          return false;
+        }
+        if (!confirm_single_uid(
+                wire_uid.data(), FailureStage::uid_changed_before_write)) {
+          status.preflight = CheckResult::fail;
+          record_initialization_failure(
+              status, FailureStage::uid_changed_before_write);
+          return false;
+        }
+        const auto before_checksum = format_diagnostic_checksum(diagnostic_checksum(
+            initialization_before_image_.data(), geometry.capacity()));
+        if (std::strcmp(before_checksum.data(), request.checksum.data()) != 0) {
+          status.authorization = CheckResult::fail;
+          status.preflight = CheckResult::fail;
+          record_initialization_failure(status, FailureStage::write_authorization);
+          return false;
+        }
+        if (!is_zero_filled(core::ByteView(
+                initialization_before_image_.data(), initialization_usable_bytes))) {
+          status.blank = false;
+          status.preflight = CheckResult::fail;
+          status.state = InitializationState::refused;
+          status.failure_stage = FailureStage::tag_not_blank;
+          std::snprintf(status.message.data(), status.message.size(),
+                        "INITIALIZATION REFUSED: TAG IS NOT BLANK");
+          record_failure(FailureStage::tag_not_blank);
+          publish_initialization_status(status);
+          return false;
+        }
+        status.blank = true;
+
+        const auto preflight_field_off = field.close();
+        if (preflight_field_off != ERR_NONE) {
+          note_rfal_error(preflight_field_off);
+          status.rf_field_disable = CheckResult::fail;
+          record_initialization_failure(status, FailureStage::rf_field_off);
+          return false;
+        }
+        status.rf_field_disable = CheckResult::pass;
+        if (!post_rf_transport_healthy(
+                FailureStage::nfc_post_read_transport,
+                FailureStage::nfc_post_read_transport)) {
+          status.preflight_transport = CheckResult::fail;
+          record_initialization_failure(
+              status, FailureStage::nfc_post_read_transport);
+          return false;
+        }
+        status.preflight_transport = CheckResult::pass;
+        const auto write_field_on = field.enable();
+        if (write_field_on != ERR_NONE) {
+          note_rfal_error(write_field_on);
+          status.preflight = CheckResult::fail;
+          record_initialization_failure(status, FailureStage::rf_field_on);
+          return false;
+        }
+
+        const auto target = build_initialization_target(
+            core::ByteView(initialization_before_image_.data(), geometry.capacity()),
+            core::ByteView(initialization_image_.data(), initialization_image_.size()));
+        if (!target.ok()) {
+          status.preflight = CheckResult::fail;
+          record_initialization_failure(status, FailureStage::image_generation);
+          return false;
+        }
+        status.target_checksum = format_diagnostic_checksum(diagnostic_checksum(
+            target.value().data(), target.value().size()));
+        const auto unlocked_plan = opentag::nfc::nfcv::WritePlan::build(
+            core::ByteView(initialization_before_image_.data(), geometry.capacity()),
+            core::ByteView(target.value()),
+            geometry);
+        if (!unlocked_plan.ok()) {
+          status.preflight = CheckResult::fail;
+          record_initialization_failure(status, FailureStage::image_generation);
+          return false;
+        }
+        status.differing_blocks = static_cast<std::uint16_t>(unlocked_plan.value().blocks().size());
+
+        std::vector<bool> locks(geometry.block_count, false);
+        for (const auto& block : unlocked_plan.value().blocks()) {
+          bool locked = false;
+          bool data_matches = false;
+          const auto offset =
+              static_cast<std::size_t>(block.block_index) * geometry.block_size;
+          if (block.block_index > initialization_last_block ||
+              !read_block_security(
+                  wire_uid.data(),
+                  block.block_index,
+                  geometry.block_size,
+                  locked,
+                  data_matches,
+                  initialization_before_image_.data() + offset)) {
+            status.block_security = CheckResult::fail;
+            record_initialization_failure(
+                status,
+                FailureStage::tag_locked_write_protected,
+                block.block_index);
+            return false;
+          }
+          if (!data_matches) {
+            status.preflight = CheckResult::fail;
+            status.block_security = CheckResult::fail;
+            record_initialization_failure(
+                status, FailureStage::full_image_verify, block.block_index);
+            return false;
+          }
+          locks[block.block_index] = locked;
+          if (locked) {
+            status.block_security = CheckResult::fail;
+            record_initialization_failure(
+                status,
+                FailureStage::tag_locked_write_protected,
+                block.block_index);
+            return false;
+          }
+          (void)sample_scale_once();
+        }
+        status.block_security = CheckResult::pass;
+
+        const auto plan = opentag::nfc::nfcv::WritePlan::build(
+            core::ByteView(initialization_before_image_.data(), geometry.capacity()),
+            core::ByteView(target.value()),
+            geometry,
+            locks);
+        if (!plan.ok()) {
+          record_initialization_failure(
+              status, FailureStage::tag_locked_write_protected);
+          return false;
+        }
+        status.planned_blocks = static_cast<std::uint16_t>(plan.value().blocks().size());
+        status.preflight = CheckResult::pass;
+        status.block_write = CheckResult::pending;
+        status.block_verify = CheckResult::pending;
+        std::snprintf(status.message.data(), status.message.size(),
+                      "Preflight PASS; bounded block transaction running");
+        publish_initialization_status(status);
+
+        for (const auto& block : plan.value().blocks()) {
+          if (elapsed(millis(), started_ms, initialization_duration_ms)) {
+            status.block_write = CheckResult::fail;
+            record_initialization_failure(
+                status, FailureStage::block_write, block.block_index);
+            return false;
+          }
+          if (!confirm_single_uid(
+                  wire_uid.data(), FailureStage::uid_changed_before_write)) {
+            record_initialization_failure(
+                status, FailureStage::uid_changed_before_write, block.block_index);
+            return false;
+          }
+          const auto written = write_block_once(wire_uid.data(), block);
+          if (written != ERR_NONE) {
+            note_rfal_error(written);
+            const auto stage = written == ERR_WRITE || written == ERR_REQUEST
+                ? FailureStage::tag_locked_write_protected
+                : FailureStage::block_write;
+            status.block_write = CheckResult::fail;
+            record_initialization_failure(status, stage, block.block_index);
+            return false;
+          }
+          ++status.written_blocks;
+          status.block_write = CheckResult::pass;
+
+          std::array<std::uint8_t, RFAL_NFCV_MAX_BLOCK_LEN> verified{};
+          if (read_blocks(
+                  wire_uid.data(),
+                  block.block_index,
+                  1U,
+                  geometry.block_size,
+                  verified.data(),
+                  FailureStage::block_verify) != BlockReadResult::pass ||
+              std::memcmp(verified.data(), block.data.data(), geometry.block_size) != 0) {
+            status.block_verify = CheckResult::fail;
+            record_initialization_failure(
+                status, FailureStage::block_verify, block.block_index);
+            return false;
+          }
+          status.block_verify = CheckResult::pass;
+          publish_initialization_status(status);
+          (void)sample_scale_once();
+        }
+
+        initialization_after_image_.fill(0U);
+        if (!confirm_single_uid(
+                wire_uid.data(), FailureStage::full_image_verify)) {
+          status.full_image_verify = CheckResult::fail;
+          record_initialization_failure(status, FailureStage::full_image_verify);
+          return false;
+        }
+        if (!read_complete_memory(
+                wire_uid.data(),
+                geometry,
+                initialization_after_image_,
+                started_ms,
+                FailureStage::full_image_verify,
+                initialization_duration_ms)) {
+          status.full_image_verify = CheckResult::fail;
+          record_initialization_failure(status, FailureStage::full_image_verify);
+          return false;
+        }
+        if (!confirm_single_uid(
+                wire_uid.data(), FailureStage::full_image_verify) ||
+            std::memcmp(
+                initialization_after_image_.data(),
+                target.value().data(),
+                geometry.capacity()) != 0) {
+          status.full_image_verify = CheckResult::fail;
+          record_initialization_failure(status, FailureStage::full_image_verify);
+          return false;
+        }
+        status.full_image_verify = CheckResult::pass;
+        status.uid_after_write = expected_uid;
+        status.final_checksum = format_diagnostic_checksum(diagnostic_checksum(
+            initialization_after_image_.data(), geometry.capacity()));
+
+        const auto decoded = opentag::nfc::openprinttag::Codec::decode(
+            core::ByteView(initialization_after_image_.data(), geometry.capacity()));
+        if (!decoded.ok() ||
+            decoded.value().envelope.capability_capacity != initialization_usable_bytes ||
+            decoded.value().envelope.meta.used_size != 4U ||
+            decoded.value().envelope.main.used_size != 1U ||
+            !decoded.value().envelope.auxiliary.has_value() ||
+            decoded.value().envelope.auxiliary->absolute_offset !=
+                initialization_auxiliary_tag_offset ||
+            decoded.value().envelope.auxiliary->size !=
+                initialization_auxiliary_encoded_bytes ||
+            decoded.value().envelope.auxiliary->used_size != 1U ||
+            decoded.value().material.unknown_main_fields != 0U ||
+            decoded.value().material.unknown_auxiliary_fields != 0U) {
+          status.post_write_decode = CheckResult::fail;
+          record_initialization_failure(status, FailureStage::post_write_decode);
+          return false;
+        }
+        status.post_write_decode = CheckResult::pass;
+        status.current_decode = CheckResult::pass;
+        return true;
+      }();
+    }
+
+    const auto field_off = field.close();
+    if (field_off != ERR_NONE) {
+      note_rfal_error(field_off);
+      status.rf_field_disable = CheckResult::fail;
+      record_initialization_failure(status, FailureStage::rf_field_off);
+      operation_ok = false;
+    } else if (status.rf_field_disable != CheckResult::fail) {
+      status.rf_field_disable = field_on == ERR_NONE
+          ? CheckResult::pass : CheckResult::skipped;
+    }
+    const bool transport_healthy = post_rf_transport_healthy(
+        FailureStage::post_write_transport,
+        FailureStage::post_write_transport);
+    status.post_write_transport = transport_healthy
+        ? CheckResult::pass : CheckResult::fail;
+    if (!transport_healthy) {
+      record_initialization_failure(status, FailureStage::post_write_transport);
+      operation_ok = false;
+    }
+
+    if (operation_ok) {
+      status.state = InitializationState::pass;
+      status.failure_stage = FailureStage::none;
+      std::snprintf(status.message.data(), status.message.size(),
+                    "Blank tag initialized and fully verified; no automatic retry performed");
+      std::copy_n(
+          initialization_after_image_.begin(),
+          slix2_physical_bytes,
+          memory_image_first_.begin());
+      std::copy_n(
+          initialization_after_image_.begin(),
+          slix2_physical_bytes,
+          memory_image_second_.begin());
+      live_.memory_checksum = status.final_checksum;
+      live_.memory_dump_available = true;
+      memory_dump_available_.store(true, std::memory_order_release);
+      publish_initialization_status(status);
+    } else if (status.state == InitializationState::running) {
+      status.state = InitializationState::fail;
+    }
+    publish_initialization_status(status);
+    set_phase(Phase::complete);
+    Serial.printf("OpenPrintTag initialize  %s\n", to_string(status.state));
+    Serial.printf("Blocks planned/written  %u/%u\n",
+                  static_cast<unsigned>(status.planned_blocks),
+                  static_cast<unsigned>(status.written_blocks));
+    Serial.printf("Final checksum          %s\n",
+                  status.final_checksum[0] == '\0' ? "-" : status.final_checksum.data());
+    Serial.printf("Initialization failure %s\n", to_string(status.failure_stage));
+    if (status.failed_block >= 0) {
+      Serial.printf("Failed block            %ld\n", static_cast<long>(status.failed_block));
+    }
+    print_final_report();
   }
 
   bool run_inventory_round() {
@@ -1270,6 +1949,67 @@ class DualI2cFirmware {
     screen_.printf("Wi-Fi: %s   %s", access_point_ssid, access_point_url);
   }
 
+  InitializationStatus preview_initialization_status() const {
+    auto status = copy_initialization_status();
+    if (status.state != InitializationState::unavailable) return status;
+    const auto snapshot = copy_snapshot();
+    if (!initialization_image_ready_ ||
+        snapshot.phase != Phase::complete ||
+        !memory_dump_available_.load(std::memory_order_acquire) ||
+        snapshot.memory_bytes_read != slix2_physical_bytes ||
+        snapshot.block_count != slix2_block_count ||
+        snapshot.block_size != slix2_block_size) {
+      std::snprintf(status.message.data(), status.message.size(),
+                    "Complete the read-only 80 x 4 NFC-V diagnostic first");
+      return status;
+    }
+
+    status.state = InitializationState::ready;
+    status.uid = snapshot.memory_uid;
+    status.before_checksum = snapshot.memory_checksum;
+    status.blank = is_zero_filled(core::ByteView(
+        memory_image_first_.data(), initialization_usable_bytes));
+    if (status.blank) {
+      status.current_decode = CheckResult::skipped;
+    } else {
+      const auto current_decoded = opentag::nfc::openprinttag::Codec::decode(
+          core::ByteView(memory_image_first_.data(), slix2_physical_bytes));
+      status.current_decode = current_decoded.ok()
+          ? CheckResult::pass : CheckResult::fail;
+    }
+    const auto target = build_initialization_target(
+        core::ByteView(memory_image_first_.data(), slix2_physical_bytes),
+        core::ByteView(initialization_image_.data(), initialization_image_.size()));
+    if (!target.ok()) {
+      status.state = InitializationState::fail;
+      status.failure_stage = FailureStage::image_generation;
+      std::snprintf(status.message.data(), status.message.size(),
+                    "Generated OpenPrintTag image does not fit this tag");
+      return status;
+    }
+    const auto plan = opentag::nfc::nfcv::WritePlan::build(
+        core::ByteView(memory_image_first_.data(), slix2_physical_bytes),
+        core::ByteView(target.value()),
+        {slix2_block_size, slix2_block_count});
+    if (!plan.ok()) {
+      status.state = InitializationState::fail;
+      status.failure_stage = FailureStage::image_generation;
+      std::snprintf(status.message.data(), status.message.size(),
+                    "Unable to build bounded initialization plan");
+      return status;
+    }
+    status.differing_blocks = static_cast<std::uint16_t>(plan.value().blocks().size());
+    status.planned_blocks = status.differing_blocks;
+    status.target_checksum = format_diagnostic_checksum(diagnostic_checksum(
+        target.value().data(), target.value().size()));
+    std::snprintf(
+        status.message.data(), status.message.size(), "%s",
+        status.blank
+            ? "Ready for explicit blank-tag preflight; no bytes have been written"
+            : "INITIALIZATION REFUSED: TAG IS NOT BLANK");
+    return status;
+  }
+
   static esp_err_t root_handler(httpd_req_t* request) {
     httpd_resp_set_type(request, "text/html; charset=utf-8");
     httpd_resp_set_hdr(request, "Cache-Control", "no-store");
@@ -1372,6 +2112,200 @@ class DualI2cFirmware {
     return httpd_resp_send(request, json.data(), static_cast<ssize_t>(used));
   }
 
+  static esp_err_t preview_handler(httpd_req_t* request) {
+    auto* firmware = static_cast<DualI2cFirmware*>(request->user_ctx);
+    const auto status = firmware->preview_initialization_status();
+    std::array<char, 3072U> json{};
+    std::size_t used = 0U;
+    append_json(
+        json.data(), json.size(), used,
+        "{\"state\":\"%s\",\"uid\":\"%s\",\"uid_after_write\":\"%s\","
+        "\"block_count\":%u,\"block_size\":%u,\"memory_capacity_bytes\":%u,"
+        "\"usable_bytes\":%u,\"generated_bytes\":%u,"
+        "\"before_checksum\":\"%s\",\"generated_checksum\":\"%s\","
+        "\"target_checksum\":\"%s\","
+        "\"final_checksum\":\"%s\",\"differing_blocks\":%u,"
+        "\"planned_blocks\":%u,\"written_blocks\":%u,"
+        "\"mime_type\":\"%s\","
+        "\"auxiliary_region\":\"32-byte minimum; 35-byte aligned region\","
+        "\"auxiliary_requested_bytes\":%u,\"auxiliary_encoded_bytes\":%u,"
+        "\"auxiliary_tag_offset\":%u,"
+        "\"blank\":%s,\"image_generation\":\"%s\","
+        "\"reference_vector\":\"%s\",\"current_decode\":\"%s\","
+        "\"authorization\":\"%s\","
+        "\"preflight\":\"%s\",\"preflight_transport\":\"%s\","
+        "\"block_security\":\"%s\","
+        "\"block_write\":\"%s\",\"block_verify\":\"%s\","
+        "\"full_image_verify\":\"%s\",\"post_write_decode\":\"%s\","
+        "\"post_write_transport\":\"%s\",\"rf_field_disable\":\"%s\","
+        "\"failed_block\":%ld,"
+        "\"failure_stage\":\"%s\",\"message\":\"%s\"}",
+        to_string(status.state),
+        status.uid.data(),
+        status.uid_after_write.data(),
+        static_cast<unsigned>(slix2_block_count),
+        static_cast<unsigned>(slix2_block_size),
+        static_cast<unsigned>(slix2_physical_bytes),
+        static_cast<unsigned>(initialization_usable_bytes),
+        static_cast<unsigned>(initialization_usable_bytes),
+        status.before_checksum.data(),
+        status.generated_checksum.data(),
+        status.target_checksum.data(),
+        status.final_checksum.data(),
+        static_cast<unsigned>(status.differing_blocks),
+        static_cast<unsigned>(status.planned_blocks),
+        static_cast<unsigned>(status.written_blocks),
+        opentag::nfc::openprinttag::mime_type,
+        static_cast<unsigned>(initialization_auxiliary_requested_bytes),
+        static_cast<unsigned>(initialization_auxiliary_encoded_bytes),
+        static_cast<unsigned>(initialization_auxiliary_tag_offset),
+        status.blank ? "true" : "false",
+        to_string(status.image_generation),
+        to_string(status.reference_vector),
+        to_string(status.current_decode),
+        to_string(status.authorization),
+        to_string(status.preflight),
+        to_string(status.preflight_transport),
+        to_string(status.block_security),
+        to_string(status.block_write),
+        to_string(status.block_verify),
+        to_string(status.full_image_verify),
+        to_string(status.post_write_decode),
+        to_string(status.post_write_transport),
+        to_string(status.rf_field_disable),
+        static_cast<long>(status.failed_block),
+        to_string(status.failure_stage),
+        status.message.data());
+    httpd_resp_set_type(request, "application/json");
+    httpd_resp_set_hdr(request, "Cache-Control", "no-store");
+    return httpd_resp_send(request, json.data(), static_cast<ssize_t>(used));
+  }
+
+  static esp_err_t initialization_image_handler(httpd_req_t* request) {
+    auto* firmware = static_cast<DualI2cFirmware*>(request->user_ctx);
+    if (!firmware->initialization_image_ready_) {
+      httpd_resp_set_status(request, "503 Service Unavailable");
+      return httpd_resp_sendstr(request, "OpenPrintTag image generation failed.\n");
+    }
+    httpd_resp_set_type(request, "application/octet-stream");
+    httpd_resp_set_hdr(request, "Cache-Control", "no-store");
+    httpd_resp_set_hdr(
+        request,
+        "Content-Disposition",
+        "attachment; filename=openprinttag-nfcv-initialization-312-aux32.bin");
+    httpd_resp_set_hdr(request, "X-OpenPrintTag-Reference",
+                       opentag::nfc::openprinttag::initializer_reference_revision);
+    httpd_resp_set_hdr(request, "X-OpenTag-Checksum-FNV1A32", "6B6EABF1");
+    httpd_resp_set_hdr(
+        request, "X-OpenPrintTag-Auxiliary-Requested-Bytes", "32");
+    httpd_resp_set_hdr(
+        request, "X-OpenPrintTag-Auxiliary-Encoded-Bytes", "35");
+    httpd_resp_set_hdr(request, "X-OpenPrintTag-Auxiliary-Offset", "276");
+    return httpd_resp_send(
+        request,
+        reinterpret_cast<const char*>(firmware->initialization_image_.data()),
+        static_cast<ssize_t>(firmware->initialization_image_.size()));
+  }
+
+  static esp_err_t initialize_handler(httpd_req_t* request) {
+    auto* firmware = static_cast<DualI2cFirmware*>(request->user_ctx);
+    if (request->content_len <= 0 || request->content_len > 512) {
+      httpd_resp_set_status(request, "400 Bad Request");
+      httpd_resp_set_type(request, "application/json");
+      return httpd_resp_sendstr(
+          request,
+          "{\"failure_stage\":\"WRITE AUTHORIZATION\",\"message\":\"Invalid request body\"}");
+    }
+    std::array<char, 513U> body{};
+    std::size_t received_total = 0U;
+    while (received_total < static_cast<std::size_t>(request->content_len)) {
+      const int received = httpd_req_recv(
+          request,
+          body.data() + received_total,
+          static_cast<std::size_t>(request->content_len) - received_total);
+      if (received <= 0) {
+        httpd_resp_set_status(request, "408 Request Timeout");
+        return httpd_resp_sendstr(request, "{\"message\":\"Request body timeout\"}");
+      }
+      received_total += static_cast<std::size_t>(received);
+    }
+
+    JsonDocument document;
+    const auto parsed = deserializeJson(document, body.data(), received_total);
+    const char* supplied_uid = document["uid"] | static_cast<const char*>(nullptr);
+    const char* supplied_checksum =
+        document["expected_before_checksum"] | static_cast<const char*>(nullptr);
+    const char* supplied_confirmation =
+        document["confirmation"] | static_cast<const char*>(nullptr);
+    const auto preview = firmware->preview_initialization_status();
+    if (parsed || preview.state != InitializationState::ready) {
+      httpd_resp_set_status(request, "409 Conflict");
+      httpd_resp_set_type(request, "application/json");
+      return httpd_resp_sendstr(
+          request,
+          "{\"failure_stage\":\"WRITE AUTHORIZATION\",\"message\":\"Read-only diagnostic is not ready for initialization\"}");
+    }
+    if (!preview.blank) {
+      httpd_resp_set_status(request, "409 Conflict");
+      httpd_resp_set_type(request, "application/json");
+      return httpd_resp_sendstr(
+          request,
+          "{\"failure_stage\":\"TAG NOT BLANK\",\"message\":\"INITIALIZATION REFUSED: TAG IS NOT BLANK\"}");
+    }
+    const auto authorization = validate_initialization_authorization(
+        supplied_uid,
+        supplied_checksum,
+        supplied_confirmation,
+        preview.uid.data(),
+        preview.before_checksum.data());
+    if (authorization != InitializationAuthorizationResult::pass ||
+        supplied_checksum == nullptr ||
+        std::strcmp(supplied_checksum, "97B79EC5") != 0) {
+      httpd_resp_set_status(request, "403 Forbidden");
+      httpd_resp_set_type(request, "application/json");
+      return httpd_resp_sendstr(
+          request,
+          "{\"failure_stage\":\"WRITE AUTHORIZATION\",\"message\":\"UID, expected-before checksum 97B79EC5, or exact confirmation did not match\"}");
+    }
+
+    InitializationRequest queued;
+    std::snprintf(queued.uid.data(), queued.uid.size(), "%s", supplied_uid);
+    std::snprintf(
+        queued.checksum.data(), queued.checksum.size(), "%s", supplied_checksum);
+    bool accepted = false;
+    portENTER_CRITICAL(&firmware->initialization_mux_);
+    if (!firmware->initialization_request_pending_ &&
+        firmware->initialization_status_.state != InitializationState::queued &&
+        firmware->initialization_status_.state != InitializationState::running &&
+        firmware->initialization_status_.state != InitializationState::pass) {
+      firmware->initialization_request_ = queued;
+      firmware->initialization_request_pending_ = true;
+      firmware->initialization_status_ = preview;
+      firmware->initialization_status_.state = InitializationState::queued;
+      firmware->initialization_status_.authorization = CheckResult::pass;
+      std::snprintf(
+          firmware->initialization_status_.message.data(),
+          firmware->initialization_status_.message.size(),
+          "Authorized request queued for fresh hardware preflight");
+      accepted = true;
+    }
+    portEXIT_CRITICAL(&firmware->initialization_mux_);
+    if (!accepted) {
+      httpd_resp_set_status(request, "409 Conflict");
+      httpd_resp_set_type(request, "application/json");
+      return httpd_resp_sendstr(
+          request,
+          "{\"failure_stage\":\"WRITE AUTHORIZATION\",\"message\":\"Initialization is already queued, running, or completed\"}");
+    }
+
+    httpd_resp_set_status(request, "202 Accepted");
+    httpd_resp_set_type(request, "application/json");
+    httpd_resp_set_hdr(request, "Cache-Control", "no-store");
+    return httpd_resp_sendstr(
+        request,
+        "{\"state\":\"QUEUED\",\"message\":\"Fresh preflight will run before the first write\"}");
+  }
+
   static esp_err_t dump_handler(httpd_req_t* request) {
     auto* firmware = static_cast<DualI2cFirmware*>(request->user_ctx);
     if (!firmware->memory_dump_available_.load(std::memory_order_acquire)) {
@@ -1420,7 +2354,7 @@ class DualI2cFirmware {
     }
 
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
-    config.max_uri_handlers = 3U;
+    config.max_uri_handlers = 6U;
     config.max_open_sockets = 2U;
     config.lru_purge_enable = true;
     config.stack_size = 6144U;
@@ -1447,9 +2381,27 @@ class DualI2cFirmware {
     dump.method = HTTP_GET;
     dump.handler = dump_handler;
     dump.user_ctx = this;
+    httpd_uri_t preview{};
+    preview.uri = "/api/v1/openprinttag/preview";
+    preview.method = HTTP_GET;
+    preview.handler = preview_handler;
+    preview.user_ctx = this;
+    httpd_uri_t initialization_image{};
+    initialization_image.uri = "/api/v1/openprinttag/image";
+    initialization_image.method = HTTP_GET;
+    initialization_image.handler = initialization_image_handler;
+    initialization_image.user_ctx = this;
+    httpd_uri_t initialize{};
+    initialize.uri = "/api/v1/openprinttag/initialize";
+    initialize.method = HTTP_POST;
+    initialize.handler = initialize_handler;
+    initialize.user_ctx = this;
     if (httpd_register_uri_handler(server_, &root) != ESP_OK ||
         httpd_register_uri_handler(server_, &api) != ESP_OK ||
-        httpd_register_uri_handler(server_, &dump) != ESP_OK) {
+        httpd_register_uri_handler(server_, &dump) != ESP_OK ||
+        httpd_register_uri_handler(server_, &preview) != ESP_OK ||
+        httpd_register_uri_handler(server_, &initialization_image) != ESP_OK ||
+        httpd_register_uri_handler(server_, &initialize) != ESP_OK) {
       Serial.println("Diagnostic HTTP routes failed to register");
       httpd_stop(server_);
       server_ = nullptr;
@@ -1467,8 +2419,15 @@ class DualI2cFirmware {
   mutable Snapshot published_;
   std::array<std::uint8_t, maximum_memory_bytes> memory_image_first_{};
   std::array<std::uint8_t, maximum_memory_bytes> memory_image_second_{};
+  std::array<std::uint8_t, initialization_usable_bytes> initialization_image_{};
+  std::array<std::uint8_t, maximum_memory_bytes> initialization_before_image_{};
+  std::array<std::uint8_t, maximum_memory_bytes> initialization_after_image_{};
   std::atomic<bool> memory_dump_available_{false};
   mutable portMUX_TYPE snapshot_mux_ = portMUX_INITIALIZER_UNLOCKED;
+  mutable portMUX_TYPE initialization_mux_ = portMUX_INITIALIZER_UNLOCKED;
+  InitializationStatus initialization_status_;
+  InitializationRequest initialization_request_;
+  bool initialization_request_pending_{false};
   httpd_handle_t server_{nullptr};
   bool screen_ready_{false};
   bool web_ready_{false};
@@ -1477,6 +2436,7 @@ class DualI2cFirmware {
   bool scale_runtime_failed_{false};
   bool nfc_runtime_failed_{false};
   bool memory_read_attempted_{false};
+  bool initialization_image_ready_{false};
   std::uint32_t coexistence_started_ms_{0U};
   std::uint32_t last_scale_check_ms_{0U};
   std::uint32_t last_inventory_ms_{0U};

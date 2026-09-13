@@ -1,6 +1,8 @@
 #include "diagnostics/shared_i2c_diagnostic.hpp"
 
+#include <algorithm>
 #include <cstring>
+#include <utility>
 
 namespace opentag::diagnostics::shared_i2c {
 
@@ -72,6 +74,7 @@ const char* to_string(Phase value) {
     case Phase::nfcv_poller: return "NFC-V POLLER";
     case Phase::coexistence: return "30 SECOND RF / SCALE TEST";
     case Phase::memory_read: return "NFC-V READ-ONLY MEMORY TEST";
+    case Phase::initialization: return "BLANK TAG INITIALIZATION";
     case Phase::complete: return "COMPLETE";
   }
   return "UNKNOWN";
@@ -117,6 +120,18 @@ const char* to_string(FailureStage value) {
     case FailureStage::scale_sample: return "NAU7802 SCALE SAMPLE";
     case FailureStage::nfc_coexistence_probe: return "NFC PROBE DURING SCALE";
     case FailureStage::insufficient_scale_samples: return "SCALE READINGS DID NOT UPDATE";
+    case FailureStage::image_generation: return "OPENPRINTTAG IMAGE GENERATION";
+    case FailureStage::reference_vector_mismatch: return "OPENPRINTTAG REFERENCE VECTOR MISMATCH";
+    case FailureStage::tag_not_blank: return "TAG NOT BLANK";
+    case FailureStage::uid_changed_before_write: return "TAG UID CHANGED BEFORE WRITE";
+    case FailureStage::geometry_changed: return "TAG GEOMETRY CHANGED";
+    case FailureStage::tag_locked_write_protected: return "TAG LOCKED / WRITE PROTECTED";
+    case FailureStage::write_authorization: return "WRITE AUTHORIZATION";
+    case FailureStage::block_write: return "NFC-V BLOCK WRITE";
+    case FailureStage::block_verify: return "NFC-V BLOCK VERIFY";
+    case FailureStage::full_image_verify: return "NFC-V FULL IMAGE VERIFY";
+    case FailureStage::post_write_decode: return "OPENPRINTTAG POST-WRITE DECODE";
+    case FailureStage::post_write_transport: return "NFC POST-WRITE TRANSPORT";
   }
   return "UNKNOWN";
 }
@@ -229,6 +244,66 @@ std::array<char, 9U> format_diagnostic_checksum(std::uint32_t checksum) {
   }
   output[8] = '\0';
   return output;
+}
+
+InitializationAuthorizationResult validate_initialization_authorization(
+    const char* supplied_uid,
+    const char* supplied_checksum,
+    const char* supplied_confirmation,
+    const char* expected_uid,
+    const char* expected_checksum) {
+  if (supplied_uid == nullptr || expected_uid == nullptr ||
+      std::strcmp(supplied_uid, expected_uid) != 0) {
+    return InitializationAuthorizationResult::uid_mismatch;
+  }
+  if (supplied_checksum == nullptr || expected_checksum == nullptr ||
+      std::strcmp(supplied_checksum, expected_checksum) != 0) {
+    return InitializationAuthorizationResult::checksum_mismatch;
+  }
+  if (supplied_confirmation == nullptr ||
+      std::strcmp(supplied_confirmation, "INITIALIZE") != 0) {
+    return InitializationAuthorizationResult::confirmation_mismatch;
+  }
+  return InitializationAuthorizationResult::pass;
+}
+
+bool is_zero_filled(core::ByteView bytes) {
+  if (bytes.data == nullptr && bytes.size != 0U) return false;
+  for (std::size_t index = 0U; index < bytes.size; ++index) {
+    if (bytes[index] != 0U) return false;
+  }
+  return true;
+}
+
+bool matches_initialization_geometry(
+    const NfcvSystemInformation& information,
+    std::uint32_t expected_block_count,
+    std::uint16_t expected_block_size) {
+  return information.memory_size_present &&
+         information.block_count == expected_block_count &&
+         information.block_size == expected_block_size;
+}
+
+core::Result<std::vector<std::uint8_t>> build_initialization_target(
+    core::ByteView current_image,
+    core::ByteView initialization_image) {
+  if ((current_image.data == nullptr && current_image.size != 0U) ||
+      initialization_image.data == nullptr || initialization_image.size == 0U ||
+      initialization_image.size > current_image.size) {
+    return core::Result<std::vector<std::uint8_t>>::failure({
+        core::ErrorCategory::invalid_openprinttag,
+        "OpenPrintTag initialization image does not fit the detected tag",
+        false,
+    });
+  }
+  std::vector<std::uint8_t> result(
+      current_image.data,
+      current_image.data + current_image.size);
+  std::copy(
+      initialization_image.data,
+      initialization_image.data + initialization_image.size,
+      result.begin());
+  return core::Result<std::vector<std::uint8_t>>::success(std::move(result));
 }
 
 }  // namespace opentag::diagnostics::shared_i2c

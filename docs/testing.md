@@ -340,7 +340,7 @@ UID `E0:04:01:08:66:27:D8:D4`; removal transitioned cleanly to zero devices and
 reinsertion recovered the same UID. Both buses remained error-free and scale
 sampling continued.
 
-The next read-only checkpoint uses exactly one stable tag:
+The subsequent read-only checkpoint passed on the same physical tag:
 
 1. Require standard system information or the ELECHOUSE extended-command
    fallback to return memory geometry for that same UID.
@@ -358,9 +358,11 @@ The next read-only checkpoint uses exactly one stable tag:
 6. Require zero NFC/scale bus errors, continuing scale samples, post-read `0x50`
    and chip-ID health, and RF field cleanup on every path.
 
-No tag writes, locks, AFI/DSFID changes, privacy commands, NDEF/OpenPrintTag
-parsing, or backend integration are permitted in this checkpoint. An absent tag
-remains a normal inventory PASS with the memory checks reported as skipped.
+The result was 80 four-byte blocks, two identical 320-byte all-zero images, and
+checksum `97B79EC5`, with zero scale/NFC bus errors and healthy post-read
+transport. The next checkpoint is the explicit, blank-only initialization in
+[`nfc-v-initialization-diagnostic.md`](nfc-v-initialization-diagnostic.md).
+Production NFC and backend integration remain out of scope.
 
 ### OTA
 

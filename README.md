@@ -321,10 +321,12 @@ See [Architecture](docs/architecture.md).
 
 - The ELECHOUSE I2C RFAL implementation is pinned and vendored only for the
   opt-in diagnostic; production NFC remains disabled.
-- Dedicated `Wire` scale and `Wire1` NFC transport, chip ID, and IRQ are
-  physically validated; NFC-V RF inventory and UID stability are pending.
-- OpenPrintTag behavior is host-tested but no physical tag-memory read or write
-  has been validated.
+- Dedicated `Wire` scale and `Wire1` NFC transport, chip ID, IRQ, NFC-V RF
+  inventory, stable UID, and repeated 320-byte tag-memory reads are physically
+  validated.
+- OpenPrintTag decoding remains host-tested. Guarded initialization of one
+  physically verified blank tag is the next opt-in diagnostic checkpoint; no
+  physical tag write has yet been validated.
 - Scale calibration accuracy, repeatability, drift, and persistence still require complete physical validation.
 - Wi-Fi provisioning and reconnect behavior are still undergoing physical hardware validation.
 - Spoolman and FilaBridge integrations still require validation against live target instances.
