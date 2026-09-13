@@ -19,7 +19,7 @@ production and diagnostic firmware, stack analyzers, shared backend/NFC and
 httpd audits, production NFC source and ELF guards, pinned OpenPrintTag golden
 reference, web assets, both flasher bundles, and assembled Pages validation.
 Local completion validation covers 360 native cases across 24 suites and 47
-browser cases. Production uses 175,428 bytes static RAM and 2,345,641 bytes
+browser cases. Production uses 175,428 bytes static RAM and 2,346,065 bytes
 flash. The shared backend/NFC compiler reserve is 4,256 bytes. Ordinary httpd
 routes retain 4,112 bytes after a 2,048-byte allowance; the unchanged OTA upload
 audit retains 2,912 bytes. Record the final CI head in the PR. A build or host

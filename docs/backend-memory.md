@@ -29,6 +29,9 @@ Configuration parsing and large route/backend snapshots use fallible PSRAM
 holders, reducing automatic objects and copies. Local API parsing uses a
 separate allocator from backend parsing. Network event serialization uses a
 per-call allocator, so no allocator is shared unsafely between runtime owners.
+Configuration persistence uses an allocator owned by the configuration service
+and protected by its existing mutex. Confirmation cannot create a second large
+internal JSON tree; allocation failure retains the prior saved settings.
 
 ## Work scheduling and errors
 

@@ -14,6 +14,7 @@
 
 #include "boards/wt32_sc01_plus_rev_a.hpp"
 #include "core/error.hpp"
+#include "network/backend_json.hpp"
 
 namespace opentag::config {
 namespace {
@@ -487,7 +488,10 @@ core::Result<std::shared_ptr<DecodedConfigurationDocument>> decode_document(
 }  // namespace
 
 struct ConfigurationService::Impl {
-  JsonDocument document;
+  // This allocator outlives both the persistent document and every candidate.
+  // The configuration mutex serializes use from its owner, scale and mappings.
+  network::BackendJsonAllocator allocator;
+  JsonDocument document{&allocator};
 };
 
 core::Result<void> Configuration::validate() const {
@@ -749,9 +753,14 @@ core::Result<void> ConfigurationService::persist_locked(
   const auto valid = configuration.validate();
   if (!valid.ok()) return valid;
 
-  JsonDocument candidate;
+  JsonDocument candidate(&impl_->allocator);
   candidate.set(impl_->document);
   write_known(candidate, configuration);
+  if (candidate.overflowed()) {
+    const auto error = configuration_error("Configuration JSON workspace unavailable; saved settings retained");
+    status_.last_error = error;
+    return core::Result<void>::failure(error);
+  }
   std::string serialized;
   serializeJson(candidate, serialized);
   if (serialized.empty() || serialized.size() > maximum_document_bytes) {
