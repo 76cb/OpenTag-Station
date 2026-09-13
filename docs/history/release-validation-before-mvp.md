@@ -628,4 +628,3 @@ Every item below starts and remains **UNVERIFIED** until real evidence is added.
   scheduler/operation queues, cleanup, and Wi-Fi/backend reconnect cycles.
 - [ ] **UNVERIFIED** — 30-minute connected-browser soak and multi-day stability
   with no declining memory or stack margin.
-
