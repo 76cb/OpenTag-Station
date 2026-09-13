@@ -203,6 +203,7 @@ core::Result<AssignmentResult> StationWorkflow::assign(
     ToolheadMutationPrecondition precondition,
     std::optional<std::uint64_t> expected_printer_revision) {
   domain::SpoolId spool_id = 0;
+  std::uint64_t generation = 0;
   nfc::openprinttag::MaterialRecord material;
   {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -240,6 +241,7 @@ core::Result<AssignmentResult> StationWorkflow::assign(
       return core::Result<AssignmentResult>::failure(error);
     }
     spool_id = state_.spool->id;
+    generation = state_.spool_generation;
     material = state_.material;
     const auto profile = std::find_if(
         profiles.begin(), profiles.end(), [&](const auto& candidate) {
@@ -270,6 +272,9 @@ core::Result<AssignmentResult> StationWorkflow::assign(
   const auto result = assignment_service_.assign(request);
 
   std::lock_guard<std::mutex> lock(mutex_);
+  // The operation result still belongs to its original request. Never apply
+  // that completion to a tag removed/replaced while the backend was busy.
+  if (state_.spool_generation != generation) return result;
   if (!result.ok()) {
     state_.assignment_error = result.error();
     if (connection_failure(result.error())) {
@@ -301,6 +306,7 @@ core::Result<AssignmentResult> StationWorkflow::unassign(
     std::optional<std::uint64_t> expected_spool_generation,
     ToolheadMutationPrecondition precondition,
     std::optional<std::uint64_t> expected_printer_revision) {
+  std::uint64_t generation = 0;
   {
     std::lock_guard<std::mutex> lock(mutex_);
     state_.assignment_error.reset();
@@ -324,6 +330,7 @@ core::Result<AssignmentResult> StationWorkflow::unassign(
       state_.assignment_error = error;
       return core::Result<AssignmentResult>::failure(error);
     }
+    generation = state_.spool_generation;
   }
 
   UnassignmentRequest request;
@@ -334,6 +341,7 @@ core::Result<AssignmentResult> StationWorkflow::unassign(
   const auto result = assignment_service_.unassign(request);
 
   std::lock_guard<std::mutex> lock(mutex_);
+  if (state_.spool_generation != generation) return result;
   if (!result.ok()) {
     state_.assignment_error = result.error();
     if (connection_failure(result.error())) {

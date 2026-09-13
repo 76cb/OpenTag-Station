@@ -76,6 +76,7 @@ class FakePrinterBackend final : public IPrinterAssignmentService {
   bool offline{false};
   bool mapping_supported{true};
   int assignment_calls{0};
+  std::function<void()> during_mapping;
 
   Result<std::vector<Printer>> list_printers() override {
     if (offline) {
@@ -101,6 +102,7 @@ class FakePrinterBackend final : public IPrinterAssignmentService {
       int backend_toolhead_id,
       SpoolId spool_id) override {
     ++assignment_calls;
+    if (during_mapping) during_mapping();
     for (auto& printer : printers) {
       if (printer.id != printer_id) continue;
       for (auto& toolhead : printer.toolheads) {
@@ -117,6 +119,7 @@ class FakePrinterBackend final : public IPrinterAssignmentService {
   Result<void> unassign_spool(
       const std::string& printer_id,
       int backend_toolhead_id) override {
+    if (during_mapping) during_mapping();
     for (auto& printer : printers) {
       if (printer.id != printer_id) continue;
       for (auto& toolhead : printer.toolheads) {
@@ -498,6 +501,38 @@ void test_removed_tag_rejects_queued_and_inflight_resolution() {
   TEST_ASSERT_EQUAL_INT(static_cast<int>(WorkflowStage::awaiting_spool),static_cast<int>(workflow.snapshot().stage));
 }
 
+void test_mapping_completion_does_not_restore_removed_or_replaced_tag() {
+  FakeResolver resolver;
+  resolver.next = Result<SpoolResolution>::success({
+      SpoolResolutionStatus::matched, SpoolMatchSource::configured_identity_field,
+      {spool()}});
+  FakePrinterBackend printers;
+  StationWorkflow workflow(resolver, printers);
+  (void)workflow.accept_identified_spool(material(), Uid{}, {900, true}, {}, {});
+  (void)workflow.refresh_printers();
+  printers.during_mapping = [&] { workflow.clear(); };
+  const auto assigned = workflow.assign("xl-stable-id", 2, false, false, {});
+  TEST_ASSERT_TRUE(assigned.ok());
+  TEST_ASSERT_TRUE(assigned.value().verified());
+  TEST_ASSERT_FALSE(workflow.snapshot().openprinttag_available);
+  TEST_ASSERT_FALSE(workflow.snapshot().last_assignment.has_value());
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(WorkflowStage::awaiting_spool),
+      static_cast<int>(workflow.snapshot().stage));
+
+  (void)workflow.accept_identified_spool(material(), Uid{}, {900, true}, {}, {});
+  (void)workflow.refresh_printers();
+  Uid replacement{};
+  replacement.bytes[7] = 1;
+  printers.during_mapping = [&] { workflow.begin_identified_spool(material(), replacement); };
+  const auto unassigned = workflow.unassign("xl-stable-id", 2, false);
+  TEST_ASSERT_TRUE(unassigned.ok());
+  TEST_ASSERT_TRUE(unassigned.value().verified());
+  TEST_ASSERT_TRUE(workflow.snapshot().uid == replacement);
+  TEST_ASSERT_FALSE(workflow.snapshot().last_assignment.has_value());
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(WorkflowStage::waiting_for_stable_weight),
+      static_cast<int>(workflow.snapshot().stage));
+}
+
 int main(int, char**) {
   UNITY_BEGIN();
   RUN_TEST(test_complete_decoded_tag_to_verified_t3_assignment_slice);
@@ -512,5 +547,6 @@ int main(int, char**) {
   RUN_TEST(test_stale_printer_revision_rejects_assignment);
   RUN_TEST(test_nfc_handoff_waits_submits_once_and_clears);
   RUN_TEST(test_removed_tag_rejects_queued_and_inflight_resolution);
+  RUN_TEST(test_mapping_completion_does_not_restore_removed_or_replaced_tag);
   return UNITY_END();
 }
