@@ -15,6 +15,8 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <memory>
+#include <new>
 #include <optional>
 #include <vector>
 
@@ -26,6 +28,15 @@
 #include "nfc/formats/openprinttag/codec.hpp"
 #include "nfc/formats/openprinttag/initializer.hpp"
 #include "nfc/protocols/nfcv/tag.hpp"
+
+// Arduino-ESP32 2.0.17 creates loopTask with 8 KiB by default and exposes this
+// supported strong override for sketches whose setup()/loop() call chains need
+// more room. The OpenPrintTag decode path is compiler-measured separately in CI.
+constexpr std::size_t diagnostic_loop_task_stack_bytes = 16384U;
+constexpr std::size_t diagnostic_loop_task_stack_safety_bytes = 4096U;
+SET_LOOP_TASK_STACK_SIZE(diagnostic_loop_task_stack_bytes);
+static_assert(
+    diagnostic_loop_task_stack_bytes > diagnostic_loop_task_stack_safety_bytes);
 
 namespace opentag::diagnostics::shared_i2c {
 namespace {
@@ -113,6 +124,22 @@ class ScopedRfField {
 
 bool is_rfal_i2c_error(ReturnCode result) {
   return (result & 0xFF00U) == ERR_I2C_GRP;
+}
+
+void log_loop_stack_high_water(const char* checkpoint) {
+  Serial.printf(
+      "loopTask stack checkpoint=%s free=%lu bytes\n",
+      checkpoint,
+      static_cast<unsigned long>(uxTaskGetStackHighWaterMark(nullptr)));
+}
+
+std::unique_ptr<opentag::nfc::openprinttag::DecodedTag>
+decode_openprinttag_off_stack(core::ByteView image) {
+  auto decoded = std::unique_ptr<opentag::nfc::openprinttag::DecodedTag>(
+      new (std::nothrow) opentag::nfc::openprinttag::DecodedTag());
+  if (!decoded) return nullptr;
+  const auto result = opentag::nfc::openprinttag::Codec::decode(image, *decoded);
+  return result.ok() ? std::move(decoded) : nullptr;
 }
 
 enum class BlockReadResult : std::uint8_t {
@@ -314,15 +341,23 @@ class DualI2cFirmware {
   void setup() {
     Serial.begin(115200);
     delay(100U);
+    log_loop_stack_high_water("setup entry");
     Serial.printf(
         "OpenTag dual I2C diagnostic %s (%s)\n",
         OPENTAG_PROJECT_VERSION,
         OPENTAG_GIT_SHA);
+    Serial.printf(
+        "loopTask stack configured=%u bytes safety budget=%u bytes\n",
+        static_cast<unsigned>(diagnostic_loop_task_stack_bytes),
+        static_cast<unsigned>(diagnostic_loop_task_stack_safety_bytes));
 
     initialize_screen();
+    log_loop_stack_high_water("after initialize_screen");
+    log_loop_stack_high_water("before prepare_initialization_image");
     prepare_initialization_image();
     publish_and_render(true);
     start_web_server();
+    log_loop_stack_high_water("after web server startup");
     characterize_bus();
   }
 
@@ -346,23 +381,21 @@ class DualI2cFirmware {
         initialization_auxiliary_requested_bytes,
         std::nullopt,
     });
+    log_loop_stack_high_water("after image generation");
     const auto decoded = generated.ok()
-        ? opentag::nfc::openprinttag::Codec::decode(core::ByteView(generated.value().bytes))
-        : core::Result<opentag::nfc::openprinttag::DecodedTag>::failure({
-              core::ErrorCategory::invalid_openprinttag,
-              "OpenPrintTag image generation failed",
-              false,
-          });
+        ? decode_openprinttag_off_stack(core::ByteView(generated.value().bytes))
+        : nullptr;
+    log_loop_stack_high_water("after startup Codec::decode");
     if (!generated.ok() || generated.value().bytes.size() != initialization_usable_bytes ||
         !generated.value().auxiliary_region_offset.has_value() ||
         *generated.value().auxiliary_region_offset !=
             initialization_auxiliary_payload_offset ||
-        !decoded.ok() || !decoded.value().envelope.auxiliary.has_value() ||
-        decoded.value().envelope.auxiliary->absolute_offset !=
+        !decoded || !decoded->envelope.auxiliary.has_value() ||
+        decoded->envelope.auxiliary->absolute_offset !=
             initialization_auxiliary_tag_offset ||
-        decoded.value().envelope.auxiliary->size !=
+        decoded->envelope.auxiliary->size !=
             initialization_auxiliary_encoded_bytes ||
-        decoded.value().envelope.auxiliary->used_size != 1U) {
+        decoded->envelope.auxiliary->used_size != 1U) {
       status.state = InitializationState::fail;
       status.image_generation = CheckResult::fail;
       status.reference_vector = CheckResult::skipped;
@@ -1616,20 +1649,22 @@ class DualI2cFirmware {
         status.final_checksum = format_diagnostic_checksum(diagnostic_checksum(
             initialization_after_image_.data(), geometry.capacity()));
 
-        const auto decoded = opentag::nfc::openprinttag::Codec::decode(
-            core::ByteView(initialization_after_image_.data(), geometry.capacity()));
-        if (!decoded.ok() ||
-            decoded.value().envelope.capability_capacity != initialization_usable_bytes ||
-            decoded.value().envelope.meta.used_size != 4U ||
-            decoded.value().envelope.main.used_size != 1U ||
-            !decoded.value().envelope.auxiliary.has_value() ||
-            decoded.value().envelope.auxiliary->absolute_offset !=
+        log_loop_stack_high_water("before post-write Codec::decode");
+        const auto decoded = decode_openprinttag_off_stack(core::ByteView(
+            initialization_after_image_.data(), geometry.capacity()));
+        log_loop_stack_high_water("after post-write Codec::decode");
+        if (!decoded ||
+            decoded->envelope.capability_capacity != initialization_usable_bytes ||
+            decoded->envelope.meta.used_size != 4U ||
+            decoded->envelope.main.used_size != 1U ||
+            !decoded->envelope.auxiliary.has_value() ||
+            decoded->envelope.auxiliary->absolute_offset !=
                 initialization_auxiliary_tag_offset ||
-            decoded.value().envelope.auxiliary->size !=
+            decoded->envelope.auxiliary->size !=
                 initialization_auxiliary_encoded_bytes ||
-            decoded.value().envelope.auxiliary->used_size != 1U ||
-            decoded.value().material.unknown_main_fields != 0U ||
-            decoded.value().material.unknown_auxiliary_fields != 0U) {
+            decoded->envelope.auxiliary->used_size != 1U ||
+            decoded->material.unknown_main_fields != 0U ||
+            decoded->material.unknown_auxiliary_fields != 0U) {
           status.post_write_decode = CheckResult::fail;
           record_initialization_failure(status, FailureStage::post_write_decode);
           return false;
@@ -1972,9 +2007,9 @@ class DualI2cFirmware {
     if (status.blank) {
       status.current_decode = CheckResult::skipped;
     } else {
-      const auto current_decoded = opentag::nfc::openprinttag::Codec::decode(
+      const auto current_decoded = decode_openprinttag_off_stack(
           core::ByteView(memory_image_first_.data(), slix2_physical_bytes));
-      status.current_decode = current_decoded.ok()
+      status.current_decode = current_decoded
           ? CheckResult::pass : CheckResult::fail;
     }
     const auto target = build_initialization_target(

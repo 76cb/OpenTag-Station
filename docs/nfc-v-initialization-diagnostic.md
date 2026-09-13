@@ -55,6 +55,32 @@ The read codec remains pinned to its separately proven revision. The initializer
 records the new reference commit independently because later upstream field-key
 changes have not yet been adopted by the production decoder.
 
+## Diagnostic task stack
+
+PlatformIO `espressif32@6.13.0` resolves to Arduino-ESP32 2.0.17
+(`framework-arduinoespressif32` package `3.20017.241212+sha.dcc1105b`). That
+core creates `loopTask` with 8,192 bytes by default. Its `Arduino.h` exposes
+`SET_LOOP_TASK_STACK_SIZE`, backed by the core's weak
+`getArduinoLoopTaskStackSize()` function, and its bundled stack-size example
+uses 16 KiB.
+
+The merged PR #20 diagnostic added a compiler-reported 7,936-byte
+`Codec::decode` frame beneath 1,696 bytes of initialization preparation and the
+Arduino setup call chain. That exceeded the default task before the normal
+diagnostic could start. The diagnostic now uses the supported 16,384-byte
+override. Its output-parameter codec overload fills heap-backed `DecodedTag`
+storage at startup, read-only preview decoding, and post-write verification,
+while the original value-returning API remains available.
+
+With the pinned compiler, the audited static path is 5,536 bytes for boot decode
+and 5,616 bytes for post-write decode. CI runs
+`tools/check_diagnostic_stack_usage.py` against the diagnostic `.su` files and
+requires at least 4,096 bytes of compiler-estimated headroom. This is a build
+regression guard, not a substitute for hardware high-water measurements.
+Serial reports `uxTaskGetStackHighWaterMark(nullptr)` at setup entry, after
+display initialization, before image preparation, after generation, after the
+startup decode, after web-server startup, and before/after the post-write decode.
+
 ## Authorization and transaction
 
 The diagnostic boots and completes the existing read-only test first. It offers:
@@ -82,12 +108,30 @@ with the local OpenPrintTag codec, requires the auxiliary region and successful
 empty main/auxiliary CBOR-map decoding, and runs the post-RF I2C/chip-ID health
 check.
 
-## Bench acceptance
+## Stack-overflow fix bench acceptance (no write)
 
 1. Flash the pull-request `opentag-nfc-v-diagnostic-pr` artifact.
-2. Confirm the existing read-only diagnostic still passes with UID
+2. Confirm boot does not reset, the display remains on, the
+   `OpenTag-I2C-Test` access point appears, and the diagnostic remains stable.
+3. Confirm the existing read-only diagnostic still passes with UID
    `E0:04:01:08:66:27:D8:D4`, geometry 80 × 4, full-image checksum `97B79EC5`,
    both bus error counts zero, and scale/NFC post-test health passing.
+4. Open `http://192.168.4.1` and require the initialization preview to become
+   `READY`, with the 32-byte requested auxiliary allocation, the 35-byte aligned
+   encoded region at tag offset 276, and target checksum `9E639911`.
+5. Record the loop-task high-water checkpoints for the physical result. Do not
+   press the initialization button or issue the initialization POST in this
+   stack-overflow fix test.
+
+## Future initialization write acceptance
+
+This procedure is not part of the stack-overflow fix PR. Run it only after that
+PR passes the no-write bench acceptance above and a physical write is explicitly
+authorized.
+
+1. Flash the pull-request `opentag-nfc-v-diagnostic-pr` artifact.
+2. Confirm the existing read-only diagnostic passes with the expected UID,
+   geometry, before checksum, bus health, and initialization preview `READY`.
 3. Open `http://192.168.4.1`, review the initialization preview, press the
    initialization button, accept the first UID/checksum warning, and type the
    second exact confirmation `INITIALIZE`.

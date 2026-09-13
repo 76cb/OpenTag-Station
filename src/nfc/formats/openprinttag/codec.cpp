@@ -343,18 +343,19 @@ bool known_aux_key(std::uint64_t key) {
   return key <= 7U;
 }
 
-core::Result<MaterialRecord> decode_material(
+core::Result<void> decode_material(
     ByteView image,
-    const Envelope& envelope) {
+    const Envelope& envelope,
+    MaterialRecord& result) {
   const auto main = CborMapView::parse(
       image.subview(envelope.main.absolute_offset, envelope.main.size));
-  if (!main.ok()) return core::Result<MaterialRecord>::failure(main.error());
-  MaterialRecord result;
+  if (!main.ok()) return core::Result<void>::failure(main.error());
+  result = MaterialRecord{};
 
 #define READ_OPTIONAL(MAP, KEY, MEMBER, METHOD)                                    \
   do {                                                                              \
     const auto status = read_optional((MAP), (KEY), result.MEMBER, &CborMapView::METHOD); \
-    if (!status.ok()) return core::Result<MaterialRecord>::failure(status.error()); \
+    if (!status.ok()) return core::Result<void>::failure(status.error());          \
   } while (false)
 
   for (const auto key : {0U, 1U, 2U, 3U}) {
@@ -363,7 +364,7 @@ core::Result<MaterialRecord> decode_material(
     if (key == 1U) status = read_uuid(main.value(), key, result.package_uuid);
     if (key == 2U) status = read_uuid(main.value(), key, result.material_uuid);
     if (key == 3U) status = read_uuid(main.value(), key, result.brand_uuid);
-    if (!status.ok()) return core::Result<MaterialRecord>::failure(status.error());
+    if (!status.ok()) return core::Result<void>::failure(status.error());
   }
   READ_OPTIONAL(main.value(), 4U, gtin, read_unsigned);
   READ_OPTIONAL(main.value(), 5U, brand_specific_instance_id, read_text);
@@ -384,23 +385,23 @@ core::Result<MaterialRecord> decode_material(
   READ_OPTIONAL(main.value(), 54U, actual_full_length, read_number);
   READ_OPTIONAL(main.value(), 18U, empty_container_weight, read_number);
   const auto color_status = read_color(main.value(), 19U, result.primary_color);
-  if (!color_status.ok()) return core::Result<MaterialRecord>::failure(color_status.error());
+  if (!color_status.ok()) return core::Result<void>::failure(color_status.error());
   for (std::uint64_t index = 0U; index < result.secondary_colors.size(); ++index) {
     const auto status = read_color(main.value(), 20U + index, result.secondary_colors[index]);
-    if (!status.ok()) return core::Result<MaterialRecord>::failure(status.error());
+    if (!status.ok()) return core::Result<void>::failure(status.error());
   }
   const auto lab_status = read_lab_color(main.value(), 59U, result.primary_color_lab);
-  if (!lab_status.ok()) return core::Result<MaterialRecord>::failure(lab_status.error());
+  if (!lab_status.ok()) return core::Result<void>::failure(lab_status.error());
   READ_OPTIONAL(main.value(), 60U, primary_color_ral, read_text);
   READ_OPTIONAL(main.value(), 27U, transmission_distance, read_number);
   if (main.value().find(28U) != nullptr) {
     const auto tags = main.value().read_unsigned_array(28U, 16U);
-    if (!tags.ok()) return core::Result<MaterialRecord>::failure(tags.error());
+    if (!tags.ok()) return core::Result<void>::failure(tags.error());
     result.tags = tags.value();
   }
   if (main.value().find(56U) != nullptr) {
     const auto certifications = main.value().read_unsigned_array(56U, 8U);
-    if (!certifications.ok()) return core::Result<MaterialRecord>::failure(certifications.error());
+    if (!certifications.ok()) return core::Result<void>::failure(certifications.error());
     result.certifications = certifications.value();
   }
   READ_OPTIONAL(main.value(), 29U, density, read_number);
@@ -436,7 +437,7 @@ core::Result<MaterialRecord> decode_material(
   if (envelope.auxiliary.has_value()) {
     const auto aux = CborMapView::parse(image.subview(
         envelope.auxiliary->absolute_offset, envelope.auxiliary->size));
-    if (!aux.ok()) return core::Result<MaterialRecord>::failure(aux.error());
+    if (!aux.ok()) return core::Result<void>::failure(aux.error());
     READ_OPTIONAL(aux.value(), 0U, consumed_weight, read_number);
     READ_OPTIONAL(aux.value(), 1U, workgroup, read_text);
     READ_OPTIONAL(aux.value(), 2U, general_purpose_range_user, read_text);
@@ -544,17 +545,28 @@ core::Result<MaterialRecord> decode_material(
       *result.min_chamber_temperature > *result.max_chamber_temperature) {
     result.validation.errors.emplace_back("min_chamber_temperature exceeds max_chamber_temperature");
   }
-  return core::Result<MaterialRecord>::success(std::move(result));
+  return core::Result<void>::success();
 }
 
 }  // namespace
 
-core::Result<DecodedTag> Codec::decode(core::ByteView tag_image) {
+core::Result<void> Codec::decode(
+    core::ByteView tag_image,
+    DecodedTag& output) {
   const auto envelope = parse_envelope(tag_image);
-  if (!envelope.ok()) return core::Result<DecodedTag>::failure(envelope.error());
-  const auto material = decode_material(tag_image, envelope.value());
-  if (!material.ok()) return core::Result<DecodedTag>::failure(material.error());
-  return core::Result<DecodedTag>::success({envelope.value(), material.value()});
+  if (!envelope.ok()) return core::Result<void>::failure(envelope.error());
+  output.envelope = envelope.value();
+  const auto material = decode_material(
+      tag_image, output.envelope, output.material);
+  if (!material.ok()) return core::Result<void>::failure(material.error());
+  return core::Result<void>::success();
+}
+
+core::Result<DecodedTag> Codec::decode(core::ByteView tag_image) {
+  DecodedTag output;
+  const auto decoded = decode(tag_image, output);
+  if (!decoded.ok()) return core::Result<DecodedTag>::failure(decoded.error());
+  return core::Result<DecodedTag>::success(std::move(output));
 }
 
 core::Result<std::vector<std::uint8_t>> Codec::update_consumed_weight(
