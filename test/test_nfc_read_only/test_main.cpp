@@ -289,38 +289,37 @@ void provisioning_defers_without_hardware_failure() {
   TEST_ASSERT_FALSE(doc["available"].as<bool>());
   TEST_ASSERT_TRUE(doc["last_error"].isNull());
   TEST_ASSERT_TRUE(nfc::describe(status).find("NFC deferred: provisioning") != std::string::npos);
-  unsigned calls = 0;
-  auto create = [&]() { ++calls; return true; };
-  startup.poll(false, true, true, false, false, create);
-  startup.poll(true, false, true, false, false, create);
-  startup.poll(true, true, false, false, false, create);
-  startup.poll(true, true, true, true, false, create);
-  startup.poll(true, true, true, false, true, create);
-  TEST_ASSERT_EQUAL(0, calls);
-  startup.poll(true, true, true, false, false, create);
-  startup.poll(true, true, true, false, false, create);
-  // Later disconnect/AP recovery must not create another task.
-  startup.poll(true, true, false, true, true, create);
-  startup.poll(true, true, true, false, false, create);
-  TEST_ASSERT_EQUAL(1, calls);
+  startup.enable_when_configured(false, true, true, false, false);
+  startup.enable_when_configured(true, false, true, false, false);
+  startup.enable_when_configured(true, true, false, false, false);
+  startup.enable_when_configured(true, true, true, true, false);
+  startup.enable_when_configured(true, true, true, false, true);
+  TEST_ASSERT_FALSE(startup.enabled());
+  startup.enable_when_configured(true, true, true, false, false);
+  TEST_ASSERT_TRUE(startup.enabled());
+  // Later disconnect/AP recovery retains the same logical owner.
+  startup.enable_when_configured(true, true, false, true, true);
+  TEST_ASSERT_TRUE(startup.enabled());
   status = {};
   startup.describe(status);
   web::write_nfc(doc.to<JsonObject>(), status);
   TEST_ASSERT_EQUAL_STRING("initializing", doc["state"]);
   TEST_ASSERT_TRUE(doc["reason"].isNull());
 }
-void worker_creation_failure_is_latched() {
+void enabling_does_not_poll_hardware() {
   nfc::WorkerStartup startup;
-  unsigned calls = 0;
-  auto create = [&]() { ++calls; return false; };
+  Fake f;
+  f.tags = {known};
+  nfc::ReadOnlyService service(f);
   for (unsigned i = 0; i < 100; ++i)
-    startup.poll(true, true, true, false, false, create);
-  TEST_ASSERT_EQUAL(1, calls);
-  nfc::ReadSnapshot status;
-  startup.describe(status);
-  TEST_ASSERT_EQUAL_INT(static_cast<int>(nfc::ReadState::error), static_cast<int>(status.state));
-  TEST_ASSERT_TRUE(status.error.has_value());
-  TEST_ASSERT_TRUE(status.error->message.find("task allocation failed") != std::string::npos);
+    startup.enable_when_configured(true, true, true, false, false);
+  TEST_ASSERT_EQUAL(0, f.reads);
+  TEST_ASSERT_FALSE(service.snapshot().initialized);
+  tick(f, service, 3);  // Only the owner explicitly polling can start RF/read.
+  TEST_ASSERT_NOT_NULL(service.snapshot().tag.get());
+  TEST_ASSERT_EQUAL(1, service.snapshot().generation);
+  tick(f, service, 5);
+  TEST_ASSERT_EQUAL(1, service.snapshot().generation);
 }
 void read_storage_lifetime() {
   struct Tracked {
@@ -361,7 +360,7 @@ int main() {
   RUN_TEST(deadline);
   RUN_TEST(api_and_presentation);
   RUN_TEST(provisioning_defers_without_hardware_failure);
-  RUN_TEST(worker_creation_failure_is_latched);
+  RUN_TEST(enabling_does_not_poll_hardware);
   RUN_TEST(read_storage_lifetime);
   return UNITY_END();
 }

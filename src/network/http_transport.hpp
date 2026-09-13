@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "core/result.hpp"
+#include "network/operation_budget.hpp"
 
 namespace opentag::network {
 
@@ -45,8 +46,13 @@ class IHttpTransport {
 
 class HttpTransport final : public IHttpTransport {
  public:
+  // Set/cleared only by BackendWorker around each command/probe cycle.
+  void begin_operation(std::uint32_t now_ms) { budget_.begin(now_ms); }
+  void end_operation() { budget_.end(); }
   [[nodiscard]] core::Result<HttpResponse> perform(
       const HttpRequest& request) override;
+ private:
+  OperationBudget budget_;
 };
 
 }  // namespace opentag::network

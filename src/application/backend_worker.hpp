@@ -23,6 +23,8 @@
 
 namespace opentag::application {
 
+class NfcWorker;
+
 struct BackendRuntimeSnapshot {
   bool connected{false};
   bool healthy{false};
@@ -47,15 +49,18 @@ class BackendWorker final {
       integrations::filabridge::FilaBridgeAdapter& filabridge,
       services::SpoolIdentityResolver& resolver,
       services::StationWorkflow& workflow,
-      OperationRegistry& operations)
+      OperationRegistry& operations,
+      network::HttpTransport& transport)
       : configuration_(configuration),
         spoolman_(spoolman),
         filabridge_(filabridge),
         resolver_(resolver),
         workflow_(workflow),
-        operations_(operations) {}
+        operations_(operations), transport_(transport) {}
 
-  [[nodiscard]] bool start();
+  [[nodiscard]] bool start(NfcWorker& nfc);
+  static constexpr std::uint32_t stack_bytes = 16384U;
+  static constexpr std::uint32_t safety_bytes = 4096U;
   [[nodiscard]] bool submit_identified_spool(
       const nfc::openprinttag::MaterialRecord& material,
       const nfc::nfcv::Uid& uid,
@@ -113,6 +118,7 @@ class BackendWorker final {
 
   static void task_entry(void* context);
   void run();
+  void poll_nfc();
   void probe_backends(std::uint64_t operation_id = 0U);
   [[nodiscard]] bool apply_backend_settings_if_changed();
   void process(Command& command);
@@ -125,6 +131,8 @@ class BackendWorker final {
   services::SpoolIdentityResolver& resolver_;
   services::StationWorkflow& workflow_;
   OperationRegistry& operations_;
+  network::HttpTransport& transport_;
+  NfcWorker* nfc_{nullptr};
   QueueHandle_t queue_{nullptr};
   TaskHandle_t task_{nullptr};
   std::atomic_size_t pending_{0U};

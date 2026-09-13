@@ -85,7 +85,7 @@ class Application {
   ConfigurationWorker configuration_worker_{
       configuration_, network_, operations_};
   BackendWorker backend_worker_{
-      configuration_, spoolman_, filabridge_, spool_resolver_, workflow_, operations_};
+      configuration_, spoolman_, filabridge_, spool_resolver_, workflow_, operations_, http_transport_};
   ScaleCommandQueue scale_commands_{configuration_, scale_, operations_};
   NfcWorker nfc_worker_{diagnostics_, scale_commands_, workflow_, backend_worker_};
   DeviceControlWorker device_control_{storage_, operations_, lifecycle_};
