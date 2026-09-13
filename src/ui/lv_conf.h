@@ -10,6 +10,9 @@
 
 #define LV_MEM_CUSTOM 0
 #define LV_MEM_SIZE (64U * 1024U)
+#define LV_MEM_ADR 0
+#define LV_MEM_POOL_INCLUDE "lvgl_memory.h"
+#define LV_MEM_POOL_ALLOC opentag_lvgl_pool
 
 #define LV_TICK_CUSTOM 0
 #define LV_DPI_DEF 130

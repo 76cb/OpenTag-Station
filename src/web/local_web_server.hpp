@@ -97,10 +97,10 @@ class LocalWebServer final {
   void mark_websocket_disconnect(
       int socket, diagnostics::WebsocketDisconnectReason reason);
 
-  [[nodiscard]] std::string make_scale_event();
-  [[nodiscard]] std::string make_update_event(std::uint64_t& revision);
+  [[nodiscard]] api::JsonBody make_scale_event();
+  [[nodiscard]] api::JsonBody make_update_event(std::uint64_t& revision);
   [[nodiscard]] std::size_t send_to_websocket_clients(
-      const std::string& message);
+      std::string_view message);
   [[nodiscard]] std::size_t websocket_client_count(
       int excluded_fd = -1) const;
 

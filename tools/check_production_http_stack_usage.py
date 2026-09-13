@@ -29,7 +29,8 @@ def main():
     header = (ROOT / 'src/web/local_web_server.hpp').read_text()
     stack = int(re.search(r'http_task_stack_bytes\s*=\s*(\d+)U', header)[1])
     entry = frame(server, 'LocalWebServer::api_handler(')
-    dispatch = entry + frame(server, 'LocalWebServer::handle_api(') + frame(router, 'Router::handle(')
+    # Match the function, not its separately emitted local trace destructor.
+    dispatch = entry + frame(server, 'esp_err_t opentag::web::LocalWebServer::handle_api(') + frame(router, 'Router::handle(')
     parse = frame(router, 'parse_mutation(') + max(
         frame(router, 'parse_configuration_patch('),
         frame(router, 'Result<T>::success(T) [with T = opentag::web::api::Mutation]'))

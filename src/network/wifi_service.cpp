@@ -2,6 +2,7 @@
 
 #include <Arduino.h>
 #include <ESPmDNS.h>
+#include "network/memory_trace.hpp"
 #include <WiFi.h>
 #include <esp_wifi.h>
 
@@ -193,8 +194,12 @@ void WifiService::enter_connected(std::uint32_t now_ms) {
   backoff_.reset();
   status_.reconnect_attempts = 0U;
   status_.next_reconnect_at_ms = 0U;
+  memory_trace("mdns", "before");
   status_.mdns_ready = MDNS.begin(device_.hostname.c_str());
+  memory_trace("mdns", "after");
+  memory_trace("ntp", "before");
   configTime(0L, 0, "pool.ntp.org", "time.nist.gov", "time.cloudflare.com");
+  memory_trace("ntp", "after");
   ntp_requested_ = true;
   was_connected_ = true;
   provisioning_.connected(now_ms);

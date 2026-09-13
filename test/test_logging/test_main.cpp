@@ -89,8 +89,31 @@ void test_sensitive_markers_are_redacted_during_ingestion() {
   assert_redacted("ca_certificate_pem=private-ca", "private-ca");
 }
 
+void test_serialization_view_preserves_order_and_borrows_entries() {
+  BoundedLog log;
+  for (unsigned index = 0; index < 40; ++index)
+    log.append(index, LogSeverity::info, LogComponent::application, "bounded entry");
+  const auto snapshot = log.snapshot();
+  std::size_t index = 0;
+  const opentag::logging::LogEntry* first = nullptr;
+  log.visit([&](auto oldest, auto latest, auto dropped) {
+    TEST_ASSERT_EQUAL_UINT64(snapshot.oldest_cursor, oldest);
+    TEST_ASSERT_EQUAL_UINT64(snapshot.latest_cursor, latest);
+    TEST_ASSERT_EQUAL_UINT64(snapshot.dropped_count, dropped);
+  }, [&](const auto& entry) {
+    if (index == 0) first = &entry;
+    TEST_ASSERT_EQUAL_UINT64(snapshot.entries[index++].cursor, entry.cursor);
+  });
+  TEST_ASSERT_EQUAL_UINT(snapshot.entries.size(), index);
+  index = 0;
+  log.visit([](auto, auto, auto) {}, [&](const auto& entry) {
+    if (index++ == 0) TEST_ASSERT_EQUAL_PTR(first, &entry);
+  });
+}
+
 int main(int, char**) {
   UNITY_BEGIN();
+  RUN_TEST(test_serialization_view_preserves_order_and_borrows_entries);
   RUN_TEST(test_capacity_drop_count_and_cursor_paging_are_bounded);
   RUN_TEST(test_long_message_is_truncated_at_the_fixed_byte_limit);
   RUN_TEST(test_sensitive_markers_are_redacted_during_ingestion);

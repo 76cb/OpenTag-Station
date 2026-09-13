@@ -607,6 +607,27 @@ test('production API scheduler permits only one active REST request', async () =
   assert.equal(app.fetchCalls.length, 2);
   assert.equal(maximumActive, 1);
   assert.equal(T.scheduler.metrics().maximumActive, 1);
+  for (const call of app.fetchCalls) {
+    const gauges = call.init.headers['X-OpenTag-Scheduler'].split(',').map(Number);
+    assert.equal(gauges[0], 1);
+    assert.equal(gauges[2], 1);
+    assert.equal(gauges[3], 0);
+  }
+});
+
+test('initial synchronization marker follows consumed snapshots on the same scheduler', async () => {
+  const app = loadApplication();
+  await app.T.start();
+  await drainScheduler(app.T.scheduler);
+  const markers = app.fetchCalls.filter(call =>
+    call.init.headers['X-OpenTag-Scheduler'].endsWith(',1'));
+  assert.equal(markers.length, 1);
+  const markerIndex = app.fetchCalls.indexOf(markers[0]);
+  const logsIndex = app.fetchCalls.findIndex(call => call.url.endsWith('/logs'));
+  assert.ok(logsIndex >= 0 && markerIndex > logsIndex);
+  assert.ok(markers[0].url.endsWith('/health'));
+  assert.equal(markers[0].init.headers['X-OpenTag-Scheduler'].split(',')[0], '1');
+  assert.equal(app.T.scheduler.metrics().maximumActive, 1);
 });
 
 test('full background queue rejects overflow but admits P1 control by evicting low priority', async () => {
@@ -2181,7 +2202,8 @@ test('physical cold-load probe covers combined assets, REST, WebSocket, scale, a
     'largest_free_internal_block_bytes', 'active_http_sessions',
     'maximum_observed_http_sessions', 'websocket_clients', 'httpd',
   ]) assert.ok(source.includes(metric));
-  assert.match(source, /minimumHttpStackMargin: 2048/);
+  assert.match(source, /minimumHeap: 24000/);
+  assert.match(source, /minimumHttpStackMargin: 4096/);
   assert.match(source, /result\.after\.freeHeap \+ settings\.recoverySlack < baseline\.freeHeap/);
 });
 

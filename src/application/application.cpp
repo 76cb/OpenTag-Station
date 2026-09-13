@@ -643,12 +643,14 @@ void Application::scale_task_entry(void* context) {
 void Application::network_task_entry(void* context) {
   auto* application = static_cast<Application*>(context);
   application->diagnostics_.set_network_task_running(true);
-  const auto configured = application->configuration_.snapshot();
   auto now_ms = millis();
   print_memory_milestone("network-before-wifi");
-  const auto initialized = application->network_.initialize(
-      configured.device, configured.wifi, now_ms);
-  (void)initialized;
+  {
+    const auto configured = application->configuration_.snapshot();
+    const auto initialized = application->network_.initialize(
+        configured.device, configured.wifi, now_ms);
+    (void)initialized;
+  }
   print_memory_milestone("network-after-wifi");
   application->diagnostics_.set_network_status(application->network_.status());
   auto last_web_start_attempt_ms = now_ms;

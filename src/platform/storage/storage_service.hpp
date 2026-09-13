@@ -50,7 +50,7 @@ class StorageService final :
   [[nodiscard]] core::Result<std::optional<std::string>>
   load_configuration_backup_document() override;
   [[nodiscard]] core::Result<void> save_configuration_document(
-      const std::string& document) override;
+      std::string_view document) override;
 
  private:
   static constexpr std::uint32_t healthy_boot_after_ms = 30000U;

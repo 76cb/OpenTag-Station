@@ -53,7 +53,7 @@ std::string trim_ascii(std::string value) {
   return value;
 }
 
-Response base_response(std::int32_t status, std::string body) {
+Response base_response(std::int32_t status, JsonBody body) {
   Response result;
   result.status = status;
   result.headers = {
@@ -81,7 +81,7 @@ Response error_response(
   if (document.overflowed()) {
     return base_response(503, R"({"api_version":"v1","ok":false,"error":{"code":"resource_unavailable","message":"Local JSON workspace unavailable; retry","retryable":true}})");
   }
-  std::string body;
+  JsonBody body(maximum_response_body_bytes);
   serializeJson(document, body);
   return base_response(status, std::move(body));
 }
@@ -194,7 +194,7 @@ Response operation_response(MutationKind kind, std::uint64_t operation_id) {
   data["state"] = "queued";
   if (document.overflowed()) return error_response(503, "resource_unavailable",
       "Command accepted but its receipt could not be encoded; retry with the same request key", true);
-  std::string body;
+  JsonBody body(maximum_response_body_bytes);
   serializeJson(document, body);
   auto response = base_response(202, std::move(body));
   if (kind == MutationKind::network_connect ||
@@ -233,7 +233,7 @@ bool contains_forbidden_configuration_key(
 }
 
 Response payload_response(
-    const std::string& payload,
+    JsonBody payload,
     bool enforce_configuration_redaction = false) {
   if (payload.empty() || payload.size() > maximum_snapshot_json_bytes) {
     return error_response(
@@ -244,9 +244,11 @@ Response payload_response(
   ApiDocument source;
   const auto parsed = deserializeJson(
       source,
-      payload,
+      payload.data(), payload.size(),
       DeserializationOption::NestingLimit(maximum_json_nesting));
   if (parsed) {
+    if (parsed == DeserializationError::NoMemory) return error_response(
+        503, "resource_unavailable", "Snapshot validation workspace unavailable; retry", true);
     return error_response(
         500,
         "invalid_snapshot",
@@ -262,20 +264,15 @@ Response payload_response(
   // The application already serialized the bounded payload. Once it has been
   // parsed for validity/redaction, wrap those exact bytes rather than copying
   // the full tree into a second JsonDocument and serializing it again.
-  std::string body;
-  body.reserve(payload.size() + 48U);
-  body += R"({"api_version":")";
-  body += version;
-  body += R"(","ok":true,"data":)";
-  body += payload;
-  body += '}';
-  if (body.size() > maximum_response_body_bytes) {
+  source.clear();
+  if (!payload.wrap(R"({"api_version":"v1","ok":true,"data":)", "}") ||
+      payload.size() > maximum_response_body_bytes) {
     return error_response(
         500,
         "response_too_large",
         "The API response exceeds its configured bound");
   }
-  return base_response(200, std::move(body));
+  return base_response(200, std::move(payload));
 }
 
 bool valid_header_name(const std::string& name) {
@@ -1285,12 +1282,12 @@ Response Router::handle(const Request& request) {
     if (!id.ok()) {
       return error_response(400, "invalid_operation_id", id.error().message);
     }
-    const auto operation = context_.operation_status_json(id.value());
+    auto operation = context_.operation_status_json(id.value());
     if (!operation.ok()) return context_error(operation.error());
     if (!operation.value().has_value()) {
       return error_response(404, "operation_not_found", "The operation is no longer available");
     }
-    return payload_response(*operation.value());
+    return payload_response(std::move(*operation.value()));
   }
 
   if (!route.mutation) {
@@ -1298,17 +1295,21 @@ Response Router::handle(const Request& request) {
     if (!resource.has_value()) {
       return error_response(500, "internal_route_error", "The API route is not mapped");
     }
-    const auto snapshot = context_.snapshot_json(*resource);
+    auto snapshot = context_.snapshot_json(*resource);
     if (!snapshot.ok()) return context_error(snapshot.error());
     return payload_response(
-        snapshot.value(), *resource == Resource::redacted_configuration);
+        std::move(snapshot.value()), *resource == Resource::redacted_configuration);
   }
 
   const auto headers = validate_mutation_headers(request);
   if (!headers.ok()) {
     return error_response(400, "invalid_request_headers", headers.error().message);
   }
-  auto mutation = parse_mutation(request, headers.value());
+  auto mutation_storage = network::make_external<core::Result<Mutation>>(
+      [&] { return parse_mutation(request, headers.value()); });
+  if (!mutation_storage) return error_response(503, "resource_unavailable",
+      "Request workspace unavailable; retry", true);
+  auto& mutation = *mutation_storage;
   if (!mutation.ok()) {
     if (mutation.error().category == core::ErrorCategory::backend_unavailable)
       return response_for_context_error(mutation.error());

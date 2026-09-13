@@ -45,7 +45,7 @@ class MemoryDocumentStore final : public IConfigurationDocumentStore {
     return Result<std::optional<std::string>>::success(backup_document);
   }
 
-  Result<void> save_configuration_document(const std::string& value) override {
+  Result<void> save_configuration_document(std::string_view value) override {
     ++save_count;
     if (save_fails) {
       return Result<void>::failure(
@@ -158,6 +158,34 @@ const char* schema_three_web_document = R"json({
 })json";
 
 }  // namespace
+
+void test_loaded_configuration_retains_psram_allocator_and_releases_candidates() {
+  MemoryDocumentStore store;
+  LegacyScaleStore legacy;
+  {
+    ConfigurationService initial(store, legacy);
+    TEST_ASSERT_TRUE(initial.initialize().ok());
+  }
+  ConfigurationService loaded(store, legacy);
+  TEST_ASSERT_TRUE(loaded.initialize().ok());
+  // Regression: moving a default-allocator decoded document made this zero.
+  TEST_ASSERT_GREATER_THAN(0, loaded.document_allocated_bytes());
+  auto value = loaded.snapshot();
+  TEST_ASSERT_TRUE(loaded.replace(value).ok());
+  const auto settled = loaded.document_allocated_bytes();
+  for (unsigned cycle = 0; cycle < 100; ++cycle) {
+    { auto exported = loaded.export_json(false); TEST_ASSERT_TRUE(exported.ok()); }
+    TEST_ASSERT_EQUAL_UINT(settled, loaded.document_allocated_bytes());
+    store.save_fails = true;
+    TEST_ASSERT_FALSE(loaded.replace(value).ok());
+    TEST_ASSERT_EQUAL_UINT(settled, loaded.document_allocated_bytes());
+    TEST_ASSERT_FALSE(loaded.import_json(*store.document, true).ok());
+    TEST_ASSERT_EQUAL_UINT(settled, loaded.document_allocated_bytes());
+    store.save_fails = false;
+    TEST_ASSERT_TRUE(loaded.replace(value).ok());
+    TEST_ASSERT_EQUAL_UINT(settled, loaded.document_allocated_bytes());
+  }
+}
 
 void setUp() {}
 void tearDown() {}
@@ -957,6 +985,7 @@ void test_first_run_navigation_allows_tokenless_setup_completion() {
 
 int main(int, char**) {
   UNITY_BEGIN();
+  RUN_TEST(test_loaded_configuration_retains_psram_allocator_and_releases_candidates);
   RUN_TEST(test_missing_document_creates_current_schema_defaults);
   RUN_TEST(test_legacy_scale_calibration_is_migrated_and_mirrored);
   RUN_TEST(test_legacy_save_failure_does_not_commit_central_calibration);

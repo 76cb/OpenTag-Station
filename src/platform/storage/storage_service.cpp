@@ -421,7 +421,7 @@ StorageService::load_configuration_backup_document() {
 }
 
 core::Result<void> StorageService::save_configuration_document(
-    const std::string& document) {
+    std::string_view document) {
   if (reset_in_progress_.load(std::memory_order_acquire) ||
       !status_.filesystem_ready) {
     return core::Result<void>::failure(

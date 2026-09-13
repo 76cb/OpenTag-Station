@@ -1,5 +1,9 @@
 # Backend memory and responsiveness
 
+The PR #26 physical follow-up found admission starvation before successful
+backend HTTP. See [browser memory repair](browser-memory.md) for the allocation
+audit, 65 KiB static-RAM recovery, response lifetimes and focused physical test.
+
 The configured station previously held large HTTP strings and ArduinoJson
 trees in internal RAM while also serving local pages. The MVP candidate uses
 fallible, move-only PSRAM response bodies and PSRAM JSON documents. It retains

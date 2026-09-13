@@ -66,28 +66,28 @@ class FakeContext final : public IApiContext {
     return provisioning_authorized;
   }
 
-  Result<std::string> snapshot_json(Resource resource) override {
+  Result<opentag::web::api::JsonBody> snapshot_json(Resource resource) override {
     ++snapshot_calls;
     last_resource = resource;
     if (snapshot_error.has_value()) {
-      return Result<std::string>::failure(*snapshot_error);
+      return Result<opentag::web::api::JsonBody>::failure(*snapshot_error);
     }
-    return Result<std::string>::success(
+    return Result<opentag::web::api::JsonBody>::success(
         resource == Resource::redacted_configuration
             ? configuration_payload
             : snapshot_payload);
   }
 
-  Result<std::optional<std::string>> operation_status_json(
+  Result<std::optional<opentag::web::api::JsonBody>> operation_status_json(
       std::uint64_t operation_id) override {
     ++operation_calls;
     last_operation_id = operation_id;
     if (operation_error.has_value()) {
-      return Result<std::optional<std::string>>::failure(*operation_error);
+      return Result<std::optional<opentag::web::api::JsonBody>>::failure(*operation_error);
     }
-    return Result<std::optional<std::string>>::success(
+    return Result<std::optional<opentag::web::api::JsonBody>>::success(
         operation_known
-            ? std::optional<std::string>{operation_payload}
+            ? std::optional<opentag::web::api::JsonBody>{operation_payload}
             : std::nullopt);
   }
 
@@ -166,7 +166,7 @@ void assert_versioned_error(
     const char* expected_code) {
   TEST_ASSERT_EQUAL_INT(expected_status, response.status);
   JsonDocument document;
-  const auto parsed = deserializeJson(document, response.body);
+  const auto parsed = deserializeJson(document, response.body.data(), response.body.size());
   TEST_ASSERT_FALSE_MESSAGE(parsed, response.body.c_str());
   TEST_ASSERT_EQUAL_STRING("v1", document["api_version"].as<const char*>());
   TEST_ASSERT_FALSE(document["ok"].as<bool>());
@@ -890,7 +890,7 @@ void test_context_failures_map_to_structured_service_errors() {
   auto response = router.handle(get_request("/api/v1/scale"));
   assert_versioned_error(response, 503, "scale_unavailable");
   JsonDocument document;
-  TEST_ASSERT_FALSE(deserializeJson(document, response.body));
+  TEST_ASSERT_FALSE(deserializeJson(document, response.body.data(), response.body.size()));
   TEST_ASSERT_TRUE(document["error"]["retryable"].as<bool>());
   TEST_ASSERT_EQUAL_STRING(
       "ADC unavailable \"temporarily\"",
@@ -957,7 +957,7 @@ void test_zero_receipts_are_not_reported_as_accepted() {
       Method::post, "/api/v1/nfc/read", "{}"));
   assert_versioned_error(response, 503, "operation_not_queued");
   JsonDocument document;
-  TEST_ASSERT_FALSE(deserializeJson(document, response.body));
+  TEST_ASSERT_FALSE(deserializeJson(document, response.body.data(), response.body.size()));
   TEST_ASSERT_TRUE(document["error"]["retryable"].as<bool>());
 }
 
@@ -1354,9 +1354,9 @@ void test_provisioning_connect_is_typed_and_does_not_echo_secrets() {
   TEST_ASSERT_EQUAL_STRING("Workshop", payload.ssid.c_str());
   TEST_ASSERT_EQUAL_STRING("wifi-secret", payload.password->c_str());
   TEST_ASSERT_TRUE(context.last_mutation->provisioning_transport);
-  TEST_ASSERT_TRUE(response.body.find("wifi-secret") == std::string::npos);
+  TEST_ASSERT_TRUE(std::string_view(response.body).find("wifi-secret") == std::string::npos);
   TEST_ASSERT_TRUE(
-      response.body.find("0123456789abcdef") == std::string::npos);
+      std::string_view(response.body).find("0123456789abcdef") == std::string::npos);
   TEST_ASSERT_TRUE(response.delivered_network_connect_operation.has_value());
   TEST_ASSERT_EQUAL_UINT64(
       context.next_operation_id,
@@ -1407,7 +1407,7 @@ void test_router_stress_repeats_reads_snapshots_and_operation_polls() {
         secondary_paths[index % secondary_paths.size()]));
     TEST_ASSERT_EQUAL_INT(200, response.status);
     TEST_ASSERT_NOT_EQUAL(
-        std::string::npos, response.body.find("\"api_version\":\"v1\""));
+        std::string::npos, std::string_view(response.body).find("\"api_version\":\"v1\""));
   }
   TEST_ASSERT_EQUAL_UINT(1000U, context.snapshot_calls);
 
@@ -1416,10 +1416,24 @@ void test_router_stress_repeats_reads_snapshots_and_operation_polls() {
         router.handle(get_request("/api/v1/operations/42"));
     TEST_ASSERT_EQUAL_INT(200, response.status);
     TEST_ASSERT_NOT_EQUAL(
-        std::string::npos, response.body.find("\"operation_id\":42"));
+        std::string::npos, std::string_view(response.body).find("\"operation_id\":42"));
   }
   TEST_ASSERT_EQUAL_UINT(100U, context.operation_calls);
   TEST_ASSERT_EQUAL_UINT(0U, context.submit_calls);
+}
+
+void* unavailable_response_allocate(void*, std::size_t) { return nullptr; }
+void test_response_allocation_failure_sends_static_valid_503() {
+  opentag::web::api::Response response;
+  response.status = 202;
+  response.body = opentag::web::api::JsonBody(32768, unavailable_response_allocate);
+  TEST_ASSERT_FALSE(response.body.append("partial", 7));
+  TEST_ASSERT_TRUE(response.encoding_failed());
+  TEST_ASSERT_EQUAL_INT(503, response.wire_status());
+  JsonDocument parsed;
+  TEST_ASSERT_FALSE(deserializeJson(parsed, response.wire_body().data(), response.wire_body().size()));
+  TEST_ASSERT_FALSE(parsed["ok"].as<bool>());
+  TEST_ASSERT_TRUE(parsed["error"]["retryable"].as<bool>());
 }
 
 void test_http_cold_load_policy_is_bounded_and_precompressed() {
@@ -1519,6 +1533,7 @@ void test_spool_confirmation_is_explicit_bounded_and_queued() {
 }
 int main(int, char**) {
   UNITY_BEGIN();
+  RUN_TEST(test_response_allocation_failure_sends_static_valid_503);
   RUN_TEST(test_spool_confirmation_is_explicit_bounded_and_queued);
   RUN_TEST(
       test_local_access_policy_keeps_tokenless_control_healthy_and_enabled);

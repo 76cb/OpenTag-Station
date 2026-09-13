@@ -14,6 +14,14 @@ Historical pre-MVP evidence is archived in
 
 ## Software validation
 
+PR #26 physical follow-up (`68ac260`) preserved healthy NFC/httpd stacks but
+failed backend admission: internal heap fell from 33,700 to 5,652 bytes before
+successful HTTP. The [browser memory repair](browser-memory.md) rehomes the
+64 KiB LVGL pool and removes configuration, snapshot and response overlaps.
+The next physical run proceeds directly to real Spoolman/FilaBridge connectivity;
+do not count repeated admission refusal as success. The figures below describe
+the prior PR #26 baseline; final memory-fix CI evidence is recorded in its PR.
+
 The completion PR must pass every CI check: all native tests, browser tests,
 production and diagnostic firmware, stack analyzers, shared backend/NFC and
 httpd audits, production NFC source and ELF guards, pinned OpenPrintTag golden

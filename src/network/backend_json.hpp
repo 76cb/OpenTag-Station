@@ -34,6 +34,13 @@ class BackendJsonAllocator final : public ArduinoJson::Allocator {
   ResponseBody::Reallocate allocate_;
   ResponseBody::Free free_;
 };
+struct JsonAllocationTrace {
+  BackendJsonAllocator& allocator;
+  const char* owner;
+  JsonAllocationTrace(BackendJsonAllocator& value, const char* name)
+      : allocator(value), owner(name) { memory_trace(owner, "before", 0, allocator.used()); }
+  ~JsonAllocationTrace() { memory_trace(owner, "released", 0, allocator.used()); }
+};
 // Only the backend task uses this allocator. The per-task document aggregate
 // is bounded even while nested extra-field scalars are being decoded.
 inline BackendJsonAllocator backend_json_allocator;

@@ -439,12 +439,12 @@ core::Result<void> read_configuration(
 core::Result<JsonDocument> parse_document(
     const std::string& input,
     bool& migrated,
-    std::uint32_t& loaded_schema) {
+    std::uint32_t& loaded_schema, ArduinoJson::Allocator* allocator) {
   if (input.empty() || input.size() > maximum_document_bytes) {
     return core::Result<JsonDocument>::failure(
         configuration_error("configuration document size is invalid"));
   }
-  JsonDocument document;
+  JsonDocument document(allocator);
   const auto parsed = deserializeJson(document, input);
   if (parsed) {
     return core::Result<JsonDocument>::failure(
@@ -455,33 +455,38 @@ core::Result<JsonDocument> parse_document(
   if (!migration.ok()) {
     return core::Result<JsonDocument>::failure(migration.error());
   }
+  if (document.overflowed()) return core::Result<JsonDocument>::failure(
+      configuration_error("Configuration migration workspace unavailable"));
   return core::Result<JsonDocument>::success(std::move(document));
 }
 
 struct DecodedConfigurationDocument {
-  JsonDocument document;
+  JsonDocument document{};
   Configuration configuration;
   bool migrated{false};
   std::uint32_t loaded_schema{0U};
 };
 
-core::Result<std::shared_ptr<DecodedConfigurationDocument>> decode_document(
-    const std::string& input) {
-  auto result = std::make_shared<DecodedConfigurationDocument>();
+using DecodedOwner = std::unique_ptr<DecodedConfigurationDocument, network::ExternalDelete<DecodedConfigurationDocument>>;
+
+core::Result<DecodedOwner> decode_document(
+    const std::string& input, ArduinoJson::Allocator* allocator) {
+  auto result = network::make_external<DecodedConfigurationDocument>([] { return DecodedConfigurationDocument{}; });
+  if (!result) return core::Result<DecodedOwner>::failure(configuration_error("Configuration decode workspace unavailable"));
   auto parsed = parse_document(
-      input, result->migrated, result->loaded_schema);
+      input, result->migrated, result->loaded_schema, allocator);
   if (!parsed.ok()) {
-    return core::Result<std::shared_ptr<DecodedConfigurationDocument>>::failure(
+    return core::Result<DecodedOwner>::failure(
         parsed.error());
   }
   const auto decoded = read_configuration(
       parsed.value(), result->configuration);
   if (!decoded.ok()) {
-    return core::Result<std::shared_ptr<DecodedConfigurationDocument>>::failure(
+    return core::Result<DecodedOwner>::failure(
         decoded.error());
   }
   result->document = std::move(parsed.value());
-  return core::Result<std::shared_ptr<DecodedConfigurationDocument>>::success(
+  return core::Result<DecodedOwner>::success(
       std::move(result));
 }
 
@@ -626,20 +631,21 @@ ConfigurationService::~ConfigurationService() = default;
 
 core::Result<void> ConfigurationService::initialize() {
   const std::lock_guard<std::mutex> lock(mutex_);
+  network::JsonAllocationTrace allocation_trace(impl_->allocator, "config_initialize_psram");
   configuration_ = {};
   status_ = {};
   impl_->document.clear();
 
   const auto stored = document_store_.load_configuration_document();
-  std::shared_ptr<DecodedConfigurationDocument> loaded;
+  DecodedOwner loaded;
   std::optional<core::Error> load_error;
   bool primary_missing = false;
   if (!stored.ok()) {
     load_error = stored.error();
   } else if (stored.value().has_value()) {
-    auto decoded = decode_document(*stored.value());
+    auto decoded = decode_document(*stored.value(), &impl_->allocator);
     if (decoded.ok()) {
-      loaded = decoded.value();
+      loaded = std::move(decoded.value());
     } else {
       load_error = decoded.error();
     }
@@ -651,9 +657,9 @@ core::Result<void> ConfigurationService::initialize() {
   if (loaded == nullptr) {
     const auto backup = document_store_.load_configuration_backup_document();
     if (backup.ok() && backup.value().has_value()) {
-      auto decoded = decode_document(*backup.value());
+      auto decoded = decode_document(*backup.value(), &impl_->allocator);
       if (decoded.ok()) {
-        loaded = decoded.value();
+        loaded = std::move(decoded.value());
         recovered_from_backup = true;
       } else if (!load_error.has_value()) {
         load_error = decoded.error();
@@ -708,6 +714,11 @@ core::Result<void> ConfigurationService::initialize() {
   return core::Result<void>::failure(error);
 }
 
+std::size_t ConfigurationService::document_allocated_bytes() const {
+  const std::lock_guard<std::mutex> lock(mutex_);
+  return impl_->allocator.used();
+}
+
 Configuration ConfigurationService::snapshot() const {
   const std::lock_guard<std::mutex> lock(mutex_);
   return configuration_;
@@ -750,6 +761,7 @@ ConfigurationStatus ConfigurationService::status() const {
 core::Result<void> ConfigurationService::persist_locked(
     const Configuration& configuration,
     bool advance_revision) {
+  network::JsonAllocationTrace allocation_trace(impl_->allocator, "config_persist_psram");
   const auto valid = configuration.validate();
   if (!valid.ok()) return valid;
 
@@ -761,9 +773,10 @@ core::Result<void> ConfigurationService::persist_locked(
     status_.last_error = error;
     return core::Result<void>::failure(error);
   }
-  std::string serialized;
+  network::ResponseBody serialized(maximum_document_bytes);
+  serialized.reserve(measureJson(candidate));
   serializeJson(candidate, serialized);
-  if (serialized.empty() || serialized.size() > maximum_document_bytes) {
+  if (serialized.failed() || serialized.overflowed() || serialized.empty() || serialized.size() > maximum_document_bytes) {
     const auto error = configuration_error("serialized configuration is too large");
     status_.last_error = error;
     return core::Result<void>::failure(error);
@@ -844,13 +857,16 @@ core::Result<void> ConfigurationService::replace_if_revision(
 core::Result<std::string> ConfigurationService::export_json(
     bool include_credentials) const {
   const std::lock_guard<std::mutex> lock(mutex_);
+  network::JsonAllocationTrace allocation_trace(impl_->allocator, "config_export_psram");
   if (!status_.initialized) {
     return core::Result<std::string>::failure(
         configuration_error("configuration service is not initialized"));
   }
-  JsonDocument exported;
+  JsonDocument exported(&impl_->allocator);
   exported.set(impl_->document);
   write_known(exported, configuration_);
+  if (exported.overflowed()) return core::Result<std::string>::failure(
+      configuration_error("Configuration export workspace unavailable"));
   if (!include_credentials) {
     auto wifi = object_at(exported, "wifi");
     wifi.remove("ssid");
@@ -884,13 +900,14 @@ core::Result<void> ConfigurationService::import_json(
     const std::string& document,
     bool accept_credentials) {
   const std::lock_guard<std::mutex> lock(mutex_);
+  network::JsonAllocationTrace allocation_trace(impl_->allocator, "config_import_psram");
   if (!status_.initialized) {
     return core::Result<void>::failure(
         configuration_error("configuration service is not initialized"));
   }
   bool migrated = false;
   std::uint32_t loaded_schema = 0U;
-  auto parsed = parse_document(document, migrated, loaded_schema);
+  auto parsed = parse_document(document, migrated, loaded_schema, &impl_->allocator);
   if (!parsed.ok()) return core::Result<void>::failure(parsed.error());
   Configuration imported;
   const auto decoded = read_configuration(parsed.value(), imported);
@@ -910,8 +927,10 @@ core::Result<void> ConfigurationService::import_json(
     imported.web.access_token = configuration_.web.access_token;
   }
 
-  JsonDocument previous;
+  JsonDocument previous(&impl_->allocator);
   previous.set(impl_->document);
+  if (previous.overflowed()) return core::Result<void>::failure(
+      configuration_error("Configuration rollback workspace unavailable; saved settings retained"));
   impl_->document = std::move(parsed.value());
   const auto saved = persist_locked(imported);
   if (!saved.ok()) impl_->document = std::move(previous);

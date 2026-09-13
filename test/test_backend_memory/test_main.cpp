@@ -8,6 +8,34 @@
 using namespace opentag::network;
 
 namespace {
+std::size_t body_allocations = 0, body_frees = 0;
+void* counted_allocate(void* prior, std::size_t bytes) {
+  ++body_allocations;
+  return std::realloc(prior, bytes);
+}
+void counted_free(void* ptr) { ++body_frees; std::free(ptr); }
+void test_web_serialization_and_envelope_share_one_owned_buffer() {
+  BackendJsonAllocator allocator;
+  JsonDocument document(&allocator);
+  document["value"] = std::string(24000, 'x');
+  const auto measured = measureJson(document);
+  body_allocations = body_frees = 0;
+  for (unsigned cycle = 0; cycle < 200; ++cycle) {
+    ResponseBody body(32768, counted_allocate, counted_free);
+    TEST_ASSERT_TRUE(body.reserve(measured + 48));
+    const auto* allocation = body.data();
+    TEST_ASSERT_EQUAL_UINT(measured, serializeJson(document, body));
+    TEST_ASSERT_TRUE(body.wrap(R"({"api_version":"v1","ok":true,"data":)", "}"));
+    TEST_ASSERT_EQUAL_PTR(allocation, body.data());
+    ResponseBody sent(std::move(body));
+    TEST_ASSERT_EQUAL_PTR(allocation, sent.data());
+    TEST_ASSERT_TRUE(body.empty());
+    TEST_ASSERT_EQUAL_UINT(cycle + 1, body_allocations);
+  }
+  TEST_ASSERT_EQUAL_UINT(200, body_frees);
+  document.clear();
+  TEST_ASSERT_EQUAL_UINT(0, allocator.used());
+}
 void* fail_allocate(void*, std::size_t) { return nullptr; }
 void test_body_bounds_and_move_ownership() {
   ResponseBody body(8);
@@ -118,6 +146,7 @@ void setUp() {}
 void tearDown() {}
 int main(int, char**) {
   UNITY_BEGIN();
+  RUN_TEST(test_web_serialization_and_envelope_share_one_owned_buffer);
   RUN_TEST(test_body_bounds_and_move_ownership);
   RUN_TEST(test_psram_failure_is_fallible);
   RUN_TEST(test_internal_workspace_admission);
