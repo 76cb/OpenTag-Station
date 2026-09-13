@@ -7,13 +7,17 @@ bench high-water readings remain required. Missing critical frames fail closed.
 """
 import pathlib
 import re
+import argparse
 from check_diagnostic_stack_usage import frame_entries, require_frame
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 
 def main():
-    entries = frame_entries(ROOT / ".pio/build/wt32-sc01-plus")
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--build-dir", type=pathlib.Path,
+                        default=ROOT / ".pio/build/wt32-sc01-plus")
+    entries = frame_entries(parser.parse_args().build_dir)
     def frame(file, method):
         return require_frame(entries, "src/" + file + ".cpp.su", method)
     worker = (ROOT / "src/application/nfc_worker.hpp").read_text()

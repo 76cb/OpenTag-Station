@@ -47,7 +47,7 @@ void NfcWorker::run_once() {
               5000U &&
           scale.scale_measurement_purpose ==
               services::ScaleMeasurementPurpose::weigh &&
-          !scale.scale_overload && scale.scale_adc_ready;
+          !scale.scale_overload && scale.scale_adc_ready && scale.scale_calibrated;
       if (fresh)
         weight = domain::WeightReading{
             scale.scale_last_completed_milligrams / 1000.0F, true};

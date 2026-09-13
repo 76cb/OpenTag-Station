@@ -102,10 +102,10 @@ class ApplicationApiContext final : public api::IApiContext {
   [[nodiscard]] std::uint64_t update_revision() const {
     return ota_worker_.snapshot().revision;
   }
-  [[nodiscard]] std::array<std::uint64_t, 3> nfc_revision() const {
+  [[nodiscard]] std::array<std::uint64_t, 4> nfc_revision() const {
     const auto s = nfc_.snapshot();
     return {s.generation, static_cast<std::uint64_t>(s.state),
-        workflow_.identification_revision()};
+        workflow_.identification_revision(), s.bus_errors};
   }
   [[nodiscard]] diagnostics::TransportDiagnosticStore&
   transport_diagnostics() noexcept {

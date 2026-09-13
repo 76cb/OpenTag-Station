@@ -79,7 +79,7 @@ are recorded. A successful firmware build is not physical validation.
 | Configuration | `ConfigurationWorker` owns UI/API writes; `ConfigurationService` mutex serializes persistence and snapshots | Scale calibration and confirmed spool mapping use the same service |
 | Storage | `StorageService` owns station NVS/LittleFS operations behind one mutex and reset gate | OTA metadata uses a separate `Esp32UpdateRecordStore` namespace |
 | Scale | Scale task owns NAU7802 calls and executes the fixed scale command queue | UI/API/diagnostics read coherent snapshots |
-| NFC | No runtime NFC task is created while the wiring/RFAL build gate is disabled | Portable NFC-V/OpenPrintTag code is host-tested only |
+| NFC | Dedicated production read-only NFC task; Wire1 only | Heap-backed OpenPrintTag decode and generation-fenced workflow handoff; no tag writes |
 | Spoolman | Backend task is the only adapter caller | Workflow/UI/API read normalized state |
 | FilaBridge | Backend task is the only adapter caller and assignment writer | Exact readback is required before local assignment state advances |
 | Toolhead assignment | Backend task calls `StationWorkflow` and `ToolheadAssignmentService` | Spool generation and printer revision reject stale queued work |
@@ -131,9 +131,9 @@ ESP-IDF's Arduino port interprets these configured stack depths as bytes.
 | `opentag-control` | 1 | 0 | 4,096 | reset intent, bounded erase, restart | Generic reboot/factory-reset owner |
 | `opentag-ota` | 1 | 0 | 24,576 | boot reconciliation, SHA/flash operations, image validation, rollback | OTA/candidate owner |
 | ESP-IDF `httpd` | 5 default | unpinned default | 12,288 | measured/compiled worst-route budget 9,344 bytes plus 2,944-byte safety margin | HTTP/WebSocket handler execution |
-| NFC owner | — | — | 0 | Not created while RFAL/wiring gate is disabled | Must be inventoried when enabled |
+| `opentag-nfc` | 1 | 0 | 16,384 | Bounded RFAL read or heap-output decode including maximum CBOR nesting; CI requires 4 KiB margin | Sole Wire1/RFAL owner; no network calls |
 
-Configured project-created dynamic task stacks total **104,448 bytes**. The
+Configured project-created dynamic task stacks now total **120,832 bytes**. The
 Arduino loop task is separately configured to **16,384 bytes** through the
 framework-supported `SET_LOOP_TASK_STACK_SIZE` mechanism. The total does not
 include ESP-IDF system tasks (idle, timer, Wi-Fi,
@@ -148,8 +148,11 @@ individual compiler-reported frames. The Phase 11 build parsed 8,099 frames from
 OTA pre-task cleanup (5,280), firmware description (5,264), upload setup
 (5,024), mutation parsing (4,848), and HTTP upload handling (3,216). Ten project
 frames are compiler-marked dynamic; their largest reported estimate is 240
-bytes. These values are not cumulative call-chain proof. The gated NFC owner
-must be sized above the decode call chain before enablement.
+bytes. These historical Phase 11 values are not cumulative call-chain proof.
+The new production owner uses the subsequent heap-output decode fixes and the
+compiler check in `tools/check_production_nfc_stack_usage.py`. Current production
+ownership and pending physical acceptance supersede earlier disabled-NFC claims
+in this historical audit; see [production NFC](production-nfc.md).
 
 The provisioning hotfix build parses 8,127 frames from 413 files. Moving the
 decoded configuration holder to the heap and filling its result in place drops

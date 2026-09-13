@@ -76,6 +76,17 @@ network 16 KiB, httpd 12 KiB, backend 12 KiB. Existing task-margin diagnostics
 remain; NFC adds entry/before/after-decode checkpoints and five-second state/stack
 logging. Existing diagnostic loop/httpd guards remain unchanged.
 
+The first clean production build reports a 11,984-byte worst nested NFC decode
+estimate, leaving 4,400 bytes of the 16,384-byte task (4,096 required). Its
+transport estimate is 3,776 bytes. The affected HTTP path has frames of 32
+(entry), 704 (handler), 2,192 (router), 4,320 (snapshot), and 208 (NFC serializer):
+7,456 bytes before library leaf/runtime allowance within the existing 12 KiB
+httpd allocation. The UI workflow refresh is 2,592 bytes, network publication
+1,024, and application setup 1,840. None calls OpenPrintTag decode. The backend
+process frame is 2,464 and accept-identification 464; network work stays there.
+These are compiler estimates; the bench must record runtime minima, including
+touch use, browser polling, populated tags and backend timeouts.
+
 CI runs native tests, browser tests, production/diagnostic firmware, stack audits,
 source/ELF read-only checks, pinned Python golden verification, both flasher
 bundles and combined Pages validation. PR artifacts include

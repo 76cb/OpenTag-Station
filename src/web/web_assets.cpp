@@ -1862,12 +1862,15 @@ const char application_javascript[] = R"JS((function () {
       if (nfc.state === 'openprinttag') {
         setText('nfc-summary', 'OpenPrintTag recognized');
         setText('nfc-guidance', nfc.material_name || 'Metadata fields unavailable / empty');
+        setBadge('nfc-badge', 'OpenPrintTag', 'good');
       } else if (nfc.state === 'unsupported') {
         setText('nfc-summary', 'NFC-V tag detected');
         setText('nfc-guidance', 'OpenPrintTag decode failed / unsupported');
+        setBadge('nfc-badge', 'Unsupported', 'warning');
       } else if (nfc.state === 'error') {
         setText('nfc-summary', 'NFC reader error');
         setText('nfc-guidance', nfc.last_error);
+        setBadge('nfc-badge', 'Error', 'bad');
       }
       renderTag(nfc);
     }

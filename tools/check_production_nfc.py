@@ -38,6 +38,7 @@ def check():
         if relative.startswith(("src/application/", "src/ui/", "src/web/",
                                 "src/services/", "src/hardware/nfc/")):
             assert not re.search(r"(?:Initializer::generate|Codec::update_consumed_weight|WritePlan::|\.write_blocks\s*\()", text), relative
+            assert "Codec::decode" not in text, f"decode must stay on NFC owner: {relative}"
     routes = (ROOT / "src/web/api_router.cpp").read_text()
     assert not re.search(r'"[^"\n]*(?:nfc|openprinttag)[^"\n]*(?:write|initialize|format|lock|password)', routes, re.I)
     driver = (ROOT / "src/hardware/nfc/st25r3916b/i2c_reader.hpp").read_text()
