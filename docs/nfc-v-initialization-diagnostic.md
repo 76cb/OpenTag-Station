@@ -1,9 +1,12 @@
-# Blank NFC-V OpenPrintTag initialization diagnostic
+# NFC-V OpenPrintTag read-only diagnostic
 
 This is an opt-in bench diagnostic. It does not enable the production NFC path,
-does not initialize a tag at boot, and does not provide a force or
-reinitialization path. Its only write operation is the explicit blank-tag
-initialization transaction exposed by the `wt32-sc01-plus-i2c-test` firmware.
+does not initialize a tag at boot, and does not expose a force,
+reinitialization, or other NFC write action. The one-time blank-tag
+initialization test has passed physical acceptance. Its UI control is removed,
+its POST route and loop request processing are behind the compile-time-false
+`diagnostic_initialization_write_enabled` gate, and subsequent bench work is
+read-only.
 
 ## Pinned references
 
@@ -25,7 +28,7 @@ initialization transaction exposed by the `wt32-sc01-plus-i2c-test` firmware.
 
 ## Writable-range decision
 
-The diagnostic advertises and writes **312 bytes, blocks 0 through 77**.
+The retained reference image covers **312 bytes, blocks 0 through 77**.
 
 - 320 bytes is unsafe because it includes counter block 79.
 - 316 bytes covers all 79 user blocks, but the Type 5 Capability Container
@@ -72,8 +75,9 @@ override. Its output-parameter codec overload fills heap-backed `DecodedTag`
 storage at startup, read-only preview decoding, and post-write verification,
 while the original value-returning API remains available.
 
-With the pinned compiler, the audited static path is 5,536 bytes for boot decode
-and 5,616 bytes for post-write decode. CI runs
+With the pinned compiler after the read-only write gate is applied, the audited
+static path is 5,520 bytes for boot decode and a conservative 5,264 bytes for
+the retained decode path. CI runs
 `tools/check_diagnostic_stack_usage.py` against the diagnostic `.su` files and
 requires at least 4,096 bytes of compiler-estimated headroom. This is a build
 regression guard, not a substitute for hardware high-water measurements.
@@ -81,75 +85,53 @@ Serial reports `uxTaskGetStackHighWaterMark(nullptr)` at setup entry, after
 display initialization, before image preparation, after generation, after the
 startup decode, after web-server startup, and before/after the post-write decode.
 
-## Authorization and transaction
+The HTTP server task has an independent budget. On the physically failing PR #21
+build, `preview_handler` retained its 3,552-byte frame while the nonblank preview
+added the 336-byte preview frame and 4,848-byte decode path. The resulting 8,736
+project bytes already exceeded the configured 6,144-byte `httpd` stack before
+ESP-IDF dispatch frames were counted. `api_handler` independently used 3,616
+bytes, primarily because each handler kept a 3,072-byte JSON buffer locally.
+
+Both bounded JSON buffers and the preview `InitializationStatus`/`Snapshot`
+workspace now live on the heap. The target image and `WritePlan` block payloads
+were already vector-backed heap allocations. The compiled handlers are now 416
+bytes each. The worst audited nonblank preview path is 5,264 bytes. The
+diagnostic uses a 12,288-byte HTTP stack, matching the existing production HTTP
+task allocation, and leaves 7,024 compiler-estimated bytes. CI runs the separate
+`tools/check_diagnostic_http_stack_usage.py` guard and requires at least 4,096
+bytes for ESP-IDF's pre-handler dispatch frames and dynamic library use.
+
+Serial reports current-task high-water values at API and preview handler entry,
+before and after preview construction, after OpenPrintTag decode, after target
+and `WritePlan` generation, and before each JSON response send.
+
+## Read-only interface and retired write path
 
 The diagnostic boots and completes the existing read-only test first. It offers:
 
 - `GET /api/v1/openprinttag/preview` for the current plan and safety status.
 - `GET /api/v1/openprinttag/image` for the generated 312-byte binary.
-- `POST /api/v1/openprinttag/initialize` for the one explicit write action.
 
-The POST body must contain the exact canonical UID, the checksum of the current
-full 320-byte image, and confirmation text `INITIALIZE`. The device then performs
-a fresh RF preflight. It requires exactly one matching `E0:04:01` tag, unchanged
-80-by-4 geometry, a matching before-checksum, zeros throughout bytes 0 through
-311, and an unlocked status for every changed block.
+The page continues polling the diagnostic and preview endpoints every five
+seconds after COMPLETE. The initialization button is absent. The historical
+`POST /api/v1/openprinttag/initialize` route is not registered, and the loop
+cannot consume an initialization request while the developer gate is false.
+There is no reinitialize or force path. The retained transaction implementation
+still contains the exact UID/checksum/blank/geometry/security/readback/decode/RF
+cleanup guards, but it is unreachable in the shipped diagnostic configuration.
 
-Writes use a bounded `WritePlan`. Before each block, inventory must still return
-the same sole UID. Each standard/extended single-block write is followed by an
-immediate same-block readback comparison. The first failure stops the transaction;
-there is no retry or recovery write pass. Scope-based RF-field cleanup runs on
-all exits. Blocks 78 and 79 are never written, and the code issues no lock,
-AFI, DSFID, EAS, password, privacy, or protect-page command.
-
-After all block writes, the device reads the complete 320-byte memory again,
-compares it to the intended image (including the preserved tail), decodes it
-with the local OpenPrintTag codec, requires the auxiliary region and successful
-empty main/auxiliary CBOR-map decoding, and runs the post-RF I2C/chip-ID health
-check.
-
-## Stack-overflow fix bench acceptance (no write)
+## HTTP stack-fix bench acceptance (read-only)
 
 1. Flash the pull-request `opentag-nfc-v-diagnostic-pr` artifact.
 2. Confirm boot does not reset, the display remains on, the
    `OpenTag-I2C-Test` access point appears, and the diagnostic remains stable.
 3. Confirm the existing read-only diagnostic still passes with UID
-   `E0:04:01:08:66:27:D8:D4`, geometry 80 × 4, full-image checksum `97B79EC5`,
-   both bus error counts zero, and scale/NFC post-test health passing.
-4. Open `http://192.168.4.1` and require the initialization preview to become
-   `READY`, with the 32-byte requested auxiliary allocation, the 35-byte aligned
-   encoded region at tag offset 276, and target checksum `9E639911`.
-5. Record the loop-task high-water checkpoints for the physical result. Do not
-   press the initialization button or issue the initialization POST in this
-   stack-overflow fix test.
-
-## Future initialization write acceptance
-
-This procedure is not part of the stack-overflow fix PR. Run it only after that
-PR passes the no-write bench acceptance above and a physical write is explicitly
-authorized.
-
-1. Flash the pull-request `opentag-nfc-v-diagnostic-pr` artifact.
-2. Confirm the existing read-only diagnostic passes with the expected UID,
-   geometry, before checksum, bus health, and initialization preview `READY`.
-3. Open `http://192.168.4.1`, review the initialization preview, press the
-   initialization button, accept the first UID/checksum warning, and type the
-   second exact confirmation `INITIALIZE`.
-4. Require the preview to report the 32-byte requested auxiliary allocation,
-   the 35-byte aligned encoded region at tag offset 276, and target checksum
-   `9E639911`. Then require image generation, authorization, blank preflight,
-   lock status, block writes, immediate block verifies, full-image verify,
-   post-write decode, RF-field disable, and post-write transport health to pass.
-   No block above 77 may be reported as written.
-5. Download the post-write raw dump. Require bytes 0 through 311 to equal the
-   preview image, bytes 312 through 319 to equal their before values, and a
-   stable full-image checksum across two subsequent read-only runs.
-6. Reboot the diagnostic, then remove and reinsert the tag. Require the same
-   normalized UID, the same post-write checksum, and `Current OpenPrintTag
-   decode: PASS` in the fresh preview without another write.
-
-Any non-zero byte in the initialization range must produce exactly
-`INITIALIZATION REFUSED: TAG IS NOT BLANK`. A UID/checksum/geometry/lock mismatch,
-write error, readback difference, final-image difference, decode error, transport
-error, or RF-field-off error is a failed bench result and must name its first
-failing stage and block where applicable.
+   `E0:04:01:08:66:27:D8:D4`, geometry 80 × 4, full-image checksum `9E639911`,
+   consistent repeated reads, removal/reinsertion recovery, both bus error counts
+   zero, and scale/NFC post-test health passing.
+4. Open `http://192.168.4.1` and require the OpenPrintTag preview to load with
+   `Current OpenPrintTag decode: PASS` and `Writable range blank: false`.
+5. Leave the browser connected for several minutes while it polls both read-only
+   endpoints every five seconds. Require no `httpd` panic or reset.
+6. Record the HTTP task high-water checkpoints. Do not issue an initialization
+   POST or perform any other NFC write.
