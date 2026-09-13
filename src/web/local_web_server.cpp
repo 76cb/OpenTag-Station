@@ -298,6 +298,9 @@ api::Response upload_receipt(
     data["validated"] = update->validation_passed;
     data["activated"] = update->activated;
   }
+  if (document.overflowed()) return api::response_for_context_error({
+      core::ErrorCategory::backend_unavailable,
+      "Upload receipt workspace unavailable; retry with the same request key", true});
   api::JsonBody body(api::maximum_response_body_bytes);
   serializeJson(document, body);
   return {
