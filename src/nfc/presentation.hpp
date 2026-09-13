@@ -5,7 +5,9 @@
 namespace opentag::nfc {
 inline std::string describe(const ReadSnapshot& s,
                             std::optional<float> measured = std::nullopt) {
-  std::string out = s.tag ? "OpenPrintTag recognized"
+  std::string out = s.state == ReadState::deferred
+                        ? "NFC deferred: provisioning\nFinish Wi-Fi setup to start NFC"
+                    : s.tag ? "OpenPrintTag recognized"
                     : s.state == ReadState::unsupported
                         ? "NFC-V tag: unsupported OpenPrintTag"
                     : s.state == ReadState::multiple

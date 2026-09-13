@@ -48,6 +48,17 @@ def check():
     service = (ROOT / "src/nfc/read_only_service.cpp").read_text()
     assert service.count("Codec::decode(") == 1
     assert "tag->decoded" in service
+    application = (ROOT / "src/application/application.cpp").read_text()
+    setup = application.split("void Application::setup()", 1)[1].split("void Application::record_task_stack_margins", 1)[0]
+    assert "nfc_worker_.start(" not in application
+    assert "start_when_configured" not in setup
+    assert application.count("nfc_worker_.start_when_configured(") == 1
+    assert "network_status.provisioning_grace_active);" in application
+    worker = (ROOT / "src/application/nfc_worker.cpp").read_text()
+    assert "MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT" in worker
+    for metric in ("heap_caps_get_free_size", "heap_caps_get_minimum_free_size", "heap_caps_get_largest_free_block"):
+        assert metric in worker
+    assert "ReadImage first" in service and "make_read_storage<IdentifiedTag>" in service
     diagnostic = (ROOT / "src/diagnostics/shared_i2c_firmware.cpp").read_text()
     assert "diagnostic_initialization_write_enabled = false" in diagnostic
     print("PASS: production NFC read-only bindings, single Wire1 backend, software touch, heap decode")

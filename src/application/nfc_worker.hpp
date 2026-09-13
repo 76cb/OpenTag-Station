@@ -7,6 +7,7 @@
 #include "diagnostics/system_diagnostics.hpp"
 #include "hardware/nfc/st25r3916b/i2c_reader.hpp"
 #include "services/nfc_workflow_handoff.hpp"
+#include "nfc/worker_startup.hpp"
 
 namespace opentag::application {
 class NfcWorker {
@@ -23,12 +24,21 @@ class NfcWorker {
           return backend.submit_identified_spool(tag.decoded.material, tag.uid,
                                                  weight, {}, generation);
         }) {}
-  bool start();
-  nfc::ReadSnapshot snapshot() const { return service_.snapshot(); }
+  void start_when_configured(bool configuration_ready, bool configured,
+                             bool connected, bool provisioning, bool grace);
+  nfc::ReadSnapshot snapshot() const {
+    auto result = service_.snapshot();
+    startup_.describe(result);
+    return result;
+  }
+  TaskHandle_t task_handle() const { return published_task_.load(); }
   static constexpr std::uint32_t stack_bytes = 16384U;
   static constexpr std::uint32_t safety_bytes = 4096U;
 
  private:
+  bool start();
+  nfc::WorkerStartup startup_;
+  std::atomic<TaskHandle_t> published_task_{nullptr};
   static void task_entry(void* context);
   void run_once();
   hardware::nfc::st25r3916b::I2cReader reader_;

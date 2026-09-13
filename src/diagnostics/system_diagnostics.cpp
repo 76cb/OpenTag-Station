@@ -33,8 +33,8 @@ SystemSnapshot SystemDiagnostics::snapshot(std::uint32_t now_ms) const {
   SystemSnapshot result;
   result.reset_reason = current_reset_reason();
   result.uptime_ms = now_ms;
-  result.free_heap_bytes = ESP.getFreeHeap();
-  result.minimum_free_heap_bytes = ESP.getMinFreeHeap();
+  result.free_heap_bytes = heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+  result.minimum_free_heap_bytes = heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
   result.largest_free_internal_block_bytes =
       heap_caps_get_largest_free_block(
           MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);

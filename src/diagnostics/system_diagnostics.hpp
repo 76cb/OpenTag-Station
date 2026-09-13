@@ -184,6 +184,7 @@ struct TaskStackMargins {
   std::uint32_t device_control_free_bytes{0U};
   std::uint32_t ota_free_bytes{0U};
   std::uint32_t httpd_free_bytes{0U};
+  std::uint32_t nfc_free_bytes{0U};
 };
 
 struct ScaleDiagnosticSnapshot {

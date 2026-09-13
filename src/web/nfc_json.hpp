@@ -19,7 +19,10 @@ inline void write_nfc(JsonObject out, const nfc::ReadSnapshot& status,
   out["state"] = nfc::to_string(status.state);
   out["enabled"] = true;
   out["available"] = status.initialized;
-  out["bringup_state"] = status.initialized ? "ready" : "initializing_rfal";
+  const bool deferred = status.state == nfc::ReadState::deferred;
+  out["bringup_state"] = deferred ? "deferred" : status.initialized ? "ready" : "initializing_rfal";
+  if (deferred) out["reason"] = "provisioning";
+  else out["reason"] = nullptr;
   out["present"] = status.present;
   out["generation"] = status.generation;
   out["last_seen_ms"] = status.last_seen_ms;

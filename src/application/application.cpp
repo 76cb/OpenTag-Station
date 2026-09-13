@@ -50,8 +50,8 @@ void print_memory_milestone(const char* milestone) {
       "memory_milestone=%s heap=%lu min_heap=%lu largest_heap=%lu "
       "psram_free=%lu min_psram=%lu largest_psram=%lu\n",
       milestone,
-      static_cast<unsigned long>(ESP.getFreeHeap()),
-      static_cast<unsigned long>(ESP.getMinFreeHeap()),
+      static_cast<unsigned long>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)),
+      static_cast<unsigned long>(heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)),
       static_cast<unsigned long>(heap_caps_get_largest_free_block(
           MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)),
       static_cast<unsigned long>(ESP.getFreePsram()),
@@ -179,7 +179,7 @@ void Application::setup() {
   }
 
   scale_task_started_ = start_scale_task();
-  if (!nfc_worker_.start()) Serial.println("NFC worker task allocation failed");
+  Serial.println("NFC enabled=true state=deferred reason=provisioning");
   ui_task_started_ = display_ready_ && configuration_task_started_ &&
       backend_task_started_ &&
       start_ui_task();
@@ -253,6 +253,7 @@ void Application::record_task_stack_margins() {
       stack_high_water_free_bytes(device_control_.task_handle());
   margins.ota_free_bytes =
       stack_high_water_free_bytes(ota_worker_.task_handle());
+  margins.nfc_free_bytes = stack_high_water_free_bytes(nfc_worker_.task_handle());
 #if INCLUDE_xTaskGetHandle == 1
   margins.httpd_free_bytes =
       stack_high_water_free_bytes(xTaskGetHandle("httpd"));
@@ -265,7 +266,7 @@ void Application::print_task_stack_margins(const char* phase) const {
   Serial.printf(
       "stack_margin phase=%s loopTask=%lu opentag-network=%lu "
       "opentag-ui=%lu opentag-config=%lu opentag-backend=%lu "
-      "opentag-scale=%lu opentag-control=%lu opentag-ota=%lu httpd=%lu bytes\n",
+      "opentag-scale=%lu opentag-control=%lu opentag-ota=%lu httpd=%lu opentag-nfc=%lu bytes\n",
       phase,
       static_cast<unsigned long>(margins.loop_free_bytes),
       static_cast<unsigned long>(margins.network_free_bytes),
@@ -275,7 +276,8 @@ void Application::print_task_stack_margins(const char* phase) const {
       static_cast<unsigned long>(margins.scale_free_bytes),
       static_cast<unsigned long>(margins.device_control_free_bytes),
       static_cast<unsigned long>(margins.ota_free_bytes),
-      static_cast<unsigned long>(margins.httpd_free_bytes));
+      static_cast<unsigned long>(margins.httpd_free_bytes),
+      static_cast<unsigned long>(margins.nfc_free_bytes));
 }
 
 BootHealthSignals Application::boot_health_signals(
@@ -427,6 +429,7 @@ void Application::loop() {
         status.ntp_ready ? "ready" : "pending",
         status.crash_streak);
     last_serial_diagnostics_ms_ = now_ms;
+    print_task_stack_margins("health");
   }
   delay(20);
 }
@@ -672,6 +675,12 @@ void Application::network_task_entry(void* context) {
     now_ms = millis();
     application->network_.poll(now_ms);
     const auto& network_status = application->network_.status();
+    // Save and Connect reconfigures in place. Wait through the AP grace period;
+    // also handles a configured boot without requiring a separate reboot.
+    application->nfc_worker_.start_when_configured(
+        application->configuration_ready_, network_status.configured,
+        network_status.connected, network_status.provisioning_active,
+        network_status.provisioning_grace_active);
     application->diagnostics_.set_network_status(network_status);
     if (network_status.state != previous_network_state ||
         network_status.provisioning_active != previous_provisioning_active ||

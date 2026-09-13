@@ -1859,7 +1859,11 @@ const char application_javascript[] = R"JS((function () {
     setBadge('nfc-badge', ready ? (present ? 'Tag detected' : 'Ready') :
       initializing || available ? stateText : 'Disabled', badgeKind);
     if (nfc.read_only === true) {
-      if (nfc.state === 'openprinttag') {
+      if (nfc.state === 'deferred') {
+        setText('nfc-summary', 'NFC deferred: provisioning');
+        setText('nfc-guidance', 'NFC is enabled and will start after Wi-Fi connects and the setup AP closes.');
+        setBadge('nfc-badge', 'Deferred', 'neutral');
+      } else if (nfc.state === 'openprinttag') {
         setText('nfc-summary', 'OpenPrintTag recognized');
         setText('nfc-guidance', nfc.material_name || 'Metadata fields unavailable / empty');
         setBadge('nfc-badge', 'OpenPrintTag', 'good');
