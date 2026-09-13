@@ -1,5 +1,14 @@
 # Provisioning memory / production NFC startup
 
+The PR #24 implementation below is historical. Physical testing passed setup
+AP/scan/persistence/STA (192.168.3.34)/AP grace, but late task creation failed:
+internal free 30,492, minimum 5,936, largest block 13,812, PSRAM free 2,002,699.
+The 16,384-byte NFC stack could not fit that contiguous internal block.
+The current fix removes the separate NFC task entirely; see
+[shared backend/NFC owner](backend-nfc-owner.md) for current architecture,
+stack budget, logging and physical acceptance. PR #24 PSRAM storage and
+provisioning deferral are retained; its task-creation behavior is superseded.
+
 PR #23's production NFC was physically validated, but creating its 16,384-byte
 task before Wi-Fi initialization consumed internal RAM needed by the first-run
 AP, DHCP and HTTP server. Reported internal free/minimum/largest values fell to

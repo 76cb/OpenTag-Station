@@ -1,7 +1,4 @@
 #pragma once
-#include <freertos/FreeRTOS.h>
-#include <freertos/task.h>
-
 #include "application/backend_worker.hpp"
 #include "application/scale_command_queue.hpp"
 #include "diagnostics/system_diagnostics.hpp"
@@ -24,29 +21,24 @@ class NfcWorker {
           return backend.submit_identified_spool(tag.decoded.material, tag.uid,
                                                  weight, {}, generation);
         }) {}
-  void start_when_configured(bool configuration_ready, bool configured,
+  void enable_when_configured(bool configuration_ready, bool configured,
                              bool connected, bool provisioning, bool grace);
   nfc::ReadSnapshot snapshot() const {
     auto result = service_.snapshot();
     startup_.describe(result);
     return result;
   }
-  TaskHandle_t task_handle() const { return published_task_.load(); }
-  static constexpr std::uint32_t stack_bytes = 16384U;
-  static constexpr std::uint32_t safety_bytes = 4096U;
-
  private:
-  bool start();
+  // Logical owner only: BackendWorker is the sole caller; no RTOS task/stack.
+  friend class BackendWorker;
+  void poll();
   nfc::WorkerStartup startup_;
-  std::atomic<TaskHandle_t> published_task_{nullptr};
-  static void task_entry(void* context);
   void run_once();
   hardware::nfc::st25r3916b::I2cReader reader_;
   nfc::ReadOnlyService service_;
   diagnostics::SystemDiagnostics& diagnostics_;
   ScaleCommandQueue& scale_;
   services::NfcWorkflowHandoff handoff_;
-  TaskHandle_t task_{nullptr};
   std::uint64_t tag_generation_{0};
   bool measurement_requested_{false};
   std::uint32_t measurement_requested_at_{0};

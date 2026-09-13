@@ -9,9 +9,9 @@ bench acceptance below is still required. No NFC write is authorized by this PR.
 | Owner | Responsibility |
 |---|---|
 | Scale task | Wire, GPIO10/11, NAU7802 0x2A, 100 kHz; unchanged calibration/sampling |
-| NFC task | Wire1, GPIO13/14, IRQ12, ST25R3916B 0x50, 100 kHz |
+| NFC logical owner, on backend task | Wire1, GPIO13/14, IRQ12, ST25R3916B 0x50, 100 kHz |
 | UI task | LVGL/display; FT6336 on GPIO6/5 through LovyanGFX software I2C port -1 |
-| Backend task | Existing StationWorkflow resolution/reconciliation, never NFC I/O |
+| Backend task | Serializes NFC polling and StationWorkflow/backend HTTP; no concurrent NFC task |
 | Network/httpd | Snapshot serialization and invalidation, never RFAL or decode |
 
 LovyanGFX 1.2.27 supports negative-port software I2C in `soft_i2c.inl` and
@@ -65,18 +65,20 @@ other block). The existing 312-byte/aux32 golden image and checksums are unchang
 
 ## Stack audit and validation
 
-The NFC task has 16 KiB. `check_production_nfc_stack_usage.py` sums its compiler
+The shared backend/NFC task has 16 KiB; there is no dedicated NFC stack.
+See [shared-owner budget and scheduling](backend-nfc-owner.md).
+`check_production_nfc_stack_usage.py` sums its compiler
 frames through output-parameter decode, both envelope/material branches, CBOR
 parsing including the rejecting nesting-depth frame, and separately transport.
 At least 4096 bytes must remain. This is a regression estimate, not a substitute
 for runtime high-water readings or a proof of every framework path. Large memory
 images and DecodedTag are heap backed. UI/httpd only hold small shared snapshots;
 they never call Codec. Existing task sizes remain: loopTask 16 KiB, UI 12 KiB,
-network 16 KiB, httpd 12 KiB, backend 12 KiB. Existing task-margin diagnostics
+network 16 KiB, httpd 12 KiB, backend 16 KiB. Existing task-margin diagnostics
 remain; NFC adds entry/before/after-decode checkpoints and five-second state/stack
 logging. Existing diagnostic loop/httpd guards remain unchanged.
 
-The first clean production build reports a 11,984-byte worst nested NFC decode
+For historical comparison, the original dedicated-task production build reported a 11,984-byte worst nested NFC decode
 estimate, leaving 4,400 bytes of the 16,384-byte task (4,096 required). Its
 transport estimate is 3,776 bytes. The affected HTTP path has frames of 32
 (entry), 704 (handler), 2,192 (router), 4,320 (snapshot), and 208 (NFC serializer):

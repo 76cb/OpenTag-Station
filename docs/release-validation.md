@@ -126,15 +126,15 @@ ESP-IDF's Arduino port interprets these configured stack depths as bytes.
 | `opentag-ui` | 2 | 1 | 12,288 | LVGL refresh, configuration/workflow snapshots, screen rebuild | Sole LVGL/display interaction |
 | `opentag-config` | 1 | 0 | 8,192 | JSON configuration copy/validation, LittleFS commit, Wi-Fi handoff | Configuration mutation owner |
 | `opentag-scale` | 1 | 0 | 6,144 | NAU7802 I2C poll/filter/calibration/persistence | Scale hardware and command owner |
-| `opentag-backend` | 1 | 0 | 12,288 | DNS/HTTP/TLS, bounded JSON parse, resolution, guarded readback | Spoolman/FilaBridge/workflow owner |
+| `opentag-backend` | 1 | 0 | 16,384 | Serialized NFC/RFAL/CBOR and DNS/HTTP/TLS/JSON/resolution/readback; combined CI audit requires 4 KiB margin | Spoolman/FilaBridge/workflow plus sole logical NFC/Wire1 owner |
 | `opentag-network` | 1 | 0 | 16,384 | Wi-Fi scan/reconnect, diagnostics, bounded WebSocket serialization | Network and web lifecycle owner |
 | `opentag-control` | 1 | 0 | 4,096 | reset intent, bounded erase, restart | Generic reboot/factory-reset owner |
 | `opentag-ota` | 1 | 0 | 24,576 | boot reconciliation, SHA/flash operations, image validation, rollback | OTA/candidate owner |
 | ESP-IDF `httpd` | 5 default | unpinned default | 12,288 | measured/compiled worst-route budget 9,344 bytes plus 2,944-byte safety margin | HTTP/WebSocket handler execution |
-| `opentag-nfc` | 1 | 0 | 16,384 | Bounded RFAL read or heap-output decode including maximum CBOR nesting; CI requires 4 KiB margin | Sole Wire1/RFAL owner; no network calls |
 
-Configured project-created dynamic task stacks now total **112,640 bytes**
-(the older 104,448-byte total predated the httpd reduction to 12 KiB). The
+Configured project-created dynamic task stacks now total **100,352 bytes**
+(sharing backend/NFC removes 16 KiB and adds 4 KiB to the existing backend).
+There is no dedicated NFC stack or task. The
 Arduino loop task is separately configured to **16,384 bytes** through the
 framework-supported `SET_LOOP_TASK_STACK_SIZE` mechanism. The total does not
 include ESP-IDF system tasks (idle, timer, Wi-Fi,

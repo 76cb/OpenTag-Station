@@ -162,7 +162,7 @@ void Application::setup() {
   const auto idle_result = state_machine_.transition(ApplicationState::idle);
   application_idle_ready_ = idle_result.ok();
   configuration_task_started_ = configuration_worker_.start();
-  backend_task_started_ = backend_worker_.start();
+  backend_task_started_ = backend_worker_.start(nfc_worker_);
   scale_commands_ready_ = scale_commands_.initialize();
   // A timed-out or failed OTA-owner start leaves bootloader reconciliation
   // unknown. Keep every destructive control and network mutation unavailable
@@ -253,7 +253,6 @@ void Application::record_task_stack_margins() {
       stack_high_water_free_bytes(device_control_.task_handle());
   margins.ota_free_bytes =
       stack_high_water_free_bytes(ota_worker_.task_handle());
-  margins.nfc_free_bytes = stack_high_water_free_bytes(nfc_worker_.task_handle());
 #if INCLUDE_xTaskGetHandle == 1
   margins.httpd_free_bytes =
       stack_high_water_free_bytes(xTaskGetHandle("httpd"));
@@ -266,7 +265,7 @@ void Application::print_task_stack_margins(const char* phase) const {
   Serial.printf(
       "stack_margin phase=%s loopTask=%lu opentag-network=%lu "
       "opentag-ui=%lu opentag-config=%lu opentag-backend=%lu "
-      "opentag-scale=%lu opentag-control=%lu opentag-ota=%lu httpd=%lu opentag-nfc=%lu bytes\n",
+      "opentag-scale=%lu opentag-control=%lu opentag-ota=%lu httpd=%lu bytes\n",
       phase,
       static_cast<unsigned long>(margins.loop_free_bytes),
       static_cast<unsigned long>(margins.network_free_bytes),
@@ -276,8 +275,7 @@ void Application::print_task_stack_margins(const char* phase) const {
       static_cast<unsigned long>(margins.scale_free_bytes),
       static_cast<unsigned long>(margins.device_control_free_bytes),
       static_cast<unsigned long>(margins.ota_free_bytes),
-      static_cast<unsigned long>(margins.httpd_free_bytes),
-      static_cast<unsigned long>(margins.nfc_free_bytes));
+      static_cast<unsigned long>(margins.httpd_free_bytes));
 }
 
 BootHealthSignals Application::boot_health_signals(
@@ -677,7 +675,7 @@ void Application::network_task_entry(void* context) {
     const auto& network_status = application->network_.status();
     // Save and Connect reconfigures in place. Wait through the AP grace period;
     // also handles a configured boot without requiring a separate reboot.
-    application->nfc_worker_.start_when_configured(
+    application->nfc_worker_.enable_when_configured(
         application->configuration_ready_, network_status.configured,
         network_status.connected, network_status.provisioning_active,
         network_status.provisioning_grace_active);

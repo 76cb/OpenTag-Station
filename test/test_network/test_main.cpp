@@ -5,6 +5,7 @@
 
 #include "core/saturating_counter.hpp"
 #include "network/http_transport.hpp"
+#include "network/deadline_client.hpp"
 #include "network/network_policy.hpp"
 
 using opentag::network::ExponentialReconnectBackoff;
@@ -334,8 +335,69 @@ void test_connect_receipt_gate_blocks_reconfigure_until_exact_ack() {
   TEST_ASSERT_FALSE(gate.delivered(41U));
 }
 
+struct DeadlineFakeClient {
+  virtual ~DeadlineFakeClient() = default;
+  int stops{0};
+  unsigned writes{0};
+  virtual int connect(int, std::uint16_t) { return 1; }
+  virtual int connect(const char*, std::uint16_t) { return 1; }
+  virtual int connect(int, std::uint16_t, std::int32_t) { return 1; }
+  virtual int connect(const char*, std::uint16_t, std::int32_t) { return 1; }
+  virtual std::size_t write(std::uint8_t) { ++writes; return 1; }
+  virtual std::size_t write(const std::uint8_t*, std::size_t n) { ++writes; return n; }
+  virtual int available() { return 1; } // A peer continuously trickles bytes.
+  virtual int read() { return 'x'; }
+  virtual int read(std::uint8_t*, std::size_t n) { return n; }
+  virtual int peek() { return 'x'; }
+  virtual void flush() {}
+  virtual void stop() { ++stops; }
+  virtual std::uint8_t connected() { return 1; }
+  virtual int setTimeout(std::uint32_t) { return 0; }
+  virtual int fd() const { return 1; }
+};
+void test_backend_operation_budget_bounds_trickling_http() {
+  using namespace opentag::network;
+  OperationBudget budget;
+  std::uint32_t now = 100;
+  auto clock = [&]() { return now++; };
+  DeadlineFakeClient socket;
+  DeadlineClient<DeadlineFakeClient, int, decltype(clock)> client(socket, budget, clock);
+  budget.begin(now);
+  TEST_ASSERT_EQUAL(1, client.connect("server", 80, 5000));
+  unsigned bytes = 0;
+  while (client.available()) { TEST_ASSERT_EQUAL('x', client.read()); ++bytes; }
+  TEST_ASSERT_LESS_THAN(OperationBudget::duration_ms, bytes);
+  TEST_ASSERT_GREATER_THAN(0, socket.stops);
+  TEST_ASSERT_EQUAL(0, client.connected());
+  TEST_ASSERT_EQUAL(-1, client.peek());
+  TEST_ASSERT_EQUAL(0, client.write(static_cast<std::uint8_t>('x')));
+  // A subsequent HTTP request in this same probe does not reset its budget.
+  TEST_ASSERT_EQUAL(0, client.connect("server", 80, 5000));
+  budget.end();
+  TEST_ASSERT_EQUAL(1, client.available());
+  budget.begin(now);
+  TEST_ASSERT_EQUAL(1, client.connect("server", 80, 5000));
+}
+void test_backend_budget_wrap_and_flush() {
+  using namespace opentag::network;
+  OperationBudget budget;
+  budget.begin(0xFFFFF000U);
+  TEST_ASSERT_FALSE(budget.expired(0xFFFFF000U + OperationBudget::duration_ms - 1U));
+  TEST_ASSERT_TRUE(budget.expired(0xFFFFF000U + OperationBudget::duration_ms));
+  std::uint32_t now = 0;
+  auto clock = [&]() { return now++; };
+  DeadlineFakeClient socket;
+  DeadlineClient<DeadlineFakeClient, int, decltype(clock)> client(socket, budget, clock);
+  budget.begin(0);
+  client.flush();
+  TEST_ASSERT_GREATER_THAN(0, socket.stops);
+  TEST_ASSERT_TRUE(budget.expired(now));
+}
+
 int main(int, char**) {
   UNITY_BEGIN();
+  RUN_TEST(test_backend_operation_budget_bounds_trickling_http);
+  RUN_TEST(test_backend_budget_wrap_and_flush);
   RUN_TEST(test_reconnect_backoff_doubles_saturates_and_resets);
   RUN_TEST(test_url_parser_applies_default_and_explicit_ports);
   RUN_TEST(test_url_parser_rejects_credentials_fragments_bad_ports_and_schemes);

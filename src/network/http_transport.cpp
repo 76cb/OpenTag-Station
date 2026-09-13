@@ -1,4 +1,5 @@
 #include "network/http_transport.hpp"
+#include "network/deadline_client.hpp"
 
 #ifdef ARDUINO
 #include <Arduino.h>
@@ -145,6 +146,10 @@ core::Result<ParsedUrl> parse_http_url(const std::string& url) {
 
 #ifdef ARDUINO
 core::Result<HttpResponse> HttpTransport::perform(const HttpRequest& request) {
+  const auto deadline_error = []() {
+    return core::Result<HttpResponse>::failure(network_error("Backend operation deadline exceeded"));
+  };
+  if (budget_.expired(millis())) return deadline_error();
   const auto parsed = parse_http_url(request.url);
   if (!parsed.ok()) return core::Result<HttpResponse>::failure(parsed.error());
   if (!valid_method(request.method) || request.connect_timeout_ms < 100U ||
@@ -169,6 +174,7 @@ core::Result<HttpResponse> HttpTransport::perform(const HttpRequest& request) {
     return core::Result<HttpResponse>::failure(
         network_error("DNS resolution failed for " + parsed.value().host));
   }
+  if (budget_.expired(millis())) return deadline_error();
 
   std::unique_ptr<WiFiClient> client;
   if (parsed.value().secure) {
@@ -181,8 +187,10 @@ core::Result<HttpResponse> HttpTransport::perform(const HttpRequest& request) {
     client = std::make_unique<WiFiClient>();
   }
 
+  const auto clock = []() { return static_cast<std::uint32_t>(millis()); };
+  DeadlineClient<WiFiClient, IPAddress, decltype(clock)> bounded(*client, budget_, clock);
   HTTPClient http;
-  if (!http.begin(*client, request.url.c_str())) {
+  if (!http.begin(bounded, request.url.c_str())) {
     return core::Result<HttpResponse>::failure(
         network_error("HTTP client initialization failed"));
   }
@@ -223,6 +231,10 @@ core::Result<HttpResponse> HttpTransport::perform(const HttpRequest& request) {
   }
   BoundedResponseStream response_stream(request.maximum_response_bytes);
   const auto copied = http.writeToStream(&response_stream);
+  if (budget_.expired(millis())) {
+    http.end();
+    return deadline_error();
+  }
   if (copied < 0 || response_stream.overflowed()) {
     http.end();
     return core::Result<HttpResponse>::failure(

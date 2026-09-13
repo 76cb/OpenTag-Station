@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Audited NFC task call paths, including adversarial bounded CBOR recursion.
+"""Shared backend/NFC task paths, including adversarial bounded CBOR recursion.
 
 Compiler frames are not a proof of whole-library/runtime stack use. Reserve an
 additional 4 KiB for framework, interrupts, logging and unmodelled leaf calls;
@@ -20,7 +20,7 @@ def main():
     entries = frame_entries(parser.parse_args().build_dir)
     def frame(file, method):
         return require_frame(entries, "src/" + file + ".cpp.su", method)
-    worker = (ROOT / "src/application/nfc_worker.hpp").read_text()
+    worker = (ROOT / "src/application/backend_worker.hpp").read_text()
     stack = int(re.search(r"stack_bytes\s*=\s*(\d+)U", worker)[1])
     safety = int(re.search(r"safety_bytes\s*=\s*(\d+)U", worker)[1])
     assert safety >= 4096
@@ -28,7 +28,8 @@ def main():
                 (ROOT / "src/nfc/formats/openprinttag/cbor.hpp").read_text())[1])
     codec = "nfc/formats/openprinttag/codec"
     cbor = "nfc/formats/openprinttag/cbor"
-    owner = frame("application/nfc_worker", "NfcWorker::task_entry(") + frame("application/nfc_worker", "NfcWorker::run_once(")
+    backend_owner = frame("application/backend_worker", "BackendWorker::task_entry(") + frame("application/backend_worker", "BackendWorker::run(")
+    owner = backend_owner + frame("application/backend_worker", "BackendWorker::poll_nfc(") + frame("application/nfc_worker", "NfcWorker::poll(") + frame("application/nfc_worker", "NfcWorker::run_once(")
     polling = frame("nfc/read_only_service", "ReadOnlyService::poll(")
     reading = frame("nfc/read_only_service", "ReadOnlyService::read_tag(")
     decode = frame(codec, "Codec::decode(opentag::core::ByteView, opentag::nfc::openprinttag::DecodedTag&)")
@@ -43,9 +44,25 @@ def main():
     # addition to project read/confirmation/driver frames and the safety margin.
     transport = owner + polling + reading + frame("nfc/read_only_service", "ReadOnlyService::read_image(") + frame("nfc/read_only_service", "ReadOnlyService::confirm_uid(") + max(
         size for path, size, _ in entries if path.as_posix().endswith("src/hardware/nfc/st25r3916b/i2c_reader.cpp.su")) + 2048
-    worst = max(decoded, transport)
-    print(f"NFC stack={stack}; nested decode={decoded}; transport={transport}; remaining={stack-worst}; required={safety}")
-    assert stack - worst >= safety, "NFC stack headroom below 4 KiB budget"
+    def largest(file):
+        sizes = [size for path, size, _ in entries if path.as_posix().endswith("src/" + file + ".cpp.su")]
+        assert sizes, f"missing frames: {file}"
+        return max(sizes)
+    spoolman = "integrations/spoolman/spoolman_adapter"
+    filabridge = "integrations/filabridge/filabridge_adapter"
+    workflow = "services/station_workflow"
+    # Separate paths: command/probe frames are NOT ancestors of NFC. Model
+    # bounded adapter/resolver helper depth with the largest file frames and
+    # reserve 2 KiB for HTTP/TCP/TLS calls, plus the common 4 KiB safety reserve.
+    probe = frame("application/backend_worker", "BackendWorker::probe_backends(") + max(
+        frame(spoolman, "SpoolmanAdapter::probe(") + frame(spoolman, "SpoolmanAdapter::probe_read_capabilities(") + 2 * largest(spoolman),
+        frame(filabridge, "FilaBridgeAdapter::probe(") + 2 * largest(filabridge))
+    identify = frame(workflow, "StationWorkflow::accept_identified_spool(") + 2 * largest("services/spool_identity_resolver") + 2 * largest(spoolman)
+    assignment = frame(workflow, "StationWorkflow::assign(") + 2 * largest("services/toolhead_assignment_service") + 2 * largest(filabridge)
+    backend = backend_owner + frame("application/backend_worker", "BackendWorker::process(") + max(probe, identify, assignment) + frame("network/http_transport", "HttpTransport::perform(") + 2048
+    worst = max(decoded, transport, backend)
+    print(f"Shared backend stack={stack}; nested NFC decode={decoded}; NFC transport={transport}; backend HTTP={backend}; remaining={stack-worst}; required={safety}")
+    assert stack - worst >= safety, "Shared backend/NFC stack headroom below 4 KiB budget"
 
 
 if __name__ == "__main__":

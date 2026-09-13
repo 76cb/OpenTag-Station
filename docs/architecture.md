@@ -2,7 +2,9 @@
 
 Phase 11 audited every runtime owner, queue, lifecycle lease, persistent writer,
 and project-created task. With the production read-only NFC owner, the configured
-dynamic stack total is 112,640 bytes (plus the separate 16,384-byte Arduino loop).
+dynamic stack total is 100,352 bytes (plus the separate 16,384-byte Arduino loop).
+NFC is a logical owner on the existing backend task, whose stack is now 16 KiB;
+there is no separate NFC task or stack. See [shared owner](backend-nfc-owner.md).
 The ownership and dynamic task-stack inventory are in
 [release-validation.md](release-validation.md); changes to task creation or
 ownership must update that inventory.

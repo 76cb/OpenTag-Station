@@ -51,13 +51,28 @@ def check():
     application = (ROOT / "src/application/application.cpp").read_text()
     setup = application.split("void Application::setup()", 1)[1].split("void Application::record_task_stack_margins", 1)[0]
     assert "nfc_worker_.start(" not in application
-    assert "start_when_configured" not in setup
-    assert application.count("nfc_worker_.start_when_configured(") == 1
+    assert "enable_when_configured" not in setup
+    assert application.count("nfc_worker_.enable_when_configured(") == 1
+    assert "backend_worker_.start(nfc_worker_)" in setup
     assert "network_status.provisioning_grace_active);" in application
     worker = (ROOT / "src/application/nfc_worker.cpp").read_text()
-    assert "MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT" in worker
+    assert "xTaskCreate" not in worker and "task_entry" not in worker
+    backend = (ROOT / "src/application/backend_worker.cpp").read_text()
+    assert backend.count("xTaskCreatePinnedToCore(") == 1
+    assert "MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT" in backend
     for metric in ("heap_caps_get_free_size", "heap_caps_get_minimum_free_size", "heap_caps_get_largest_free_block"):
-        assert metric in worker
+        assert metric in backend
+    # NFC must never nest under HTTP/command/workflow frames. Only backend run
+    # boundaries call the cooperative owner, including continuously busy queues.
+    run = backend.split("void BackendWorker::run()", 1)[1]
+    assert run.count("poll_nfc();") == 3
+    assert "poll_nfc();" not in backend.split("void BackendWorker::run()", 1)[0]
+    assert "transport_.begin_operation(millis())" in run
+    assert "nfc_->poll();" in run
+    header = (ROOT / "src/application/nfc_worker.hpp").read_text()
+    assert "TaskHandle_t" not in header and "stack_bytes" not in header
+    transport = (ROOT / "src/network/http_transport.cpp").read_text()
+    assert "DeadlineClient<WiFiClient" in transport
     assert "ReadImage first" in service and "make_read_storage<IdentifiedTag>" in service
     diagnostic = (ROOT / "src/diagnostics/shared_i2c_firmware.cpp").read_text()
     assert "diagnostic_initialization_write_enabled = false" in diagnostic
@@ -74,6 +89,7 @@ def check_binary():
     assert not forbidden, "writable NFC runtime linked: " + "\n".join(forbidden)
     assert "I2cReader::inventory" in symbols and "ReadOnlyService::read_tag" in symbols
     assert "Esp32RfalPlatform::" not in symbols
+    assert "NfcWorker::task_entry" not in symbols and "NfcWorker::start()" not in symbols
     print("PASS: production ELF contains read path and no tag-write/initializer/legacy SPI binding")
 
 

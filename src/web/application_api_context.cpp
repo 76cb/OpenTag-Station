@@ -215,7 +215,6 @@ void write_system(JsonObject object, const diagnostics::SystemSnapshot& value) {
   stacks["opentag-scale"] = value.task_stacks.scale_free_bytes;
   stacks["opentag-control"] = value.task_stacks.device_control_free_bytes;
   stacks["opentag-ota"] = value.task_stacks.ota_free_bytes;
-  stacks["opentag-nfc"] = value.task_stacks.nfc_free_bytes;
   stacks["httpd"] = value.task_stacks.httpd_free_bytes;
   auto transport = object["transport"].to<JsonObject>();
   transport["http_server_running"] = value.transport.http_server_running;

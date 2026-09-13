@@ -1,7 +1,9 @@
 #include "application/backend_worker.hpp"
+#include "application/nfc_worker.hpp"
 
 #include <Arduino.h>
 #include <WiFi.h>
+#include <esp_heap_caps.h>
 
 #include <new>
 #include <utility>
@@ -71,12 +73,18 @@ BackendRuntimeSnapshot runtime_snapshot(
 
 }  // namespace
 
-bool BackendWorker::start() {
+bool BackendWorker::start(NfcWorker& nfc) {
   if (task_ != nullptr) return true;
   constexpr UBaseType_t queue_depth = 12U;
   queue_ = xQueueCreate(queue_depth, sizeof(Command*));
   if (queue_ == nullptr) return false;
-  constexpr std::uint32_t stack_bytes = 12288U;
+  nfc_ = &nfc;  // Bound before the task exists; never changed while running.
+  constexpr auto caps = MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
+  Serial.printf("Backend before task create internal_free=%lu internal_min=%lu internal_largest=%lu stack_bytes=%lu\n",
+      static_cast<unsigned long>(heap_caps_get_free_size(caps)),
+      static_cast<unsigned long>(heap_caps_get_minimum_free_size(caps)),
+      static_cast<unsigned long>(heap_caps_get_largest_free_block(caps)),
+      static_cast<unsigned long>(stack_bytes));
   constexpr UBaseType_t priority = 1U;
   constexpr BaseType_t core = 0;
   if (xTaskCreatePinnedToCore(
@@ -89,8 +97,10 @@ bool BackendWorker::start() {
           core) != pdPASS) {
     vQueueDelete(queue_);
     queue_ = nullptr;
+    Serial.println("Backend task allocation FAILED");
     return false;
   }
+  Serial.println("Backend task allocation PASS; NFC shares this owner after provisioning");
   return true;
 }
 
@@ -519,16 +529,23 @@ void BackendWorker::run() {
   last_probe_ms_ = millis() - probe_interval_ms;
   for (;;) {
     Command* command = nullptr;
-    if (xQueueReceive(queue_, &command, pdMS_TO_TICKS(250U)) == pdTRUE &&
-        command != nullptr) {
+    const bool received = xQueueReceive(queue_, &command, pdMS_TO_TICKS(250U)) == pdTRUE;
+    poll_nfc();  // Check removal before executing even a continuously busy queue.
+    if (received && command != nullptr) {
+      transport_.begin_operation(millis());
       process(*command);
+      transport_.end_operation();
       delete command;
       pending_.fetch_sub(1U, std::memory_order_relaxed);
     }
+    poll_nfc();
     const auto now_ms = millis();
     if (static_cast<std::uint32_t>(now_ms - last_probe_ms_) >=
         probe_interval_ms) {
+      transport_.begin_operation(millis());
       probe_backends();
+      transport_.end_operation();
+      poll_nfc();
       // Schedule from completion, not from the timestamp captured before a
       // potentially slow DNS/HTTP probe. Otherwise a probe cycle longer than
       // the interval immediately starts another cycle and can become a
@@ -536,6 +553,12 @@ void BackendWorker::run() {
       last_probe_ms_ = millis();
     }
   }
+}
+
+void BackendWorker::poll_nfc() {
+  // Never called inside process/probe/HTTP/workflow frames or held locks.
+  // RFAL/decode and backend HTTP are mutually exclusive on this task.
+  if (nfc_) nfc_->poll();
 }
 
 }  // namespace opentag::application
