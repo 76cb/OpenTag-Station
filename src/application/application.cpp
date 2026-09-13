@@ -179,6 +179,7 @@ void Application::setup() {
   }
 
   scale_task_started_ = start_scale_task();
+  if (!nfc_worker_.start()) Serial.println("NFC worker task allocation failed");
   ui_task_started_ = display_ready_ && configuration_task_started_ &&
       backend_task_started_ &&
       start_ui_task();

@@ -228,8 +228,8 @@ void test_tags_page_exposes_minimal_read_only_disabled_reader_state() {
       "void UiService::build_tags_page()",
       "void UiService::build_settings_page()");
   TEST_ASSERT_TRUE(build.find("NFC READER") != std::string::npos);
-  TEST_ASSERT_TRUE(build.find("OFF") != std::string::npos);
-  TEST_ASSERT_TRUE(build.find("ST RFAL") != std::string::npos);
+  TEST_ASSERT_TRUE(build.find("nfc_detail_") != std::string::npos);
+  TEST_ASSERT_TRUE(build.find("Initializing NFC-V reader") != std::string::npos);
   TEST_ASSERT_TRUE(build.find("WRITE") == std::string::npos);
   TEST_ASSERT_TRUE(build.find("FORMAT") == std::string::npos);
 }

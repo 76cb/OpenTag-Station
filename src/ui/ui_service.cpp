@@ -13,6 +13,7 @@
 #include "boards/wt32_sc01_plus_rev_a.hpp"
 #include "diagnostics/build_info.hpp"
 #include "ui/weight_format.hpp"
+#include "nfc/presentation.hpp"
 #include "web/local_access_policy.hpp"
 
 namespace opentag::ui {
@@ -232,6 +233,7 @@ void UiService::build_current_screen() {
   scale_calibration_panel_open_ = false;
   workflow_identity_label_ = nullptr;
   workflow_status_label_ = nullptr;
+  nfc_detail_ = nullptr;
   scale_keyboard_ = nullptr;
   display_test_touch_marker_ = nullptr;
   display_test_touch_label_ = nullptr;
@@ -728,7 +730,7 @@ void UiService::build_tags_page() {
   lv_obj_set_style_border_width(card, 1, 0);
   lv_obj_set_style_border_color(card, lv_color_hex(0x1A4A52), 0);
   lv_obj_set_style_bg_color(card, lv_color_hex(0x102B33), 0);
-  lv_obj_clear_flag(card, LV_OBJ_FLAG_SCROLLABLE);
+
 
   auto* icon = lv_label_create(card);
   lv_label_set_text(icon, LV_SYMBOL_EDIT);
@@ -742,10 +744,10 @@ void UiService::build_tags_page() {
   lv_obj_align(heading, LV_ALIGN_TOP_MID, 0, 70);
 
   auto* detail = lv_label_create(card);
+  nfc_detail_ = detail;
   lv_label_set_text(
       detail,
-      "OFF\n"
-      "Hardware wiring and ST RFAL are not enabled.");
+      "Initializing NFC-V reader...");
   lv_obj_set_width(detail, 310);
   lv_obj_set_style_text_align(detail, LV_TEXT_ALIGN_CENTER, 0);
   lv_obj_set_style_text_color(detail, lv_color_hex(0x9AB8BC), 0);
@@ -1531,7 +1533,7 @@ void UiService::refresh_setup() {
       body = "SCALE CALIBRATION\nUse browser Scale controls: tare empty, then use a known mass.";
       break;
     case services::SetupStep::nfc_status:
-      body = "NFC STATUS\nDisabled until the reader is physically integrated.";
+      body = "NFC STATUS\nPresent an OpenPrintTag spool. View recognition on Tags.";
       break;
     case services::SetupStep::ready:
       body = "READY\nLocal API authentication is optional.";
@@ -1623,6 +1625,14 @@ void UiService::refresh_current(std::uint32_t now_ms) {
 void UiService::refresh_workflow() {
   if (showing_setup_ || showing_diagnostics_ ||
       product_nav_buttons_[0] == nullptr) {
+    return;
+  }
+
+  if (active_page_ == ProductPage::tags && nfc_detail_ != nullptr) {
+    const auto scale = diagnostics_.scale_snapshot();
+    const auto text = nfc::describe(nfc_.snapshot(), scale.scale_last_completed_available
+        ? std::optional<float>(scale.scale_last_completed_milligrams / 1000.0F) : std::nullopt);
+    lv_label_set_text(nfc_detail_, text.c_str());
     return;
   }
 

@@ -64,7 +64,7 @@ Wt32DisplayDevice::Wt32DisplayDevice(bool enable_touch) {
     cfg.pin_int = Board::touch_interrupt;
     cfg.bus_shared = true;
     cfg.offset_rotation = 0;
-    cfg.i2c_port = 1;
+    cfg.i2c_port = Board::touch_i2c_port;
     cfg.i2c_addr = Board::touch_address;
     cfg.pin_sda = Board::touch_sda;
     cfg.pin_scl = Board::touch_scl;

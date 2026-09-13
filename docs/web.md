@@ -407,17 +407,16 @@ readback. Assignment succeeds only when the requested spool is observed (or was
 already present); unassignment succeeds only when the mapping is absent (or was
 already absent). Local workflow state is not advanced on failed verification.
 
-## NFC behavior in Phase 9
+## Production read-only NFC
 
-The production ST25R3916B transport remains compile-time disabled. The opt-in
-diagnostic has a separate, pinned ELECHOUSE `Wire1` RFAL inventory binding, but
-the production NFC owner/binding is not implemented and the diagnostic RF test
-is not yet physically verified. `GET /api/v1/nfc` returns a
-bounded 200 diagnostic snapshot that explicitly reports `available=false`, the
-incomplete transport/vendor gates, zero IRQ activity, and no tag. `GET /api/v1/nfc/tag` and
-authenticated `POST /api/v1/nfc/read` return HTTP 503 `nfc_unavailable`. The UI
-shows the reader as disabled rather than simulating a tag or silently treating a
-hardware error as no tag.
+`GET /api/v1/nfc` and `GET /api/v1/nfc/tag` expose the dedicated worker's
+thread-safe read-only snapshot. UID, geometry, checksum, decode status, nullable
+material fields and transport errors are available without decoding on httpd.
+`/spool` retains the existing StationWorkflow with its identified tag and waiting
+or resolved stage. NFC live invalidations refresh both NFC and spool views.
+An empty valid tag is recognized, not treated as absent. No tag-write endpoint
+exists. The legacy `/nfc/read` command reports that reading is automatic and is
+not exposed as an action on the read-only UI. See [production NFC](production-nfc.md).
 
 ## Reboot and factory reset
 

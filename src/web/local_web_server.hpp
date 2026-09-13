@@ -118,6 +118,7 @@ class LocalWebServer final {
   std::uint32_t last_heartbeat_ms_{0U};
   std::uint32_t next_publish_check_ms_{0U};
   std::uint64_t last_update_revision_{0U};
+  std::array<std::uint64_t, 4> last_nfc_revision_{};
   bool scale_published_{false};
   bool scale_session_was_active_{false};
   bool heartbeat_published_{false};

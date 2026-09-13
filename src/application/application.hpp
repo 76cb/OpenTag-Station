@@ -6,6 +6,7 @@
 #include <freertos/task.h>
 
 #include "application/backend_worker.hpp"
+#include "application/nfc_worker.hpp"
 #include "application/boot_health_policy.hpp"
 #include "application/device_control_worker.hpp"
 #include "application/device_lifecycle_gate.hpp"
@@ -86,6 +87,7 @@ class Application {
   BackendWorker backend_worker_{
       configuration_, spoolman_, filabridge_, spool_resolver_, workflow_, operations_};
   ScaleCommandQueue scale_commands_{configuration_, scale_, operations_};
+  NfcWorker nfc_worker_{diagnostics_, scale_commands_, workflow_, backend_worker_};
   DeviceControlWorker device_control_{storage_, operations_, lifecycle_};
   logging::BoundedLog logs_;
   web::ApplicationApiContext api_context_{
@@ -99,7 +101,7 @@ class Application {
       logs_,
       device_control_,
       ota_worker_,
-      network_};
+      network_, nfc_worker_};
   web::api::Router api_router_{api_context_};
   web::LocalWebServer web_server_{api_router_, api_context_};
   ui::UiService ui_{
@@ -111,7 +113,7 @@ class Application {
       configuration_worker_,
       scale_commands_,
       workflow_,
-      backend_worker_};
+      backend_worker_, nfc_worker_};
   ApplicationStateMachine state_machine_;
   BootHealthPolicy boot_health_policy_{0U};
   TaskHandle_t ui_task_handle_{nullptr};

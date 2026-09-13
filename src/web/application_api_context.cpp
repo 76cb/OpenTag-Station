@@ -13,6 +13,7 @@
 #include "boards/wt32_sc01_plus_rev_a.hpp"
 #include "diagnostics/build_info.hpp"
 #include "hardware/nfc/st25r3916b/wiring_guard.hpp"
+#include "web/nfc_json.hpp"
 #include "web/configuration_patch.hpp"
 #include "web/local_access_policy.hpp"
 
@@ -854,7 +855,7 @@ core::Result<std::string> ApplicationApiContext::snapshot_json(
           local_access.authentication_enabled;
       document["local_browser_control_enabled"] =
           local_access.browser_mutations_enabled;
-      document["nfc_available"] = false;
+      document["nfc_available"] = nfc_.snapshot().initialized;
       break;
     }
     case api::Resource::network: {
@@ -888,40 +889,24 @@ core::Result<std::string> ApplicationApiContext::snapshot_json(
       break;
     }
     case api::Resource::nfc: {
-      document["available"] = false;
-      document["enabled"] = false;
-      document["wiring_complete"] =
-          hardware::nfc::st25r3916b_wiring_complete;
-      document["bringup_state"] = "off";
-      document["spi_ok"] = false;
-      document["irq_configured"] = false;
-      document["irq_line_state"] = false;
-      document["irq_latched"] = false;
-      document["irq_count"] = 0U;
-      document["last_irq_at_ms"] = 0U;
-      document["rfal_initialized"] = false;
-      document["rf_field_enabled"] = false;
-      document["rfal_revision"] = diagnostics::build_info.rfal_revision;
-      auto inventory = document["inventory"].to<JsonObject>();
-      inventory["tag_count"] = 0U;
-      inventory["present"] = false;
-      inventory["technology"] = "NFC-V / ISO15693";
-      inventory["last_seen_ms"] = 0U;
-      inventory["inventory_result"] = "disabled";
-      document["recovery_count"] = 0U;
-      document["last_error"] =
-          "NFC wiring is incomplete and authoritative ST RFAL is not vendored";
+      const auto scale = diagnostics_.scale_snapshot();
+      write_nfc(document.to<JsonObject>(),nfc_.snapshot(),
+          scale.scale_last_completed_available ? std::optional<float>(scale.scale_last_completed_milligrams / 1000.0F) : std::nullopt);
       break;
     }
-    case api::Resource::nfc_tag:
-      return core::Result<std::string>::failure(unavailable(
-          core::ErrorCategory::nfc_communication,
-          "No NFC-V tag data is available while the reader is disabled"));
+    case api::Resource::nfc_tag: {
+      const auto scale = diagnostics_.scale_snapshot();
+      write_nfc(document["tag"].to<JsonObject>(),nfc_.snapshot(),
+          scale.scale_last_completed_available ? std::optional<float>(scale.scale_last_completed_milligrams / 1000.0F) : std::nullopt);
+      break;
+    }
     case api::Resource::spool: {
       const auto workflow = workflow_.snapshot();
       auto encoded = document["workflow"].to<JsonObject>();
       encoded["stage"] = workflow_stage_name(workflow.stage);
       encoded["spool_generation"] = workflow.spool_generation;
+      encoded["openprinttag_available"] = workflow.openprinttag_available;
+      write_nfc(encoded["tag"].to<JsonObject>(), nfc_.snapshot());
       encoded["printer_revision"] = workflow.printer_revision;
       encoded["spoolman"] = availability_name(workflow.spoolman);
       encoded["filabridge"] = availability_name(workflow.filabridge);
@@ -1003,9 +988,9 @@ core::Result<std::string> ApplicationApiContext::snapshot_json(
       document["ota_owner_ready"] = ota_worker_.ready();
       document["operation_registry_revision"] =
           operation_statistics.revision;
-      document["nfc_available"] = false;
+      document["nfc_available"] = nfc_.snapshot().initialized;
       document["nfc_reason"] =
-          "ST25R3916B transport disabled at compile time";
+          "Read-only ELECHOUSE NFC-V over Wire1";
       break;
     }
     case api::Resource::logs: {
@@ -1098,7 +1083,7 @@ core::Result<api::OperationReceipt> ApplicationApiContext::submit_fresh(
     case api::MutationKind::nfc_read:
       return core::Result<api::OperationReceipt>::failure(unavailable(
           core::ErrorCategory::nfc_communication,
-          "NFC reader is unavailable in this firmware build"));
+          "NFC reads automatically on insertion; use GET /nfc for its current state"));
     case api::MutationKind::backend_test:
       return receipt_result(
           backend_worker_.submit_refresh(), "Backend command queue is unavailable");

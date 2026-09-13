@@ -1,8 +1,9 @@
 # Architecture
 
 Phase 11 audited every runtime owner, queue, lifecycle lease, persistent writer,
-and project-created task. The authoritative ownership and 104,448-byte configured
-dynamic task-stack inventory are in
+and project-created task. With the production read-only NFC owner, the configured
+dynamic stack total is 112,640 bytes (plus the separate 16,384-byte Arduino loop).
+The ownership and dynamic task-stack inventory are in
 [release-validation.md](release-validation.md); changes to task creation or
 ownership must update that inventory.
 
@@ -29,7 +30,7 @@ Touchscreen UI        Web UI / local API
       |
  NFC-V / ISO15693 protocol
       |
- ST RFAL -> ESP32 RFAL port -> ST25R3916B
+ ELECHOUSE object RFAL -> Wire1 I2C -> ST25R3916B
 
  Scale service -> NAU7802 driver
 ```

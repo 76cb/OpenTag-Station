@@ -12,8 +12,8 @@ position, noise, and overload procedure is in
 
 The NAU7802 is assigned to the WT32-SC01 Plus external I2C connector at address
 `0x2A`, with SDA on GPIO 10 and SCL on GPIO 11. It uses ESP32 `Wire` (I2C
-controller 0); the built-in FT6336-compatible touch controller uses `Wire1` (I2C
-controller 1) on its separate display bus. Pins live only in the central board
+controller 0); NFC exclusively uses `Wire1` (controller 1). The built-in touch
+controller uses LovyanGFX software I2C on its separate GPIO6/5 bus. Pins live only in the central board
 profile and are injected into the driver.
 
 At scale-task startup, firmware performs one bounded scan of valid 7-bit I2C

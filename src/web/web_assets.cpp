@@ -134,7 +134,18 @@ const char index_html[] = R"HTML(<!doctype html>
         <p id="nfc-read-status" class="setup-status" aria-live="polite">No tag data</p>
         <button id="read-tag" class="button" type="button" disabled hidden>Read tag</button>
       </article>
-      <span id="nfc-material" class="visually-hidden" aria-hidden="true">—</span>
+      <dl class="facts">
+        <div><dt>Material</dt><dd id="nfc-material">—</dd></div>
+        <div><dt>Type</dt><dd id="nfc-type">—</dd></div>
+        <div><dt>Brand</dt><dd id="nfc-brand">—</dd></div>
+        <div><dt>Color RGBA</dt><dd id="nfc-color">—</dd></div>
+        <div><dt>Nominal full weight (g)</dt><dd id="nfc-nominal">—</dd></div>
+        <div><dt>Actual full weight (g)</dt><dd id="nfc-actual">—</dd></div>
+        <div><dt>Consumed (g)</dt><dd id="nfc-consumed">—</dd></div>
+        <div><dt>Remaining (g)</dt><dd id="nfc-remaining">—</dd></div>
+        <div><dt>Measured (g)</dt><dd id="nfc-measured">—</dd></div>
+        <div><dt>Image checksum</dt><dd id="nfc-checksum">—</dd></div>
+      </dl>
     </section>
 
     <section id="spool" class="section product-page home-support" data-page="home" aria-labelledby="spool-title">
@@ -1847,15 +1858,44 @@ const char application_javascript[] = R"JS((function () {
     setText('nfc-guidance', guidance);
     setBadge('nfc-badge', ready ? (present ? 'Tag detected' : 'Ready') :
       initializing || available ? stateText : 'Disabled', badgeKind);
+    if (nfc.read_only === true) {
+      if (nfc.state === 'openprinttag') {
+        setText('nfc-summary', 'OpenPrintTag recognized');
+        setText('nfc-guidance', nfc.material_name || 'Metadata fields unavailable / empty');
+        setBadge('nfc-badge', 'OpenPrintTag', 'good');
+      } else if (nfc.state === 'unsupported') {
+        setText('nfc-summary', 'NFC-V tag detected');
+        setText('nfc-guidance', 'OpenPrintTag decode failed / unsupported');
+        setBadge('nfc-badge', 'Unsupported', 'warning');
+      } else if (nfc.state === 'error') {
+        setText('nfc-summary', 'NFC reader error');
+        setText('nfc-guidance', nfc.last_error);
+        setBadge('nfc-badge', 'Error', 'bad');
+      }
+      renderTag(nfc);
+    }
     const readButton = byId('read-tag');
     if (readButton) {
-      readButton.hidden = !ready;
-      readButton.disabled = !ready || state.maintenance;
+      readButton.hidden = !ready || nfc.read_only === true;
+      readButton.disabled = !ready || state.maintenance || nfc.read_only === true;
     }
   }
 
   function renderTag(payload) {
     const tag = asObject(first(payload.tag, payload));
+    if (tag.read_only === true) {
+      for (const [id, key] of [['nfc-material','material_name'],['nfc-type','material_abbreviation'],
+        ['nfc-brand','brand_name'],['nfc-nominal','nominal_full_weight'],['nfc-actual','actual_full_weight'],
+        ['nfc-consumed','consumed_weight'],['nfc-remaining','remaining_weight'],['nfc-checksum','checksum']]) {
+        setText(id, tag[key] == null ? 'Unavailable' : tag[key]);
+      }
+      if (tag.material_abbreviation == null && tag.material_type != null) setText('nfc-type', tag.material_type);
+      setText('nfc-color', Array.isArray(tag.color) ? tag.color.join(', ') : 'Unavailable');
+      if (Object.prototype.hasOwnProperty.call(tag, 'measured_weight')) setText('nfc-measured', tag.measured_weight);
+      setText('nfc-uid', tag.uid);
+      setText('nfc-read-status', tag.decode === 'pass' ? 'OpenPrintTag decode PASS' : tag.present ? 'OpenPrintTag ' + tag.decode : 'No tag data');
+      return;
+    }
     setText('nfc-uid', first(tag.uid, tag.nfc_uid));
     const material = asObject(tag.material);
     setText('nfc-material', first(material.name, material.material_name, tag.material_name, tag.material));
@@ -1873,11 +1913,13 @@ const char application_javascript[] = R"JS((function () {
     const workflow = asObject(first(payload.workflow, payload));
     const spool = asObject(first(workflow.spool, payload.spool, {}));
     const reconciliation = asObject(first(workflow.reconciliation, payload.reconciliation, {}));
+    const recognizedTag = asObject(workflow.tag);
     state.spool = Object.keys(spool).length ? spool : null;
     state.spoolGeneration = first(workflow.spool_generation, payload.spool_generation, state.spoolGeneration);
     setText('spool-id', first(spool.id, spool.spool_id));
-    setText('spool-name', first(spool.display_name, spool.name));
-    setText('spool-material', first(spool.material, spool.filament_material));
+    setText('spool-name', first(spool.display_name, spool.name, recognizedTag.material_name,
+      recognizedTag.decode === 'pass' ? 'OpenPrintTag recognized' : null));
+    setText('spool-material', first(spool.material, spool.filament_material, recognizedTag.material_abbreviation));
     setText('spool-remaining', formatGrams(first(spool.remaining_grams, reconciliation.spoolman_remaining_grams)));
     const stage = normalizeState(first(workflow.stage, payload.stage, 'awaiting spool'));
     setText('workflow-stage', stage);
@@ -2751,6 +2793,8 @@ const char application_javascript[] = R"JS((function () {
 
   function refreshResource(resource) {
     const name = String(resource || '').toLowerCase();
+    if (name === 'nfc') return load('/nfc', renderNfc, true, PRIORITY.SECONDARY, { supersedeKey: 'live:/nfc' })
+      .then(function () { return load('/spool', renderSpool, true, PRIORITY.SECONDARY, { supersedeKey: 'live:/spool' }); });
     if (name === 'scale') return load('/scale', renderScale, true, PRIORITY.CORE, { supersedeKey: 'live:/scale' });
     if (name === 'update') return load('/update', renderUpdate, true, PRIORITY.SECONDARY, { supersedeKey: 'live:/update' });
     if (name === 'health') return load('/health', renderHealth, true, PRIORITY.CORE, { supersedeKey: 'live:/health' });

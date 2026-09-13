@@ -10,6 +10,7 @@
 #include "application/configuration_worker.hpp"
 #include "application/scale_command_queue.hpp"
 #include "application/backend_worker.hpp"
+#include "application/nfc_worker.hpp"
 #include "config/configuration_service.hpp"
 #include "diagnostics/system_diagnostics.hpp"
 #include "hardware/display/wt32_display.hpp"
@@ -38,7 +39,8 @@ class UiService {
       application::ConfigurationWorker& configuration_worker,
       application::ScaleCommandQueue& scale_commands,
       services::StationWorkflow& workflow,
-      application::BackendWorker& backend_worker)
+      application::BackendWorker& backend_worker,
+      application::NfcWorker& nfc)
       : display_(display),
         diagnostics_(diagnostics),
         configuration_(configuration),
@@ -47,7 +49,7 @@ class UiService {
         configuration_worker_(configuration_worker),
         scale_commands_(scale_commands),
         workflow_(workflow),
-        backend_worker_(backend_worker) {}
+        backend_worker_(backend_worker), nfc_(nfc) {}
 
   bool initialize();
   void run_once(std::uint32_t now_ms);
@@ -124,6 +126,8 @@ class UiService {
   application::ConfigurationWorker& configuration_worker_;
   application::ScaleCommandQueue& scale_commands_;
   services::StationWorkflow& workflow_;
+  application::NfcWorker& nfc_;
+  lv_obj_t* nfc_detail_{nullptr};
   application::BackendWorker& backend_worker_;
   lv_color_t* buffer_one_{nullptr};
   lv_color_t* buffer_two_{nullptr};

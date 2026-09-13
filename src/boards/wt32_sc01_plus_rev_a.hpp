@@ -59,23 +59,28 @@ struct Wt32Sc01PlusRevA {
   static constexpr std::int8_t touch_scl = 5;
   static constexpr std::int8_t touch_interrupt = 7;
   static constexpr std::uint8_t touch_address = 0x38;
+  // LovyanGFX 1.2.27 software I2C; hardware units belong to scale and NFC.
+  static constexpr int touch_i2c_port = -1;
 
   // External I2C connector used by the NAU7802 scale ADC.
   static constexpr std::int8_t scale_sda = 10;
   static constexpr std::int8_t scale_scl = 11;
   static constexpr std::uint8_t nau7802_address = 0x2A;
 
-  // Opt-in dual-I2C diagnostic wiring. These constants are deliberately
-  // separate from the production RFAL gate below and do not enable NFC in the
-  // normal factory firmware.
+  // Physically validated dual-I2C wiring shared with the troubleshooting image.
   static constexpr std::int8_t diagnostic_nfc_sda = 13;
   static constexpr std::int8_t diagnostic_nfc_scl = 14;
   static constexpr std::uint8_t diagnostic_nfc_i2c_address = 0x50;
   static constexpr std::int8_t diagnostic_nfc_interrupt = 12;
+  static constexpr std::int8_t nfc_sda = diagnostic_nfc_sda;
+  static constexpr std::int8_t nfc_scl = diagnostic_nfc_scl;
+  static constexpr std::int8_t nfc_interrupt = diagnostic_nfc_interrupt;
+  static constexpr std::uint8_t nfc_i2c_address = diagnostic_nfc_i2c_address;
+  static constexpr std::uint32_t nfc_clock_hz = 100000U;
 
   // ELECHOUSE NFC_ST25R3916B has neither an external reset nor a power-enable
-  // signal. Transport pins remain deliberately unassigned until the production
-  // owner/locking contract and authoritative ST RFAL adapter are implemented.
+  // signal. Legacy SPI descriptors are retained for host-only abstraction tests;
+  // the production build excludes that backend and binds only I2cReader.
   static constexpr St25r3916bPins nfc = {
       -1, -1, -1, -1, -1, -1, -1, false, false};
 };

@@ -60,9 +60,8 @@ For the physical NAU7802/ST25R3916B dual-I2C test, build the separate
 `wt32-sc01-plus-i2c-test` environment. It uses GPIO10 SDA / GPIO11 SCL for the
 NAU7802 on `Wire` and GPIO13 SDA / GPIO14 SCL for the ST25R3916B on `Wire1`, at
 100 kHz each, with GPIO12 for NFC IRQ. The normal `wt32-sc01-plus` target
-remains wiring-gated and does not start this diagnostic or enable NFC/RFAL.
-The diagnostic now uses the pinned ELECHOUSE object API for bounded NFC-V
-inventory; production remains gated and unchanged.
+uses the same pinned ELECHOUSE object API in a dedicated read-only NFC task;
+it does not start the diagnostic AP or page. See [production NFC](production-nfc.md).
 
 NVS stores boot count, boot-pending health, and a saturated crash streak. A
 LittleFS partition is always mounted first with formatting disabled and by its
@@ -153,8 +152,8 @@ NFC disabled. The diagnostic-only RFAL procedure is in
 ## Scale assumptions
 
 The driver uses the NAU7802 at 3.0 V LDO, gain 128, and 10 samples/second on
-`Wire` (ESP32 I2C controller 0). The touch controller remains on `Wire1` (I2C
-controller 1), preventing either owner from reconfiguring the other bus. Startup,
+`Wire` (ESP32 I2C controller 0). NFC owns `Wire1` (controller 1); touch uses
+LovyanGFX software I2C port -1 on GPIO6/5. Startup,
 revision detection, raw reads, internal calibration, and disconnect recovery are
 implemented with bounded waits.
 

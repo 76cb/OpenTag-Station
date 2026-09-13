@@ -36,12 +36,15 @@ jobs:
       - run: node --test tools/test_web_transport.mjs
       - run: python tools/web_flasher.py validate-source --page web-flasher/index.html --manifest web-flasher/manifest.json --diagnostic-manifest web-flasher/i2c-test-manifest.json
       - run: pio test --environment native
+      - run: python tools/check_production_nfc.py
       - run: pio run --environment wt32-sc01-plus
+      - run: python tools/check_production_nfc.py --elf
       - run: pio run --environment wt32-sc01-plus-i2c-test
       - run: python tools/analyze_stack_usage.py
       - run: python tools/analyze_stack_usage.py .pio/build/wt32-sc01-plus-i2c-test
       - run: python tools/check_diagnostic_stack_usage.py
       - run: python tools/check_diagnostic_http_stack_usage.py
+      - run: python tools/check_production_nfc_stack_usage.py
       - run: pio run --environment wt32-sc01-plus --target web-flasher
       - run: python tools/web_flasher.py validate-bundle --bundle-dir .pio/build/wt32-sc01-plus/web-flasher --maximum-size 16777216
       - run: pio run --environment wt32-sc01-plus-i2c-test --target web-flasher
@@ -52,6 +55,14 @@ jobs:
         with:
           name: opentag-nfc-v-diagnostic-pr
           path: .pio/build/wt32-sc01-plus-i2c-test/web-flasher
+          if-no-files-found: error
+          include-hidden-files: true
+      - name: Upload PR production NFC bundle
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: opentag-production-nfc-pr
+          path: .pio/build/wt32-sc01-plus/web-flasher
           if-no-files-found: error
           include-hidden-files: true
       - run: python tools/web_flasher.py assemble-pages --factory-bundle .pio/build/wt32-sc01-plus/web-flasher --diagnostic-bundle .pio/build/wt32-sc01-plus-i2c-test/web-flasher --output-dir .pio/build/web-flasher-pages --maximum-size 16777216

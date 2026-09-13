@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <utility>
+#include <memory>
 
 namespace opentag::services {
 namespace {
@@ -37,9 +38,28 @@ core::Error stale_request(const std::string& message) {
 
 void StationWorkflow::clear() {
   std::lock_guard<std::mutex> lock(mutex_);
-  state_ = {};
+  auto empty = std::make_unique<WorkflowSnapshot>();
+  state_ = std::move(*empty);
   state_.spool_generation = next_spool_generation_++;
   state_.printer_revision = next_printer_revision_++;
+}
+
+std::uint64_t StationWorkflow::begin_identified_spool(
+    const nfc::openprinttag::MaterialRecord& material, const nfc::nfcv::Uid& uid) {
+  auto pending = std::make_unique<WorkflowSnapshot>();
+  pending->openprinttag_available = true;
+  pending->material = material;
+  pending->uid = uid;
+  pending->stage = WorkflowStage::waiting_for_stable_weight;
+  std::lock_guard<std::mutex> lock(mutex_);
+  pending->spool_generation = next_spool_generation_++;
+  pending->filabridge = state_.filabridge;
+  pending->filabridge_assignment_available = state_.filabridge_assignment_available;
+  pending->printers = std::move(state_.printers);
+  pending->printer_revision = state_.printer_revision;
+  pending->filabridge_error = state_.filabridge_error;
+  state_ = std::move(*pending);
+  return state_.spool_generation;
 }
 
 WorkflowSnapshot StationWorkflow::accept_identified_spool(
@@ -47,32 +67,18 @@ WorkflowSnapshot StationWorkflow::accept_identified_spool(
     const nfc::nfcv::Uid& uid,
     domain::WeightReading physical_weight,
     domain::EmptyWeightCandidates supplemental_empty_weights,
-    ReconciliationTolerances tolerances) {
-  WorkflowSnapshot pending;
-  pending.openprinttag_available = true;
-  pending.material = material;
-  pending.uid = uid;
-  pending.physical_weight = physical_weight;
-  pending.weight_snapshot.physical = physical_weight;
-  pending.stage = physical_weight.stable
-                      ? WorkflowStage::resolving_spool
-                      : WorkflowStage::waiting_for_stable_weight;
+    ReconciliationTolerances tolerances,
+    std::optional<std::uint64_t> expected_generation) {
+  const auto generation = expected_generation.has_value()
+      ? *expected_generation : begin_identified_spool(material, uid);
   {
     std::lock_guard<std::mutex> lock(mutex_);
-    pending.spool_generation = next_spool_generation_++;
-    const auto filabridge = state_.filabridge;
-    const auto filabridge_assignment_available =
-        state_.filabridge_assignment_available;
-    const auto printers = state_.printers;
-    const auto printer_revision = state_.printer_revision;
-    const auto filabridge_error = state_.filabridge_error;
-    state_ = pending;
-    state_.filabridge = filabridge;
-    state_.filabridge_assignment_available =
-        filabridge_assignment_available;
-    state_.printers = printers;
-    state_.printer_revision = printer_revision;
-    state_.filabridge_error = filabridge_error;
+    if (state_.spool_generation != generation || !state_.openprinttag_available ||
+        state_.uid != uid) return state_;
+    state_.physical_weight = physical_weight;
+    state_.weight_snapshot.physical = physical_weight;
+    state_.stage = physical_weight.stable ? WorkflowStage::resolving_spool
+        : WorkflowStage::waiting_for_stable_weight;
   }
   if (!physical_weight.stable) return snapshot();
 
@@ -80,6 +86,7 @@ WorkflowSnapshot StationWorkflow::accept_identified_spool(
   const auto resolution = spool_resolver_.resolve(identity);
   if (!resolution.ok()) {
     std::lock_guard<std::mutex> lock(mutex_);
+    if (state_.spool_generation != generation) return state_;
     state_.stage = WorkflowStage::spool_resolution_unavailable;
     state_.spoolman = connection_failure(resolution.error())
                           ? BackendAvailability::offline
@@ -90,6 +97,7 @@ WorkflowSnapshot StationWorkflow::accept_identified_spool(
 
   {
     std::lock_guard<std::mutex> lock(mutex_);
+    if (state_.spool_generation != generation) return state_;
     state_.spoolman = BackendAvailability::online;
     state_.spoolman_error.reset();
     state_.spool_candidates = resolution.value().candidates;
@@ -195,6 +203,7 @@ core::Result<AssignmentResult> StationWorkflow::assign(
     ToolheadMutationPrecondition precondition,
     std::optional<std::uint64_t> expected_printer_revision) {
   domain::SpoolId spool_id = 0;
+  std::uint64_t generation = 0;
   nfc::openprinttag::MaterialRecord material;
   {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -232,6 +241,7 @@ core::Result<AssignmentResult> StationWorkflow::assign(
       return core::Result<AssignmentResult>::failure(error);
     }
     spool_id = state_.spool->id;
+    generation = state_.spool_generation;
     material = state_.material;
     const auto profile = std::find_if(
         profiles.begin(), profiles.end(), [&](const auto& candidate) {
@@ -262,6 +272,9 @@ core::Result<AssignmentResult> StationWorkflow::assign(
   const auto result = assignment_service_.assign(request);
 
   std::lock_guard<std::mutex> lock(mutex_);
+  // The operation result still belongs to its original request. Never apply
+  // that completion to a tag removed/replaced while the backend was busy.
+  if (state_.spool_generation != generation) return result;
   if (!result.ok()) {
     state_.assignment_error = result.error();
     if (connection_failure(result.error())) {
@@ -293,6 +306,7 @@ core::Result<AssignmentResult> StationWorkflow::unassign(
     std::optional<std::uint64_t> expected_spool_generation,
     ToolheadMutationPrecondition precondition,
     std::optional<std::uint64_t> expected_printer_revision) {
+  std::uint64_t generation = 0;
   {
     std::lock_guard<std::mutex> lock(mutex_);
     state_.assignment_error.reset();
@@ -316,6 +330,7 @@ core::Result<AssignmentResult> StationWorkflow::unassign(
       state_.assignment_error = error;
       return core::Result<AssignmentResult>::failure(error);
     }
+    generation = state_.spool_generation;
   }
 
   UnassignmentRequest request;
@@ -326,6 +341,7 @@ core::Result<AssignmentResult> StationWorkflow::unassign(
   const auto result = assignment_service_.unassign(request);
 
   std::lock_guard<std::mutex> lock(mutex_);
+  if (state_.spool_generation != generation) return result;
   if (!result.ok()) {
     state_.assignment_error = result.error();
     if (connection_failure(result.error())) {

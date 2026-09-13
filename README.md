@@ -145,7 +145,7 @@ OpenTag Station is under active hardware bring-up and validation.
 | A/B OTA / rollback | Implemented; full hardware rollback matrix still pending |
 | Spoolman integration | Implemented and host-tested; live-instance validation pending |
 | FilaBridge integration | Implemented and host-tested; live-instance validation pending |
-| ST25R3916B / NFC | Dual-I2C transport physically validated; opt-in NFC-V RF inventory test ready; production disabled |
+| ST25R3916B / NFC | Production read-only Wire1 NFC-V → OpenPrintTag → workflow/UI/API implemented; production bench validation pending |
 
 The firmware intentionally reports unavailable hardware rather than pretending a subsystem is ready.
 
@@ -179,9 +179,11 @@ The firmware intentionally reports unavailable hardware rather than pretending a
 - per-block presence checks
 - exact readback verification
 
-Production NFC remains disabled until the opt-in ST25R3916B RF inventory test is
-physically signed off. No production OpenPrintTag integration is part of that
-diagnostic.
+Production uses the physically validated ELECHOUSE I2C implementation. A dedicated
+worker reads and decodes each stable insertion, hands it to StationWorkflow once
+weight is stable, and clears it on removal. There is no production tag-write
+binding. See [production NFC](docs/production-nfc.md) for ownership, stack budgets,
+API fields, and the remaining production-firmware bench checklist.
 
 ### Spoolman
 
@@ -319,15 +321,16 @@ See [Architecture](docs/architecture.md).
 
 ## Known limitations
 
-- The ELECHOUSE I2C RFAL implementation is pinned and vendored only for the
-  opt-in diagnostic; production NFC remains disabled.
+- The pinned ELECHOUSE I2C RFAL implementation now powers production read-only
+  NFC as well as the separate diagnostic. Production/touch coexistence still
+  requires the physical acceptance in [production NFC](docs/production-nfc.md).
 - Dedicated `Wire` scale and `Wire1` NFC transport, chip ID, IRQ, NFC-V RF
   inventory, stable UID, and repeated 320-byte tag-memory reads are physically
   validated.
 - The one-time guarded initialization of the physically verified blank NFC-V
   tag passed, and subsequent full-memory reads consistently report checksum
-  `9E639911`. The diagnostic write UI/route is now disabled; read-only browser
-  preview soak remains the current physical checkpoint.
+  `9E639911`. The diagnostic write UI/route stays disabled. Diagnostic read-only
+  preview/stack validation has passed; the next bench test uses normal firmware.
 - Scale calibration accuracy, repeatability, drift, and persistence still require complete physical validation.
 - Wi-Fi provisioning and reconnect behavior are still undergoing physical hardware validation.
 - Spoolman and FilaBridge integrations still require validation against live target instances.
