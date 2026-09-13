@@ -5,6 +5,7 @@
 
 #include "nfc/formats/openprinttag/codec.hpp"
 #include "nfc/protocols/nfcv/tag.hpp"
+#include "nfc/read_storage.hpp"
 
 namespace opentag::nfc {
 
@@ -29,6 +30,7 @@ class IReadOnlyReader {
 };
 
 enum class ReadState {
+  deferred,
   starting,
   idle,
   stabilizing,
@@ -75,7 +77,7 @@ class ReadOnlyService {
  private:
   core::Result<void> confirm_uid(const nfcv::Uid& uid);
   core::Result<void> read_image(const nfcv::Uid&, const nfcv::TagGeometry&,
-                                std::vector<std::uint8_t>&,
+                                ReadImage&,
                                 std::uint32_t started);
   core::Result<void> read_tag(const nfcv::Uid& uid);
   void clear_active();

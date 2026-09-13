@@ -2338,6 +2338,16 @@ test('terminal Save and Connect failure reloads persisted config/network and ret
   ]);
 });
 
+test('provisioning NFC is enabled but deferred, not a hardware failure', () => {
+  const { T, document } = loadApplication();
+  T.renderNfc({ state: 'deferred', reason: 'provisioning', enabled: true,
+    available: false, read_only: true, present: false });
+  assert.match(document.getElementById('nfc-summary').textContent, /deferred: provisioning/);
+  assert.equal(document.getElementById('nfc-badge').textContent, 'Deferred');
+  assert.match(document.getElementById('nfc-guidance').textContent, /setup AP closes/);
+  assert.equal(document.getElementById('read-tag').hidden, true);
+});
+
 test('persisted network recovery applies a cleared API token before authoritative reload', async () => {
   const network = {
     config_revision: 10,

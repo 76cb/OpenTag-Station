@@ -29,6 +29,8 @@ class FieldScope {
 }  // namespace
 const char* to_string(ReadState s) {
   switch (s) {
+    case ReadState::deferred:
+      return "deferred";
     case ReadState::starting:
       return "initializing";
     case ReadState::idle:
@@ -84,8 +86,7 @@ core::Result<void> ReadOnlyService::confirm_uid(const nfcv::Uid& uid) {
 }
 core::Result<void> ReadOnlyService::read_image(
     const nfcv::Uid& uid, const nfcv::TagGeometry& geometry,
-    std::vector<std::uint8_t>& image, std::uint32_t started) {
-  image.resize(geometry.capacity());
+    ReadImage& image, std::uint32_t started) {
   std::size_t preferred = 8U;
   for (std::size_t block = 0; block < geometry.block_count;) {
     if (static_cast<std::uint32_t>(reader_.now_ms() - started) >= 15000U)
@@ -120,16 +121,18 @@ core::Result<void> ReadOnlyService::read_tag(const nfcv::Uid& uid) {
     return core::Result<void>::failure(invalid("Unsupported NFC-V geometry"));
   live_.geometry = geometry.value();
   const auto started = reader_.now_ms();
-  std::vector<std::uint8_t> first, second;
+  ReadImage first(geometry.value().capacity()), second(geometry.value().capacity());
+  if (!first.data() || !second.data())
+    return core::Result<void>::failure(invalid("NFC memory image allocation failed"));
   auto read = read_image(uid, geometry.value(), first, started);
   if (!read.ok()) return read;
   read = read_image(uid, geometry.value(), second, started);
   if (!read.ok()) return read;
-  if (first != second)
+  if (!std::equal(first.data(), first.data() + first.size(), second.data()))
     return core::Result<void>::failure(
         invalid("Memory read consistency failed"));
   live_.checksum = nfcv::diagnostic_checksum(first.data(), first.size());
-  auto tag = std::shared_ptr<IdentifiedTag>(new (std::nothrow) IdentifiedTag());
+  auto tag = make_read_storage<IdentifiedTag>();
   if (!tag)
     return core::Result<void>::failure(invalid("NFC decode allocation failed"));
   tag->uid = uid;
@@ -139,7 +142,7 @@ core::Result<void> ReadOnlyService::read_tag(const nfcv::Uid& uid) {
   tag->generation = ++live_.generation;
   reader_.stack_checkpoint("before decode");
   const auto decoded =
-      openprinttag::Codec::decode(core::ByteView(first), tag->decoded);
+      openprinttag::Codec::decode(core::ByteView(first.data(), first.size()), tag->decoded);
   reader_.stack_checkpoint("after decode");
   processed_ = uid;
   if (!decoded.ok()) {

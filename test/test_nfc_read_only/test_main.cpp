@@ -6,6 +6,7 @@
 #include "../fixtures/openprinttag_initializer_7e09cc3_312_aux32.hpp"
 #include "nfc/presentation.hpp"
 #include "nfc/read_only_service.hpp"
+#include "nfc/worker_startup.hpp"
 #include "web/nfc_json.hpp"
 
 using namespace opentag;
@@ -276,6 +277,71 @@ void api_and_presentation() {
   web::write_nfc(doc.to<JsonObject>(), s.snapshot());
   TEST_ASSERT_TRUE(doc["uid"].isNull());
 }
+void provisioning_defers_without_hardware_failure() {
+  nfc::WorkerStartup startup;
+  nfc::ReadSnapshot status;
+  startup.describe(status);
+  JsonDocument doc;
+  web::write_nfc(doc.to<JsonObject>(), status);
+  TEST_ASSERT_EQUAL_STRING("deferred", doc["state"]);
+  TEST_ASSERT_EQUAL_STRING("provisioning", doc["reason"]);
+  TEST_ASSERT_TRUE(doc["enabled"].as<bool>());
+  TEST_ASSERT_FALSE(doc["available"].as<bool>());
+  TEST_ASSERT_TRUE(doc["last_error"].isNull());
+  TEST_ASSERT_TRUE(nfc::describe(status).find("NFC deferred: provisioning") != std::string::npos);
+  unsigned calls = 0;
+  auto create = [&]() { ++calls; return true; };
+  startup.poll(false, true, true, false, false, create);
+  startup.poll(true, false, true, false, false, create);
+  startup.poll(true, true, false, false, false, create);
+  startup.poll(true, true, true, true, false, create);
+  startup.poll(true, true, true, false, true, create);
+  TEST_ASSERT_EQUAL(0, calls);
+  startup.poll(true, true, true, false, false, create);
+  startup.poll(true, true, true, false, false, create);
+  // Later disconnect/AP recovery must not create another task.
+  startup.poll(true, true, false, true, true, create);
+  startup.poll(true, true, true, false, false, create);
+  TEST_ASSERT_EQUAL(1, calls);
+  status = {};
+  startup.describe(status);
+  web::write_nfc(doc.to<JsonObject>(), status);
+  TEST_ASSERT_EQUAL_STRING("initializing", doc["state"]);
+  TEST_ASSERT_TRUE(doc["reason"].isNull());
+}
+void worker_creation_failure_is_latched() {
+  nfc::WorkerStartup startup;
+  unsigned calls = 0;
+  auto create = [&]() { ++calls; return false; };
+  for (unsigned i = 0; i < 100; ++i)
+    startup.poll(true, true, true, false, false, create);
+  TEST_ASSERT_EQUAL(1, calls);
+  nfc::ReadSnapshot status;
+  startup.describe(status);
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(nfc::ReadState::error), static_cast<int>(status.state));
+  TEST_ASSERT_TRUE(status.error.has_value());
+  TEST_ASSERT_TRUE(status.error->message.find("task allocation failed") != std::string::npos);
+}
+void read_storage_lifetime() {
+  struct Tracked {
+    unsigned* destroyed{nullptr};
+    ~Tracked() { if (destroyed) ++*destroyed; }
+  };
+  unsigned destroyed = 0;
+  auto value = nfc::make_read_storage<Tracked>();
+  TEST_ASSERT_NOT_NULL(value.get());
+  value->destroyed = &destroyed;
+  auto held = value;
+  value.reset();
+  TEST_ASSERT_EQUAL(0, destroyed);
+  held.reset();
+  TEST_ASSERT_EQUAL(1, destroyed);
+  nfc::ReadImage image(nfc::ReadOnlyService::maximum_memory_bytes);
+  TEST_ASSERT_NOT_NULL(image.data());
+  TEST_ASSERT_EQUAL(4096, image.size());
+  std::fill_n(image.data(), image.size(), 0xA5);
+  TEST_ASSERT_EQUAL_HEX8(0xA5, image.data()[4095]);
+}
 }  // namespace
 void setUp() {}
 void tearDown() {}
@@ -294,5 +360,8 @@ int main() {
   RUN_TEST(fallback_and_changed_uid);
   RUN_TEST(deadline);
   RUN_TEST(api_and_presentation);
+  RUN_TEST(provisioning_defers_without_hardware_failure);
+  RUN_TEST(worker_creation_failure_is_latched);
+  RUN_TEST(read_storage_lifetime);
   return UNITY_END();
 }
