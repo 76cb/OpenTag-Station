@@ -8,6 +8,8 @@
 #include <array>
 #include <cctype>
 #include <cstring>
+#include <cstdio>
+#include "network/backend_json.hpp"
 #include <string>
 #include <string_view>
 #include <utility>
@@ -181,7 +183,7 @@ esp_err_t finish_response_without_purging(
 esp_err_t send_router_response(
     httpd_req_t* request,
     const api::Response& response) {
-  auto result = httpd_resp_set_status(request, status_line(response.status));
+  auto result = httpd_resp_set_status(request, status_line(response.wire_status()));
   if (result != ESP_OK) return result;
   for (const auto& header : response.headers) {
     if (header.name == "Content-Type") {
@@ -197,8 +199,8 @@ esp_err_t send_router_response(
   if (result != ESP_OK) return result;
   return httpd_resp_send(
       request,
-      response.body.data(),
-      static_cast<ssize_t>(response.body.size()));
+      response.wire_body().data(),
+      static_cast<ssize_t>(response.wire_body().size()));
 }
 
 esp_err_t collect_header(
@@ -280,7 +282,8 @@ std::string lower_ascii(std::string value) {
 api::Response upload_receipt(
     const StreamingUploadSession& session,
     const opentag::ota::UpdateSnapshot* update = nullptr) {
-  JsonDocument document;
+  network::BackendJsonAllocator allocator;
+  JsonDocument document(&allocator);
   document["api_version"] = api::version;
   document["ok"] = true;
   auto data = document["data"].to<JsonObject>();
@@ -295,7 +298,10 @@ api::Response upload_receipt(
     data["validated"] = update->validation_passed;
     data["activated"] = update->activated;
   }
-  std::string body;
+  if (document.overflowed()) return api::response_for_context_error({
+      core::ErrorCategory::backend_unavailable,
+      "Upload receipt workspace unavailable; retry with the same request key", true});
+  api::JsonBody body(api::maximum_response_body_bytes);
   serializeJson(document, body);
   return {
       session.duplicate ? 202 : 200,
@@ -486,7 +492,12 @@ esp_err_t LocalWebServer::session_open_handler(
   auto* owner =
       static_cast<LocalWebServer*>(httpd_get_global_user_ctx(server));
   if (owner == nullptr || socket < 0) return ESP_ERR_INVALID_ARG;
+  network::memory_trace("http_client", "accepted_before_session");
   owner->api_context_.transport_diagnostics().http_session_opened();
+  const auto sessions = owner->api_context_.transport_diagnostics().snapshot();
+  network::memory_counters.sockets.store(sessions.active_http_sessions);
+  network::memory_counters.sockets_max.store(sessions.maximum_observed_http_sessions);
+  network::memory_trace("http_client", "open");
   return ESP_OK;
 }
 
@@ -495,8 +506,15 @@ void LocalWebServer::session_close_handler(
     int socket) {
   auto* owner =
       static_cast<LocalWebServer*>(httpd_get_global_user_ctx(server));
+  network::memory_trace("http_client", "close_before");
   if (owner != nullptr) owner->handle_session_close(socket);
   if (socket >= 0) (void)lwip_close(socket);
+  if (owner != nullptr) {
+    const auto sessions = owner->api_context_.transport_diagnostics().snapshot();
+    network::memory_counters.sockets.store(sessions.active_http_sessions);
+    network::memory_counters.websocket_clients.store(sessions.websocket_clients);
+  }
+  network::memory_trace("http_client", "close_after");
 }
 
 void LocalWebServer::preserve_global_context(void*) {}
@@ -593,6 +611,7 @@ esp_err_t LocalWebServer::websocket_handler(httpd_req_t* request) {
 }
 
 esp_err_t LocalWebServer::handle_static_asset(httpd_req_t* request) {
+  network::MemoryTraceScope memory_scope("static_asset_send");
   if (request->content_len != 0U) {
     const auto result = send_json_error(
         request,
@@ -925,6 +944,26 @@ esp_err_t LocalWebServer::handle_update_upload(httpd_req_t* request) {
 }
 
 esp_err_t LocalWebServer::handle_api(httpd_req_t* request) {
+  // Bounded numerical telemetry, never trust or print arbitrary header text.
+  char telemetry[64]{};
+  unsigned active = 0, queued = 0, maximum = 0, complete = 0;
+  if (httpd_req_get_hdr_value_str(request, "X-OpenTag-Scheduler", telemetry, sizeof(telemetry)) == ESP_OK &&
+      std::sscanf(telemetry, "%u,%u,%u,%u", &active, &queued, &maximum, &complete) == 4 &&
+      active <= 32U && queued <= 32U && maximum <= 32U && complete <= 1U) {
+    network::memory_counters.browser_active.store(active);
+    network::memory_counters.browser_queued.store(queued);
+    network::memory_counters.browser_max.store(maximum);
+  } else complete = 0U;
+  network::memory_counters.rest_active.fetch_add(1U);
+  struct RestTrace {
+    bool complete;
+    ~RestTrace() {
+      network::memory_counters.rest_active.fetch_sub(1U);
+      network::memory_trace("rest", "send_and_response_released");
+      if (complete) network::memory_trace("browser_initial_sync", "complete");
+    }
+  } rest_trace{complete != 0U};
+  network::memory_trace("rest", "before");
   if (std::string_view(request->uri).rfind("/api/v1/events", 0U) == 0U) {
     const auto result = send_json_error(
         request,
@@ -1007,8 +1046,10 @@ esp_err_t LocalWebServer::handle_api(httpd_req_t* request) {
   }
 
   const auto response = router_.handle(api_request);
+  network::memory_trace("rest", "serialized_before_send", response.wire_body().size());
   const auto sent = send_router_response(request, response);
-  if (sent == ESP_OK &&
+  network::memory_trace("rest", "after_send", response.wire_body().size());
+  if (sent == ESP_OK && !response.encoding_failed() &&
       response.delivered_network_connect_operation.has_value()) {
     (void)api_context_.acknowledge_network_connect_receipt(
         *response.delivered_network_connect_operation);
@@ -1023,7 +1064,11 @@ esp_err_t LocalWebServer::handle_websocket(httpd_req_t* request) {
     if (socket < 0 || websocket_client_count(socket) >= maximum_websocket_clients) {
       return ESP_FAIL;
     }
-    return track_websocket_client(socket) ? ESP_OK : ESP_FAIL;
+    network::memory_trace("websocket", "before_connect");
+    const auto tracked = track_websocket_client(socket);
+    network::memory_counters.websocket_clients.store(api_context_.transport_diagnostics().snapshot().websocket_clients);
+    network::memory_trace("websocket", "after_connect");
+    return tracked ? ESP_OK : ESP_FAIL;
   }
 
   // This is a server-push channel, not a bidirectional API. The pinned HTTPD
@@ -1054,23 +1099,23 @@ std::size_t LocalWebServer::websocket_client_count(int excluded_fd) const {
   return clients;
 }
 
-std::string LocalWebServer::make_scale_event() {
-  const auto event = api_context_.scale_event_json();
+api::JsonBody LocalWebServer::make_scale_event() {
+  auto event = api_context_.scale_event_json();
   return event.ok() &&
           !event.value().empty() &&
           event.value().size() <= maximum_websocket_message_bytes
-      ? event.value()
-      : std::string(invalid_scale_event);
+      ? std::move(event.value())
+      : api::JsonBody(invalid_scale_event);
 }
 
-std::string LocalWebServer::make_update_event(std::uint64_t& revision) {
+api::JsonBody LocalWebServer::make_update_event(std::uint64_t& revision) {
   revision = 0U;
-  const auto event = api_context_.update_event_json(revision);
+  auto event = api_context_.update_event_json(revision);
   return event.ok() &&
           !event.value().empty() &&
           event.value().size() <= maximum_websocket_message_bytes
-      ? event.value()
-      : std::string(invalid_update_event);
+      ? std::move(event.value())
+      : api::JsonBody(invalid_update_event);
 }
 
 void LocalWebServer::websocket_send_complete(
@@ -1094,12 +1139,13 @@ void LocalWebServer::websocket_send_complete(
   const auto remaining =
       batch->remaining.fetch_sub(1U, std::memory_order_acq_rel);
   if (remaining == 1U) {
+    network::memory_trace("websocket", "send_complete");
     batch->busy.store(false, std::memory_order_release);
   }
 }
 
 std::size_t LocalWebServer::send_to_websocket_clients(
-    const std::string& message) {
+    std::string_view message) {
   if (server_ == nullptr || message.empty() ||
       message.size() > maximum_websocket_message_bytes) {
     return 0U;
@@ -1134,11 +1180,13 @@ std::size_t LocalWebServer::send_to_websocket_clients(
           expected, true, std::memory_order_acq_rel)) {
     return 0U;
   }
+  network::memory_trace("websocket", "before_batch_copy", message.size());
   websocket_send_.owner = this;
   websocket_send_.server = server_;
   std::copy(
       message.begin(), message.end(), websocket_send_.payload.begin());
   websocket_send_.remaining.store(client_count, std::memory_order_release);
+  network::memory_trace("websocket", "after_batch_copy", message.size());
 
   std::size_t queued = 0U;
   for (std::size_t index = 0U; index < client_count; ++index) {

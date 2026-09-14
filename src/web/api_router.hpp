@@ -11,8 +11,11 @@
 #include <vector>
 
 #include "core/result.hpp"
+#include "network/backend_memory.hpp"
 
 namespace opentag::web::api {
+
+using JsonBody = network::ResponseBody;
 
 inline constexpr char version[] = "v1";
 inline constexpr char prefix[] = "/api/v1";
@@ -57,8 +60,17 @@ struct Request {
 struct Response {
   std::int32_t status{500};
   std::vector<Header> headers;
-  std::string body;
+  JsonBody body;
   std::optional<std::uint64_t> delivered_network_connect_operation;
+  // Even complete PSRAM exhaustion must send valid JSON, never a partial 2xx
+  // receipt. The literal is static and survives synchronous httpd transmission.
+  bool encoding_failed() const { return body.failed() || body.overflowed() || body.empty(); }
+  std::int32_t wire_status() const { return encoding_failed() ? 503 : status; }
+  std::string_view wire_body() const {
+    return encoding_failed()
+        ? std::string_view(R"({"api_version":"v1","ok":false,"error":{"code":"resource_unavailable","message":"Response workspace unavailable; retry with the same request key","retryable":true}})")
+        : std::string_view(body);
+  }
 };
 
 // Shared mapping for buffered API owners and the dedicated binary transport.
@@ -309,9 +321,9 @@ class IApiContext {
   // Returns one complete, bounded JSON value. For redacted_configuration the
   // implementation must construct an allowlisted view and never return a raw
   // persisted document or credential values.
-  [[nodiscard]] virtual core::Result<std::string> snapshot_json(
+  [[nodiscard]] virtual core::Result<JsonBody> snapshot_json(
       Resource resource) = 0;
-  [[nodiscard]] virtual core::Result<std::optional<std::string>>
+  [[nodiscard]] virtual core::Result<std::optional<JsonBody>>
   operation_status_json(std::uint64_t operation_id) = 0;
   [[nodiscard]] virtual core::Result<OperationReceipt> submit(
       const Mutation& mutation) = 0;

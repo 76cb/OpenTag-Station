@@ -6,9 +6,11 @@
 #include <cstdlib>
 #include <cstring>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <memory>
 #include <new>
+#include "network/memory_trace.hpp"
 #ifdef ARDUINO
 #include <Arduino.h>
 #include <esp_heap_caps.h>
@@ -38,8 +40,9 @@ inline void backend_memory_phase(const char* phase, std::size_t bytes = 0,
 #ifdef ARDUINO
   constexpr auto internal = MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
   constexpr auto external = MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT;
-  Serial.printf("BACKEND phase=%s internal=%u min=%u largest=%u psram=%u psram_min=%u psram_largest=%u response=%u parser=%u duration_ms=%lu\n",
-      phase, heap_caps_get_free_size(internal), heap_caps_get_minimum_free_size(internal),
+  Serial.printf("BACKEND phase=%s ms=%lu task=%s internal=%u min=%u largest=%u psram=%u psram_min=%u psram_largest=%u response=%u parser=%u duration_ms=%lu\n",
+      phase, static_cast<unsigned long>(millis()), pcTaskGetName(nullptr),
+      heap_caps_get_free_size(internal), heap_caps_get_minimum_free_size(internal),
       heap_caps_get_largest_free_block(internal), heap_caps_get_free_size(external),
       heap_caps_get_minimum_free_size(external), heap_caps_get_largest_free_block(external),
       static_cast<unsigned>(bytes), static_cast<unsigned>(parser_bytes),
@@ -68,16 +71,23 @@ struct BackendPhaseGuard {
 };
 template <class T> struct ExternalDelete {
   void operator()(T* value) const {
-    if (value) { value->~T(); backend_free(value); }
+    if (value) {
+      value->~T(); backend_free(value);
+      memory_trace("external_object", "released", sizeof(T));
+    }
   }
 };
 template <class T, class Factory>
-std::unique_ptr<T, ExternalDelete<T>> make_external(Factory factory) {
+std::unique_ptr<T, ExternalDelete<T>> make_external(Factory factory,
+    const char* owner = __builtin_FUNCTION()) {
+  memory_trace(owner, "make_external_before", sizeof(T));
   void* memory = backend_reallocate(nullptr, sizeof(T));
-  if (!memory) return {};
+  if (!memory) { backend_memory_phase("make_external_failed", sizeof(T)); return {}; }
   // C++17 guaranteed elision constructs the returned snapshot at its final
   // address, avoiding both a large automatic object and an intermediate copy.
-  return std::unique_ptr<T, ExternalDelete<T>>(new (memory) T(factory()));
+  auto result = std::unique_ptr<T, ExternalDelete<T>>(new (memory) T(factory()));
+  memory_trace(owner, "make_external_after", sizeof(T));
+  return result;
 }
 
 // Move-only, fallible growth. No std::string copy or hidden internal allocation.
@@ -89,7 +99,7 @@ class ResponseBody {
       Reallocate allocate = backend_reallocate, Free free = backend_free)
       : maximum_(maximum), allocate_(allocate), free_(free) {}
   ResponseBody(const std::string& text) : ResponseBody() { append(text.data(), text.size()); }
-  ResponseBody(const char* text) : ResponseBody(std::string(text)) {}
+  ResponseBody(const char* text) : ResponseBody() { append(text, std::strlen(text)); }
   ResponseBody(const ResponseBody&) = delete;
   ResponseBody& operator=(const ResponseBody&) = delete;
   ResponseBody(ResponseBody&& other) noexcept : ResponseBody() { swap(other); }
@@ -98,6 +108,27 @@ class ResponseBody {
     return *this;
   }
   ~ResponseBody() { release(); }
+  bool reserve(std::size_t count) {
+    if (count > maximum_) { overflowed_ = true; return false; }
+    if (count + 1U <= capacity_) return true;
+    auto* next = static_cast<char*>(allocate_(data_, count + 1U));
+    if (!next) { failed_ = true; return false; }
+    data_ = next; capacity_ = count + 1U; data_[size_] = '\0';
+    return true;
+  }
+  // ArduinoJson Writer: failed writes are detected by the serializer owner.
+  std::size_t write(std::uint8_t byte) { return write(&byte, 1U); }
+  std::size_t write(const std::uint8_t* bytes, std::size_t count) {
+    return append(reinterpret_cast<const char*>(bytes), count) ? count : 0U;
+  }
+  bool wrap(std::string_view prefix, std::string_view suffix) {
+    if (prefix.size() + suffix.size() > maximum_ - size_) { overflowed_ = true; return false; }
+    if (!reserve(size_ + prefix.size() + suffix.size())) return false;
+    std::memmove(data_ + prefix.size(), data_, size_);
+    std::memcpy(data_, prefix.data(), prefix.size());
+    size_ += prefix.size();
+    return append(suffix.data(), suffix.size());
+  }
   bool append(const char* data, std::size_t count) {
     if (count > maximum_ - size_) { overflowed_ = true; return false; }
     if (size_ + count + 1U > capacity_) {
@@ -121,6 +152,10 @@ class ResponseBody {
     data_ = nullptr; size_ = capacity_ = 0;
   }
   const char* data() const { return data_ ? data_ : ""; }
+  const char* c_str() const { return data(); }
+  const char* begin() const { return data(); }
+  const char* end() const { return data() + size_; }
+  operator std::string_view() const { return {data(), size_}; }
   std::size_t size() const { return size_; }
   bool empty() const { return size_ == 0; }
   bool failed() const { return failed_; }

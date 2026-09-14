@@ -1,4 +1,5 @@
 #include "ui/ui_service.hpp"
+#include "ui/lvgl_memory.h"
 
 #include <Arduino.h>
 #include <esp_heap_caps.h>
@@ -100,7 +101,7 @@ bool UiService::allocate_buffers() {
 }
 
 bool UiService::initialize() {
-  if (!display_.initialized() || !allocate_buffers()) {
+  if (!display_.initialized() || !opentag_lvgl_pool(LV_MEM_SIZE) || !allocate_buffers()) {
     return false;
   }
 

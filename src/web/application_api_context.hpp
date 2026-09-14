@@ -71,15 +71,15 @@ class ApplicationApiContext final : public api::IApiContext {
   [[nodiscard]] bool authorize_provisioning() override;
   [[nodiscard]] bool acknowledge_network_connect_receipt(
       std::uint64_t operation_id);
-  [[nodiscard]] core::Result<std::string> scale_event_json();
+  [[nodiscard]] core::Result<api::JsonBody> scale_event_json();
   [[nodiscard]] bool scale_measurement_active() const {
     return diagnostics_.scale_measurement_active();
   }
-  [[nodiscard]] core::Result<std::string> update_event_json(
+  [[nodiscard]] core::Result<api::JsonBody> update_event_json(
       std::uint64_t& revision);
-  [[nodiscard]] core::Result<std::string> snapshot_json(
+  [[nodiscard]] core::Result<api::JsonBody> snapshot_json(
       api::Resource resource) override;
-  [[nodiscard]] core::Result<std::optional<std::string>>
+  [[nodiscard]] core::Result<std::optional<api::JsonBody>>
   operation_status_json(std::uint64_t operation_id) override;
   [[nodiscard]] core::Result<api::OperationReceipt> submit(
       const api::Mutation& mutation) override;

@@ -92,6 +92,16 @@ class BoundedLog final {
       std::size_t limit = maximum_log_entries) const;
   [[nodiscard]] std::size_t size() const;
   [[nodiscard]] std::uint64_t dropped_count() const;
+  // Consistent bounded view used by HTTP encoding; no 32-entry vector copy.
+  // Callback must not retain references or call back into the log/service.
+  template <class Header, class Entry> void visit(Header header, Entry entry) const {
+    const std::lock_guard<std::mutex> lock(mutex_);
+    header(count_ ? entries_[head_].cursor : 0U,
+        count_ ? entries_[(head_ + count_ - 1U) % maximum_log_entries].cursor : 0U,
+        dropped_count_);
+    for (std::size_t index = 0; index < count_; ++index)
+      entry(entries_[(head_ + index) % maximum_log_entries]);
+  }
 
  private:
   [[nodiscard]] static LogEntry make_entry(

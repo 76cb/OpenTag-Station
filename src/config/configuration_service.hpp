@@ -5,6 +5,7 @@
 #include <mutex>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "core/result.hpp"
@@ -97,7 +98,7 @@ class IConfigurationDocumentStore {
   [[nodiscard]] virtual core::Result<std::optional<std::string>>
   load_configuration_backup_document() = 0;
   [[nodiscard]] virtual core::Result<void> save_configuration_document(
-      const std::string& document) = 0;
+      std::string_view document) = 0;
 };
 
 struct ConfigurationStatus {
@@ -145,6 +146,13 @@ class ConfigurationService final : public services::IScaleCalibrationStore,
 
   [[nodiscard]] core::Result<void> initialize();
   [[nodiscard]] Configuration snapshot() const;
+  // The callback may only read/encode this view; never retain references or
+  // perform I/O. This avoids deep-copying credentials and profile containers.
+  template <class Visitor> void visit(Visitor visitor) const {
+    const std::lock_guard<std::mutex> lock(mutex_);
+    visitor(configuration_, revision_);
+  }
+  [[nodiscard]] std::size_t document_allocated_bytes() const;
   [[nodiscard]] LocalInterfaceSettingsSnapshot
       local_interface_settings_snapshot() const;
   [[nodiscard]] BackendSettingsSnapshot backend_settings_snapshot() const;

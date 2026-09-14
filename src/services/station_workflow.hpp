@@ -108,6 +108,13 @@ class StationWorkflow final {
       ToolheadMutationPrecondition precondition = {},
       std::optional<std::uint64_t> expected_printer_revision = std::nullopt);
   [[nodiscard]] WorkflowSnapshot snapshot() const;
+  // Encode into caller-owned storage under the state lock, without copying
+  // candidates, printer/toolhead containers or optional spool/error payloads.
+  // Callback must not retain the view, call services, or perform I/O.
+  template <class Visitor> void visit(Visitor visitor) const {
+    const std::lock_guard<std::mutex> lock(mutex_);
+    visitor(state_);
+  }
   [[nodiscard]] std::uint64_t identification_revision() const {
     std::lock_guard<std::mutex> lock(mutex_);
     return state_.spool_generation * 16U + static_cast<unsigned>(state_.stage);

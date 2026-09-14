@@ -162,26 +162,28 @@ void add_optional(JsonObject destination, const char* key, const std::optional<T
   if (value.has_value()) destination[key] = *value;
 }
 
-core::Result<std::string> serialized(JsonDocument& document) {
+core::Result<api::JsonBody> serialized(JsonDocument& document) {
+  network::MemoryTraceScope memory_scope("api_serialization");
   if (document.overflowed()) {
-    return core::Result<std::string>::failure(unavailable(
+    return core::Result<api::JsonBody>::failure(unavailable(
         core::ErrorCategory::backend_unavailable, "Local API JSON workspace unavailable", true));
   }
   const auto measured = measureJson(document);
   if (measured == 0U || measured > api::maximum_snapshot_json_bytes) {
-    return core::Result<std::string>::failure(unavailable(
+    return core::Result<api::JsonBody>::failure(unavailable(
         core::ErrorCategory::storage,
         "API snapshot exceeded its bounded serialization buffer"));
   }
-  std::string result;
-  result.reserve(measured);
+  api::JsonBody result(api::maximum_response_body_bytes);
+  if (!result.reserve(measured + 48U)) return core::Result<api::JsonBody>::failure(unavailable(
+      core::ErrorCategory::backend_unavailable, "Local API response workspace unavailable", true));
   serializeJson(document, result);
-  if (result.empty() || result.size() > api::maximum_snapshot_json_bytes) {
-    return core::Result<std::string>::failure(unavailable(
+  if (result.failed() || result.overflowed() || result.size() != measured) {
+    return core::Result<api::JsonBody>::failure(unavailable(
         core::ErrorCategory::storage,
         "API snapshot exceeded its bounded serialization buffer"));
   }
-  return core::Result<std::string>::success(std::move(result));
+  return core::Result<api::JsonBody>::success(std::move(result));
 }
 
 void write_backend(
@@ -222,6 +224,11 @@ void write_system(JsonObject object, const diagnostics::SystemSnapshot& value) {
   stacks["opentag-ota"] = value.task_stacks.ota_free_bytes;
   stacks["httpd"] = value.task_stacks.httpd_free_bytes;
   auto transport = object["transport"].to<JsonObject>();
+  transport["rest_active"] = network::memory_counters.rest_active.load();
+  transport["rest_queued"] = 0;
+  transport["browser_reported_active"] = network::memory_counters.browser_active.load();
+  transport["browser_reported_queued"] = network::memory_counters.browser_queued.load();
+  transport["browser_reported_maximum_active"] = network::memory_counters.browser_max.load();
   transport["http_server_running"] = value.transport.http_server_running;
   transport["active_http_sessions"] = value.transport.active_http_sessions;
   transport["maximum_observed_http_sessions"] =
@@ -411,9 +418,8 @@ void write_printer(
 
 void write_configuration(
     JsonDocument& document,
-    const config::VersionedConfiguration& versioned) {
-  const auto& value = versioned.configuration;
-  document["revision"] = versioned.revision;
+    const config::Configuration& value, std::uint64_t revision) {
+  document["revision"] = revision;
   document["schema_version"] = value.schema_version;
   document["hardware_id"] = value.hardware_id;
   auto device = document["device"].to<JsonObject>();
@@ -774,51 +780,59 @@ bool ApplicationApiContext::acknowledge_network_connect_receipt(
       operation_id);
 }
 
-core::Result<std::string> ApplicationApiContext::scale_event_json() {
+core::Result<api::JsonBody> ApplicationApiContext::scale_event_json() {
+  network::MemoryTraceScope memory_scope("scale_event_json");
   network::BackendJsonAllocator allocator;
+  network::JsonAllocationTrace allocation_trace(allocator, "api_json");
   JsonDocument document(&allocator);
   document["type"] = "scale";
   write_scale(
       document["data"].to<JsonObject>(),
       diagnostics_.scale_snapshot(),
       millis());
+  network::memory_trace("api_json", "encoded", measureJson(document), allocator.used());
   return serialized(document);
 }
 
-core::Result<std::string> ApplicationApiContext::update_event_json(
+core::Result<api::JsonBody> ApplicationApiContext::update_event_json(
     std::uint64_t& revision) {
+  network::MemoryTraceScope memory_scope("update_event_json");
   const auto update = ota_worker_.snapshot();
   revision = update.revision;
   network::BackendJsonAllocator allocator;
+  network::JsonAllocationTrace allocation_trace(allocator, "api_json");
   JsonDocument document(&allocator);
   document["type"] = "update";
   write_update(
       document["data"].to<JsonObject>(), update, ota_worker_.ready());
+  network::memory_trace("api_json", "encoded", measureJson(document), allocator.used());
   return serialized(document);
 }
 
-core::Result<std::string> ApplicationApiContext::snapshot_json(
+core::Result<api::JsonBody> ApplicationApiContext::snapshot_json(
     api::Resource resource) {
+  static constexpr const char* names[] = {"status", "device", "health", "network", "scale", "nfc", "nfc_tag", "spool", "printers", "toolheads", "config", "diagnostics", "logs", "update"};
+  network::MemoryTraceScope memory_scope(names[static_cast<unsigned>(resource)]);
   const auto now_ms = millis();
 
   network::BackendJsonAllocator allocator;
+  network::JsonAllocationTrace allocation_trace(allocator, "api_json");
   JsonDocument document(&allocator);
   switch (resource) {
     case api::Resource::status: {
       const auto system = diagnostics_.snapshot(now_ms);
-      auto workflow_storage = network::make_external<services::WorkflowSnapshot>([&] { return workflow_.snapshot(); });
-      if (!workflow_storage) return core::Result<std::string>::failure(unavailable(
-          core::ErrorCategory::backend_unavailable, "Workflow snapshot workspace unavailable", true));
-      const auto& workflow = *workflow_storage;
       const auto backends = backend_worker_.snapshot();
-      write_system(document["system"].to<JsonObject>(), system);
-      auto encoded_backends = document["backends"].to<JsonObject>();
-      write_backend(encoded_backends["spoolman"].to<JsonObject>(), backends.spoolman);
-      write_backend(
-          encoded_backends["filabridge"].to<JsonObject>(), backends.filabridge);
-      document["spool_generation"] = workflow.spool_generation;
-      document["printer_revision"] = workflow.printer_revision;
-      document["operations_revision"] = operations_.revision();
+      const auto operations_revision = operations_.revision();
+      workflow_.visit([&](const services::WorkflowSnapshot& workflow) {
+        write_system(document["system"].to<JsonObject>(), system);
+        auto encoded_backends = document["backends"].to<JsonObject>();
+        write_backend(encoded_backends["spoolman"].to<JsonObject>(), backends.spoolman);
+        write_backend(
+            encoded_backends["filabridge"].to<JsonObject>(), backends.filabridge);
+        document["spool_generation"] = workflow.spool_generation;
+        document["printer_revision"] = workflow.printer_revision;
+        document["operations_revision"] = operations_revision;
+      });
       break;
     }
     case api::Resource::device: {
@@ -843,33 +857,32 @@ core::Result<std::string> ApplicationApiContext::snapshot_json(
     }
     case api::Resource::health: {
       const auto system = diagnostics_.snapshot(now_ms);
-      auto workflow_storage = network::make_external<services::WorkflowSnapshot>([&] { return workflow_.snapshot(); });
-      if (!workflow_storage) return core::Result<std::string>::failure(unavailable(
-          core::ErrorCategory::backend_unavailable, "Workflow snapshot workspace unavailable", true));
-      const auto& workflow = *workflow_storage;
       const auto configured =
           configuration_.local_interface_settings_snapshot();
       const auto local_access = local_access_policy(
           configured.web.access_token);
-      const bool essential_ok = system.nvs_ready && system.filesystem_ready &&
-          system.display_ready && system.ui_task_running &&
-          system.scale_task_running && system.network_task_running;
-      const bool backend_degraded =
-          workflow.spoolman == services::BackendAvailability::offline ||
-          workflow.filabridge == services::BackendAvailability::offline;
-      document["status"] =
-          !essential_ok
-              ? "unhealthy"
-              : (backend_degraded || local_access.health_degraded)
-                  ? "degraded"
-                  : "healthy";
-      document["local_services_ready"] = essential_ok;
-      document["backend_degraded"] = backend_degraded;
-      document["local_api_authentication_enabled"] =
-          local_access.authentication_enabled;
-      document["local_browser_control_enabled"] =
-          local_access.browser_mutations_enabled;
-      document["nfc_available"] = nfc_.snapshot().initialized;
+      const bool nfc_available = nfc_.snapshot().initialized;
+      workflow_.visit([&](const services::WorkflowSnapshot& workflow) {
+        const bool essential_ok = system.nvs_ready && system.filesystem_ready &&
+            system.display_ready && system.ui_task_running &&
+            system.scale_task_running && system.network_task_running;
+        const bool backend_degraded =
+            workflow.spoolman == services::BackendAvailability::offline ||
+            workflow.filabridge == services::BackendAvailability::offline;
+        document["status"] =
+            !essential_ok
+                ? "unhealthy"
+                : (backend_degraded || local_access.health_degraded)
+                    ? "degraded"
+                    : "healthy";
+        document["local_services_ready"] = essential_ok;
+        document["backend_degraded"] = backend_degraded;
+        document["local_api_authentication_enabled"] =
+            local_access.authentication_enabled;
+        document["local_browser_control_enabled"] =
+            local_access.browser_mutations_enabled;
+        document["nfc_available"] = nfc_available;
+      });
       break;
     }
     case api::Resource::network: {
@@ -915,81 +928,80 @@ core::Result<std::string> ApplicationApiContext::snapshot_json(
       break;
     }
     case api::Resource::spool: {
-      auto workflow_storage = network::make_external<services::WorkflowSnapshot>([&] { return workflow_.snapshot(); });
-      if (!workflow_storage) return core::Result<std::string>::failure(unavailable(
-          core::ErrorCategory::backend_unavailable, "Workflow snapshot workspace unavailable", true));
-      const auto& workflow = *workflow_storage;
-      auto encoded = document["workflow"].to<JsonObject>();
-      encoded["stage"] = workflow_stage_name(workflow.stage);
-      encoded["spool_generation"] = workflow.spool_generation;
-      encoded["openprinttag_available"] = workflow.openprinttag_available;
-      write_nfc(encoded["tag"].to<JsonObject>(), nfc_.snapshot());
-      encoded["printer_revision"] = workflow.printer_revision;
-      encoded["spoolman"] = availability_name(workflow.spoolman);
-      encoded["filabridge"] = availability_name(workflow.filabridge);
-      auto candidates = encoded["candidates"].to<JsonArray>();
-      for (const auto& candidate : workflow.spool_candidates) {
-        write_spool(candidates.add<JsonObject>(), candidate);
-      }
-      if (workflow.spoolman_error) encoded["error"] = workflow.spoolman_error->message;
-      if (workflow.assignment_error) encoded["error"] = workflow.assignment_error->message;
-      if (workflow.spool.has_value()) {
-        write_spool(encoded["spool"].to<JsonObject>(), *workflow.spool);
-      }
-      write_reconciliation(
-          encoded["reconciliation"].to<JsonObject>(), workflow.reconciliation);
+      const auto tag = nfc_.snapshot();
+      workflow_.visit([&](const services::WorkflowSnapshot& workflow) {
+        auto encoded = document["workflow"].to<JsonObject>();
+        encoded["stage"] = workflow_stage_name(workflow.stage);
+        encoded["spool_generation"] = workflow.spool_generation;
+        encoded["openprinttag_available"] = workflow.openprinttag_available;
+        write_nfc(encoded["tag"].to<JsonObject>(), tag);
+        encoded["printer_revision"] = workflow.printer_revision;
+        encoded["spoolman"] = availability_name(workflow.spoolman);
+        encoded["filabridge"] = availability_name(workflow.filabridge);
+        auto candidates = encoded["candidates"].to<JsonArray>();
+        for (const auto& candidate : workflow.spool_candidates) {
+          write_spool(candidates.add<JsonObject>(), candidate);
+        }
+        if (workflow.spoolman_error) encoded["error"] = workflow.spoolman_error->message;
+        if (workflow.assignment_error) encoded["error"] = workflow.assignment_error->message;
+        if (workflow.spool.has_value()) {
+          write_spool(encoded["spool"].to<JsonObject>(), *workflow.spool);
+        }
+        write_reconciliation(
+            encoded["reconciliation"].to<JsonObject>(), workflow.reconciliation);
+      });
       break;
     }
     case api::Resource::printers: {
-      auto workflow_storage = network::make_external<services::WorkflowSnapshot>([&] { return workflow_.snapshot(); });
-      if (!workflow_storage) return core::Result<std::string>::failure(unavailable(
-          core::ErrorCategory::backend_unavailable, "Workflow snapshot workspace unavailable", true));
-      const auto& workflow = *workflow_storage;
-      document["revision"] = workflow.printer_revision;
-      auto printers = document["printers"].to<JsonArray>();
-      for (const auto& printer : workflow.printers) {
-        write_printer(
-            printers.add<JsonObject>(), printer, workflow.printer_revision);
-      }
+      workflow_.visit([&](const services::WorkflowSnapshot& workflow) {
+        document["revision"] = workflow.printer_revision;
+        auto printers = document["printers"].to<JsonArray>();
+        for (const auto& printer : workflow.printers) {
+          write_printer(
+              printers.add<JsonObject>(), printer, workflow.printer_revision);
+        }
+      });
       break;
     }
     case api::Resource::toolheads: {
-      auto workflow_storage = network::make_external<services::WorkflowSnapshot>([&] { return workflow_.snapshot(); });
-      if (!workflow_storage) return core::Result<std::string>::failure(unavailable(
-          core::ErrorCategory::backend_unavailable, "Workflow snapshot workspace unavailable", true));
-      const auto& workflow = *workflow_storage;
-      document["revision"] = workflow.printer_revision;
-      const auto configured = configuration_.snapshot();
-      auto toolheads = document["toolheads"].to<JsonArray>();
-      for (const auto& printer : workflow.printers) {
-        for (const auto& toolhead : printer.toolheads) {
-          auto encoded = toolheads.add<JsonObject>();
-          encoded["printer_id"] = printer.id;
-          encoded["printer_state"] = printer_state_name(printer.state);
-          encoded["backend_id"] = toolhead.backend_id;
-          encoded["display_number"] = toolhead.display_number;
-          encoded["display_name"] = toolhead.display_name;
-          if (toolhead.assigned_spool.has_value()) {
-            encoded["assigned_spool_id"] = *toolhead.assigned_spool;
-          } else {
-            encoded["assigned_spool_id"] = nullptr;
+      configuration_.visit([&](const config::Configuration& configured, std::uint64_t) {
+        workflow_.visit([&](const services::WorkflowSnapshot& workflow) {
+          document["revision"] = workflow.printer_revision;
+          auto toolheads = document["toolheads"].to<JsonArray>();
+          for (const auto& printer : workflow.printers) {
+            for (const auto& toolhead : printer.toolheads) {
+              auto encoded = toolheads.add<JsonObject>();
+              encoded["printer_id"] = printer.id;
+              encoded["printer_state"] = printer_state_name(printer.state);
+              encoded["backend_id"] = toolhead.backend_id;
+              encoded["display_number"] = toolhead.display_number;
+              encoded["display_name"] = toolhead.display_name;
+              if (toolhead.assigned_spool.has_value()) {
+                encoded["assigned_spool_id"] = *toolhead.assigned_spool;
+              } else {
+                encoded["assigned_spool_id"] = nullptr;
+              }
+              const auto profile = std::find_if(
+                  configured.toolheads.begin(),
+                  configured.toolheads.end(),
+                  [&](const auto& candidate) {
+                    return candidate.backend_id == toolhead.backend_id;
+                  });
+              if (profile != configured.toolheads.end()) {
+                encoded["profile_enabled"] = profile->enabled;
+                encoded["profile_name"] = profile->display_name;
+              }
+            }
           }
-          const auto profile = std::find_if(
-              configured.toolheads.begin(),
-              configured.toolheads.end(),
-              [&](const auto& candidate) {
-                return candidate.backend_id == toolhead.backend_id;
-              });
-          if (profile != configured.toolheads.end()) {
-            encoded["profile_enabled"] = profile->enabled;
-            encoded["profile_name"] = profile->display_name;
-          }
-        }
-      }
+        });
+      });
       break;
     }
     case api::Resource::redacted_configuration:
-      write_configuration(document, configuration_.versioned_snapshot());
+      network::memory_trace("config_persistent_psram", "snapshot_before", 0, configuration_.document_allocated_bytes());
+      configuration_.visit([&](const config::Configuration& value, std::uint64_t revision) {
+        write_configuration(document, value, revision);
+      });
       break;
     case api::Resource::diagnostics: {
       const auto system = diagnostics_.snapshot(now_ms);
@@ -1023,13 +1035,13 @@ core::Result<std::string> ApplicationApiContext::snapshot_json(
       break;
     }
     case api::Resource::logs: {
-      const auto snapshot = logs_.snapshot(0U, logging::maximum_log_entries);
-      document["oldest_cursor"] = snapshot.oldest_cursor;
-      document["latest_cursor"] = snapshot.latest_cursor;
-      document["dropped_count"] = snapshot.dropped_count;
-      document["history_gap"] = snapshot.history_gap;
       auto logs = document["logs"].to<JsonArray>();
-      for (const auto& entry : snapshot.entries) {
+      logs_.visit([&](std::uint64_t oldest, std::uint64_t latest, std::uint64_t dropped) {
+        document["oldest_cursor"] = oldest;
+        document["latest_cursor"] = latest;
+        document["dropped_count"] = dropped;
+        document["history_gap"] = false;
+      }, [&](const logging::LogEntry& entry) {
         auto encoded = logs.add<JsonObject>();
         encoded["sequence"] = entry.cursor;
         encoded["uptime_ms"] = entry.timestamp_ms;
@@ -1038,7 +1050,7 @@ core::Result<std::string> ApplicationApiContext::snapshot_json(
         encoded["message"] = entry.text();
         encoded["truncated"] = entry.truncated;
         encoded["redacted"] = entry.redacted;
-      }
+      });
       break;
     }
     case api::Resource::update:
@@ -1048,16 +1060,19 @@ core::Result<std::string> ApplicationApiContext::snapshot_json(
           ota_worker_.ready());
       break;
   }
+  network::memory_trace("api_json", "encoded", measureJson(document), allocator.used());
   return serialized(document);
 }
 
-core::Result<std::optional<std::string>>
+core::Result<std::optional<api::JsonBody>>
 ApplicationApiContext::operation_status_json(std::uint64_t operation_id) {
+  network::MemoryTraceScope memory_scope("operation_status_json");
   const auto record = operations_.get(operation_id);
   if (!record.has_value()) {
-    return core::Result<std::optional<std::string>>::success(std::nullopt);
+    return core::Result<std::optional<api::JsonBody>>::success(std::nullopt);
   }
   network::BackendJsonAllocator allocator;
+  network::JsonAllocationTrace allocation_trace(allocator, "api_json");
   JsonDocument document(&allocator);
   document["operation_id"] = record->id;
   document["kind"] = application::to_string(record->kind);
@@ -1068,11 +1083,11 @@ ApplicationApiContext::operation_status_json(std::uint64_t operation_id) {
   if (record->error.has_value()) {
     add_error(document["error"].to<JsonObject>(), record->error);
   }
-  const auto encoded = serialized(document);
+  auto encoded = serialized(document);
   if (!encoded.ok()) {
-    return core::Result<std::optional<std::string>>::failure(encoded.error());
+    return core::Result<std::optional<api::JsonBody>>::failure(encoded.error());
   }
-  return core::Result<std::optional<std::string>>::success(encoded.value());
+  return core::Result<std::optional<api::JsonBody>>::success(std::move(encoded.value()));
 }
 
 core::Result<api::OperationReceipt> ApplicationApiContext::receipt_result(

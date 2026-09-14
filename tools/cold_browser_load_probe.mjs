@@ -15,9 +15,9 @@ const DEFAULTS = Object.freeze({
   cycles: 20,
   weighSessions: 0,
   referenceGrams: 0,
-  minimumHeap: 8192,
+  minimumHeap: 24000,
   minimumLargestBlock: 8192,
-  minimumHttpStackMargin: 2048,
+  minimumHttpStackMargin: 4096,
   recoverySlack: 4096,
   requestTimeoutMs: 15000,
   operationTimeoutMs: 90000,
@@ -35,9 +35,9 @@ Options:
   --weigh-sessions N            Weigh operations while WebSocket is open
   --calibrate-reference-grams N Interactive tare/reference calibration
   --token TOKEN                 Optional configured local API token
-  --minimum-heap N              Minimum-free-heap floor (default 8192)
+  --minimum-heap N              Minimum-free-heap floor (default 24000)
   --minimum-largest-block N     Largest-block floor (default 8192)
-  --minimum-http-stack-margin N HTTPD high-water floor (default 2048)
+  --minimum-http-stack-margin N HTTPD high-water floor (default 4096)
   --recovery-slack N            Allowed post-close heap delta (default 4096)
   --help                        Show this help
 

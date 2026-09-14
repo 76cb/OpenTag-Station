@@ -39,6 +39,7 @@ jobs:
       - run: python tools/check_production_nfc.py
       - run: pio run --environment wt32-sc01-plus
       - run: python tools/check_production_nfc.py --elf
+      - run: python tools/check_production_memory.py
       - run: pio run --environment wt32-sc01-plus-i2c-test
       - run: python tools/analyze_stack_usage.py
       - run: python tools/analyze_stack_usage.py .pio/build/wt32-sc01-plus-i2c-test

@@ -1062,7 +1062,10 @@ const char application_javascript[] = R"JS((function () {
     try {
       const response = await fetch(API + path, {
         method: settings.method,
-        headers: Object.assign({}, settings.headers),
+        headers: Object.assign({}, settings.headers, {
+          'X-OpenTag-Scheduler': [scheduler.active, scheduler.queue.length,
+            scheduler.maximumObserved, settings.initialSyncComplete ? 1 : 0].join(',')
+        }),
         body: settings.serializedBody,
         cache: 'no-store',
         credentials: 'same-origin',
@@ -3564,7 +3567,12 @@ const char application_javascript[] = R"JS((function () {
     state.live.online = navigator.onLine !== false;
     state.live.suspended = document.hidden === true;
     state.live.start();
-    refreshSecondary(true);
+    refreshSecondary(true).then(function () {
+      // The marker itself uses the same serialized scheduler and is sent only
+      // after all initial snapshot responses have been consumed by the browser.
+      return api('/health', { initialSyncComplete: true, dedupe: false,
+        priority: PRIORITY.BACKGROUND });
+    }).catch(function () { /* reconnect/fallback will recover a failed sync */ });
 
     window.addEventListener('online', function () {
       if (state.live) state.live.setOnline(true);
@@ -3613,6 +3621,7 @@ const char application_javascript[] = R"JS((function () {
       SELF_TEST_PATHS: SELF_TEST_PATHS,
       PRODUCT_PAGES: PRODUCT_PAGES,
       state: state,
+      start: start,
       scheduler: scheduler,
       api: api,
       submitMutationReceipt: submitMutationReceipt,
