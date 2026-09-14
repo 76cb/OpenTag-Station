@@ -107,7 +107,7 @@ I2C controllers are reserved for scale and NFC.
 The module has no external reset or power-enable signal. Pinned ELECHOUSE
 RFAL uses the chip's Set Default command. Legacy SPI abstractions remain only
 for portable tests and future boards; they are not a second production path.
-The shared 16384-byte backend task owns RFAL, NFC-V read-only access, decode
+The shared 16384-byte backend task owns RFAL, NFC-V reads, guarded OpenPrintTag writing, decode
 and backend HTTP sequentially. No dedicated NFC task is created.
 
 Production inventory, geometry, full reads, decode, reboot persistence,

@@ -87,3 +87,7 @@ read-only degradation, filtered list/get parsing, explicit creation, location
 and custom-field discovery, concurrent-use rejection, one-shot remaining-weight
 patches, read-after-write mismatch rejection, and one-key extra-field updates.
 A live/containerized Spoolman instance is still required for integration signoff.
+
+## Production OpenPrintTag writer
+
+See [writer workflow and contract](openprinttag-writer.md). GET /api/v1/tag-writer returns its bounded snapshot; authenticated POST enqueues only approved high-level catalog/import/spool/preview/write/association operations. Periodic reads never write.

@@ -1,3 +1,4 @@
+#include "network/backend_memory.hpp"
 #include "nfc/formats/openprinttag/codec.hpp"
 
 #include <algorithm>
@@ -336,122 +337,14 @@ core::Result<void> read_lab_color(
 }
 
 bool known_main_key(std::uint64_t key) {
-  return key <= 60U;
+  return key <= 61U;
 }
 
 bool known_aux_key(std::uint64_t key) {
   return key <= 7U;
 }
 
-core::Result<void> decode_material(
-    ByteView image,
-    const Envelope& envelope,
-    MaterialRecord& result) {
-  const auto main = CborMapView::parse(
-      image.subview(envelope.main.absolute_offset, envelope.main.size));
-  if (!main.ok()) return core::Result<void>::failure(main.error());
-  result = MaterialRecord{};
-
-#define READ_OPTIONAL(MAP, KEY, MEMBER, METHOD)                                    \
-  do {                                                                              \
-    const auto status = read_optional((MAP), (KEY), result.MEMBER, &CborMapView::METHOD); \
-    if (!status.ok()) return core::Result<void>::failure(status.error());          \
-  } while (false)
-
-  for (const auto key : {0U, 1U, 2U, 3U}) {
-    core::Result<void> status = core::Result<void>::success();
-    if (key == 0U) status = read_uuid(main.value(), key, result.instance_uuid);
-    if (key == 1U) status = read_uuid(main.value(), key, result.package_uuid);
-    if (key == 2U) status = read_uuid(main.value(), key, result.material_uuid);
-    if (key == 3U) status = read_uuid(main.value(), key, result.brand_uuid);
-    if (!status.ok()) return core::Result<void>::failure(status.error());
-  }
-  READ_OPTIONAL(main.value(), 4U, gtin, read_unsigned);
-  READ_OPTIONAL(main.value(), 5U, brand_specific_instance_id, read_text);
-  READ_OPTIONAL(main.value(), 6U, brand_specific_package_id, read_text);
-  READ_OPTIONAL(main.value(), 7U, brand_specific_material_id, read_text);
-  READ_OPTIONAL(main.value(), 8U, material_class, read_unsigned);
-  READ_OPTIONAL(main.value(), 9U, material_type, read_unsigned);
-  READ_OPTIONAL(main.value(), 10U, material_name, read_text);
-  READ_OPTIONAL(main.value(), 52U, material_abbreviation, read_text);
-  READ_OPTIONAL(main.value(), 11U, brand_name, read_text);
-  READ_OPTIONAL(main.value(), 13U, write_protection, read_unsigned);
-  READ_OPTIONAL(main.value(), 14U, manufactured_date, read_integer);
-  READ_OPTIONAL(main.value(), 55U, country_of_origin, read_text);
-  READ_OPTIONAL(main.value(), 15U, expiration_date, read_integer);
-  READ_OPTIONAL(main.value(), 16U, nominal_netto_full_weight, read_number);
-  READ_OPTIONAL(main.value(), 17U, actual_netto_full_weight, read_number);
-  READ_OPTIONAL(main.value(), 53U, nominal_full_length, read_number);
-  READ_OPTIONAL(main.value(), 54U, actual_full_length, read_number);
-  READ_OPTIONAL(main.value(), 18U, empty_container_weight, read_number);
-  const auto color_status = read_color(main.value(), 19U, result.primary_color);
-  if (!color_status.ok()) return core::Result<void>::failure(color_status.error());
-  for (std::uint64_t index = 0U; index < result.secondary_colors.size(); ++index) {
-    const auto status = read_color(main.value(), 20U + index, result.secondary_colors[index]);
-    if (!status.ok()) return core::Result<void>::failure(status.error());
-  }
-  const auto lab_status = read_lab_color(main.value(), 59U, result.primary_color_lab);
-  if (!lab_status.ok()) return core::Result<void>::failure(lab_status.error());
-  READ_OPTIONAL(main.value(), 60U, primary_color_ral, read_text);
-  READ_OPTIONAL(main.value(), 27U, transmission_distance, read_number);
-  if (main.value().find(28U) != nullptr) {
-    const auto tags = main.value().read_unsigned_array(28U, 16U);
-    if (!tags.ok()) return core::Result<void>::failure(tags.error());
-    result.tags = tags.value();
-  }
-  if (main.value().find(56U) != nullptr) {
-    const auto certifications = main.value().read_unsigned_array(56U, 8U);
-    if (!certifications.ok()) return core::Result<void>::failure(certifications.error());
-    result.certifications = certifications.value();
-  }
-  READ_OPTIONAL(main.value(), 29U, density, read_number);
-  READ_OPTIONAL(main.value(), 30U, filament_diameter, read_number);
-  READ_OPTIONAL(main.value(), 31U, shore_hardness_a, read_integer);
-  READ_OPTIONAL(main.value(), 32U, shore_hardness_d, read_integer);
-  READ_OPTIONAL(main.value(), 33U, min_nozzle_diameter, read_number);
-  READ_OPTIONAL(main.value(), 34U, min_print_temperature, read_integer);
-  READ_OPTIONAL(main.value(), 35U, max_print_temperature, read_integer);
-  READ_OPTIONAL(main.value(), 36U, preheat_temperature, read_integer);
-  READ_OPTIONAL(main.value(), 37U, min_bed_temperature, read_integer);
-  READ_OPTIONAL(main.value(), 38U, max_bed_temperature, read_integer);
-  READ_OPTIONAL(main.value(), 39U, min_chamber_temperature, read_integer);
-  READ_OPTIONAL(main.value(), 40U, max_chamber_temperature, read_integer);
-  READ_OPTIONAL(main.value(), 41U, chamber_temperature, read_integer);
-  READ_OPTIONAL(main.value(), 42U, container_width, read_integer);
-  READ_OPTIONAL(main.value(), 43U, container_outer_diameter, read_integer);
-  READ_OPTIONAL(main.value(), 44U, container_inner_diameter, read_integer);
-  READ_OPTIONAL(main.value(), 45U, container_hole_diameter, read_integer);
-  READ_OPTIONAL(main.value(), 46U, viscosity_18c, read_number);
-  READ_OPTIONAL(main.value(), 47U, viscosity_25c, read_number);
-  READ_OPTIONAL(main.value(), 48U, viscosity_40c, read_number);
-  READ_OPTIONAL(main.value(), 49U, viscosity_60c, read_number);
-  READ_OPTIONAL(main.value(), 50U, container_volumetric_capacity, read_number);
-  READ_OPTIONAL(main.value(), 51U, cure_wavelength, read_integer);
-  READ_OPTIONAL(main.value(), 57U, drying_temperature, read_integer);
-  READ_OPTIONAL(main.value(), 58U, drying_time, read_integer);
-
-  for (const auto& entry : main.value().entries()) {
-    if (!known_main_key(entry.key)) ++result.unknown_main_fields;
-  }
-
-  if (envelope.auxiliary.has_value()) {
-    const auto aux = CborMapView::parse(image.subview(
-        envelope.auxiliary->absolute_offset, envelope.auxiliary->size));
-    if (!aux.ok()) return core::Result<void>::failure(aux.error());
-    READ_OPTIONAL(aux.value(), 0U, consumed_weight, read_number);
-    READ_OPTIONAL(aux.value(), 1U, workgroup, read_text);
-    READ_OPTIONAL(aux.value(), 2U, general_purpose_range_user, read_text);
-    READ_OPTIONAL(aux.value(), 3U, last_stir_time, read_integer);
-    READ_OPTIONAL(aux.value(), 4U, storage_location, read_text);
-    READ_OPTIONAL(aux.value(), 5U, purchase_time, read_integer);
-    READ_OPTIONAL(aux.value(), 6U, purchase_price, read_number);
-    READ_OPTIONAL(aux.value(), 7U, purchase_currency, read_text);
-    for (const auto& entry : aux.value().entries()) {
-      if (!known_aux_key(entry.key)) ++result.unknown_auxiliary_fields;
-    }
-  }
-#undef READ_OPTIONAL
-
+static __attribute__((noinline)) core::Result<void> validate_material(MaterialRecord& result) {
   if (!result.material_class.has_value()) {
     result.validation.errors.emplace_back("missing required material_class");
   }
@@ -548,6 +441,131 @@ core::Result<void> decode_material(
   return core::Result<void>::success();
 }
 
+core::Result<void> decode_material(
+    ByteView image,
+    const Envelope& envelope,
+    MaterialRecord& result) {
+  const auto main = CborMapView::parse(
+      image.subview(envelope.main.absolute_offset, envelope.main.size));
+  if (!main.ok()) return core::Result<void>::failure(main.error());
+  // Reset in place: assigning a value-initialized temporary put the complete
+  // record on the constrained owner stack before parsing bounded CBOR.
+  result.~MaterialRecord();
+  new (&result) MaterialRecord();
+
+#define READ_OPTIONAL(MAP, KEY, MEMBER, METHOD)                                    \
+  do {                                                                              \
+    const auto status = read_optional((MAP), (KEY), result.MEMBER, &CborMapView::METHOD); \
+    if (!status.ok()) return core::Result<void>::failure(status.error());          \
+  } while (false)
+
+  for (const auto key : {0U, 1U, 2U, 3U}) {
+    core::Result<void> status = core::Result<void>::success();
+    if (key == 0U) status = read_uuid(main.value(), key, result.instance_uuid);
+    if (key == 1U) status = read_uuid(main.value(), key, result.package_uuid);
+    if (key == 2U) status = read_uuid(main.value(), key, result.material_uuid);
+    if (key == 3U) status = read_uuid(main.value(), key, result.brand_uuid);
+    if (!status.ok()) return core::Result<void>::failure(status.error());
+  }
+  READ_OPTIONAL(main.value(), 4U, gtin, read_unsigned);
+  READ_OPTIONAL(main.value(), 5U, brand_specific_instance_id, read_text);
+  READ_OPTIONAL(main.value(), 6U, brand_specific_package_id, read_text);
+  READ_OPTIONAL(main.value(), 7U, brand_specific_material_id, read_text);
+  READ_OPTIONAL(main.value(), 8U, material_class, read_unsigned);
+  READ_OPTIONAL(main.value(), 9U, material_type, read_unsigned);
+  READ_OPTIONAL(main.value(), 10U, material_name, read_text);
+  READ_OPTIONAL(main.value(), 52U, material_abbreviation, read_text);
+  READ_OPTIONAL(main.value(), 11U, brand_name, read_text);
+  READ_OPTIONAL(main.value(), 13U, write_protection, read_unsigned);
+  READ_OPTIONAL(main.value(), 14U, manufactured_date, read_integer);
+  READ_OPTIONAL(main.value(), 55U, country_of_origin, read_text);
+  READ_OPTIONAL(main.value(), 15U, expiration_date, read_integer);
+  READ_OPTIONAL(main.value(), 16U, nominal_netto_full_weight, read_number);
+  READ_OPTIONAL(main.value(), 17U, actual_netto_full_weight, read_number);
+  READ_OPTIONAL(main.value(), 53U, nominal_full_length, read_number);
+  READ_OPTIONAL(main.value(), 54U, actual_full_length, read_number);
+  READ_OPTIONAL(main.value(), 18U, empty_container_weight, read_number);
+  const auto color_status = read_color(main.value(), 19U, result.primary_color);
+  if (!color_status.ok()) return core::Result<void>::failure(color_status.error());
+  for (std::uint64_t index = 0U; index < result.secondary_colors.size(); ++index) {
+    const auto status = read_color(main.value(), 20U + index, result.secondary_colors[index]);
+    if (!status.ok()) return core::Result<void>::failure(status.error());
+  }
+  const auto lab_status = read_lab_color(main.value(), 59U, result.primary_color_lab);
+  if (!lab_status.ok()) return core::Result<void>::failure(lab_status.error());
+  READ_OPTIONAL(main.value(), 60U, primary_color_ral, read_text);
+  READ_OPTIONAL(main.value(), 27U, transmission_distance, read_number);
+  if (main.value().find(28U) != nullptr) {
+    const auto tags = main.value().read_unsigned_array(28U, 16U);
+    if (!tags.ok()) return core::Result<void>::failure(tags.error());
+    result.tags = tags.value();
+  }
+  if (main.value().find(56U) != nullptr) {
+    const auto certifications = main.value().read_unsigned_array(56U, 8U);
+    if (!certifications.ok()) return core::Result<void>::failure(certifications.error());
+    result.certifications = certifications.value();
+  }
+  READ_OPTIONAL(main.value(), 29U, density, read_number);
+  READ_OPTIONAL(main.value(), 30U, filament_diameter, read_number);
+  // 7e09cc3 replaces the legacy millimetre key 30 with integer micrometres.
+  // Preserve the public normalized millimetre model and old read compatibility.
+  if (main.value().find(61U)) {
+    const auto micrometres = main.value().read_unsigned(61U);
+    if (!micrometres.ok()) return core::Result<void>::failure(micrometres.error());
+    const auto millimetres = micrometres.value() / 1000.0;
+    if (result.filament_diameter && std::fabs(*result.filament_diameter - millimetres) > 0.000001)
+      return core::Result<void>::failure(malformed("conflicting filament diameter keys"));
+    result.filament_diameter = millimetres;
+  }
+  READ_OPTIONAL(main.value(), 31U, shore_hardness_a, read_integer);
+  READ_OPTIONAL(main.value(), 32U, shore_hardness_d, read_integer);
+  READ_OPTIONAL(main.value(), 33U, min_nozzle_diameter, read_number);
+  READ_OPTIONAL(main.value(), 34U, min_print_temperature, read_integer);
+  READ_OPTIONAL(main.value(), 35U, max_print_temperature, read_integer);
+  READ_OPTIONAL(main.value(), 36U, preheat_temperature, read_integer);
+  READ_OPTIONAL(main.value(), 37U, min_bed_temperature, read_integer);
+  READ_OPTIONAL(main.value(), 38U, max_bed_temperature, read_integer);
+  READ_OPTIONAL(main.value(), 39U, min_chamber_temperature, read_integer);
+  READ_OPTIONAL(main.value(), 40U, max_chamber_temperature, read_integer);
+  READ_OPTIONAL(main.value(), 41U, chamber_temperature, read_integer);
+  READ_OPTIONAL(main.value(), 42U, container_width, read_integer);
+  READ_OPTIONAL(main.value(), 43U, container_outer_diameter, read_integer);
+  READ_OPTIONAL(main.value(), 44U, container_inner_diameter, read_integer);
+  READ_OPTIONAL(main.value(), 45U, container_hole_diameter, read_integer);
+  READ_OPTIONAL(main.value(), 46U, viscosity_18c, read_number);
+  READ_OPTIONAL(main.value(), 47U, viscosity_25c, read_number);
+  READ_OPTIONAL(main.value(), 48U, viscosity_40c, read_number);
+  READ_OPTIONAL(main.value(), 49U, viscosity_60c, read_number);
+  READ_OPTIONAL(main.value(), 50U, container_volumetric_capacity, read_number);
+  READ_OPTIONAL(main.value(), 51U, cure_wavelength, read_integer);
+  READ_OPTIONAL(main.value(), 57U, drying_temperature, read_integer);
+  READ_OPTIONAL(main.value(), 58U, drying_time, read_integer);
+
+  for (const auto& entry : main.value().entries()) {
+    if (!known_main_key(entry.key)) ++result.unknown_main_fields;
+  }
+
+  if (envelope.auxiliary.has_value()) {
+    const auto aux = CborMapView::parse(image.subview(
+        envelope.auxiliary->absolute_offset, envelope.auxiliary->size));
+    if (!aux.ok()) return core::Result<void>::failure(aux.error());
+    READ_OPTIONAL(aux.value(), 0U, consumed_weight, read_number);
+    READ_OPTIONAL(aux.value(), 1U, workgroup, read_text);
+    READ_OPTIONAL(aux.value(), 2U, general_purpose_range_user, read_text);
+    READ_OPTIONAL(aux.value(), 3U, last_stir_time, read_integer);
+    READ_OPTIONAL(aux.value(), 4U, storage_location, read_text);
+    READ_OPTIONAL(aux.value(), 5U, purchase_time, read_integer);
+    READ_OPTIONAL(aux.value(), 6U, purchase_price, read_number);
+    READ_OPTIONAL(aux.value(), 7U, purchase_currency, read_text);
+    for (const auto& entry : aux.value().entries()) {
+      if (!known_aux_key(entry.key)) ++result.unknown_auxiliary_fields;
+    }
+  }
+#undef READ_OPTIONAL
+
+  return validate_material(result);
+}
+
 }  // namespace
 
 core::Result<void> Codec::decode(
@@ -569,31 +587,37 @@ core::Result<DecodedTag> Codec::decode(core::ByteView tag_image) {
   return core::Result<DecodedTag>::success(std::move(output));
 }
 
+core::Result<std::vector<std::uint8_t>> Codec::update_consumed_weight(core::ByteView image, double grams) {
+  auto workspace = network::make_external<DecodedTag>([] { return DecodedTag{}; });
+  if (!workspace) return core::Result<std::vector<std::uint8_t>>::failure(malformed("Auxiliary update workspace unavailable"));
+  return update_consumed_weight(image, grams, *workspace);
+}
+
 core::Result<std::vector<std::uint8_t>> Codec::update_consumed_weight(
     core::ByteView tag_image,
-    double consumed_grams) {
+    double consumed_grams, DecodedTag& workspace) {
   if (!std::isfinite(consumed_grams) || consumed_grams < 0.0) {
     return core::Result<std::vector<std::uint8_t>>::failure(
         malformed("consumed weight must be finite and non-negative"));
   }
-  const auto decoded = decode(tag_image);
+  const auto decoded = decode(tag_image, workspace);
   if (!decoded.ok()) return core::Result<std::vector<std::uint8_t>>::failure(decoded.error());
-  if (!decoded.value().material.validation.valid()) {
+  if (!workspace.material.validation.valid()) {
     return core::Result<std::vector<std::uint8_t>>::failure(
         malformed("cannot update a semantically invalid OpenPrintTag"));
   }
-  if (decoded.value().envelope.capability_access != 0U) {
+  if (workspace.envelope.capability_access != 0U) {
     return core::Result<std::vector<std::uint8_t>>::failure({
         core::ErrorCategory::tag_write_protected,
         "Type 5 capability container does not permit writing",
         false,
     });
   }
-  if (!decoded.value().envelope.auxiliary.has_value()) {
+  if (!workspace.envelope.auxiliary.has_value()) {
     return core::Result<std::vector<std::uint8_t>>::failure(
         malformed("OpenPrintTag has no auxiliary region"));
   }
-  const auto& layout = *decoded.value().envelope.auxiliary;
+  const auto& layout = *workspace.envelope.auxiliary;
   const auto aux = CborMapView::parse(tag_image.subview(layout.absolute_offset, layout.size));
   if (!aux.ok()) return core::Result<std::vector<std::uint8_t>>::failure(aux.error());
   const auto encoded_number = CborMapView::encode_number(consumed_grams);
@@ -607,10 +631,10 @@ core::Result<std::vector<std::uint8_t>> Codec::update_consumed_weight(
   std::copy(
       updated_region.value().begin(), updated_region.value().end(),
       output.begin() + static_cast<std::ptrdiff_t>(layout.absolute_offset));
-  const auto verified = decode(core::ByteView(output));
-  if (!verified.ok() || !verified.value().material.validation.valid() ||
-      !verified.value().material.consumed_weight.has_value() ||
-      std::fabs(*verified.value().material.consumed_weight - consumed_grams) > 0.001) {
+  const auto verified = decode(core::ByteView(output), workspace);
+  if (!verified.ok() || !workspace.material.validation.valid() ||
+      !workspace.material.consumed_weight.has_value() ||
+      std::fabs(*workspace.material.consumed_weight - consumed_grams) > 0.001) {
     return core::Result<std::vector<std::uint8_t>>::failure(
         malformed("updated auxiliary region failed semantic verification"));
   }

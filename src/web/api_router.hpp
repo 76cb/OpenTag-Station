@@ -89,7 +89,9 @@ struct RouteMetadata {
   BodyTransport body_transport{BodyTransport::buffered_json};
 };
 
-inline constexpr std::array<RouteMetadata, 32U> routes = {{
+inline constexpr std::array<RouteMetadata, 34U> routes = {{
+    {Method::get, "/api/v1/tag-writer", 0U, false},
+    {Method::post, "/api/v1/tag-writer", 4096U, true},
     {Method::get, "/api/v1/status", 0U, false},
     {Method::get, "/api/v1/device", 0U, false},
     {Method::get, "/api/v1/health", 0U, false},
@@ -129,6 +131,7 @@ inline constexpr std::array<RouteMetadata, 32U> routes = {{
 }};
 
 enum class Resource : std::uint8_t {
+  tag_writer,
   status,
   device,
   health,
@@ -149,6 +152,7 @@ enum class Resource : std::uint8_t {
 };
 
 struct EmptyMutation {};
+struct TagWriterMutation { std::string json; };
 struct SpoolConfirmationMutation {
   std::uint64_t spool_generation{0};
   std::int32_t spool_id{0};
@@ -269,6 +273,7 @@ struct UpdateControlMutation {
 };
 
 enum class MutationKind : std::uint8_t {
+  tag_writer,
   scale_weigh,
   scale_tare,
   scale_calibration,
@@ -288,6 +293,7 @@ enum class MutationKind : std::uint8_t {
 };
 
 using MutationPayload = std::variant<
+    TagWriterMutation,
     EmptyMutation,
     SpoolConfirmationMutation,
     ScaleCalibrationMutation,

@@ -141,6 +141,7 @@ Response context_error(const core::Error& error) {
 
 const char* mutation_name(MutationKind kind) {
   switch (kind) {
+    case MutationKind::tag_writer: return "tag_writer";
     case MutationKind::scale_weigh: return "scale_weigh";
     case MutationKind::scale_tare: return "scale_tare";
     case MutationKind::scale_calibration: return "scale_calibration";
@@ -907,6 +908,21 @@ core::Result<Mutation> parse_mutation(
       "Mutation workspace unavailable", true});
   auto& mutation = *mutation_storage;
   mutation.idempotency_key = idempotency_key;
+  if (request.path == "/api/v1/tag-writer") {
+    const std::string action = object["action"] | "";
+    if (action != "catalog" && action != "import_preview" && action != "import" && action != "create_spool" &&
+        action != "preview" && action != "write" && action != "retry_association")
+      return core::Result<Mutation>::failure(invalid_request("Unknown high-level writer action"));
+    if (!keys_allowed(object, {"action", "entity", "offset", "search", "material", "article_number", "vendor_id", "filament_id",
+                              "entry", "contract", "import_token", "import_name", "spool", "spool_id", "mode", "uid", "generation", "target_checksum"}))
+      return core::Result<Mutation>::failure(invalid_request("Unsupported writer fields; raw writes are forbidden"));
+    if (action == "write" && (!object["uid"].is<const char*>() || !object["generation"].is<const char*>() ||
+        !object["target_checksum"].is<const char*>() || !object["spool_id"].is<int>() || object["spool_id"].as<int>() <= 0))
+      return core::Result<Mutation>::failure(invalid_request("Write needs UID, generation, target checksum and spool ID"));
+    mutation.kind = MutationKind::tag_writer;
+    mutation.payload = TagWriterMutation{request.body};
+    return core::Result<Mutation>::success(std::move(mutation));
+  }
 
   if (request.path == "/api/v1/scale/weigh" ||
       request.path == "/api/v1/scale/tare" ||
@@ -1126,6 +1142,7 @@ core::Result<Mutation> parse_mutation(
 }
 
 std::optional<Resource> resource_for_path(const std::string& path) {
+  if (path == "/api/v1/tag-writer") return Resource::tag_writer;
   if (path == "/api/v1/status") return Resource::status;
   if (path == "/api/v1/device") return Resource::device;
   if (path == "/api/v1/health") return Resource::health;

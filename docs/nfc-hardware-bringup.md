@@ -1,6 +1,6 @@
 # NFC hardware bring-up checkpoint
 
-Production NFC inventory, full reads, OpenPrintTag decode, removal/reinsertion and stationary soak have passed. The historical diagnostic evidence below records how the transport was brought up; it is not another acceptance gate. Production now uses the same Wire1 mapping read-only on the shared backend task. Use [production NFC](production-nfc.md) for current ownership and [release validation](release-validation.md) for the one integrated physical procedure.
+Production NFC inventory, full reads, OpenPrintTag decode, removal/reinsertion and stationary soak have passed. The historical diagnostic evidence below records how the transport was brought up; it is not another acceptance gate. Production now uses the same Wire1 mapping on the shared backend task, with guarded OpenPrintTag writing. Use [production NFC](production-nfc.md) for current ownership and [release validation](release-validation.md) for the one integrated physical procedure.
 
 ## Proven transport
 

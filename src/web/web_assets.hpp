@@ -16,11 +16,15 @@ extern const char application_css[];
 extern const std::size_t application_css_size;
 extern const char application_javascript[];
 extern const std::size_t application_javascript_size;
+extern const char writer_javascript[];
+extern const std::size_t writer_javascript_size;
 #if defined(ARDUINO_ARCH_ESP32)
 extern const std::uint8_t application_css_gzip[];
 extern const std::size_t application_css_gzip_size;
 extern const std::uint8_t application_javascript_gzip[];
 extern const std::size_t application_javascript_gzip_size;
+extern const std::uint8_t writer_javascript_gzip[];
+extern const std::size_t writer_javascript_gzip_size;
 #endif
 
 }  // namespace opentag::web::assets

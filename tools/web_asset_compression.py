@@ -55,10 +55,13 @@ def _array(name: str, value: bytes) -> str:
 
 def generated_include() -> str:
     stylesheet, javascript = browser_assets()
+    writer = extract_asset((ROOT / "src/web/writer_assets.cpp").read_text(), "writer_javascript", "WRITER")
+    assert len(writer) <= 20 * 1024, "writer module exceeds its independent flash budget"
     return (
         "// Generated deterministically by tools/precompress_web_assets.py.\n"
         "// Do not edit this build artifact.\n\n"
         + _array("application_css_gzip", gzip_asset(stylesheet))
         + "\n"
         + _array("application_javascript_gzip", gzip_asset(javascript))
+        + _array("writer_javascript_gzip", gzip_asset(writer))
     )
