@@ -7,7 +7,7 @@ audit, 65 KiB static-RAM recovery, response lifetimes and focused physical test.
 The configured station previously held large HTTP strings and ArduinoJson
 trees in internal RAM while also serving local pages. The MVP candidate uses
 fallible, move-only PSRAM response bodies and PSRAM JSON documents. It retains
-the shared 16 KiB backend/NFC task, 12 KiB httpd stack and all NFC read-only gates.
+the shared 16 KiB backend/NFC task, 12 KiB httpd stack and the approved NFC writer boundary gates.
 
 ## Allocation and lifetime
 

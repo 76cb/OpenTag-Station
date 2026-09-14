@@ -18,7 +18,7 @@ twenty suites. This is the runner result after the final safety fixes:
 - debounced stationary-tag suppression and removal/re-presentation;
 - bounded queue/deadline contracts for UI, web, configuration, scale, NFC,
   network, backend, device-control, and OTA owners;
-- production NFC is read-only on the physically validated Wire1 bus.
+- production NFC uses the physically validated Wire1 bus; writes are confined to the approved OpenPrintTag writer.
 - the required ST25R3916B bring-up order, safe failure shutdown, and complete
   recovery without reboot;
 - exact layout and field decoding of an official OpenPrintTag FFF fixture;

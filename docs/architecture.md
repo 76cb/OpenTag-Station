@@ -1,7 +1,7 @@
 # Architecture
 
 Phase 11 audited every runtime owner, queue, lifecycle lease, persistent writer,
-and project-created task. With the production read-only NFC owner, the configured
+and project-created task. With the shared production NFC owner, the configured
 dynamic stack total is 100,352 bytes (plus the separate 16,384-byte Arduino loop).
 NFC is a logical owner on the existing backend task, whose stack is now 16 KiB;
 there is no separate NFC task or stack. See [shared owner](backend-nfc-owner.md).
@@ -52,7 +52,7 @@ FreeRTOS tasks own slow or blocking work:
 |---|---|---|
 | UI | LVGL calls and view state | HTTP, long NFC operations, flash writes |
 | Configuration | serialized document commits and setup progress | LVGL calls |
-| NFC logical worker on backend | RFAL/Wire1, presence, read-only tag I/O and decode | Separate RTOS task, tag writes |
+| NFC logical worker on backend | RFAL/Wire1, presence, reads/decode and guarded OpenPrintTag writing | Separate RTOS task, arbitrary writes |
 | Scale | ADC sampling, filtering, stability | inventory writes |
 | Network | Wi-Fi, scan, mDNS, local web-server lifecycle | Backend HTTP, RFAL or decode |
 | Backend | NFC logical worker, backend HTTP/JSON, adapters, resolution and verified assignment | LVGL calls |
@@ -120,7 +120,7 @@ token. When a token is configured, the browser prompts for it when a protected
 mutation needs authentication, keeps it only in JavaScript memory for the
 current tab, never places it in storage or a URL, and clears it after HTTP 401.
 
-Production NFC is enabled read-only after Wi-Fi provisioning closes. NFC
+Production NFC polling is enabled after Wi-Fi provisioning closes. NFC
 availability is not an OTA candidate-health requirement.
 
 ## OTA ownership and durable lifecycle
@@ -193,7 +193,7 @@ required for protected mutations. The image is not cryptographically signed and
 the local HTTP transport is not TLS-protected; deployments must use a trusted
 isolated LAN.
 
-Production NFC uses the pinned ELECHOUSE Wire1 implementation on the backend task. Legacy SPI abstractions remain unbound in production. See [production NFC](production-nfc.md) for the validated hardware and read-only boundary.
+Production NFC uses the pinned ELECHOUSE Wire1 implementation on the backend task. Legacy SPI abstractions remain unbound in production. See [production NFC](production-nfc.md) for the validated hardware and approved writer boundary.
 
 ## Application states
 
@@ -335,7 +335,7 @@ bounded diagnostic export, not for hiding unbounded growth.
 | 1 | Board bring-up | Implemented and compiled; serial, display, full-screen touch, storage, PSRAM, reset diagnostics, and responsive LVGL loop must still pass on the actual board. |
 | 2 | ST25R3916B bring-up | Dedicated dual-I2C transport, chip ID, IRQ, and scale coexistence are physically validated; production read-only NFC has passed its physical soak. |
 | 3 | NFC-V | Production ELECHOUSE RFAL inventory, decode, removal/reinsertion and read-only soak physically passed. |
-| 4 | OpenPrintTag | Official host fixtures decode and safely modify with semantic verification; physical initialization/reread and production decode passed; production writes are post-MVP. |
+| 4 | OpenPrintTag | Official host fixtures decode and safely modify with semantic verification; physical initialization/reread and production decode passed; guarded production write/rewrite and mutable updates are implemented, pending consolidated physical acceptance. |
 | 5 | Scale | NAU7802 raw/tare/calibration/filter/stability behavior passes with reference weights; calibration survives power cycles and export/import. |
 | 6 | Configuration + networking | One migrated settings service, resilient first-run setup, Wi-Fi/backoff/status, and bounded CA-verified HTTP(S) pass host/build gates; physical LAN behavior remains gated. |
 | 7 | Spoolman | Version/capability probes and pinned contract tests pass; identity resolution is deterministic; remaining-weight writes are stable, explicit, merge-safe, and verified. |

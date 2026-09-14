@@ -49,11 +49,16 @@ inline void backend_memory_phase(const char* phase, std::size_t bytes = 0,
       static_cast<unsigned long>(started ? millis() - started : 0));
 #endif
 }
+#ifndef ARDUINO
+// Deterministic native fault injection; absent from firmware.
+inline bool (*backend_allocation_admission)(std::size_t) = nullptr;
+#endif
 inline void* backend_reallocate(void* ptr, std::size_t size) {
 #ifdef ARDUINO
   // Deliberately no internal fallback: backend payloads must not evict httpd.
   return heap_caps_realloc(ptr, size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
 #else
+  if (backend_allocation_admission && !backend_allocation_admission(size)) return nullptr;
   return std::realloc(ptr, size);
 #endif
 }

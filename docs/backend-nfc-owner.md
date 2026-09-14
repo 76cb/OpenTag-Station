@@ -1,4 +1,4 @@
-# Shared backend / read-only NFC owner
+# Shared backend / NFC owner
 
 ## Why
 
@@ -83,3 +83,7 @@ loop/UI/network/httpd/scale/config/backend/control/OTA stack margins. NFC logs
 ## Physical evidence
 
 Production read-only NFC and stationary soak passed. Observed backend/NFC free stack was 9776–9872 bytes after decode, RFAL=0, bus_errors=0. UID E0:04:01:08:66:27:D8:D4 and initialized checksum 9E639911 were retained. Further physical work uses the single [integrated acceptance](release-validation.md), including ten health cycles under backend load.
+
+## Production OpenPrintTag writer
+
+See [writer workflow and contract](openprinttag-writer.md). GET /api/v1/tag-writer returns its bounded snapshot; authenticated POST enqueues only approved high-level catalog/import/spool/preview/write/association operations. Periodic reads never write.

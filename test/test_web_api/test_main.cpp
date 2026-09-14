@@ -246,8 +246,10 @@ void setUp() {}
 void tearDown() {}
 
 void test_route_table_contains_the_complete_versioned_surface() {
-  TEST_ASSERT_EQUAL_UINT(32U, opentag::web::api::routes.size());
-  const std::array<std::pair<Method, const char*>, 32U> expected = {{
+  TEST_ASSERT_EQUAL_UINT(34U, opentag::web::api::routes.size());
+  const std::array<std::pair<Method, const char*>, 34U> expected = {{
+      {Method::get, "/api/v1/tag-writer"},
+      {Method::post, "/api/v1/tag-writer"},
       {Method::get, "/api/v1/status"},
       {Method::get, "/api/v1/device"},
       {Method::get, "/api/v1/health"},
@@ -1531,8 +1533,22 @@ void test_spool_confirmation_is_explicit_bounded_and_queued() {
   }
   TEST_ASSERT_EQUAL(1, context.submit_calls);
 }
+void test_writer_requires_specific_authorized_high_level_confirmation() {
+  FakeContext context; Router router(context);
+  for(const auto* body : {R"({"action":"write","confirm":true})", R"({"action":"raw_write","block":0})",
+      R"({"action":"write","uid":"E004","generation":1,"target_checksum":"12345678","spool_id":12})",
+      R"({"action":"write","uid":"E004","generation":"1","target_checksum":"12345678","spool_id":12,"bytes":[0]})"})
+    TEST_ASSERT_EQUAL(400,router.handle(mutation_request(Method::post,"/api/v1/tag-writer",body)).status);
+  TEST_ASSERT_EQUAL(0,context.submit_calls);
+  const auto* body=R"({"action":"write","uid":"E00401086627D8D4","generation":"3","target_checksum":"12345678","spool_id":12})";
+  TEST_ASSERT_EQUAL(401,router.handle(mutation_request(Method::post,"/api/v1/tag-writer",body,"writer-unauthorized","wrong")).status);
+  TEST_ASSERT_EQUAL(202,router.handle(mutation_request(Method::post,"/api/v1/tag-writer",body)).status);
+  TEST_ASSERT_EQUAL(1,context.submit_calls);
+  TEST_ASSERT_EQUAL(static_cast<int>(MutationKind::tag_writer),static_cast<int>(context.last_mutation->kind));
+}
 int main(int, char**) {
   UNITY_BEGIN();
+  RUN_TEST(test_writer_requires_specific_authorized_high_level_confirmation);
   RUN_TEST(test_response_allocation_failure_sends_static_valid_503);
   RUN_TEST(test_spool_confirmation_is_explicit_bounded_and_queued);
   RUN_TEST(

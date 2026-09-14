@@ -8,6 +8,8 @@
 #include "integrations/inventory.hpp"
 #include "network/http_transport.hpp"
 
+namespace opentag::services { class TagWriterService; }
+
 namespace opentag::integrations::spoolman {
 
 struct SpoolmanStatus {
@@ -54,6 +56,7 @@ class SpoolmanAdapter final : public ISpoolInventory {
       const std::optional<std::string>& json_encoded_value);
 
  private:
+  friend class opentag::services::TagWriterService;
   [[nodiscard]] core::Result<network::HttpResponse> request(
       const std::string& method,
       const std::string& endpoint,

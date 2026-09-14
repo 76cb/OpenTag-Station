@@ -90,6 +90,8 @@ class UiService {
   static void scale_keyboard_callback(lv_event_t* event);
   static void toolhead_callback(lv_event_t* event);
   static void assignment_confirmation_callback(lv_event_t* event);
+  static void writer_preview_callback(lv_event_t* event);
+  static void writer_confirm_callback(lv_event_t* event);
 
   bool allocate_buffers();
   void build_workflow_screen();
@@ -128,6 +130,9 @@ class UiService {
   services::StationWorkflow& workflow_;
   application::NfcWorker& nfc_;
   lv_obj_t* nfc_detail_{nullptr};
+  lv_obj_t* writer_spool_{nullptr};
+  lv_obj_t* writer_confirm_{nullptr};
+  std::string writer_confirmation_;
   application::BackendWorker& backend_worker_;
   lv_color_t* buffer_one_{nullptr};
   lv_color_t* buffer_two_{nullptr};

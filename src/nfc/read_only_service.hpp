@@ -71,6 +71,8 @@ class ReadOnlyService {
   explicit ReadOnlyService(IReadOnlyReader& reader) : reader_(reader) {}
   void poll();
   ReadSnapshot snapshot() const;
+  // Sole backend owner, only after an explicit writer finishes or fails.
+  void invalidate_after_write() { clear_active(); processed_.reset(); candidate_.reset(); consecutive_ = 0; publish(); }
   static constexpr std::size_t maximum_memory_bytes = 4096U;
   static constexpr unsigned stable_polls = 3U;
 

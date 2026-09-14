@@ -13,6 +13,7 @@
 namespace opentag::application {
 
 enum class OperationKind : std::uint8_t {
+  tag_writer,
   configuration,
   scale_weigh,
   scale_tare,

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fail closed on writable production NFC bindings and competing transports."""
+"""Fail closed on writes outside the approved OpenPrintTag service boundary."""
 import pathlib
 import re
 import os
@@ -34,13 +34,32 @@ def check():
             continue
         text = source.read_text(encoding="utf-8")
         calls = set(re.findall(r"(?:\.|->)\s*(rfal\w+)\s*\(", text))
-        assert calls <= allowed, f"unexpected RFAL calls in {relative}: {calls - allowed}"
+        writer_binding = relative == "src/hardware/nfc/st25r3916b/openprinttag_write_binding.cpp"
+        permitted = allowed | ({"rfalNfcvPollerWriteSingleBlock"} if writer_binding else set())
+        assert calls <= permitted, f"unexpected RFAL calls in {relative}: {calls - permitted}"
+        if "commit_openprinttag_block(" in text:
+            assert relative in {"src/nfc/openprinttag_writer.hpp", "src/nfc/openprinttag_writer.cpp",
+                                "src/hardware/nfc/st25r3916b/i2c_reader.hpp",
+                                "src/hardware/nfc/st25r3916b/openprinttag_write_binding.cpp"}, relative
+        if "writer_.execute(" in text:
+            assert relative == "src/services/tag_writer_service.cpp", relative
+        if "writer_->process(" in text:
+            assert relative == "src/application/tag_writer_commands.cpp", relative
+        if re.search(r"\bOpenPrintTagWriter\b", text):
+            assert relative in {"src/nfc/openprinttag_writer.hpp", "src/nfc/openprinttag_writer.cpp",
+                                "src/services/tag_writer_service.hpp"}, relative
+        if re.search(r"\bTagWriterService\b", text):
+            assert relative in {"src/services/tag_writer_service.hpp", "src/services/tag_writer_service.cpp",
+                                "src/application/backend_worker.hpp", "src/application/tag_writer_commands.cpp",
+                                "src/integrations/spoolman/spoolman_adapter.hpp"}, relative
         if relative.startswith(("src/application/", "src/ui/", "src/web/",
                                 "src/services/", "src/hardware/nfc/")):
             assert not re.search(r"(?:Initializer::generate|Codec::update_consumed_weight|WritePlan::|\.write_blocks\s*\()", text), relative
             assert "Codec::decode" not in text, f"decode must stay on NFC owner: {relative}"
     routes = (ROOT / "src/web/api_router.cpp").read_text()
-    assert not re.search(r'"[^"\n]*(?:nfc|openprinttag)[^"\n]*(?:write|initialize|format|lock|password)', routes, re.I)
+    assert '"/api/v1/tag-writer"' in routes
+    assert '"uid", "generation", "target_checksum"' in routes
+    assert "confirm_openprinttag_block" not in routes
     driver = (ROOT / "src/hardware/nfc/st25r3916b/i2c_reader.hpp").read_text()
     assert "&Wire1" in driver and "::nfc_interrupt" in driver
     board = (ROOT / "src/boards/wt32_sc01_plus_rev_a.hpp").read_text()
@@ -76,7 +95,16 @@ def check():
     assert "ReadImage first" in service and "make_read_storage<IdentifiedTag>" in service
     diagnostic = (ROOT / "src/diagnostics/shared_i2c_firmware.cpp").read_text()
     assert "diagnostic_initialization_write_enabled = false" in diagnostic
-    print("PASS: production NFC read-only bindings, single Wire1 backend, software touch, heap decode")
+    writer = (ROOT / "src/nfc/openprinttag_writer.cpp").read_text()
+    service_writer = (ROOT / "src/services/tag_writer_service.cpp").read_text()
+    boundary = (ROOT / "src/nfc/openprinttag_writer.hpp").read_text()
+    assert "private:\n  friend class OpenPrintTagWriter;" in boundary
+    assert "p.scratch != p.target" in writer and "p.security[block]" in writer
+    assert "p.verified = true" in writer and re.search(r"if\s*\(!plan_\s*\|\|\s*!plan_->verified\)", service_writer)
+    assert "commit_openprinttag_block" not in service
+    assert "CommandType::writer) process_writer(*command)" in run
+    assert "process_writer(" not in backend.split("void BackendWorker::run()", 1)[0]
+    print("PASS: approved OpenPrintTag writer, private destructive binding, sole Wire1 backend owner")
 
 
 def check_binary():
@@ -85,12 +113,21 @@ def check_binary():
     candidates = list(core.glob("packages/toolchain-xtensa-esp32s3/bin/xtensa-esp32s3-elf-nm*"))
     assert elf.is_file() and candidates, "production ELF/toolchain required for binding check"
     symbols = subprocess.check_output([str(candidates[0]), "-C", "--defined-only", str(elf)], text=True)
-    forbidden = re.findall(r".*(?:VerifiedWriter::|Initializer::generate|Codec::update_consumed_weight|rfalNfcvPoller\w*(?:Write|Lock|Protect|Password|Privacy|SetAFI|SetDSFID|SetEAS))[^\n]*", symbols)
-    assert not forbidden, "writable NFC runtime linked: " + "\n".join(forbidden)
+    forbidden = re.findall(r".*(?:VerifiedWriter::|rfalNfcvPoller\w*(?:Lock|Protect|Password|Privacy|SetAFI|SetDSFID|SetEAS|WriteMultiple|ExtendedWrite))[^\n]*", symbols)
+    assert not forbidden, "unapproved destructive runtime linked: " + "\n".join(forbidden)
+    assert "OpenPrintTagWriter::execute" in symbols and "I2cReader::commit_openprinttag_block" in symbols
+    # Xtensa longcalls load literal addresses then callx; inspect relocation
+    # dependencies in source objects, plus the linked primitive allowlist above.
+    write_callers = []
+    for obj in (elf.parent / "src").rglob("*.o"):
+        undefined = subprocess.check_output([str(candidates[0]), "-C", "-u", str(obj)], text=True)
+        if "rfalNfcvPollerWriteSingleBlock(" in undefined:
+            write_callers.append(obj.relative_to(elf.parent).as_posix())
+    assert write_callers == ["src/hardware/nfc/st25r3916b/openprinttag_write_binding.cpp.o"], write_callers
     assert "I2cReader::inventory" in symbols and "ReadOnlyService::read_tag" in symbols
     assert "Esp32RfalPlatform::" not in symbols
     assert "NfcWorker::task_entry" not in symbols and "NfcWorker::start()" not in symbols
-    print("PASS: production ELF contains read path and no tag-write/initializer/legacy SPI binding")
+    print("PASS: production ELF write primitive has only approved OpenPrintTag binding callers; no lock/raw/legacy transport")
 
 
 if __name__ == "__main__":

@@ -13,6 +13,7 @@ const char index_html[] = R"HTML(<!doctype html>
   <meta name="description" content="Local administration for OpenTag Station">
   <title>OpenTag Station</title>
   <link rel="stylesheet" href="/assets/app.css?v=)HTML" OPENTAG_GIT_SHA R"HTML(">
+  <script defer src="/assets/writer.js"></script>
   <script defer src="/assets/app.js?v=)HTML" OPENTAG_GIT_SHA R"HTML("></script>
 </head>
 <body>
@@ -133,8 +134,10 @@ const char index_html[] = R"HTML(<!doctype html>
         </dl>
         <p id="nfc-read-status" class="setup-status" aria-live="polite">No tag data</p>
         <button id="read-tag" class="button" type="button" disabled hidden>Read tag</button>
+        <button id="writer-open" class="button" type="button">Write / Rewrite</button>
       </article>
-      <dl class="facts">
+      <div id="writer-panel" hidden></div>
+   <dl class="facts">
         <div><dt>Material</dt><dd id="nfc-material">—</dd></div>
         <div><dt>Type</dt><dd id="nfc-type">—</dd></div>
         <div><dt>Brand</dt><dd id="nfc-brand">—</dd></div>
@@ -187,7 +190,7 @@ const char index_html[] = R"HTML(<!doctype html>
       <div class="settings-grid">
         <article class="card"><h3>Connectivity</h3><dl class="facts compact"><div><dt>Wi-Fi</dt><dd id="wifi-state">—</dd></div><div><dt>LAN address</dt><dd id="device-address">—</dd></div><div><dt>RSSI</dt><dd id="settings-rssi">—</dd></div></dl><a class="button quiet" href="#configuration">Change Wi-Fi</a></article>
         <article class="card"><div class="card-title-row"><h3>Integrations</h3><button id="test-backends" class="button tiny" type="button">Test</button></div><dl class="facts compact"><div><dt>Spoolman</dt><dd id="spoolman-state">Unknown</dd></div><div><dt>FilaBridge</dt><dd id="filabridge-state">Unknown</dd></div><div><dt>Printer</dt><dd id="settings-selected-printer">Not selected</dd></div></dl><span id="spoolman-version" class="visually-hidden">Version —</span><span id="spoolman-capabilities" class="visually-hidden">Capabilities —</span><span id="filabridge-version" class="visually-hidden">Version —</span><span id="filabridge-capabilities" class="visually-hidden">Capabilities —</span></article>
-        <article class="card"><h3>Hardware</h3><dl class="facts compact"><div><dt>Scale</dt><dd id="scale-calibration">Checking</dd></div><div><dt>Profile</dt><dd id="scale-profile">—</dd></div><div><dt>Capacity</dt><dd id="scale-capacity">—</dd></div><div><dt>NFC</dt><dd>Read-only NFC-V</dd></div><div><dt>Display</dt><dd>WT32-SC01 Plus</dd></div></dl><details><summary>Scale diagnostics</summary><dl class="facts compact"><div><dt>Raw</dt><dd id="scale-raw">—</dd></div><div><dt>Filtered</dt><dd id="scale-filtered">—</dd></div><div><dt>Zero</dt><dd id="scale-zero">—</dd></div><div><dt>Factor</dt><dd id="scale-factor">—</dd></div><div><dt>Reference</dt><dd id="scale-reference">—</dd></div></dl></details></article>
+        <article class="card"><h3>Hardware</h3><dl class="facts compact"><div><dt>Scale</dt><dd id="scale-calibration">Checking</dd></div><div><dt>Profile</dt><dd id="scale-profile">—</dd></div><div><dt>Capacity</dt><dd id="scale-capacity">—</dd></div><div><dt>NFC</dt><dd>OpenPrintTag read / write</dd></div><div><dt>Display</dt><dd>WT32-SC01 Plus</dd></div></dl><details><summary>Scale diagnostics</summary><dl class="facts compact"><div><dt>Raw</dt><dd id="scale-raw">—</dd></div><div><dt>Filtered</dt><dd id="scale-filtered">—</dd></div><div><dt>Zero</dt><dd id="scale-zero">—</dd></div><div><dt>Factor</dt><dd id="scale-factor">—</dd></div><div><dt>Reference</dt><dd id="scale-reference">—</dd></div></dl></details></article>
         <article class="card"><h3>Device</h3><dl class="facts compact"><div><dt>Firmware</dt><dd id="firmware-version">—</dd></div><div><dt>Git SHA</dt><dd id="git-sha" class="mono">—</dd></div><div><dt>Build</dt><dd id="build-date">—</dd></div><div><dt>Hardware</dt><dd id="hardware-id">—</dd></div><div><dt>Uptime</dt><dd id="uptime">—</dd></div><div><dt>Free heap</dt><dd id="heap-free">—</dd></div><div><dt>Free PSRAM</dt><dd id="psram-free">—</dd></div></dl></article>
       </div>
     </section>
@@ -3548,6 +3551,7 @@ const char application_javascript[] = R"JS((function () {
   }
 
   async function start() {
+    if (window.OpenTagWriter) window.OpenTagWriter.bind();
     wireActions();
     activateProductPage(productPageFromHash(location.hash));
     renderAuthState();
@@ -3611,6 +3615,7 @@ const char application_javascript[] = R"JS((function () {
     });
   }
 
+  window.OpenTagWriterHost = {byId,asObject,asArray,first,setText,setValue,valueOf,showToast,api,load,submitMutation,PRIORITY,state};
   if (window.__OPENTAG_TEST__) {
     window.__OpenTagTest = {
       ApiError: ApiError,

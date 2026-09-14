@@ -130,7 +130,7 @@ See [Hardware assumptions](docs/hardware.md) and [Wiring](docs/wiring.md).
 
 ## Current project status
 
-OpenTag Station is completing the end-to-end MVP. Production read-only NFC has passed physical validation; the consolidated live-backend acceptance is documented in [release validation](docs/release-validation.md).
+OpenTag Station is completing the end-to-end MVP. Production NFC recognition has passed physical validation; the guarded production writer is ready for its consolidated acceptance; the consolidated live-backend acceptance is documented in [release validation](docs/release-validation.md).
 
 | Area | Status |
 |---|---|
@@ -145,7 +145,7 @@ OpenTag Station is completing the end-to-end MVP. Production read-only NFC has p
 | A/B OTA / rollback | Implemented; full hardware rollback matrix still pending |
 | Spoolman integration | Implemented and host-tested; live health/discovery checked; integrated assignment acceptance pending |
 | FilaBridge integration | Implemented and host-tested; live health/discovery checked; integrated assignment acceptance pending |
-| ST25R3916B / NFC | Production read-only Wire1 NFC-V → OpenPrintTag → workflow/UI/API implemented; physically validated; shared backend owner and read-only soak passed |
+| ST25R3916B / NFC | Wire1 NFC-V recognition plus guarded OpenPrintTag writer; Spoolman/Community browser, exact verification and association; production write acceptance pending |
 
 The firmware intentionally reports unavailable hardware rather than pretending a subsystem is ready.
 
@@ -322,7 +322,7 @@ See [Architecture](docs/architecture.md).
 
 ## Known limitations
 
-- The pinned ELECHOUSE I2C RFAL implementation now powers production read-only
+- The pinned ELECHOUSE I2C RFAL implementation now powers production guarded
   NFC as well as the separate diagnostic. Production/touch coexistence still
   requires the physical acceptance in [production NFC](docs/production-nfc.md).
 - Dedicated `Wire` scale and `Wire1` NFC transport, chip ID, IRQ, NFC-V RF

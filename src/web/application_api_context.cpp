@@ -915,6 +915,8 @@ core::Result<api::JsonBody> ApplicationApiContext::snapshot_json(
       document["command_queue_depth"] = scale_commands_.pending();
       break;
     }
+    case api::Resource::tag_writer:
+      return core::Result<api::JsonBody>::success(backend_worker_.writer_snapshot());
     case api::Resource::nfc: {
       const auto scale = diagnostics_.scale_snapshot();
       write_nfc(document.to<JsonObject>(),nfc_.snapshot(),
@@ -1125,6 +1127,8 @@ core::Result<api::OperationReceipt> ApplicationApiContext::submit_fresh(
           scale_commands_.submit_calibration(payload.reference_grams, now_ms),
           "Scale command queue is unavailable");
     }
+    case api::MutationKind::tag_writer:
+      return receipt_result(backend_worker_.submit_writer(std::get<api::TagWriterMutation>(mutation.payload).json), "Writer queue unavailable");
     case api::MutationKind::nfc_read:
       return core::Result<api::OperationReceipt>::failure(unavailable(
           core::ErrorCategory::nfc_communication,

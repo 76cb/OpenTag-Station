@@ -374,6 +374,7 @@ function loadApplication(options = {}) {
     Blob,
     Date: ClockDate,
     TextEncoder,
+    TextDecoder,
     Uint8Array,
     Uint32Array,
     DataView,
@@ -400,6 +401,11 @@ function loadApplication(options = {}) {
   context.globalThis = context;
   vm.createContext(context);
   vm.runInContext(JAVASCRIPT, context, { filename: ASSET_PATH });
+  const writerSource = readFileSync(path.join(ROOT, 'src/web/writer_assets.cpp'), 'utf8');
+  const writerJavascript = writerSource.split('R"WRITER(')[1].split(')WRITER";')[0];
+  vm.runInContext(writerJavascript, context, { filename: 'writer_assets.cpp' });
+  window.OpenTagWriter.bind();
+  Object.assign(window.__OpenTagTest, window.OpenTagWriter);
   assert.ok(window.__OpenTagTest, 'production JavaScript test hook must be installed');
   return {
     T: window.__OpenTagTest,
@@ -2441,4 +2447,88 @@ test('repeated backend failure invalidations drain without starting another back
   assert.equal(app.T.scheduler.metrics().active, 0);
   assert.equal(app.T.scheduler.metrics().queued, 0);
   assert.ok(app.fetchCalls.length >= 20);
+});
+
+test('Community concurrent searches share one bounded download and reuse the cache', async () => {
+  const app = loadApplication();
+  const data = Array.from({length: 200}, (_, id) => ({id:String(id),manufacturer:'Acme',name:'Blue '+id,material:'PLA',density:1.24,diameter:1.75}));
+  let downloads=0;
+  app.setFetch(async () => {
+    ++downloads;
+    let read=false;
+    return {ok:true, headers:{get:()=>null}, body:{getReader:()=>({read:async()=>{
+      if(read)return {done:true};read=true;
+      return {done:false,value:new TextEncoder().encode(JSON.stringify(data))};
+    }})}};
+  });
+  app.document.getElementById('writer-source').value='community';
+  await Promise.all([app.T.writerSearch(false),app.T.writerSearch(false)]);
+  const cached=app.T.writerState.community;
+  assert.equal(downloads,1);
+  assert.equal(cached.length,200);
+  for(let cycle=0;cycle<50;++cycle){
+    app.document.getElementById('writer-search').value=String(cycle);
+    await app.T.writerSearch(false);
+    assert.equal(app.T.writerState.community,cached);
+    assert.ok(app.document.getElementById('writer-results').children.length<=8);
+  }
+  assert.equal(downloads,1);
+});
+
+test('writer entry mounts visible contents and binds specific confirmation controls', () => {
+  const app = loadApplication();
+  app.T.bindWriter();
+  const panel = app.document.getElementById('writer-panel');
+  const article = panel.innerHTML.match(/<article\b[^>]*>/)[0];
+  assert.match(article, /id="writer-content"/);
+  assert.doesNotMatch(article, /\bhidden\b/);
+  for (const id of ['writer-open', 'writer-preview', 'writer-confirm', 'writer-retry']) {
+    assert.equal(app.document.getElementById(id).listeners.get('click').length, 1);
+  }
+});
+
+test('writer preview exposes exact confirmation and pending association retry', () => {
+  const app=loadApplication();
+  app.T.renderWriter({phase:'preview',uid:'E00401086627D8D4',generation:'42',target_checksum:'12345678',spool_id:12,changed_blocks:[4,69],total_blocks:2});
+  assert.equal(app.document.getElementById('writer-confirm').hidden,false);
+  assert.equal(app.document.getElementById('writer-retry').hidden,true);
+  app.T.renderWriter({phase:'association_pending',message:'Tag written successfully; Spoolman association pending.'});
+  assert.equal(app.document.getElementById('writer-confirm').hidden,true);
+  assert.equal(app.document.getElementById('writer-retry').hidden,false);
+  assert.match(app.document.getElementById('writer-progress').textContent,/association pending/);
+});
+test('writer import uses canonical Spoolman filament before spool selection', () => {
+  const app=loadApplication();app.T.renderWriter({phase:'import_preview',import_token:'source:1',vendor_id:0,proposed_filament:{name:'Blue'}});
+  assert.equal(app.document.getElementById('writer-import').hidden,false);
+  app.T.renderWriter({phase:'imported',filament:{id:34,name:'Canonical Blue'}});
+  assert.equal(app.T.writerState.filament,34);assert.equal(app.T.writerState.spool,0);
+  app.T.renderWriter({phase:'spool_selected',spool:{id:56,filament:{id:34,name:'Canonical Blue'}}});
+  assert.equal(app.T.writerState.spool,56);
+});
+test('writer receipt polling reaches physical verification result through shared scheduler', async () => {
+  let polls=0;
+  const app=loadApplication({fetch:async(url,init)=>{
+    if(init.method==='POST')return jsonResponse(202,{operation_id:42});
+    if(String(url).includes('/operations/'))return jsonResponse(200,{id:42,state:++polls>1?'succeeded':'running'});
+    return jsonResponse(200,{phase:'complete',message:'Tag and association verified'});
+  }});
+  await drivePromise(app.T.writerCommand({action:'write',uid:'E00401086627D8D4',generation:'1',target_checksum:'12345678',spool_id:12}),app.clock);
+  assert.equal(app.T.writerState.busy,false);assert.equal(app.T.writerState.snapshot.phase,'complete');
+  assert.equal(app.fetchCalls.filter(c=>c.init.method==='POST').length,1);
+});
+test('writer progress is truthful during physical write and final decode', () => {
+  const app=loadApplication();
+  for(const phase of ['validating','reading','writing','verifying','decoding','associating','complete','failed']){
+    app.T.renderWriter({phase,completed_blocks:3,total_blocks:5});
+    assert.match(app.document.getElementById('writer-progress').textContent,new RegExp(phase));
+    assert.equal(app.document.getElementById('writer-confirm').hidden,true);
+  }
+});
+test('Community validation preserves null, rejects malformed and duplicate entries', () => {
+  const app=loadApplication();const entry={id:'acme_blue',manufacturer:'Acme',name:'Blue',material:'PLA',density:1.24,diameter:1.75,spool_weight:null};
+  assert.equal(app.T.validateCommunity([entry])[0].spool_weight,null);
+  assert.throws(()=>app.T.validateCommunity({items:[entry]}));
+  assert.throws(()=>app.T.validateCommunity([entry,entry]));
+  assert.throws(()=>app.T.validateCommunity([{...entry,name:'x'.repeat(129)}]));
+  assert.throws(()=>app.T.validateCommunity([{...entry,density:null}]));
 });

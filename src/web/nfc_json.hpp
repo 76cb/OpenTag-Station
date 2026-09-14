@@ -29,6 +29,7 @@ inline void write_nfc(JsonObject out, const nfc::ReadSnapshot& status,
   out["bus_errors"] = status.bus_errors;
   out["transport"] = "Wire1 I2C 100 kHz";
   out["read_only"] = true;
+  out["guarded_writer"] = "/api/v1/tag-writer";
   out["owner_task"] = "opentag-backend";
   out["block_count"] = status.geometry.block_count;
   out["block_size"] = status.geometry.block_size;

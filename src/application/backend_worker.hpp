@@ -20,6 +20,7 @@
 #include "nfc/protocols/nfcv/tag.hpp"
 #include "services/spool_identity_resolver.hpp"
 #include "services/station_workflow.hpp"
+#include "services/tag_writer_service.hpp"
 
 namespace opentag::application {
 
@@ -85,6 +86,8 @@ class BackendWorker final {
       std::optional<std::uint64_t> expected_printer_revision = std::nullopt);
   [[nodiscard]] CommandReceipt submit_refresh();
   [[nodiscard]] CommandReceipt submit_spool_confirmation(domain::SpoolId, std::uint64_t);
+  [[nodiscard]] CommandReceipt submit_writer(std::string_view payload);
+  [[nodiscard]] network::ResponseBody writer_snapshot() const;
   [[nodiscard]] BackendWorkerSnapshot snapshot() const;
   [[nodiscard]] std::uint64_t revision() const {
     std::lock_guard<std::mutex> lock(status_mutex_);
@@ -102,6 +105,7 @@ class BackendWorker final {
     unassign,
     refresh,
     confirm_spool,
+    writer,
   };
 
   struct Command {
@@ -120,6 +124,7 @@ class BackendWorker final {
     std::optional<std::uint64_t> expected_printer_revision;
     std::uint64_t operation_id{0U};
     std::uint32_t enqueued_at_ms{0U};
+    network::ResponseBody writer_payload{4096};
   };
 
   static void task_entry(void* context);
@@ -128,6 +133,7 @@ class BackendWorker final {
   void probe_backends(std::uint64_t operation_id = 0U, bool full = true);
   [[nodiscard]] bool apply_backend_settings_if_changed();
   void process(Command& command);
+  void process_writer(Command& command);
   [[nodiscard]] bool enqueue(Command* command);
 
   static constexpr std::uint32_t probe_interval_ms = 30000U;
@@ -151,6 +157,9 @@ class BackendWorker final {
   bool wifi_offline_published_{false};
   mutable std::mutex status_mutex_;
   BackendWorkerSnapshot status_;
+  mutable std::mutex writer_mutex_;
+  network::ResponseBody writer_view_{24576};
+  std::unique_ptr<services::TagWriterService, network::ExternalDelete<services::TagWriterService>> writer_;
   static constexpr std::uint32_t destructive_command_expiry_ms = 15000U;
 };
 
