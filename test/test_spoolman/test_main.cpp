@@ -232,6 +232,10 @@ void test_malformed_spool_contract_is_rejected_as_api_change() {
   assert_transport_consumed(transport);
 }
 
+
+void test_weight_update_checks_presence_after_canonical_get(){ScriptedTransport transport;script_probe(transport);transport.expect("GET","/spool/17",spool_json());SpoolmanAdapter adapter(transport,settings());TEST_ASSERT_TRUE(adapter.probe().ok());RemainingWeightUpdate update;update.expected_used_grams=250;update.remaining_grams=700;bool called=false;update.before_mutation=[&]{called=true;return false;};auto result=adapter.set_remaining_weight(17,update);TEST_ASSERT_FALSE(result.ok());TEST_ASSERT_TRUE(called);assert_transport_consumed(transport);}
+void test_weight_update_refuses_wrong_canonical_id(){ScriptedTransport transport;script_probe(transport);auto body=spool_json();auto id=body.find("17");TEST_ASSERT_NOT_EQUAL(std::string::npos,id);body.replace(id,2,"18");transport.expect("GET","/spool/17",body);SpoolmanAdapter adapter(transport,settings());TEST_ASSERT_TRUE(adapter.probe().ok());RemainingWeightUpdate update;update.expected_used_grams=250;update.remaining_grams=700;TEST_ASSERT_FALSE(adapter.set_remaining_weight(17,update).ok());assert_transport_consumed(transport);}
+
 void test_remaining_weight_update_checks_concurrency_and_verifies_readback() {
   ScriptedTransport transport;
   script_probe(transport);
@@ -419,6 +423,8 @@ void test_extra_fields_reject_large_values_before_normalized_copy() {
 }
 int main(int, char**) {
   UNITY_BEGIN();
+  RUN_TEST(test_weight_update_checks_presence_after_canonical_get);
+  RUN_TEST(test_weight_update_refuses_wrong_canonical_id);
   RUN_TEST(test_pagination_uses_eight_spool_pages_and_exact_offsets);
   RUN_TEST(test_server_cannot_ignore_requested_page_limit);
   RUN_TEST(test_extra_fields_reject_large_values_before_normalized_copy);

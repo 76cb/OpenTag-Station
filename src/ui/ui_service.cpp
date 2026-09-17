@@ -236,7 +236,7 @@ void UiService::build_current_screen() {
   workflow_identity_label_ = nullptr;
   workflow_status_label_ = nullptr;
   nfc_detail_ = nullptr;
-  writer_spool_ = nullptr; writer_confirm_ = nullptr; writer_confirmation_.clear();
+  writer_spool_ = nullptr; writer_confirm_ = nullptr; clear_preview_=nullptr;weight_update_=nullptr;weight_policy_=nullptr; writer_confirmation_.clear();
   scale_keyboard_ = nullptr;
   display_test_touch_marker_ = nullptr;
   display_test_touch_label_ = nullptr;
@@ -474,15 +474,16 @@ void UiService::build_home_page() {
   lv_obj_align(workflow_weight_label_, LV_ALIGN_TOP_MID, 0, 105);
 
   workflow_weigh_button_ = lv_btn_create(hero);
-  lv_obj_set_size(workflow_weigh_button_, 210, 56);
-  lv_obj_align(workflow_weigh_button_, LV_ALIGN_BOTTOM_MID, 0, -4);
+  lv_obj_set_size(workflow_weigh_button_, 104, 48);
+  lv_obj_align(workflow_weigh_button_, LV_ALIGN_BOTTOM_LEFT, 0, -4);
   lv_obj_set_style_radius(workflow_weigh_button_, 14, 0);
   lv_obj_set_style_bg_color(
       workflow_weigh_button_, lv_color_hex(0x24D6A1), 0);
   lv_obj_add_event_cb(
       workflow_weigh_button_, weigh_callback, LV_EVENT_CLICKED, this);
   auto* label = lv_label_create(workflow_weigh_button_);
-  lv_label_set_text(label, LV_SYMBOL_REFRESH "  Weigh Spool");
+  lv_label_set_text(label, "WEIGH");
+  for(int i=0;i<2;++i){auto* action=lv_btn_create(hero);lv_obj_set_size(action,96,48);lv_obj_align(action,LV_ALIGN_BOTTOM_LEFT,110+i*104,-4);auto* text=lv_label_create(action);lv_label_set_text(text,i?"TAG":"ASSIGN");lv_obj_center(text);lv_obj_add_event_cb(action,[](lv_event_t* event){auto* target=static_cast<lv_obj_t*>(lv_event_get_user_data(event));lv_event_send(target,LV_EVENT_CLICKED,nullptr);},LV_EVENT_CLICKED,product_nav_buttons_[i?3:2]);}
   lv_obj_set_style_text_color(label, lv_color_hex(0x06201B), 0);
   lv_obj_center(label);
 }
@@ -491,80 +492,14 @@ void UiService::build_scale_page() {
   auto* screen = lv_scr_act();
   auto* title = lv_label_create(screen);
   lv_label_set_text(title, "Scale");
+  workflow_material_label_=title;lv_obj_set_width(title,354);lv_label_set_long_mode(title,LV_LABEL_LONG_DOT);
   style_title(title);
   lv_obj_set_pos(title, 112, 12);
 
-  auto* arc = lv_arc_create(screen);
-  workflow_scale_gauge_ = arc;
-  lv_obj_set_pos(arc, 112, 44);
-  lv_obj_set_size(arc, 184, 184);
-  lv_arc_set_bg_angles(arc, 28, 332);
-  lv_arc_set_range(arc, 0, 100);
-  lv_arc_set_value(arc, 0);
-  lv_obj_remove_style(arc, nullptr, LV_PART_KNOB);
-  lv_obj_set_style_arc_width(arc, 13, LV_PART_MAIN);
-  lv_obj_set_style_arc_color(arc, lv_color_hex(0x17444A), LV_PART_MAIN);
-  lv_obj_set_style_arc_width(arc, 13, LV_PART_INDICATOR);
-  lv_obj_set_style_arc_color(
-      arc, lv_color_hex(0x24D6A1), LV_PART_INDICATOR);
-  lv_obj_clear_flag(arc, LV_OBJ_FLAG_CLICKABLE);
-
-  workflow_scale_indicator_ = lv_obj_create(screen);
-  lv_obj_set_pos(workflow_scale_indicator_, 129, 61);
-  lv_obj_set_size(workflow_scale_indicator_, 150, 150);
-  lv_obj_set_style_radius(
-      workflow_scale_indicator_, LV_RADIUS_CIRCLE, 0);
-  lv_obj_set_style_border_width(workflow_scale_indicator_, 2, 0);
-  lv_obj_set_style_border_color(
-      workflow_scale_indicator_, lv_color_hex(0x405A68), 0);
-  lv_obj_set_style_bg_color(
-      workflow_scale_indicator_, lv_color_hex(0x10262F), 0);
-  lv_obj_clear_flag(workflow_scale_indicator_, LV_OBJ_FLAG_SCROLLABLE);
-
-  auto* gross_label = lv_label_create(screen);
-  lv_label_set_text(gross_label, "GROSS WEIGHT");
-  lv_obj_set_width(gross_label, 118);
-  lv_obj_set_style_text_align(gross_label, LV_TEXT_ALIGN_CENTER, 0);
-  lv_obj_set_style_text_color(gross_label, lv_color_hex(0x9AB8BC), 0);
-  lv_obj_set_pos(gross_label, 145, 87);
-
-  workflow_weight_label_ = lv_label_create(screen);
-  lv_label_set_text(workflow_weight_label_, "--");
-  lv_obj_set_width(workflow_weight_label_, 118);
-  lv_obj_set_style_text_font(
-      workflow_weight_label_, &lv_font_montserrat_32, 0);
-  lv_obj_set_style_text_color(
-      workflow_weight_label_, lv_color_hex(0xE7FAF7), 0);
-  lv_obj_set_style_text_align(
-      workflow_weight_label_, LV_TEXT_ALIGN_CENTER, 0);
-  lv_obj_set_pos(workflow_weight_label_, 137, 110);
-
-  workflow_scale_unit_label_ = lv_label_create(screen);
-  lv_label_set_text(workflow_scale_unit_label_, "g");
-  lv_obj_set_style_text_font(
-      workflow_scale_unit_label_, &lv_font_montserrat_16, 0);
-  lv_obj_set_style_text_color(
-      workflow_scale_unit_label_, lv_color_hex(0x9AB8BC), 0);
-  lv_obj_set_pos(workflow_scale_unit_label_, 257, 125);
-
-  workflow_scale_quality_label_ = lv_label_create(screen);
-  lv_label_set_text(workflow_scale_quality_label_, "READY");
-  lv_obj_set_width(workflow_scale_quality_label_, 168);
-  lv_obj_set_style_text_align(
-      workflow_scale_quality_label_, LV_TEXT_ALIGN_CENTER, 0);
-  lv_obj_set_style_text_color(
-      workflow_scale_quality_label_, lv_color_hex(0x9AB8BC), 0);
-  lv_obj_set_pos(workflow_scale_quality_label_, 120, 158);
-
-  workflow_scale_capture_label_ = lv_label_create(screen);
-  lv_label_set_text(workflow_scale_capture_label_, "Last: -- g");
-  lv_obj_set_width(workflow_scale_capture_label_, 184);
-  lv_obj_set_style_text_align(
-      workflow_scale_capture_label_, LV_TEXT_ALIGN_CENTER, 0);
-  lv_obj_set_style_text_color(
-      workflow_scale_capture_label_, lv_color_hex(0x78979D), 0);
-  lv_obj_set_pos(workflow_scale_capture_label_, 112, 235);
-
+  workflow_weight_label_=lv_label_create(screen);lv_obj_set_pos(workflow_weight_label_,112,48);lv_obj_set_width(workflow_weight_label_,185);lv_obj_set_style_text_font(workflow_weight_label_,&lv_font_montserrat_32,0);
+  workflow_scale_unit_label_=lv_label_create(screen);lv_label_set_text(workflow_scale_unit_label_,"GROSS WEIGHT (g)");lv_obj_set_pos(workflow_scale_unit_label_,112,89);
+  workflow_scale_quality_label_=lv_label_create(screen);lv_obj_set_pos(workflow_scale_quality_label_,112,115);lv_obj_set_width(workflow_scale_quality_label_,185);
+  workflow_scale_capture_label_=lv_label_create(screen);lv_obj_set_pos(workflow_scale_capture_label_,112,143);lv_obj_set_size(workflow_scale_capture_label_,185,72);lv_obj_set_style_text_font(workflow_scale_capture_label_,&lv_font_montserrat_14,0);
   const auto make_action = [this, screen](
                                lv_obj_t** output,
                                const char* text,
@@ -642,11 +577,16 @@ void UiService::build_scale_page() {
   lv_obj_add_flag(
       workflow_calibration_close_button_, LV_OBJ_FLAG_HIDDEN);
 
+  weight_update_=lv_btn_create(screen);lv_obj_set_pos(weight_update_,112,218);lv_obj_set_size(weight_update_,170,44);
+  auto* update_label=lv_label_create(weight_update_);lv_label_set_text(update_label,"Update Spoolman");lv_obj_center(update_label);lv_obj_add_event_cb(weight_update_,weight_update_callback,LV_EVENT_CLICKED,this);
+  weight_policy_=lv_btn_create(screen);lv_obj_set_pos(weight_policy_,292,218);lv_obj_set_size(weight_policy_,174,44);
+  auto* policy_label=lv_label_create(weight_policy_);lv_label_set_text(policy_label,"Auto-update OFF");lv_obj_center(policy_label);lv_obj_add_event_cb(weight_policy_,weight_policy_callback,LV_EVENT_CLICKED,this);
   workflow_status_label_ = lv_label_create(screen);
   lv_label_set_text(
       workflow_status_label_, "Waiting for stable empty platform");
   lv_obj_set_pos(workflow_status_label_, 112, 270);
   lv_obj_set_width(workflow_status_label_, 354);
+  lv_obj_set_height(workflow_status_label_,42);lv_label_set_long_mode(workflow_status_label_,LV_LABEL_LONG_DOT);
   lv_obj_set_style_text_color(
       workflow_status_label_, lv_color_hex(0xF4C95D), 0);
   lv_obj_set_style_text_font(
@@ -772,10 +712,14 @@ void UiService::build_tags_page() {
   auto* preview = lv_btn_create(card);lv_obj_set_size(preview, 155, 44);lv_obj_set_pos(preview, 165, 132);
   auto* preview_label=lv_label_create(preview);lv_label_set_text(preview_label,"Preview tag");lv_obj_center(preview_label);
   lv_obj_add_event_cb(preview,writer_preview_callback,LV_EVENT_CLICKED,this);
-  writer_confirm_=lv_btn_create(card);lv_obj_set_size(writer_confirm_,320,44);lv_obj_set_pos(writer_confirm_,0,184);
-  auto* confirm_label=lv_label_create(writer_confirm_);lv_label_set_text(confirm_label,"Preview before writing");lv_obj_center(confirm_label);
+  writer_confirm_=lv_btn_create(card);lv_obj_set_size(writer_confirm_,155,44);lv_obj_set_pos(writer_confirm_,0,184);
+  auto* confirm_label=lv_label_create(writer_confirm_);lv_obj_set_style_text_font(confirm_label,&lv_font_montserrat_14,0);lv_label_set_text(confirm_label,"Preview first");lv_obj_center(confirm_label);
   lv_obj_add_state(writer_confirm_,LV_STATE_DISABLED);
   lv_obj_add_event_cb(writer_confirm_,writer_confirm_callback,LV_EVENT_CLICKED,this);
+  clear_preview_=lv_btn_create(card);lv_obj_set_size(clear_preview_,155,44);lv_obj_set_pos(clear_preview_,165,184);
+  lv_obj_set_style_bg_color(clear_preview_,lv_color_hex(0x73301E),0);
+  auto* clear_label=lv_label_create(clear_preview_);lv_label_set_text(clear_label,"CLEAR / REUSE");lv_obj_center(clear_label);
+  lv_obj_add_event_cb(clear_preview_,clear_preview_callback,LV_EVENT_CLICKED,this);
   scale_keyboard_=lv_keyboard_create(screen);
   lv_keyboard_set_mode(scale_keyboard_,LV_KEYBOARD_MODE_NUMBER);
   lv_obj_set_size(scale_keyboard_,354,150);lv_obj_set_pos(scale_keyboard_,112,170);
@@ -790,6 +734,20 @@ void UiService::writer_preview_callback(lv_event_t* event) {
   if(id<=0)return;
   const auto receipt=self->backend_worker_.submit_writer("{\"action\":\"preview\",\"mode\":\"rewrite\",\"spool_id\":"+std::to_string(id)+"}");
   if(!receipt.accepted)lv_label_set_text(self->nfc_detail_,"Writer queue unavailable; retry");
+}
+void UiService::clear_preview_callback(lv_event_t* event) {
+  auto* self=static_cast<UiService*>(lv_event_get_user_data(event));
+  const auto receipt=self->backend_worker_.submit_writer("{\"action\":\"clear_preview\"}");
+  if(receipt.accepted){self->writer_confirmation_.clear();lv_obj_add_state(self->writer_confirm_,LV_STATE_DISABLED);lv_label_set_text(self->nfc_detail_,"Reading tag before clear confirmation");}
+}
+void UiService::weight_update_callback(lv_event_t* event) {
+  auto* self=static_cast<UiService*>(lv_event_get_user_data(event));const auto measured=self->backend_worker_.weigh_snapshot();
+  if(measured.phase=="ready"&&!measured.consumed)(void)self->backend_worker_.submit_weight_update(measured.measurement_id);
+}
+void UiService::weight_policy_callback(lv_event_t* event) {
+  auto* self=static_cast<UiService*>(lv_event_get_user_data(event));if(self->configuration_worker_.pending())return;
+  auto current=self->configuration_.versioned_snapshot();current.configuration.reconciliation.auto_update_after_weigh=!current.configuration.reconciliation.auto_update_after_weigh;
+  (void)self->configuration_worker_.submit_replace(std::move(current.configuration),current.revision,millis());
 }
 void UiService::writer_confirm_callback(lv_event_t* event) {
   auto* self=static_cast<UiService*>(lv_event_get_user_data(event));
@@ -1238,6 +1196,7 @@ void UiService::set_scale_calibration_panel_open(bool open) {
   };
   set_hidden(workflow_weigh_button_, false);
   set_hidden(workflow_tare_button_, false);
+  set_hidden(weight_update_,false);set_hidden(weight_policy_,false);
   set_hidden(workflow_calibration_label_, true);
   set_hidden(workflow_reference_input_, true);
   set_hidden(workflow_calibration_close_button_, true);
@@ -1675,7 +1634,7 @@ void UiService::refresh_workflow() {
   if (active_page_ == ProductPage::tags && nfc_detail_ != nullptr) {
     {
       const auto tag = nfc_.snapshot();
-      std::string text = tag.tag ? "OpenPrintTag recognized" : tag.present ? "Reading tag..." : "Place a tag on the reader";
+      std::string text = tag.blank_compatible ? "Blank tag - ready to write" : tag.tag ? "OpenPrintTag recognized" : tag.present ? "Reading tag..." : "Place a tag on the reader";
       if (tag.tag) text += "\n" + tag.tag->decoded.material.material_name.value_or("Unnamed material").substr(0, 32);
       if (tag.uid) text += "\nUID " + std::string(nfc::nfcv::format_diagnostic_uid(tag.uid->bytes).data());
       if (tag.error) text += "\n" + tag.error->message;
@@ -1687,9 +1646,13 @@ void UiService::refresh_workflow() {
     JsonDocument view(&allocator);
     if(!deserializeJson(view,writer.data(),writer.size()) && view["phase"].as<std::string>()!="idle") {
       const std::string phase=view["phase"]|"";
-      std::string status=phase+": "+std::string(view["message"]|"");
+      std::string status=view["message"]|"";
       if(view["spool_id"].as<int>()>0)status+="\nSpool #"+std::to_string(view["spool_id"].as<int>())+" "+std::string(view["spool"]["filament"]["name"]|"");
-      if(phase=="preview")status="Preview #"+std::to_string(view["spool_id"].as<int>())+" "+std::string(view["spool"]["filament"]["name"]|"").substr(0,24)+"\nUID "+std::string(view["uid"]|"")+"\nTarget "+std::string(view["target_checksum"]|"")+" / "+std::to_string(view["total_blocks"].as<int>())+" blocks\n"+(view["previous_spool_id"].as<int>()>0?"MOVE UID from spool #"+std::to_string(view["previous_spool_id"].as<int>()):"Confirm below after checking tag");
+      if(phase=="preview")status="Preview #"+std::to_string(view["spool_id"].as<int>())+" "+std::string(view["spool"]["filament"]["name"]|"").substr(0,24)+"\nUID "+std::string(view["uid"]|"")+"\n"+std::to_string(view["total_blocks"].as<int>())+" changed blocks\n"+(view["previous_spool_id"].as<int>()>0?"MOVE UID from spool #"+std::to_string(view["previous_spool_id"].as<int>()):"Confirm below after checking tag");
+      if(phase=="clear_preview")status="Clear this OpenPrintTag?\n"+std::string(view["material_name"]|"Blank tag").substr(0,25)+"\nUID "+std::string(view["uid"]|"")+"\nErase data + unlink. UID/tail preserved.";
+      if(phase=="clearing")status="Clearing tag - keep tag and power in place\n"+std::to_string(view["completed_blocks"].as<int>())+" / "+std::to_string(view["total_blocks"].as<int>())+" verified";
+      if(phase=="unlink_pending")status="Tag is blank and verified.\nSpoolman unlink is still pending.\nRetry below: no NFC rewrite.";
+      if(phase=="cleared")status=LV_SYMBOL_OK " Tag cleared and verified\nReady to reuse";
       if(phase=="writing")status="Writing OpenPrintTag\nKeep tag and power in place";
       if(phase=="writing")status+="\n"+std::to_string(view["completed_blocks"].as<int>())+" / "+std::to_string(view["total_blocks"].as<int>());
       if(phase=="complete")status=LV_SYMBOL_OK " Written and verified\nSpool #"+std::to_string(view["spool_id"].as<int>())+" linked\nTag + OpenPrintTag: PASS";
@@ -1697,15 +1660,21 @@ void UiService::refresh_workflow() {
       if(phase=="failed")status="Unable to complete\n"+std::string(view["message"]|"");
       lv_obj_set_style_text_color(nfc_detail_,lv_color_hex(phase=="complete"?0x88F0CF:phase=="failed"?0xFFABB6:phase=="association_pending"?0xFFD384:0xCBD5E1),0);
       if(writer_confirm_) {
-        lv_label_set_text(lv_obj_get_child(writer_confirm_,0),phase=="association_pending"?"Retry Spoolman link":phase=="preview"?"Write this exact tag":"Preview before writing");
+        lv_label_set_text(lv_obj_get_child(writer_confirm_,0),phase=="clear_preview"?"CONFIRM CLEAR":phase=="unlink_pending"?"Retry unlink":phase=="association_pending"?"Retry link":phase=="preview"?"CONFIRM WRITE":"Preview first");
         lv_obj_set_style_bg_color(writer_confirm_,lv_color_hex(phase=="preview"?0x73301E:0x147D73),0);
       }
       lv_label_set_text(nfc_detail_,status.c_str());writer_confirmation_.clear();
-      if(phase=="preview") {
+      if(phase=="clear_preview") {
+        JsonDocument confirmation(&allocator);confirmation["action"]="clear";
+        for(const auto* key:{"uid","generation","current_checksum","target_checksum"})confirmation[key]=view[key];
+        serializeJson(confirmation,writer_confirmation_);
+      } else if(phase=="unlink_pending")writer_confirmation_="{\"action\":\"retry_unlink\"}";
+      else if(phase=="preview" && !(view["semantic_no_change"]|false)) {
         JsonDocument confirmation(&allocator);confirmation["action"]="write";
         for(const auto* key:{"uid","generation","spool_id","previous_spool_id","target_checksum"})confirmation[key]=view[key];
         serializeJson(confirmation,writer_confirmation_);
       } else if(phase=="association_pending")writer_confirmation_="{\"action\":\"retry_association\"}";
+      if(clear_preview_){if(phase=="reading"||phase=="validating"||phase=="clearing"||phase=="writing"||phase=="verifying"||phase=="unlinking"||phase=="associating")lv_obj_add_state(clear_preview_,LV_STATE_DISABLED);else lv_obj_clear_state(clear_preview_,LV_STATE_DISABLED);}
       if(writer_confirm_) { if(writer_confirmation_.empty())lv_obj_add_state(writer_confirm_,LV_STATE_DISABLED);else lv_obj_clear_state(writer_confirm_,LV_STATE_DISABLED); }
     }
     return;
@@ -1824,8 +1793,8 @@ void UiService::refresh_workflow() {
           label,
           calibration_required ? "CALIBRATE SCALE" :
           scale.scale_last_completed_available
-              ? LV_SYMBOL_REFRESH "  Weigh Again"
-              : LV_SYMBOL_REFRESH "  Weigh Spool");
+              ? "WEIGH AGAIN"
+              : "WEIGH");
     }
     return;
   }
@@ -1972,6 +1941,18 @@ void UiService::refresh_workflow() {
       guidance = workflow_feedback_;
     }
     lv_label_set_text(workflow_status_label_, guidance.c_str());
+    const auto measured=backend_worker_.weigh_snapshot();
+    if(workflow_material_label_)lv_label_set_text(workflow_material_label_,measured.name.empty()?"Scale":measured.name.c_str());
+    const auto grams=[](const std::optional<float>& value){return value?std::to_string(static_cast<int>(std::lround(*value)))+" g":"Not set";};
+    if(!scale_calibration_panel_open_){
+      const auto receipt="Tare "+grams(measured.tare)+" | Net "+grams(measured.measured)+"\nSpoolman #"+std::to_string(measured.spool_id)+": "+grams(measured.canonical_remaining)+"\nDifference "+grams(measured.difference);
+      lv_label_set_text(workflow_scale_capture_label_,receipt.c_str());
+      const auto message=measured.message.substr(0,88);lv_label_set_text(workflow_status_label_,message.c_str());
+    }
+    bool automatic=false;configuration_.visit([&](const auto& config,auto){automatic=config.reconciliation.auto_update_after_weigh;});
+    lv_label_set_text(lv_obj_get_child(weight_policy_,0),automatic?"Auto-update ON":"Auto-update OFF");
+    set_enabled(weight_update_,!busy&&measured.phase=="ready"&&!measured.consumed);
+    set_enabled(weight_policy_,!busy&&!configuration_worker_.pending());
     return;
   }
 

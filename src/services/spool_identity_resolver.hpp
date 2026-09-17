@@ -70,6 +70,10 @@ class SpoolIdentityResolver final : public ISpoolIdentityResolver {
   [[nodiscard]] core::Result<void> confirm(
       const domain::SpoolIdentity& identity,
       domain::SpoolId spool_id);
+  [[nodiscard]] core::Result<void> forget(const std::string& uid,
+      const std::string& uuid, std::int32_t owner) {
+    return mappings_.clear_spool_identity_mapping(uid, uuid, owner);
+  }
 
  private:
   [[nodiscard]] core::Result<SpoolResolution> exact_extra_match(

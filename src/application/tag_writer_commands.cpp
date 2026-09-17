@@ -40,14 +40,11 @@ network::ResponseBody BackendWorker::writer_snapshot() const {
     body.append(writer_view_.data(), writer_view_.size());
   return body;
 }
-void BackendWorker::process_writer(Command &command) {
-  (void)apply_backend_settings_if_changed();
-  if (!nfc_ || !nfc_->snapshot().initialized) {
-    operations_.fail(command.operation_id, millis(),
-                     {core::ErrorCategory::nfc_communication,
-                      "NFC is not initialized", true});
-    return;
-  }
+__attribute__((noinline)) bool BackendWorker::ensure_writer() {
+  if (writer_)
+    return true;
+  if (!nfc_)
+    return false;
   if (!writer_)
     writer_ = network::make_external<services::TagWriterService>([&] {
       return services::TagWriterService(
@@ -61,6 +58,8 @@ void BackendWorker::process_writer(Command &command) {
             // network budget only when canonical loading/association begins.
             if (std::string_view(view).find("\"phase\":\"associating\"") !=
                     std::string_view::npos ||
+                std::string_view(view).find("\"phase\":\"unlinking\"") !=
+                    std::string_view::npos ||
                 std::string_view(view).find("\"phase\":\"loading_spool\"") !=
                     std::string_view::npos) {
               transport_.end_operation();
@@ -70,9 +69,22 @@ void BackendWorker::process_writer(Command &command) {
             writer_view_.release();
             writer_view_.append(view.data(), view.size());
           },
-          &platform::storage::writer_journal());
+          &platform::storage::writer_journal(),
+          [this](const std::string &uid, const std::string &uuid,
+                 std::int32_t owner) {
+            return resolver_.forget(uid, uuid, owner);
+          });
     });
-  if (!writer_) {
+  if (writer_)
+    (void)writer_->restore_cleanup();
+  return bool(writer_);
+}
+__attribute__((noinline)) bool BackendWorker::physical_writer_ready() const {
+  return nfc_ && nfc_->snapshot().initialized;
+}
+void BackendWorker::process_writer(Command &command) {
+  (void)apply_backend_settings_if_changed();
+  if (!ensure_writer()) {
     operations_.fail(command.operation_id, millis(),
                      {core::ErrorCategory::backend_unavailable,
                       "Writer PSRAM unavailable", true});
@@ -85,7 +97,15 @@ void BackendWorker::process_writer(Command &command) {
     return;
   }
   const std::string action = parsed.value()["action"] | "";
-  if (action == "write" &&
+  if ((action == "preview" || action == "write" || action == "clear_preview" ||
+       action == "clear") &&
+      !physical_writer_ready()) {
+    operations_.fail(command.operation_id, millis(),
+                     {core::ErrorCategory::nfc_communication,
+                      "NFC is not initialized", true});
+    return;
+  }
+  if ((action == "write" || action == "clear") &&
       static_cast<std::uint32_t>(millis() - command.enqueued_at_ms) >
           destructive_command_expiry_ms) {
     operations_.fail(command.operation_id, millis(),
@@ -96,7 +116,9 @@ void BackendWorker::process_writer(Command &command) {
   operations_.mark_running(command.operation_id, millis(),
                            "Writer operation running; see Tags progress");
   const auto result = writer_->process(parsed.value().as<JsonObjectConst>());
-  if (action == "write" || (action == "retry_association" && result.ok()))
+  if (action == "write" || action == "clear" ||
+      ((action == "retry_association" || action == "retry_unlink") &&
+       result.ok()))
     nfc_->service_.invalidate_after_write();
   if (result.ok())
     operations_.succeed(command.operation_id, millis(),

@@ -1,3 +1,5 @@
+#include "nfc/formats/openprinttag/initializer.hpp"
+#include "nfc/writer_journal_codec.hpp"
 #include "services/tag_writer_service.hpp"
 #include <cstring>
 #include <fstream>
@@ -383,8 +385,13 @@ struct Http : network::IHttpTransport {
           return core::Result<network::HttpResponse>::failure(
               {core::ErrorCategory::network, "edit PATCH failed", true});
         if (!mismatch_edit)
-          for (auto field : patch.as<JsonObjectConst>())
-            spool[field.key()] = field.value();
+          for (auto field : patch.as<JsonObjectConst>()) {
+            if (std::string(field.key().c_str()) == "extra") {
+              for (auto extra : field.value().as<JsonObjectConst>())
+                spool["extra"][extra.key()] = extra.value();
+            } else
+              spool[field.key()] = field.value();
+          }
         ++patches;
       }
       result.set(spool);
@@ -669,7 +676,7 @@ struct Journal : nfc::WriterJournal {
       return false;
     p = saved;
     p.attempted = true;
-    p.verified = false;
+    p.verified = p.cleanup_pending;
     id = spool;
     b = backend;
     return true;
@@ -684,7 +691,12 @@ struct Journal : nfc::WriterJournal {
     present = true;
     return true;
   }
-  void clear() override { present = false; }
+  bool clear() override {
+    if (!permit)
+      return false;
+    present = false;
+    return true;
+  }
 };
 void recovery_case(bool replacement, bool move = false) {
   Reader reader;
@@ -1449,11 +1461,339 @@ void edit_cannot_bypass_pending_association() {
   TEST_ASSERT_EQUAL_STRING("association_pending",
                            f.view["phase"].as<const char *>());
 }
+
+struct ClearFixture {
+  Reader reader;
+  Http http;
+  Journal journal;
+  integrations::spoolman::SpoolmanAdapter adapter{http,
+                                                  {"http://spoolman.test"}};
+  network::BackendDocument view;
+  int mappings = 0;
+  bool mapping_ok = true;
+  std::unique_ptr<services::TagWriterService> service;
+  ClearFixture() {
+    Fixture source;
+    source.prepare();
+    reader.bytes = source.plan.target;
+    http.spool["extra"]["nfc_uid"] = "\"" + reader.uid.hex() + "\"";
+    http.spool["extra"]["opentag_instance_uuid"] =
+        "\"" + nfc::openprinttag::instance_uuid_text(uuid) + "\"";
+    http.spool["extra"]["keep"] = "\"untouched\"";
+    restart();
+  }
+  void restart() {
+    service = std::make_unique<services::TagWriterService>(
+        adapter, reader, [this] { return reader.generation; },
+        [](std::uint8_t *, std::size_t) {},
+        [this](const auto &body) {
+          deserializeJson(view, body.data(), body.size());
+        },
+        &journal,
+        [this](const std::string &uid, const std::string &instance,
+               std::int32_t owner) {
+          TEST_ASSERT_EQUAL_STRING(reader.uid.hex().c_str(), uid.c_str());
+          TEST_ASSERT_EQUAL_STRING(
+              nfc::openprinttag::instance_uuid_text(uuid).c_str(),
+              instance.c_str());
+          TEST_ASSERT_EQUAL(12, owner);
+          ++mappings;
+          return mapping_ok ? R::success() : failure();
+        });
+  }
+  R run(const char *action) {
+    network::BackendDocument c;
+    c["action"] = action;
+    return service->process(c.as<JsonObjectConst>());
+  }
+  R confirm() {
+    network::BackendDocument c;
+    c["action"] = "clear";
+    for (auto key :
+         {"uid", "generation", "current_checksum", "target_checksum"})
+      c[key] = view[key];
+    return service->process(c.as<JsonObjectConst>());
+  }
+  void preview() {
+    auto r = run("clear_preview");
+    TEST_ASSERT_TRUE_MESSAGE(r.ok(), r.ok() ? "" : r.error().message.c_str());
+    TEST_ASSERT_EQUAL_STRING("clear_preview", view["phase"].as<const char *>());
+  }
+};
+void clear_valid_and_unlink_only_owned_fields() {
+  ClearFixture f;
+  f.preview();
+  f.reader.before_write = [&] {
+    TEST_ASSERT_TRUE(f.journal.present);
+    TEST_ASSERT_EQUAL(0, f.http.urls.size());
+  };
+  auto r = f.confirm();
+  TEST_ASSERT_TRUE_MESSAGE(r.ok(), r.ok() ? "" : r.error().message.c_str());
+  TEST_ASSERT_TRUE(std::all_of(f.reader.bytes.begin(),
+                               f.reader.bytes.begin() + 312,
+                               [](auto b) { return !b; }));
+  TEST_ASSERT_EQUAL(0x17, f.reader.bytes[312]);
+  TEST_ASSERT_EQUAL(0x92, f.reader.bytes[319]);
+  TEST_ASSERT_EQUAL(1, f.http.patches);
+  TEST_ASSERT_EQUAL(1, f.mappings);
+  TEST_ASSERT_FALSE(f.journal.present);
+  TEST_ASSERT_EQUAL_STRING("\"untouched\"",
+                           f.http.spool["extra"]["keep"].as<const char *>());
+  TEST_ASSERT_EQUAL(100, f.http.spool["used_weight"].as<int>());
+  TEST_ASSERT_EQUAL_STRING("cleared", f.view["phase"].as<const char *>());
+}
+void clear_empty_envelope() {
+  ClearFixture f;
+  auto image = nfc::openprinttag::Initializer::generate({312, 4, 32, {}});
+  TEST_ASSERT_TRUE(image.ok());
+  std::copy(image.value().bytes.begin(), image.value().bytes.end(),
+            f.reader.bytes.begin());
+  f.preview();
+  TEST_ASSERT_TRUE(f.confirm().ok());
+}
+void clear_already_blank_zero_writes() {
+  ClearFixture f;
+  std::fill_n(f.reader.bytes.begin(), 312, 0);
+  f.preview();
+  TEST_ASSERT_TRUE(f.confirm().ok());
+  TEST_ASSERT_EQUAL(0, f.reader.writes);
+}
+void clear_refuses_unsupported_sources() {
+  for (int fault = 0; fault < 4; ++fault) {
+    ClearFixture f;
+    if (fault == 0)
+      f.reader.bytes[0] = 0x42;
+    if (fault == 1)
+      f.reader.geo.block_count = 79;
+    if (fault == 2)
+      f.reader.count = 2;
+    if (fault == 3)
+      f.reader.locks[30] = 1;
+    TEST_ASSERT_FALSE(f.run("clear_preview").ok());
+    TEST_ASSERT_EQUAL(0, f.reader.writes);
+    TEST_ASSERT_EQUAL(0, f.http.patches);
+  }
+}
+void clear_confirmation_physical_fences() {
+  for (int fault = 0; fault < 6; ++fault) {
+    ClearFixture f;
+    f.preview();
+    if (fault == 0)
+      f.reader.uid.bytes[7] ^= 1;
+    if (fault == 1)
+      ++f.reader.generation;
+    if (fault == 2)
+      f.reader.bytes[16] ^= 1;
+    if (fault == 3)
+      ++f.reader.system;
+    if (fault == 4)
+      f.reader.locks[30] = 1;
+    if (fault == 5)
+      f.reader.errors = 1;
+    TEST_ASSERT_FALSE(f.confirm().ok());
+    TEST_ASSERT_EQUAL(0, f.reader.writes);
+    TEST_ASSERT_EQUAL(0, f.http.patches);
+  }
+}
+void clear_requires_every_exact_confirmation_value() {
+  for (auto key : {"uid", "generation", "current_checksum", "target_checksum"}) {
+    ClearFixture f;
+    f.preview();
+    f.view[key] = "changed";
+    const auto reads = f.reader.reads;
+    TEST_ASSERT_FALSE(f.confirm().ok());
+    TEST_ASSERT_EQUAL(reads, f.reader.reads);
+    TEST_ASSERT_EQUAL(0, f.reader.writes);
+    TEST_ASSERT_EQUAL(0, f.http.patches);
+  }
+}
+void clear_readback_faults_stop_unlink() {
+  for (int final = 0; final < 2; ++final) {
+    ClearFixture f;
+    f.preview();
+    f.reader.corrupt_read =
+        f.reader.reads + 80 +
+        (final ? 2 * f.view["changed_blocks"].size() + 2 : 2);
+    TEST_ASSERT_FALSE(f.confirm().ok());
+    TEST_ASSERT_EQUAL(0, f.http.patches);
+    TEST_ASSERT_TRUE(f.journal.present);
+  }
+}
+void clear_power_loss_recovery() {
+  for (int point : {0, 1, 5, 12}) {
+    ClearFixture f;
+    f.preview();
+    f.reader.fail_write = point;
+    TEST_ASSERT_FALSE(f.confirm().ok());
+    TEST_ASSERT_TRUE(f.journal.present);
+    TEST_ASSERT_EQUAL(0, f.http.patches);
+    f.reader.fail_write = -1;
+    f.restart();
+    f.preview();
+    TEST_ASSERT_TRUE(f.confirm().ok());
+    TEST_ASSERT_FALSE(f.journal.present);
+  }
+}
+void clear_header_last_and_unknown_mixture_refused() {
+  ClearFixture f;
+  f.preview();
+  f.reader.fail_write = 2;
+  TEST_ASSERT_FALSE(f.confirm().ok());
+  TEST_ASSERT_EQUAL(0, f.journal.saved.blocks[f.journal.saved.count - 1]);
+  f.reader.bytes[250] = 0x55;
+  f.restart();
+  TEST_ASSERT_FALSE(f.run("clear_preview").ok());
+}
+void clear_offline_retry_without_nfc() {
+  ClearFixture f;
+  f.preview();
+  f.http.offline = true;
+  TEST_ASSERT_FALSE(f.confirm().ok());
+  TEST_ASSERT_EQUAL_STRING("unlink_pending",
+                           f.view["phase"].as<const char *>());
+  TEST_ASSERT_TRUE(f.journal.saved.cleanup_pending);
+  auto writes = f.reader.writes, reads = f.reader.reads;
+  f.http.offline = false;
+  f.reader.count = 0;
+  TEST_ASSERT_TRUE(f.run("retry_unlink").ok());
+  TEST_ASSERT_EQUAL(writes, f.reader.writes);
+  TEST_ASSERT_EQUAL(reads, f.reader.reads);
+}
+void clear_restart_pending_without_nfc() {
+  ClearFixture f;
+  f.preview();
+  f.http.fail_target = true;
+  TEST_ASSERT_FALSE(f.confirm().ok());
+  auto writes = f.reader.writes, reads = f.reader.reads;
+  f.restart();
+  TEST_ASSERT_TRUE(f.service->restore_cleanup().ok());
+  TEST_ASSERT_EQUAL_STRING("unlink_pending",
+                           f.view["phase"].as<const char *>());
+  f.http.fail_target = false;
+  f.reader.count = 0;
+  TEST_ASSERT_TRUE(f.run("retry_unlink").ok());
+  TEST_ASSERT_EQUAL(writes, f.reader.writes);
+  TEST_ASSERT_EQUAL(reads, f.reader.reads);
+}
+void clear_mapping_retry_and_owner_conflict() {
+  ClearFixture f;
+  f.preview();
+  f.mapping_ok = false;
+  TEST_ASSERT_FALSE(f.confirm().ok());
+  TEST_ASSERT_TRUE(f.journal.present);
+  auto writes = f.reader.writes;
+  f.restart();
+  f.http.claim_previous(f.reader.uid.hex());
+  TEST_ASSERT_FALSE(f.run("retry_unlink").ok());
+  TEST_ASSERT_EQUAL(1, f.http.patches);
+  f.http.previous["extra"].remove("nfc_uid");
+  f.mapping_ok = true;
+  TEST_ASSERT_TRUE(f.run("retry_unlink").ok());
+  TEST_ASSERT_EQUAL(writes, f.reader.writes);
+}
+
+void clear_recovery_refuses_different_tag_without_losing_journal() {
+  ClearFixture f;
+  f.preview();
+  f.reader.fail_write = 2;
+  TEST_ASSERT_FALSE(f.confirm().ok());
+  auto original_uid = f.journal.saved.uid;
+  Fixture other;
+  other.prepare();
+  f.reader.bytes = other.plan.target;
+  f.reader.uid.bytes[7] ^= 1;
+  f.restart();
+  TEST_ASSERT_FALSE(f.run("clear_preview").ok());
+  TEST_ASSERT_TRUE(f.journal.saved.uid == original_uid);
+  TEST_ASSERT_EQUAL(0, f.http.patches);
+}
+
+void clear_ambiguous_owner_refused() {
+  ClearFixture f;
+  f.preview();
+  f.http.multiple_uid = true;
+  TEST_ASSERT_FALSE(f.confirm().ok());
+  TEST_ASSERT_EQUAL(0, f.http.patches);
+  TEST_ASSERT_TRUE(f.journal.saved.cleanup_pending);
+}
+void clear_journal_save_failure_zero_writes() {
+  ClearFixture f;
+  f.preview();
+  f.journal.permit = false;
+  TEST_ASSERT_FALSE(f.confirm().ok());
+  TEST_ASSERT_EQUAL(0, f.reader.writes);
+  TEST_ASSERT_EQUAL(0, f.http.patches);
+}
+void clear_readback_unlink_mismatch_pending() {
+  ClearFixture f;
+  f.preview();
+  f.http.mismatch_edit = true;
+  TEST_ASSERT_FALSE(f.confirm().ok());
+  TEST_ASSERT_EQUAL_STRING("unlink_pending",
+                           f.view["phase"].as<const char *>());
+  TEST_ASSERT_EQUAL(0, f.mappings);
+}
+void journal_v3_roundtrip_and_legacy() {
+  Fixture f;
+  f.prepare();
+  nfc::WriterJournalRecord bytes;
+  nfc::encode_writer_journal(bytes, f.plan, 12, 123);
+  nfc::WriterPlan p;
+  std::int32_t spool;
+  std::uint32_t backend;
+  TEST_ASSERT_TRUE(nfc::decode_writer_journal({bytes.data(), bytes.size()}, p,
+                                              spool, backend));
+  TEST_ASSERT_EQUAL(12, spool);
+  TEST_ASSERT_EQUAL(123, backend);
+  for (auto size : {813, 817}) {
+    auto old = bytes;
+    std::memcpy(old.data(), size == 813 ? "OPTWR001" : "OPTWR002", 8);
+    nfc::journal_put(old.data(), size - 4,
+                     nfc::nfcv::diagnostic_checksum(old.data(), size - 4));
+    TEST_ASSERT_TRUE(nfc::decode_writer_journal({old.data(), std::size_t(size)},
+                                                p, spool, backend));
+    TEST_ASSERT_TRUE(p.operation == nfc::WriterPlan::Operation::write);
+    TEST_ASSERT_FALSE(p.cleanup_pending);
+  }
+  f.plan.original = f.plan.target;
+  TEST_ASSERT_TRUE(f.writer.plan_clear(f.plan).ok());
+  f.plan.cleanup_pending = true;
+  f.plan.cleanup_owner_bound = true;
+  f.plan.cleared_instance = uuid;
+  nfc::encode_writer_journal(bytes, f.plan, 12, 123);
+  TEST_ASSERT_TRUE(nfc::decode_writer_journal({bytes.data(), bytes.size()}, p,
+                                              spool, backend));
+  TEST_ASSERT_TRUE(p.verified);
+  TEST_ASSERT_TRUE(p.cleared_instance == uuid);
+  bytes[485] = 1;
+  nfc::journal_put(bytes.data(), 832,
+                   nfc::nfcv::diagnostic_checksum(bytes.data(), 832));
+  TEST_ASSERT_FALSE(nfc::decode_writer_journal({bytes.data(), bytes.size()}, p,
+                                               spool, backend));
+}
+
 } // namespace
 void setUp() {}
 void tearDown() {}
 int main() {
   UNITY_BEGIN();
+  RUN_TEST(clear_recovery_refuses_different_tag_without_losing_journal);
+  RUN_TEST(clear_valid_and_unlink_only_owned_fields);
+  RUN_TEST(clear_empty_envelope);
+  RUN_TEST(clear_already_blank_zero_writes);
+  RUN_TEST(clear_refuses_unsupported_sources);
+  RUN_TEST(clear_confirmation_physical_fences);
+  RUN_TEST(clear_requires_every_exact_confirmation_value);
+  RUN_TEST(clear_readback_faults_stop_unlink);
+  RUN_TEST(clear_power_loss_recovery);
+  RUN_TEST(clear_header_last_and_unknown_mixture_refused);
+  RUN_TEST(clear_offline_retry_without_nfc);
+  RUN_TEST(clear_restart_pending_without_nfc);
+  RUN_TEST(clear_mapping_retry_and_owner_conflict);
+  RUN_TEST(clear_ambiguous_owner_refused);
+  RUN_TEST(clear_journal_save_failure_zero_writes);
+  RUN_TEST(clear_readback_unlink_mismatch_pending);
+  RUN_TEST(journal_v3_roundtrip_and_legacy);
   RUN_TEST(edit_used_weight_expected_matches);
   RUN_TEST(edit_used_weight_conflict_and_explicit_retry);
   RUN_TEST(edit_unrelated_change_is_preserved);

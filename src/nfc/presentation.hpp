@@ -7,6 +7,7 @@ inline std::string describe(const ReadSnapshot& s,
                             std::optional<float> measured = std::nullopt) {
   std::string out = s.state == ReadState::deferred
                         ? "NFC deferred: provisioning\nFinish Wi-Fi setup to start NFC"
+                    : s.blank_compatible ? "Blank compatible NFC tag - ready to write"
                     : s.tag ? "OpenPrintTag recognized"
                     : s.state == ReadState::unsupported
                         ? "NFC-V tag: unsupported OpenPrintTag"

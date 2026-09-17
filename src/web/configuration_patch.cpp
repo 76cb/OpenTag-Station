@@ -177,6 +177,7 @@ core::Result<config::Configuration> apply_configuration_patch(
 
   if (patch.reconciliation.has_value()) {
     const auto& value = *patch.reconciliation;
+    if(value.auto_update_after_weigh) proposed.reconciliation.auto_update_after_weigh=*value.auto_update_after_weigh;
     if (value.normal_tolerance_grams.has_value()) {
       proposed.reconciliation.normal_tolerance_grams =
           *value.normal_tolerance_grams;

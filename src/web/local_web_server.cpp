@@ -96,7 +96,7 @@ esp_err_t set_security_headers(
   static constexpr std::array<std::pair<const char*, const char*>, 4U> headers = {{
       {"Content-Security-Policy",
        "default-src 'self'; script-src 'self'; style-src 'self'; "
-       "img-src 'self' data:; connect-src 'self' ws: wss:; object-src "
+       "img-src 'self' data:; connect-src 'self' ws: wss: https://icezaza2543.github.io; object-src "
        "'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"},
       {"X-Content-Type-Options", "nosniff"},
       {"Referrer-Policy", "no-referrer"},

@@ -163,6 +163,8 @@ void Application::setup() {
   application_idle_ready_ = idle_result.ok();
   configuration_task_started_ = configuration_worker_.start();
   backend_task_started_ = backend_worker_.start(nfc_worker_);
+  scale_commands_.weigh_started=[this](std::uint64_t id){backend_worker_.begin_weigh(id);};
+  scale_commands_.weigh_finished=[this](std::uint64_t id,std::optional<float> grams){backend_worker_.complete_weigh(id,grams);};
   scale_commands_ready_ = scale_commands_.initialize();
   // A timed-out or failed OTA-owner start leaves bootloader reconciliation
   // unknown. Keep every destructive control and network mutation unavailable

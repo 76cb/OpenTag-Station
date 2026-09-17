@@ -33,9 +33,10 @@ CommandReceipt ScaleCommandQueue::submit(Command command, OperationKind kind) {
   return {true, command.operation_id};
 }
 
-CommandReceipt ScaleCommandQueue::submit_weigh(std::uint32_t now_ms) {
+CommandReceipt ScaleCommandQueue::submit_weigh(std::uint32_t now_ms, bool explicit_request) {
   Command command;
   command.type = CommandType::weigh;
+  command.explicit_request=explicit_request;
   command.enqueued_at_ms = now_ms;
   return submit(command, OperationKind::scale_weigh);
 }
@@ -86,6 +87,9 @@ void ScaleCommandQueue::process_one(std::uint32_t now_ms) {
               core::ErrorCategory::scale_unstable,
               "Scale measurement did not complete",
               true}));
+      if (active_->type == CommandType::weigh && active_->explicit_request &&
+          weigh_finished)
+        weigh_finished(active_->operation_id, std::nullopt);
       active_.reset();
       return;
     }
@@ -93,6 +97,7 @@ void ScaleCommandQueue::process_one(std::uint32_t now_ms) {
         status.measurement_state == services::ScaleMeasurementState::completed) {
       operations_.succeed(
           active_->operation_id, now_ms, "Stable weight captured");
+      if(active_->explicit_request && weigh_finished) weigh_finished(active_->operation_id,status.last_completed_grams);
       active_.reset();
       return;
     }
@@ -160,6 +165,7 @@ void ScaleCommandQueue::process_one(std::uint32_t now_ms) {
     return;
   }
   active_ = command;
+  if(command.type==CommandType::weigh && command.explicit_request && weigh_started) weigh_started(command.operation_id);
 }
 
 }  // namespace opentag::application

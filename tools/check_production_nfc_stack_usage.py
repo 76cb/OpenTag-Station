@@ -67,26 +67,43 @@ def main():
     writer_controller = backend_owner + frame("application/tag_writer_commands", "BackendWorker::process_writer(") + frame("services/tag_writer_service", "TagWriterService::process(")
     writer_path = "nfc/openprinttag_writer"
     writer_prepare = frame("services/tag_writer_service", "TagWriterService::prepare(")
+    writer_commit = frame("services/tag_writer_service", "TagWriterService::commit_write(")
     writer_mapping = frame("nfc/formats/openprinttag/spoolman_mapping", "map_spoolman(")
     writer_decode = writer_controller + max(
         writer_prepare + frame(writer_path, "OpenPrintTagWriter::read("),
         writer_prepare + writer_mapping + frame(codec, "Codec::update_consumed_weight(opentag::core::ByteView, double, opentag::nfc::openprinttag::DecodedTag&)"),
         writer_prepare + writer_mapping + frame("nfc/formats/openprinttag/spoolman_mapping", "encode_main("),
-        frame(writer_path, "OpenPrintTagWriter::execute(")) + decode + max(
+        writer_commit + frame(writer_path, "OpenPrintTagWriter::execute(")) + decode + max(
         frame(codec, "parse_envelope(opentag::core::ByteView)"), frame(codec, "decode_material(opentag::core::ByteView")) + recursive
     writer_transport = writer_controller + max(writer_prepare + frame(writer_path, "OpenPrintTagWriter::read("),
-        frame(writer_path, "OpenPrintTagWriter::execute(")) + frame(writer_path, "OpenPrintTagWriter::full_read(") + frame(writer_path, "OpenPrintTagWriter::fence(") + max(
+        writer_commit + frame(writer_path, "OpenPrintTagWriter::execute(")) + frame(writer_path, "OpenPrintTagWriter::full_read(") + frame(writer_path, "OpenPrintTagWriter::fence(") + max(
         largest("hardware/nfc/st25r3916b/i2c_reader"), largest("hardware/nfc/st25r3916b/openprinttag_write_binding")) + 2048
     # UID ownership queries now have an explicit helper chain beneath preview
     # or association/previous-owner cleanup. Include every ancestor instead of
     # assuming the existing two-largest-frame allowance covers that depth.
     writer_uid_http = max(
         writer_prepare + frame("services/tag_writer_service", "TagWriterService::prepare_uid_owner("),
-        frame("services/tag_writer_service", "TagWriterService::associate(") + frame("services/tag_writer_service", "TagWriterService::clear_previous_uid(")) + frame("services/tag_writer_service", "TagWriterService::uid_owner(") + frame("services/tag_writer_service", "TagWriterService::api(")
+        writer_commit + frame("services/tag_writer_service", "TagWriterService::associate(") + frame("services/tag_writer_service", "TagWriterService::clear_previous_uid(")) + frame("services/tag_writer_service", "TagWriterService::uid_owner(") + frame("services/tag_writer_service", "TagWriterService::api(")
     writer_edit_http = frame("services/tag_writer_service", "TagWriterService::edit_and_report(") + frame("services/tag_writer_service", "TagWriterService::edit_record(") + frame("services/tag_writer_service", "TagWriterService::api(")
     writer_http = writer_controller + max(2 * largest("services/tag_writer_service"), writer_uid_http, writer_edit_http) + frame(spoolman, "SpoolmanAdapter::request(") + frame("network/http_transport", "HttpTransport::perform(") + 2048
-    writer_storage = writer_controller + writer_prepare + largest("platform/storage/writer_journal") + 2048
-    worst = max(decoded, transport, backend, persistence, writer_decode, writer_transport, writer_http, writer_storage)
+    writer_storage = writer_controller + max(writer_prepare, writer_commit) + largest("platform/storage/writer_journal") + 2048
+    service = "services/tag_writer_service"
+    clear_prepare = frame(service, "TagWriterService::prepare_clear(")
+    clear_commit = frame(service, "TagWriterService::commit_clear(")
+    clear_unlink = frame(service, "TagWriterService::unlink(")
+    clear_decode = writer_controller + clear_prepare + max(frame(writer_path, "OpenPrintTagWriter::read("), frame(writer_path, "OpenPrintTagWriter::plan_clear(")) + decode + max(
+        frame(codec, "parse_envelope(opentag::core::ByteView)"), frame(codec, "decode_material(opentag::core::ByteView")) + recursive
+    clear_transport = writer_controller + max(clear_prepare + frame(writer_path, "OpenPrintTagWriter::read("), clear_commit + frame(writer_path, "OpenPrintTagWriter::execute(")) + frame(writer_path, "OpenPrintTagWriter::full_read(") + frame(writer_path, "OpenPrintTagWriter::fence(") + max(largest("hardware/nfc/st25r3916b/i2c_reader"), largest("hardware/nfc/st25r3916b/openprinttag_write_binding")) + 2048
+    clear_http = writer_controller + clear_commit + clear_unlink + max(frame(service, "TagWriterService::uid_owner("), frame(service, "TagWriterService::unique_identity(")) + frame(service, "TagWriterService::api(") + frame(spoolman, "SpoolmanAdapter::request(") + frame("network/http_transport", "HttpTransport::perform(") + 2048
+    clear_storage = writer_controller + clear_commit + clear_unlink + max(
+        frame(service, "TagWriterService::persist_clear(") + 2 * largest("platform/storage/writer_journal"),
+        frame("config/configuration_service", "ConfigurationService::clear_spool_identity_mapping(") + frame("config/configuration_service", "ConfigurationService::persist_locked(") + 2 * largest("config/configuration_service")) + 2048
+    restore_storage = writer_controller + frame("application/tag_writer_commands", "BackendWorker::ensure_writer(") + frame(service, "TagWriterService::restore_ready(") + frame(service, "TagWriterService::restore_cleanup(") + 2 * largest("platform/storage/writer_journal") + 2048
+    weigh_owner = backend_owner + frame("application/weigh_commands", "BackendWorker::auto_weight_update(") + frame("application/weigh_commands", "BackendWorker::process_weight_update(") + frame("services/weigh_sync", "WeighSync::update(")
+    weigh_http = weigh_owner + frame(spoolman, "SpoolmanAdapter::set_remaining_weight(") + frame(spoolman, "SpoolmanAdapter::get_spool(") + frame(spoolman, "SpoolmanAdapter::request(") + frame("network/http_transport", "HttpTransport::perform(") + 2048
+    weigh_inventory = weigh_owner + frame(spoolman, "SpoolmanAdapter::set_remaining_weight(") + frame("application/weigh_commands", "BackendWorker::weight_fence(") + largest("hardware/nfc/st25r3916b/i2c_reader") + 2048
+    worst = max(decoded, transport, backend, persistence, writer_decode, writer_transport, writer_http, writer_storage, clear_decode, clear_transport, clear_http, clear_storage, restore_storage, weigh_http, weigh_inventory)
+    print(f"Clear decode={clear_decode}; transport={clear_transport}; HTTP={clear_http}; persistence={clear_storage}; restart={restore_storage}; weigh HTTP={weigh_http}; inventory={weigh_inventory}")
     print(f"Approved writer decode={writer_decode}; transport={writer_transport}; HTTP={writer_http}")
     print(f"Shared backend stack={stack}; nested NFC decode={decoded}; NFC transport={transport}; backend HTTP={backend}; confirmation persistence={persistence}; remaining={stack-worst}; required={safety}")
     assert stack - worst >= safety, "Shared backend/NFC stack headroom below 4 KiB budget"

@@ -142,6 +142,7 @@ Response context_error(const core::Error& error) {
 const char* mutation_name(MutationKind kind) {
   switch (kind) {
     case MutationKind::tag_writer: return "tag_writer";
+    case MutationKind::scale_update: return "scale_update";
     case MutationKind::scale_weigh: return "scale_weigh";
     case MutationKind::scale_tare: return "scale_tare";
     case MutationKind::scale_calibration: return "scale_calibration";
@@ -877,7 +878,8 @@ core::Result<void> parse_configuration_patch(
     const auto object = root["reconciliation"].as<JsonObjectConst>();
     ReconciliationPatch patch;
     if (object.size() == 0U ||
-        !keys_allowed(object, {"normal_tolerance_grams", "warning_tolerance_grams"}) ||
+        !keys_allowed(object, {"normal_tolerance_grams", "warning_tolerance_grams", "auto_update_after_weigh"}) ||
+        !read_optional_bool(object, "auto_update_after_weigh", patch.auto_update_after_weigh) ||
         !read_optional_float(object, "normal_tolerance_grams", 0.0F, 1000.0F, patch.normal_tolerance_grams) ||
         !read_optional_float(object, "warning_tolerance_grams", 0.0F, 1000.0F, patch.warning_tolerance_grams) ||
         (patch.normal_tolerance_grams.has_value() &&
@@ -911,10 +913,11 @@ core::Result<Mutation> parse_mutation(
   if (request.path == "/api/v1/tag-writer") {
     const std::string action = object["action"] | "";
     if (action != "catalog" && action != "import_preview" && action != "import" && action != "create_spool" &&
+        action != "clear_preview" && action != "clear" && action != "retry_unlink" &&
         action != "preview" && action != "write" && action != "retry_association" && action != "update_spool" && action != "update_filament")
       return core::Result<Mutation>::failure(invalid_request("Unknown high-level writer action"));
     if (!keys_allowed(object, {"action", "entity", "offset", "search", "material", "article_number", "vendor_id", "filament_id",
-                              "entry", "contract", "import_token", "import_name", "spool", "spool_id", "previous_spool_id", "mode", "uid", "generation", "target_checksum", "changes", "expected"}))
+                              "entry", "contract", "import_token", "import_name", "spool", "spool_id", "previous_spool_id", "mode", "uid", "generation", "target_checksum", "current_checksum", "changes", "expected"}))
       return core::Result<Mutation>::failure(invalid_request("Unsupported writer fields; raw writes are forbidden"));
     if ((action == "update_spool" || action == "update_filament") &&
         (!keys_allowed(object, {"action", "spool_id", "filament_id", "changes", "expected"}) ||
@@ -927,11 +930,24 @@ core::Result<Mutation> parse_mutation(
         !object["target_checksum"].is<const char*>() || !object["spool_id"].is<int>() || object["spool_id"].as<int>() <= 0 ||
         !object["previous_spool_id"].is<int>() || object["previous_spool_id"].as<int>() < 0))
       return core::Result<Mutation>::failure(invalid_request("Write needs UID, generation, target checksum, target and previous spool IDs"));
+    if (action == "clear" &&
+        (!keys_allowed(object, {"action", "uid", "generation", "current_checksum", "target_checksum"}) ||
+         !object["uid"].is<const char*>() || !object["generation"].is<const char*>() ||
+         !object["current_checksum"].is<const char*>() || !object["target_checksum"].is<const char*>()))
+      return core::Result<Mutation>::failure(invalid_request("Clear needs exact UID, generation and both image checksums"));
+    if ((action == "clear_preview" || action == "retry_unlink") && object.size() != 1)
+      return core::Result<Mutation>::failure(invalid_request("Clear preview and unlink retry accept only the action"));
     mutation.kind = MutationKind::tag_writer;
     mutation.payload = TagWriterMutation{request.body};
     return core::Result<Mutation>::success(std::move(mutation));
   }
 
+  if (request.path == "/api/v1/scale/update") {
+    if (object.size()!=1 || !object["measurement_id"].is<std::uint64_t>() || !object["measurement_id"].as<std::uint64_t>())
+      return core::Result<Mutation>::failure(invalid_request("An explicit measurement_id is required"));
+    mutation.kind=MutationKind::scale_update;mutation.payload=WeightUpdateMutation{object["measurement_id"].as<std::uint64_t>()};
+    return core::Result<Mutation>::success(std::move(mutation));
+  }
   if (request.path == "/api/v1/scale/weigh" ||
       request.path == "/api/v1/scale/tare" ||
       request.path == "/api/v1/nfc/read" ||

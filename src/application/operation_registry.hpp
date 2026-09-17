@@ -16,6 +16,7 @@ enum class OperationKind : std::uint8_t {
   tag_writer,
   configuration,
   scale_weigh,
+  weight_update,
   scale_tare,
   scale_calibration,
   backend_probe,

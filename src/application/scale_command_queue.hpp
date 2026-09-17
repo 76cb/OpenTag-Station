@@ -1,6 +1,7 @@
 #pragma once
 
 #include <atomic>
+#include <functional>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -25,7 +26,9 @@ class ScaleCommandQueue final {
         operations_(operations) {}
 
   [[nodiscard]] bool initialize();
-  [[nodiscard]] CommandReceipt submit_weigh(std::uint32_t now_ms);
+  [[nodiscard]] CommandReceipt submit_weigh(std::uint32_t now_ms, bool explicit_request = true);
+  std::function<void(std::uint64_t)> weigh_started;
+  std::function<void(std::uint64_t, std::optional<float>)> weigh_finished;
   [[nodiscard]] CommandReceipt submit_tare(std::uint32_t now_ms);
   [[nodiscard]] CommandReceipt submit_calibration(
       float reference_grams,
@@ -47,6 +50,7 @@ class ScaleCommandQueue final {
     std::uint64_t operation_id{0U};
     std::uint32_t enqueued_at_ms{0U};
     bool reference_detected_reported{false};
+    bool explicit_request{false};
   };
 
   [[nodiscard]] CommandReceipt submit(Command command, OperationKind kind);

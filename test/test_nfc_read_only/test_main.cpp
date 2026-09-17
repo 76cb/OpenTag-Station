@@ -85,6 +85,7 @@ void tick(Fake& f, nfc::ReadOnlyService& s, unsigned count = 1) {
     s.poll();
   }
 }
+void blank_approved_tag_is_distinct_and_clears_on_removal(){Fake f;f.tags={known};std::fill_n(f.image.begin(),312,0);f.image[319]=0x92;nfc::ReadOnlyService service(f);tick(f,service,3);TEST_ASSERT_TRUE(service.snapshot().blank_compatible);TEST_ASSERT_FALSE(service.snapshot().tag);TEST_ASSERT_FALSE(service.snapshot().error);JsonDocument doc;web::write_nfc(doc.to<JsonObject>(),service.snapshot());TEST_ASSERT_TRUE(doc["blank_compatible"].as<bool>());f.tags.clear();tick(f,service);TEST_ASSERT_FALSE(service.snapshot().blank_compatible);}
 void no_tag() {
   Fake f;
   nfc::ReadOnlyService s(f);
@@ -346,6 +347,7 @@ void setUp() {}
 void tearDown() {}
 int main() {
   UNITY_BEGIN();
+  RUN_TEST(blank_approved_tag_is_distinct_and_clears_on_removal);
   RUN_TEST(no_tag);
   RUN_TEST(populated_tag);
   RUN_TEST(initialization_cleanup_and_consistency_errors);

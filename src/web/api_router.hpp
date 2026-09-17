@@ -89,7 +89,7 @@ struct RouteMetadata {
   BodyTransport body_transport{BodyTransport::buffered_json};
 };
 
-inline constexpr std::array<RouteMetadata, 34U> routes = {{
+inline constexpr std::array<RouteMetadata, 35U> routes = {{
     {Method::get, "/api/v1/tag-writer", 0U, false},
     {Method::post, "/api/v1/tag-writer", 4096U, true},
     {Method::get, "/api/v1/status", 0U, false},
@@ -101,6 +101,7 @@ inline constexpr std::array<RouteMetadata, 34U> routes = {{
     {Method::post, "/api/v1/network/setup-mode", 256U, true},
     {Method::get, "/api/v1/scale", 0U, false},
     {Method::post, "/api/v1/scale/weigh", 256U, true},
+    {Method::post, "/api/v1/scale/update", 256U, true},
     {Method::post, "/api/v1/scale/tare", 256U, true},
     {Method::post, "/api/v1/scale/calibrate", 512U, true},
     {Method::get, "/api/v1/nfc", 0U, false},
@@ -245,6 +246,7 @@ struct ToolheadProfilePatch {
 };
 
 struct ReconciliationPatch {
+  std::optional<bool> auto_update_after_weigh;
   std::optional<float> normal_tolerance_grams;
   std::optional<float> warning_tolerance_grams;
 };
@@ -261,6 +263,8 @@ struct ConfigurationPatchMutation {
   std::optional<ReconciliationPatch> reconciliation;
 };
 
+struct WeightUpdateMutation { std::uint64_t measurement_id{0}; };
+
 struct DeviceControlMutation {
   std::string confirmation;
 };
@@ -275,6 +279,7 @@ struct UpdateControlMutation {
 enum class MutationKind : std::uint8_t {
   tag_writer,
   scale_weigh,
+  scale_update,
   scale_tare,
   scale_calibration,
   nfc_read,
@@ -294,6 +299,7 @@ enum class MutationKind : std::uint8_t {
 
 using MutationPayload = std::variant<
     TagWriterMutation,
+    WeightUpdateMutation,
     EmptyMutation,
     SpoolConfirmationMutation,
     ScaleCalibrationMutation,
