@@ -1,7 +1,7 @@
 # Provisioning memory / production NFC startup
 
 The PR #24 implementation below is historical. Physical testing passed setup
-AP/scan/persistence/STA (192.168.3.34)/AP grace, but late task creation failed:
+AP/scan/persistence/STA (assigned address omitted)/AP grace, but late task creation failed:
 internal free 30,492, minimum 5,936, largest block 13,812, PSRAM free 2,002,699.
 The 16,384-byte NFC stack could not fit that contiguous internal block.
 The current fix removes the separate NFC task entirely; see
@@ -82,7 +82,7 @@ flasher/bundle checks remain required.
    bench targets rather than treating deferral alone as a pass.
 2. Save valid Wi-Fi. Require station connection, grace expiry/AP shutdown and
    exactly one NFC task creation/initialization. Repeat on a configured reboot.
-   Require RFAL=0, UID `E0:04:01:08:66:27:D8:D4`, checksum `9E639911`, OpenPrintTag
+   Require RFAL=0, UID `[physical tag UID omitted]`, checksum `9E639911`, OpenPrintTag
    PASS, stable generation while stationary, bus_errors=0, working touch/scale
    and normal web/API access. Bad credentials must keep NFC deferred while the
    setup AP remains usable; correcting them must recover the transition.

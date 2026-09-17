@@ -1,5 +1,12 @@
 # NFC-V OpenPrintTag read-only diagnostic
 
+## DEVELOPMENT HISTORY — NOT SHIPPED
+
+This is an archived engineering record, not installation guidance. The standalone
+firmware, build environment and distribution are removed. Install normal OpenTag
+Station and use [production wiring](wiring.md) and [release acceptance](releasing.md).
+
+
 This is an opt-in diagnostic alongside the production NFC path with its separate guarded writer. It
 does not initialize a tag at boot, and does not expose a force,
 reinitialization, or other NFC write action. The one-time blank-tag
@@ -126,7 +133,7 @@ cleanup guards, but it is unreachable in the shipped diagnostic configuration.
 2. Confirm boot does not reset, the display remains on, the
    `OpenTag-I2C-Test` access point appears, and the diagnostic remains stable.
 3. Confirm the existing read-only diagnostic still passes with UID
-   `E0:04:01:08:66:27:D8:D4`, geometry 80 × 4, full-image checksum `9E639911`,
+   `[physical tag UID omitted]`, geometry 80 × 4, full-image checksum `9E639911`,
    consistent repeated reads, removal/reinsertion recovery, both bus error counts
    zero, and scale/NFC post-test health passing.
 4. Open `http://192.168.4.1` and require the OpenPrintTag preview to load with

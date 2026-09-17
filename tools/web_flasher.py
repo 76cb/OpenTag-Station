@@ -15,12 +15,9 @@ from typing import Any, Iterable
 
 
 FACTORY_IMAGE_NAME = "opentag-station-factory.bin"
-DIAGNOSTIC_IMAGE_NAME = "opentag-station-i2c-test.bin"
 MANIFEST_NAME = "manifest.json"
-DIAGNOSTIC_MANIFEST_NAME = "i2c-test-manifest.json"
 PAGE_NAME = "index.html"
 FACTORY_PRODUCT_NAME = "OpenTag Station"
-DIAGNOSTIC_PRODUCT_NAME = "OpenTag Station Dual I2C / NFC-V RF Test"
 ESP_WEB_TOOLS_MODULE = (
     "https://unpkg.com/esp-web-tools@10.4.0/dist/web/install-button.js?module"
 )
@@ -126,33 +123,23 @@ def validate_page(path: pathlib.Path) -> None:
         "OpenTag Station",
         "Browser Firmware Installer",
         "Install OpenTag Station",
-        "WT32-SC01 Plus — Dual I2C / NFC-V RF Test",
-        "Flash Dual I2C / NFC-V RF Test",
         "Chrome or Edge",
         "USB connection to a WT32-SC01 Plus",
         'manifest="manifest.json"',
-        'manifest="i2c-test-manifest.json"',
         ESP_WEB_TOOLS_MODULE,
     )
     missing = [text for text in required if text not in page]
     if missing:
         raise FlasherError(f"installer page is missing: {', '.join(missing)}")
-    if page.count("<esp-web-install-button") != 2:
-        raise FlasherError("installer page must contain exactly two install buttons")
+    if page.count("<esp-web-install-button") != 1:
+        raise FlasherError("installer page must contain exactly one install button")
 
 
-def validate_source_assets(
-    page: pathlib.Path,
-    manifest: pathlib.Path,
-    diagnostic_manifest: pathlib.Path,
-) -> None:
+def validate_source_assets(page: pathlib.Path, manifest: pathlib.Path) -> None:
+    from release_version import version
     validate_page(page)
-    validate_manifest(read_manifest(manifest))
-    validate_manifest(
-        read_manifest(diagnostic_manifest),
-        product_name=DIAGNOSTIC_PRODUCT_NAME,
-        image_name=DIAGNOSTIC_IMAGE_NAME,
-    )
+    if validate_manifest(read_manifest(manifest)) != version():
+        raise FlasherError("source manifest differs from VERSION")
 
 
 def validate_parts(parts: Iterable[FlashPart], maximum_size: int) -> list[FlashPart]:
@@ -214,54 +201,18 @@ def validate_bundle(
 
 def validate_pages_bundle(bundle_dir: pathlib.Path, maximum_size: int) -> None:
     validate_bundle(bundle_dir, maximum_size)
-    validate_bundle(
-        bundle_dir,
-        maximum_size,
-        manifest_name=DIAGNOSTIC_MANIFEST_NAME,
-        image_name=DIAGNOSTIC_IMAGE_NAME,
-        product_name=DIAGNOSTIC_PRODUCT_NAME,
-    )
-    expected = {
-        PAGE_NAME,
-        ".nojekyll",
-        MANIFEST_NAME,
-        DIAGNOSTIC_MANIFEST_NAME,
-        FACTORY_IMAGE_NAME,
-        DIAGNOSTIC_IMAGE_NAME,
-    }
+    expected = {PAGE_NAME, ".nojekyll", MANIFEST_NAME, FACTORY_IMAGE_NAME}
     actual = {path.name for path in bundle_dir.iterdir()}
     if actual != expected:
-        raise FlasherError(
-            f"Pages bundle contents changed: expected {sorted(expected)}, got {sorted(actual)}"
-        )
+        raise FlasherError(f"Unexpected Pages contents: {sorted(actual - expected)}")
 
 
-def assemble_pages_bundle(
-    factory_bundle: pathlib.Path,
-    diagnostic_bundle: pathlib.Path,
-    output_dir: pathlib.Path,
-    maximum_size: int,
-) -> None:
-    validate_bundle(factory_bundle, maximum_size)
-    validate_bundle(
-        diagnostic_bundle,
-        maximum_size,
-        manifest_name=DIAGNOSTIC_MANIFEST_NAME,
-        image_name=DIAGNOSTIC_IMAGE_NAME,
-        product_name=DIAGNOSTIC_PRODUCT_NAME,
-    )
-    if (factory_bundle / PAGE_NAME).read_bytes() != (diagnostic_bundle / PAGE_NAME).read_bytes():
-        raise FlasherError("factory and diagnostic bundles contain different installer pages")
+def assemble_pages_bundle(factory_bundle: pathlib.Path, output_dir: pathlib.Path,
+                          maximum_size: int) -> None:
+    validate_pages_bundle(factory_bundle, maximum_size)
     output_dir.mkdir(parents=True, exist_ok=True)
-    for name, source_dir in (
-        (PAGE_NAME, factory_bundle),
-        (".nojekyll", factory_bundle),
-        (MANIFEST_NAME, factory_bundle),
-        (FACTORY_IMAGE_NAME, factory_bundle),
-        (DIAGNOSTIC_MANIFEST_NAME, diagnostic_bundle),
-        (DIAGNOSTIC_IMAGE_NAME, diagnostic_bundle),
-    ):
-        shutil.copy2(source_dir / name, output_dir / name)
+    for name in (PAGE_NAME, ".nojekyll", MANIFEST_NAME, FACTORY_IMAGE_NAME):
+        shutil.copy2(factory_bundle / name, output_dir / name)
     validate_pages_bundle(output_dir, maximum_size)
 
 
@@ -292,7 +243,11 @@ def build_bundle(
         product_name=product_name,
         image_name=image_name,
     )
-    validate_embedded_sha(application, source_sha)
+    validate_embedded_sha(application, source_sha[:12])
+    if project_version.encode() + b"\0" not in application.read_bytes():
+        raise FlasherError("application does not embed VERSION")
+    if read_manifest(manifest_source)["version"] != project_version:
+        raise FlasherError("manifest differs from VERSION")
     ordered = validate_parts(parts, maximum_size)
     names = {part.path.name for part in ordered}
     required_names = {"bootloader.bin", "partitions.bin", "boot_app0.bin", application.name}
@@ -342,7 +297,8 @@ def build_bundle(
             raise FlasherError(f"merged image does not preserve {part.name} at {part.offset:#x}")
 
     manifest = read_manifest(manifest_source)
-    manifest["version"] = f"{project_version}+{source_sha}"
+    manifest["version"] = project_version
+    manifest["source_commit"] = source_sha
     (output_dir / manifest_name).write_text(
         json.dumps(manifest, indent=2) + "\n", encoding="utf-8"
     )
@@ -367,12 +323,10 @@ def main() -> int:
     source = subparsers.add_parser("validate-source")
     source.add_argument("--page", type=pathlib.Path, required=True)
     source.add_argument("--manifest", type=pathlib.Path, required=True)
-    source.add_argument("--diagnostic-manifest", type=pathlib.Path, required=True)
 
     bundle = subparsers.add_parser("validate-bundle")
     bundle.add_argument("--bundle-dir", type=pathlib.Path, required=True)
     bundle.add_argument("--maximum-size", type=int, required=True)
-    bundle.add_argument("--kind", choices=("factory", "diagnostic"), default="factory")
 
     pages = subparsers.add_parser("validate-pages")
     pages.add_argument("--bundle-dir", type=pathlib.Path, required=True)
@@ -380,30 +334,23 @@ def main() -> int:
 
     assemble = subparsers.add_parser("assemble-pages")
     assemble.add_argument("--factory-bundle", type=pathlib.Path, required=True)
-    assemble.add_argument("--diagnostic-bundle", type=pathlib.Path, required=True)
     assemble.add_argument("--output-dir", type=pathlib.Path, required=True)
     assemble.add_argument("--maximum-size", type=int, required=True)
 
     args = parser.parse_args()
     try:
         if args.command == "validate-source":
-            validate_source_assets(args.page, args.manifest, args.diagnostic_manifest)
+            validate_source_assets(args.page, args.manifest)
             print("web flasher source assets valid")
         elif args.command == "validate-bundle":
-            options = {} if args.kind == "factory" else {
-                "manifest_name": DIAGNOSTIC_MANIFEST_NAME,
-                "image_name": DIAGNOSTIC_IMAGE_NAME,
-                "product_name": DIAGNOSTIC_PRODUCT_NAME,
-            }
-            version, size = validate_bundle(args.bundle_dir, args.maximum_size, **options)
+            version, size = validate_bundle(args.bundle_dir, args.maximum_size)
             print(f"web flasher bundle valid: {version}, {size} bytes")
         elif args.command == "validate-pages":
             validate_pages_bundle(args.bundle_dir, args.maximum_size)
-            print("complete factory + diagnostic Pages bundle valid")
+            print("production-only Pages bundle valid")
         else:
             assemble_pages_bundle(
                 args.factory_bundle,
-                args.diagnostic_bundle,
                 args.output_dir,
                 args.maximum_size,
             )

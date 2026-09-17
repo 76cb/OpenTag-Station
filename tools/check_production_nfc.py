@@ -93,8 +93,7 @@ def check():
     transport = (ROOT / "src/network/http_transport.cpp").read_text()
     assert "DeadlineClient<WiFiClient" in transport
     assert "ReadImage first" in service and "make_read_storage<IdentifiedTag>" in service
-    diagnostic = (ROOT / "src/diagnostics/shared_i2c_firmware.cpp").read_text()
-    assert "diagnostic_initialization_write_enabled = false" in diagnostic
+    assert not (ROOT / "src/diagnostics/shared_i2c_firmware.cpp").exists()
     writer = (ROOT / "src/nfc/openprinttag_writer.cpp").read_text()
     service_writer = (ROOT / "src/services/tag_writer_service.cpp").read_text()
     boundary = (ROOT / "src/nfc/openprinttag_writer.hpp").read_text()

@@ -104,7 +104,7 @@ and unmapping acceptance tests before release signoff.
 ## MVP live discovery evidence (2026-09-13)
 
 Read-only queries to the supplied LAN services returned FilaBridge v1.2.1,
-Casy's Prusa XL, stable printer ID printer_1785006977542801400_535, type
+Prusa XL, stable printer ID prusa-xl, type
 prusalink, and five toolheads named Toolhead 1 through Toolhead 5. Status and
 complete mappings match the strict parser contract. The printer was PRINTING;
 no live mapping was changed. Spoolman reported 0.26.0 and healthy. End-to-end

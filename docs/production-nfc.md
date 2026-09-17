@@ -17,7 +17,7 @@ The explicit writer is dispatched separately at the backend run-loop boundary.
 
 Only the approved NXP 80×4-byte layout is writable. Blocks 0–77 form the 312-byte
 OpenPrintTag image; 78–79 are always preserved. Unknown application data is
-refused. The diagnostic write UI remains disabled. Source plus object/ELF guards
+refused. The standalone development image is retired and not shipped. Source plus object/ELF guards
 restrict the destructive primitive to the private production binding and guarded
 writer. No arbitrary raw writer or lock/protection API is exposed.
 

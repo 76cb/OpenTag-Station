@@ -31,17 +31,17 @@ void test_touchscreen_has_five_product_destinations_in_order() {
       source,
       "void UiService::build_product_rail()",
       "void UiService::build_home_page()");
-  const auto home = rail.find("LV_SYMBOL_HOME \" Home\"");
-  const auto scale = rail.find("LV_SYMBOL_REFRESH \" Scale\"");
-  const auto printer = rail.find("LV_SYMBOL_FILE \" Printer\"");
-  const auto tags = rail.find("LV_SYMBOL_EDIT \" Tags\"");
-  const auto settings = rail.find("LV_SYMBOL_SETTINGS \" Settings\"");
+  const auto home = rail.find("\"Home\"");
+  const auto scale = rail.find("\"Weigh\"");
+  const auto printer = rail.find("\"Assign\"");
+  const auto tags = rail.find("\"Tag\"");
+  const auto settings = rail.find("\"Settings\"");
   TEST_ASSERT_LESS_THAN(scale, home);
   TEST_ASSERT_LESS_THAN(printer, scale);
   TEST_ASSERT_LESS_THAN(tags, printer);
   TEST_ASSERT_LESS_THAN(settings, tags);
   TEST_ASSERT_TRUE(
-      rail.find("lv_obj_set_size(button, 86, 48)") != std::string::npos);
+      rail.find("layout::nav.y,96,48") != std::string::npos);
 }
 
 void test_home_weigh_opens_scale_before_refreshing() {
@@ -115,11 +115,11 @@ void test_scale_receipt_has_explicit_update_and_collapsed_calibration() {
           "LV_OBJ_FLAG_HIDDEN)") != std::string::npos);
   TEST_ASSERT_TRUE(build.find("GROSS WEIGHT") != std::string::npos);
   TEST_ASSERT_TRUE(build.find("workflow_scale_capture_label_") != std::string::npos);
-  TEST_ASSERT_TRUE(build.find("\"WEIGH\", 44") != std::string::npos);
+  TEST_ASSERT_TRUE(build.find("\"WEIGH AGAIN\", 180") != std::string::npos);
   TEST_ASSERT_TRUE(build.find("\"TARE\", 102") != std::string::npos);
   TEST_ASSERT_TRUE(build.find("\"CALIBRATE\", 160") != std::string::npos);
   TEST_ASSERT_TRUE(
-      build.find("lv_obj_set_size(button, 156, 48)") != std::string::npos);
+      build.find("lv_obj_set_size(button, 216, 48)") != std::string::npos);
   TEST_ASSERT_TRUE(build.find("YZC-133") == std::string::npos);
   TEST_ASSERT_TRUE(build.find("5 kg") == std::string::npos);
   TEST_ASSERT_TRUE(build.find("rated capacity") == std::string::npos);
@@ -142,11 +142,11 @@ void test_scale_screen_has_bounded_480x320_layout_and_distinct_states() {
       source,
       "void UiService::build_scale_page()",
       "void UiService::build_printer_page()");
-  TEST_ASSERT_TRUE(build.find("lv_obj_set_pos(workflow_weight_label_,112,48)") != std::string::npos);
-  TEST_ASSERT_TRUE(build.find("lv_obj_set_size(weight_update_,170,44)") != std::string::npos);
-  TEST_ASSERT_TRUE(build.find("lv_obj_set_pos(button, 310, y)") != std::string::npos);
-  TEST_ASSERT_TRUE(build.find("lv_obj_set_size(button, 156, 48)") != std::string::npos);
-  TEST_ASSERT_TRUE(build.find("lv_obj_set_pos(workflow_status_label_, 112, 270)") !=
+  TEST_ASSERT_TRUE(build.find("place(workflow_weight_label_,layout::gross)") != std::string::npos);
+  TEST_ASSERT_TRUE(build.find("place(weight_update_,layout::update)") != std::string::npos);
+  TEST_ASSERT_TRUE(build.find("lv_obj_set_pos(button, 248, y)") != std::string::npos);
+  TEST_ASSERT_TRUE(build.find("lv_obj_set_size(button, 216, 48)") != std::string::npos);
+  TEST_ASSERT_TRUE(build.find("place(workflow_status_label_,layout::feedback)") !=
       std::string::npos);
 
   const auto refresh = method(
@@ -160,7 +160,7 @@ void test_scale_screen_has_bounded_480x320_layout_and_distinct_states() {
         refresh.find(state) != std::string::npos, state);
   }
   TEST_ASSERT_TRUE(
-      refresh.find("scale.scale_calibrated ? 0x163B43 : 0x24D6A1") !=
+      refresh.find("scale.scale_calibrated ? 0x242C30 : 0x72DFBE") !=
       std::string::npos);
   TEST_ASSERT_TRUE(
       refresh.find("lv_obj_set_style_border_color(\n          "
@@ -227,13 +227,13 @@ void test_tags_page_exposes_guarded_writer_and_reader_state() {
       source,
       "void UiService::build_tags_page()",
       "void UiService::build_settings_page()");
-  TEST_ASSERT_TRUE(build.find("OPENPRINTTAG") != std::string::npos);
+  TEST_ASSERT_TRUE(build.find("Manage tag") != std::string::npos);
   TEST_ASSERT_TRUE(build.find("nfc_detail_") != std::string::npos);
-  TEST_ASSERT_TRUE(build.find("Initializing NFC-V reader") != std::string::npos);
+  TEST_ASSERT_TRUE(build.find("Place a tagged spool") != std::string::npos);
   TEST_ASSERT_TRUE(build.find("writer_preview_callback") != std::string::npos);
   TEST_ASSERT_TRUE(build.find("writer_confirm_callback") != std::string::npos);
   TEST_ASSERT_TRUE(build.find("LV_STATE_DISABLED") != std::string::npos);
-  TEST_ASSERT_TRUE(build.find("Spoolman spool ID") != std::string::npos);
+  TEST_ASSERT_TRUE(build.find("current.spool?current.spool->id:0") != std::string::npos);
   TEST_ASSERT_TRUE(build.find("FORMAT") == std::string::npos);
 }
 
@@ -245,8 +245,8 @@ void test_clear_has_two_steps_and_large_touch_targets() {
   TEST_ASSERT_TRUE(preview.find("writer_confirmation_.clear()") != std::string::npos);
   TEST_ASSERT_TRUE(preview.find("LV_STATE_DISABLED") != std::string::npos);
   for (const char* token : {"CONFIRM CLEAR", "Retry unlink", "current_checksum",
-                            "lv_obj_set_size(clear_preview_,155,44)",
-                            "lv_obj_set_size(writer_confirm_,155,44)"})
+                            "layout::tag_clear",
+                            "layout::tag_confirm"})
     TEST_ASSERT_TRUE_MESSAGE(source.find(token) != std::string::npos, token);
 }
 

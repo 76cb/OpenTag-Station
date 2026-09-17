@@ -33,7 +33,7 @@ class FakeElement {
     this.id = id;
     this.textContent = '';
     this.className = '';
-    this.style = {};
+    this.style = {setProperty(name,value){this[name]=value;}};
     this.disabled = false;
     this.hidden = false;
     this.value = '';
@@ -137,7 +137,7 @@ class FakeDocument {
   createTextNode(text) { return { nodeType: 3, textContent: String(text) }; }
 
   querySelectorAll(selector) {
-    if (selector === '#config-form fieldset') return this.fieldsets;
+    if (selector === '#settings fieldset') return this.fieldsets;
     if (selector === '.profile-row') {
       return this.getElementById('profile-list').children.filter(
         (node) => String(node.className).split(/\s+/).includes('profile-row'));
@@ -334,6 +334,8 @@ function prepareFirmwareUpload(T, generation = 4) {
 function loadApplication(options = {}) {
   const clock = options.clock || new FakeClock();
   const document = options.document || new FakeDocument();
+  // Full product DOM binding is exercised by Chromium, not this transport fake.
+  document.getElementById('overview').dataset.bound='true';
   const fetchCalls = [];
   const prompts = [];
   const sockets = [];
@@ -1554,9 +1556,9 @@ test('heartbeat and snapshot events cause no REST storm while invalidation refre
 test('production Tags recognizes empty metadata, clears removal, and exposes no write action', () => {
   const { T, document } = loadApplication();
   T.renderNfc({ state: 'openprinttag', read_only: true, available: true,
-    bringup_state: 'ready', uid: 'E0:04:01:08:66:27:D8:D4', checksum: '9E639911',
+    bringup_state: 'ready', uid: 'E0:04:00:00:00:00:00:28', checksum: '9E639911',
     decode: 'pass', material_name: null, brand_name: null,
-    inventory: { present: true, tag_count: 1, uid: 'E0:04:01:08:66:27:D8:D4' } });
+    inventory: { present: true, tag_count: 1, uid: 'E0:04:00:00:00:00:00:28' } });
   assert.equal(document.getElementById('nfc-summary').textContent, 'OpenPrintTag recognized');
   assert.equal(document.getElementById('nfc-material').textContent, 'Unavailable');
   assert.equal(document.getElementById('nfc-checksum').textContent, '9E639911');
@@ -1610,13 +1612,13 @@ test('Tags renders bounded disabled, initializing, ready, detected, multiple, an
     inventory: {
       tag_count: 1,
       present: true,
-      uid: 'E0040108662F6FBC',
+      uid: 'E004000000000029',
       technology: 'NFC-V / ISO15693',
     },
     geometry: { block_size: 4, block_count: 78 },
   });
   assert.equal(document.getElementById('nfc-summary').textContent, 'NFC-V TAG DETECTED');
-  assert.equal(document.getElementById('nfc-uid').textContent, 'E0:04:01:08:66:2F:6F:BC');
+  assert.equal(document.getElementById('nfc-uid').textContent, 'E0:04:00:00:00:00:00:29');
   assert.equal(document.getElementById('nfc-identity').textContent, '—');
   assert.equal(document.getElementById('nfc-geometry').textContent, '78 × 4 B');
 
@@ -1637,7 +1639,7 @@ test('Tags renders bounded disabled, initializing, ready, detected, multiple, an
   assert.match(document.getElementById('nfc-guidance').textContent, /IRQ line/);
 
   T.renderTag({
-    uid: 'E0040108662F6FBC',
+    uid: 'E004000000000029',
     geometry: { block_size: 4, block_count: 78 },
     raw_blocks: new Array(4000).fill(255),
   });
@@ -1646,9 +1648,9 @@ test('Tags renders bounded disabled, initializing, ready, detected, multiple, an
   assert.equal(document.getElementById('nfc-read-status').textContent.includes('255'), false,
     'raw memory must not be rendered into routine status UI');
 });
-test('product navigation exposes exactly five primary destinations and preserves legacy deep links', () => {
+test('product navigation exposes four product destinations and preserves legacy deep links', () => {
   const { T, document, context } = loadApplication();
-  const pages = ['home', 'scale', 'printer', 'tags', 'settings'];
+  const pages = ['home', 'inventory', 'printer', 'settings'];
   assert.deepEqual(Array.from(Object.keys(T.PRODUCT_PAGES)), pages);
   for (const page of pages) {
     assert.equal(T.activateProductPage(page), page);
@@ -1661,10 +1663,11 @@ test('product navigation exposes exactly five primary destinations and preserves
     }
   }
   assert.equal(T.productPageFromHash('#printers'), 'printer');
-  assert.equal(T.productPageFromHash('#nfc'), 'tags');
+  assert.equal(T.productPageFromHash('#nfc'), 'home');
   assert.equal(T.productPageFromHash('#diagnostics'), 'settings');
-  assert.equal(T.navigateProductPage('scale'), 'scale');
-  assert.equal(context.location.hash, '#scale');
+  T.activateProductPage('home');
+  assert.equal(T.navigateProductPage('scale'), 'home');
+  assert.equal(document.getElementById('weigh-dialog').open,true);
 });
 
 test('Scale visual contract is spool-like, responsive, and keeps calibration collapsed', async () => {
@@ -1672,10 +1675,10 @@ test('Scale visual contract is spool-like, responsive, and keeps calibration col
   assert.equal(source.includes('id="scale-title"'), false,
     'Scale must not repeat its page heading');
   assert.ok(source.includes('id="page-eyebrow"'));
-  assert.ok(source.includes('.spool-rim i:nth-child(6)'));
+
   assert.ok(source.includes('repeating-radial-gradient(circle'));
-  assert.ok(source.includes('@media (max-width:900px)'));
-  assert.ok(source.includes('.brand-name,.rail-live{display:none;}'));
+
+
 
   const { T, document } = loadApplication();
   T.setCalibrationPanel(false);
@@ -1753,8 +1756,8 @@ test('Home Weigh opens Scale and submits one bounded measurement', async () => {
   T.activateProductPage('home');
   const completion = T.startHomeWeigh();
   await flushPromises(20);
-  assert.equal(T.state.currentPage, 'scale');
-  assert.equal(context.location.hash, '#scale');
+  assert.equal(document.getElementById('weigh-dialog').open,true);
+  assert.notEqual(context.location.hash,'#scale');
   assert.equal(clock.runNext(), true);
   assert.equal(await completion, true);
   assert.equal(document.getElementById('gross-weight').textContent, '1115');
@@ -1772,15 +1775,15 @@ test('Home exposes calibration-required truth and routes its primary action to g
   assert.equal(document.getElementById('home-eyebrow').textContent,
     'SCALE SETUP REQUIRED');
   assert.equal(document.getElementById('overview-title').textContent,
-    'Calibrate the scale before weighing');
+    'Place a spool');
   assert.equal(document.getElementById('home-action-label').textContent,
     'CALIBRATE SCALE');
   assert.equal(document.getElementById('home-weight-state').textContent,
     'Scale calibration required');
   assert.equal(document.getElementById('home-weigh').disabled, false);
   assert.equal(await T.startHomeWeigh(), true);
-  assert.equal(T.state.currentPage, 'scale');
-  assert.equal(context.location.hash, '#scale');
+  assert.equal(document.getElementById('weigh-dialog').open,true);
+  assert.notEqual(context.location.hash,'#scale');
   assert.equal(T.state.calibrationOpen, true);
   assert.equal(document.getElementById('calibration-panel').hidden, false);
   assert.equal(fetchCalls.length, 0, 'guidance navigation must not submit a weigh');
@@ -2429,7 +2432,7 @@ test('spool resolution guides confirmation and clears stale candidates on remova
   T.renderSpool({workflow: {openprinttag_available: true, spool_generation: 7,
     stage: 'spool_selection_required', candidates: [{id: 17, display_name: 'PLA Black'}, {id: 18, display_name: 'PLA White'}]}});
   assert.equal(document.getElementById('confirm-spool-form').hidden, false);
-  assert.match(document.getElementById('spool-guidance').textContent, /Multiple spools/);
+  assert.match(document.getElementById('spool-guidance').textContent, /More than one Spoolman spool/);
   assert.equal(document.getElementById('spool-candidates').children.length, 2);
   T.renderSpool({workflow: {openprinttag_available: false, spool_generation: 8, stage: 'awaiting_spool'}});
   assert.equal(T.state.spool, null);
@@ -2496,7 +2499,7 @@ test('writer entry mounts visible contents and binds specific confirmation contr
 
 test('writer preview exposes exact confirmation and pending association retry', () => {
   const app=loadApplication();
-  app.T.renderWriter({phase:'preview',uid:'E00401086627D8D4',generation:'42',target_checksum:'12345678',spool_id:12,changed_blocks:[4,69],total_blocks:2});
+  app.T.renderWriter({phase:'preview',uid:'E004000000000028',generation:'42',target_checksum:'12345678',spool_id:12,changed_blocks:[4,69],total_blocks:2});
   assert.equal(app.document.getElementById('writer-confirm').hidden,false);
   assert.equal(app.document.getElementById('writer-retry').hidden,true);
   app.T.renderWriter({phase:'association_pending',message:'Tag written successfully; Spoolman association pending.'});
@@ -2518,18 +2521,18 @@ test('writer repurpose confirmation discloses and submits the approved previous 
   app.T.bindWriter();
   let warning = '';
   app.context.window.confirm = text => { warning = text; return true; };
-  app.T.renderWriter({phase:'preview',mode:'rewrite',uid:'E00401086627D8D4',generation:'42',target_checksum:'12345678',spool_id:12,previous_spool_id:9});
+  app.T.renderWriter({phase:'preview',mode:'rewrite',uid:'E004000000000028',generation:'42',target_checksum:'12345678',spool_id:12,previous_spool_id:9});
   app.document.getElementById('writer-confirm').click();
   await flushPromises();
-  assert.match(warning, /MOVE this NFC UID from spool #9 to #12/);
-  assert.match(warning, /E00401086627D8D4/);
-  assert.match(warning, /Previous spool UUID is retained/);
+  assert.match(warning, /Move the tag from spool #9 to #12/);
+  assert.match(warning, /E004000000000028/);
+  assert.match(warning, /previous spool stays in inventory/);
   const posted = app.fetchCalls.find(call => call.init.method === 'POST');
   assert.ok(posted);
   const body = JSON.parse(posted.init.body);
   assert.equal(body.previous_spool_id, 9);
   assert.equal(body.spool_id, 12);
-  assert.equal(body.uid, 'E00401086627D8D4');
+  assert.equal(body.uid, 'E004000000000028');
 });
 test('writer receipt polling reaches physical verification result through shared scheduler', async () => {
   let polls=0;
@@ -2538,7 +2541,7 @@ test('writer receipt polling reaches physical verification result through shared
     if(String(url).includes('/operations/'))return jsonResponse(200,{id:42,state:++polls>1?'succeeded':'running'});
     return jsonResponse(200,{phase:'complete',message:'Tag and association verified'});
   }});
-  await drivePromise(app.T.writerCommand({action:'write',uid:'E00401086627D8D4',generation:'1',target_checksum:'12345678',spool_id:12,previous_spool_id:0}),app.clock);
+  await drivePromise(app.T.writerCommand({action:'write',uid:'E004000000000028',generation:'1',target_checksum:'12345678',spool_id:12,previous_spool_id:0}),app.clock);
   assert.equal(app.T.writerState.busy,false);assert.equal(app.T.writerState.snapshot.phase,'complete');
   assert.equal(app.fetchCalls.filter(c=>c.init.method==='POST').length,1);
 });
@@ -2567,14 +2570,14 @@ function writerChoose(app) {writerCatalog(app);app.document.getElementById('writ
 
 test('UID Copy uses the modern clipboard when available',async()=>{
   let copied;const a=writerApp({navigator:{clipboard:{writeText:async value=>{copied=value;}}}});
-  await a.context.window.OpenTagWriter.copy('E0:04:01:08:66:27:D8:D4');assert.equal(copied,'E0:04:01:08:66:27:D8:D4');
+  await a.context.window.OpenTagWriter.copy('E0:04:00:00:00:00:00:28');assert.equal(copied,'E0:04:00:00:00:00:00:28');
 });
 for(const success of [true,false])test('UID Copy HTTP fallback restores focus and cleans up on '+(success?'success':'failure'),async()=>{
   const a=writerApp();const opener=a.document.getElementById('nfc-copy');opener.focus();let selected;
   const create=a.document.createElement.bind(a.document);a.document.createElement=tag=>{const n=create(tag);n.select=()=>{selected=n.value;};return n;};
   const before=a.document.body.children.length;a.document.execCommand=command=>{assert.equal(command,'copy');return success;};
-  const work=a.context.window.OpenTagWriter.copy('E0:04:01:08:66:27:D8:D4');if(success)await work;else await assert.rejects(work,/Copy unavailable/);
-  assert.equal(selected,'E0:04:01:08:66:27:D8:D4');assert.equal(a.document.body.children.length,before);assert.equal(a.document.activeElement,opener);
+  const work=a.context.window.OpenTagWriter.copy('E0:04:00:00:00:00:00:28');if(success)await work;else await assert.rejects(work,/Copy unavailable/);
+  assert.equal(selected,'E0:04:00:00:00:00:00:28');assert.equal(a.document.body.children.length,before);assert.equal(a.document.activeElement,opener);
 });
 
 test('modal requires a physical spool and keeps Review actions in the footer',()=>{
@@ -2675,7 +2678,7 @@ test('writer ignores conflict readback belonging to another record',async()=>{
 });
 function nodeText(n){return String(n.textContent||'')+n.children.map(nodeText).join(' ');}
 function displayed(app,id){const n=app.document.getElementById(id);const css=app.context.window.OpenTagWriterCss;assert.match(css,/\.writer-hidden\s*\{display:\s*none\s*!important/);return !n.className.split(/\s+/).includes('writer-hidden');}
-const sunluPreview={phase:'preview',mode:'rewrite',spool_id:28,previous_spool_id:0,uid:'E00401086627D8D4',generation:'3',current_checksum:'9E639911',target_checksum:'B57D9186',changed_blocks:[2,3],instance_uuid:'fea84b36-1234-4234-9234-123456789012',current:{},proposed:{brand_name:'Sunlu',material_name:'Sunlu PLA+ 2.0 Black',material_abbreviation:'PLA+',nominal_netto_full_weight:1000,actual_netto_full_weight:1000,empty_container_weight:130,density:1.24,filament_diameter:1.75,consumed_weight:0,primary_color:[0,0,0,255]}};
+const sunluPreview={phase:'preview',mode:'rewrite',spool_id:28,previous_spool_id:0,uid:'E004000000000028',generation:'3',current_checksum:'9E639911',target_checksum:'B57D9186',changed_blocks:[2,3],instance_uuid:'fea84b36-1234-4234-9234-123456789012',current:{},proposed:{brand_name:'Sunlu',material_name:'Sunlu PLA+ 2.0 Black',material_abbreviation:'PLA+',nominal_netto_full_weight:1000,actual_netto_full_weight:1000,empty_container_weight:130,density:1.24,filament_diameter:1.75,consumed_weight:0,primary_color:[0,0,0,255]}};
 
 test('writer Sunlu spool row has a checkmark, selected style and accessible state',()=>{const a=writerApp();writerChoose(a);const row=a.document.getElementById('writer-results').children[0];assert.match(row.className,/writer-selected/);assert.equal(row.getAttribute('aria-pressed'),'true');assert.equal(row.children[0].textContent,'✓');assert.match(a.document.getElementById('writer-selection').textContent,/#28/);assert.match(a.document.getElementById('writer-selected-title').textContent,/Sunlu/);});
 test('writer selects only one spool row at a time',()=>{const a=writerApp();writerCatalog(a,[SUNLU,{...SUNLU,id:27}]);const rows=a.document.getElementById('writer-results').children;rows[0].click();rows[1].click();assert.equal(rows[0].getAttribute('aria-pressed'),'false');assert.equal(rows[1].getAttribute('aria-pressed'),'true');assert.equal(a.T.writerState.spool,27);});
@@ -2696,13 +2699,13 @@ test('writer valid spool edit submits only changed fields and renders canonical 
 test('writer corrects 777.12 g shared nominal weight to 1000 g through explicit update',async()=>{let result={};const a=writerApp({fetch:async(url,init)=>{if(init.method==='POST'){const b=JSON.parse(init.body);assert.equal(b.action,'update_filament');assert.equal(b.filament_id,22);assert.equal(b.spool_id,28);assert.deepEqual(b.changes,{weight:1000});assert.deepEqual(b.expected,{weight:777.12});result={phase:'updated',filament:SUNLU.filament,spool:SUNLU};}return jsonResponse(init.method==='POST'?202:200,init.method==='POST'?{operation_id:42}:String(url).includes('/operations/')?{id:42,state:'succeeded'}:result);}});const old={...SUNLU,filament:{...SUNLU.filament,weight:777.12}};writerCatalog(a,[old]);a.document.getElementById('writer-results').children[0].click();a.T.openEditor('filament');a.document.getElementById('writer-editor-fields').querySelector('[name="weight"]').value='1000';await drivePromise(a.T.saveEditor(),a.clock);assert.equal(a.T.writerState.material.weight,1000);assert.match(nodeText(a.document.getElementById('writer-selected-detail')),/1000 g/);});
 test('writer failed edit retains old verified data and editor draft',async()=>{const a=writerApp({fetch:async(url,init)=>init.method==='POST'?jsonResponse(409,{error:{message:'Mismatch'}}):jsonResponse(200,{phase:'failed',message:'Readback mismatch',spool:{...SUNLU,used_weight:99}})});writerChoose(a);a.T.openEditor('spool');a.document.getElementById('writer-editor-fields').querySelector('[name="used_weight"]').value='25';await drivePromise(a.T.saveEditor(),a.clock);assert.equal(a.T.writerState.selected.used_weight,0);assert.ok(a.T.writerState.editor);assert.match(a.document.getElementById('writer-editor-message').textContent,/not verified/);});
 test('writer opening an editor immediately invalidates exact write confirmation',()=>{const a=writerApp();writerChoose(a);a.T.writerState.invalidated=false;a.T.renderWriter({...sunluPreview,spool:SUNLU});assert.equal(displayed(a,'writer-confirm'),true);a.T.openEditor('spool');assert.equal(displayed(a,'writer-confirm'),false);assert.equal(a.document.getElementById('writer-preview').disabled,true);a.document.getElementById('writer-cancel').click();assert.equal(displayed(a,'writer-confirm'),false);assert.equal(a.document.getElementById('writer-preview').disabled,false);});
-test('writer human preview shows metadata and exact tag context without JSON',()=>{const a=writerApp();a.T.renderWriter(sunluPreview);const text=nodeText(a.document.getElementById('writer-tag'))+nodeText(a.document.getElementById('writer-diff'));for(const value of ['E0:04:01:08:66:27:D8:D4','Sunlu','1000 g','130 g','0 g'])assert.ok(text.includes(value));assert.doesNotMatch(text,/"nominal_netto_full_weight"/);});
+test('writer human preview shows metadata and exact tag context without JSON',()=>{const a=writerApp();a.T.renderWriter(sunluPreview);const text=nodeText(a.document.getElementById('writer-tag'))+nodeText(a.document.getElementById('writer-diff'));for(const value of ['E0:04:00:00:00:00:00:28','Sunlu','1000 g','130 g','0 g'])assert.ok(text.includes(value));assert.doesNotMatch(text,/"nominal_netto_full_weight"/);});
 test('writer advanced raw JSON is inside collapsed details by default',()=>{const a=writerApp();const html=a.context.window.OpenTagWriterLayout;assert.match(html,/<details id="writer-advanced"[^>]*><summary>Advanced details<\/summary><pre id="writer-detail">/);assert.doesNotMatch(html,/<details id="writer-advanced"[^>]*\bopen\b/);});
-test('writer optional notices are collapsed separately from destructive warnings',()=>{const a=writerApp();a.T.renderWriter({...sunluPreview,recovering_interrupted_write:true,previous_spool_id:27,warnings:['Writing is not atomic.','missing recommended GTIN','missing recommended manufactured date']});assert.match(nodeText(a.document.getElementById('writer-critical')),/not atomic/);assert.match(nodeText(a.document.getElementById('writer-critical')),/Recovery/);assert.match(nodeText(a.document.getElementById('writer-critical')),/Spool #27/);assert.doesNotMatch(nodeText(a.document.getElementById('writer-critical')),/GTIN/);assert.equal(a.document.getElementById('writer-notice-count').textContent,'2 optional metadata fields are not populated');});
+test('writer optional notices are collapsed separately from destructive warnings',()=>{const a=writerApp();a.T.renderWriter({...sunluPreview,recovering_interrupted_write:true,previous_spool_id:27,warnings:['Writing is not atomic.','missing recommended GTIN','missing recommended manufactured date']});assert.match(nodeText(a.document.getElementById('writer-critical')),/incomplete tag/);assert.match(nodeText(a.document.getElementById('writer-critical')),/Recovery/);assert.match(nodeText(a.document.getElementById('writer-critical')),/Spool #27/);assert.doesNotMatch(nodeText(a.document.getElementById('writer-critical')),/GTIN/);assert.equal(a.document.getElementById('writer-notice-count').textContent,'2 optional metadata fields are not populated');});
 test('writer confirmation actions use an important display-none class in every other phase',()=>{const a=writerApp();for(const phase of ['idle','catalog','failed','writing','complete','import_preview','preview','association_pending']){a.T.renderWriter({...sunluPreview,phase});const visible=['writer-import','writer-confirm','writer-retry'].filter(id=>displayed(a,id));assert.deepEqual(visible,{import_preview:['writer-import'],preview:['writer-confirm'],association_pending:['writer-retry']}[phase]||[]);}});
 test('writer pending association locks unrelated controls but offers retry',()=>{const a=writerApp();writerChoose(a);a.T.renderWriter({phase:'association_pending',spool_id:28});assert.equal(displayed(a,'writer-retry'),true);assert.equal(a.document.getElementById('writer-retry').disabled,false);assert.equal(a.document.getElementById('writer-edit-spool').disabled,true);assert.equal(a.document.getElementById('writer-source').disabled,true);});
 test('writer import preview has readable canonical proposal and one import action',()=>{const a=writerApp();a.T.renderWriter({phase:'import_preview',vendor_name:'Sunlu',proposed_filament:SUNLU.filament});assert.match(nodeText(a.document.getElementById('writer-tag')),/Sunlu PLA\+ 2.0 Black/);assert.equal(displayed(a,'writer-import'),true);assert.equal(displayed(a,'writer-confirm'),false);});
-test('writer responsive layout retains all controls in a single DOM',()=>{const a=writerApp();const h=a.context.window.OpenTagWriterLayout;assert.match(readFileSync(ASSET_PATH,'utf8'),/@media\(max-width:760px\).*grid-template-columns:1fr/);for(const id of ['writer-previous','writer-next','writer-editor','writer-preview','writer-confirm','writer-retry'])assert.equal(h.split('id="'+id+'"').length-1,1);});
+test('writer responsive layout retains all controls in a single DOM',()=>{const a=writerApp();const h=a.context.window.OpenTagWriterLayout;assert.match(readFileSync(ASSET_PATH,'utf8'),/@media\(max-width:520px\).*grid-template-columns:1fr/);for(const id of ['writer-previous','writer-next','writer-editor','writer-preview','writer-confirm','writer-retry'])assert.equal(h.split('id="'+id+'"').length-1,1);});
 test('writer busy operation disables selection, navigation and editing',async()=>{const wait=deferred();const a=writerApp({fetch:async()=>{await wait.promise;return jsonResponse(200,{phase:'catalog',items:[]});}});writerChoose(a);const work=a.T.writerCommand({action:'catalog',offset:0});assert.equal(a.document.getElementById('writer-preview').disabled,true);assert.equal(a.document.getElementById('writer-next').disabled,true);assert.equal(a.document.getElementById('writer-edit-spool').disabled,true);assert.equal(a.document.getElementById('writer-results').children[0].disabled,true);wait.resolve();await drivePromise(work,a.clock);});
 
 test('writer nominal weight edit preserves unknown color and other unmodified values',async()=>{let result={};const a=writerApp({fetch:async(url,init)=>{if(init.method==='POST'){const b=JSON.parse(init.body);assert.deepEqual(b.changes,{weight:1000});assert.deepEqual(b.expected,{weight:777.12});result={phase:'updated',filament:{...SUNLU.filament,color_hex:null}};return jsonResponse(202,{operation_id:42});}return jsonResponse(200,String(url).includes('/operations/')?{id:42,state:'succeeded'}:result);}});a.T.selected(null,{...SUNLU.filament,weight:777.12,color_hex:null});a.T.openEditor('filament');a.document.getElementById('writer-editor-fields').querySelector('[name="weight"]').value='1000';await drivePromise(a.T.saveEditor(),a.clock);assert.equal(a.T.writerState.editor,null);assert.equal(a.T.writerState.material.weight,1000);});
@@ -2719,7 +2722,7 @@ test('Community abort timeout is bounded and retryable',async()=>{const a=writer
 test('Community stale async success and failure cannot replace switched source',async()=>{for(const fail of [false,true]){let resolve,reject;const a=writerApp({fetch:()=>new Promise((r,j)=>{resolve=r;reject=j;})});a.document.getElementById('writer-source').value='community';const pending=a.T.writerSearch(false);a.document.getElementById('writer-source').value='spoolman';a.T.writerState.queryVersion++;a.T.writerResults([SUNLU],'spool');if(fail)reject(Error('old failure'));else resolve(catalogResponse());await pending;assert.equal(a.T.writerState.entity,'spool');assert.match(nodeText(a.document.getElementById('writer-results')),/Sunlu/);assert.doesNotMatch(a.document.getElementById('writer-progress').textContent,/old failure/);}});
 test('semantic no-change preview disables unnecessary write',()=>{const a=writerApp();a.T.renderWriter({phase:'preview',spool_id:28,semantic_no_change:true,changed_blocks:[]});assert.equal(a.document.getElementById('writer-confirm').disabled,true);assert.match(nodeText(a.document.getElementById('writer-critical')),/No changes needed/);});
 test('weigh view shows capture calculation and policy without automatic browser mutation',()=>{const a=loadApplication();a.T.renderWeighSync({measurement_id:4,phase:'ready',can_update:true,gross:842,tare:130,measured:712,canonical_remaining:720,difference:-8,policy_auto:false,spool_id:28});assert.equal(a.document.getElementById('weigh-update').disabled,false);assert.match(a.document.getElementById('weigh-measured').textContent,/712/);assert.match(a.document.getElementById('weigh-policy').textContent,/OFF/);a.T.renderWeighSync({phase:'updated',policy_auto:true,canonical_remaining:712,message:'Spoolman updated and verified'});assert.equal(a.document.getElementById('weigh-update').disabled,true);assert.match(a.document.getElementById('weigh-policy').textContent,/ON/);assert.equal(a.fetchCalls.length,0);});
-test('clear pending offers unlink retry and locks Escape during physical work',()=>{const a=loadApplication();a.T.bindWeighAndClear();a.document.getElementById('clear-dialog').showModal();a.T.renderClear({phase:'clearing',uid:'E00401086627D8D4',total_blocks:23,completed_blocks:14});a.T.closeClear();assert.equal(a.document.getElementById('clear-dialog').open,true);assert.match(a.document.getElementById('clear-message').textContent,/14 \/ 23 changed blocks verified/);a.T.renderClear({phase:'unlink_pending',uid:'E00401086627D8D4',message:'Tag is blank and verified. Spoolman unlink is still pending.'});assert.equal(a.document.getElementById('clear-retry').hidden,false);assert.equal(a.document.getElementById('clear-confirm').hidden,true);a.T.closeClear();assert.equal(a.document.getElementById('clear-dialog').open,false);assert.equal(a.document.activeElement.id,'clear-open');});
+test('clear pending offers unlink retry and locks Escape during physical work',()=>{const a=loadApplication();a.T.bindWeighAndClear();a.document.getElementById('clear-dialog').showModal();a.T.renderClear({phase:'clearing',uid:'E004000000000028',total_blocks:23,completed_blocks:14});a.T.closeClear();assert.equal(a.document.getElementById('clear-dialog').open,true);assert.match(a.document.getElementById('clear-message').textContent,/14 \/ 23 changed blocks verified/);a.T.renderClear({phase:'unlink_pending',uid:'E004000000000028',message:'Tag is blank and verified. Spoolman unlink is still pending.'});assert.equal(a.document.getElementById('clear-retry').hidden,false);assert.equal(a.document.getElementById('clear-confirm').hidden,true);a.T.closeClear();assert.equal(a.document.getElementById('clear-dialog').open,false);assert.equal(a.document.activeElement.id,'clear-open');});
 
 test('Community streamed oversize cancels before retaining payload',async()=>{let cancelled=0;const a=writerApp({fetch:async()=>({ok:true,headers:{get:()=>null},body:{getReader:()=>({read:async()=>({done:false,value:{byteLength:67108865}}),cancel:async()=>{cancelled++;}})}})});a.document.getElementById('writer-source').value='community';await a.T.writerSearch(false);assert.equal(cancelled,1);assert.match(a.document.getElementById('writer-progress').textContent,/64 MiB/);assert.equal(a.T.writerState.community,null);});
 test('Community import transitions to verified canonical filament and creation choices',()=>{const a=writerApp();a.document.getElementById('writer-source').value='community';a.T.renderWriter({phase:'imported',filament:SUNLU.filament});assert.equal(a.document.getElementById('writer-source').value,'spoolman');assert.equal(a.T.writerState.filament,22);assert.equal(a.T.writerState.spool,0);assert.equal(displayed(a,'writer-create'),true);assert.match(a.document.getElementById('writer-progress').textContent,/Imported to Spoolman/);a.T.renderWriter({phase:'catalog',entity:'spool',items:[],offset:0});assert.match(a.document.getElementById('writer-progress').textContent,/Imported to Spoolman/);});

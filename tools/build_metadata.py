@@ -11,13 +11,15 @@ import datetime
 import os
 import pathlib
 import subprocess
+import json
+import sys
 
 
 PROJECT_DIR = pathlib.Path(env.subst("$PROJECT_DIR"))  # type: ignore[name-defined]
 
 
-def read_version() -> str:
-    return (PROJECT_DIR / "VERSION").read_text(encoding="utf-8").strip()
+sys.path.insert(0, str(PROJECT_DIR / "tools"))
+from release_version import version as read_version
 
 
 def git_value(*args: str, fallback: str) -> str:
@@ -43,6 +45,10 @@ def quoted(value: str) -> str:
     escaped = value.replace("\\", "\\\\").replace('"', '\\"')
     return f'\\"{escaped}\\"'
 
+
+metadata_dir = pathlib.Path(env.subst("$BUILD_DIR"))
+metadata_dir.mkdir(parents=True, exist_ok=True)
+(metadata_dir / "build-metadata.json").write_text(json.dumps({"version": read_version(), "source_commit": git_value("rev-parse", "HEAD", fallback="uncommitted")}, indent=2) + "\n")
 
 env.Append(  # type: ignore[name-defined]
     CPPDEFINES=[

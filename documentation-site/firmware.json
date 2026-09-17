@@ -1,0 +1,6 @@
+{
+  "version": "1.0.0-rc.1",
+  "source_repository": "76cb/OpenTag-Station",
+  "source_ref": "codex/current-spool-experience",
+  "acceptance": "pending"
+}

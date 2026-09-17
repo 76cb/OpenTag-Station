@@ -9,32 +9,26 @@ const char index_html[] = R"HTML(<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="color-scheme" content="dark light">
-<meta name="description" content="Local administration for OpenTag Station">
+<meta name="color-scheme" content="dark">
+<meta name="description" content="Your filament workstation">
 <title>OpenTag Station</title>
 <link rel="stylesheet" href="/assets/app.css?v=)HTML" OPENTAG_GIT_SHA R"HTML(">
 <script defer src="/assets/writer.js"></script>
 <script defer src="/assets/app.js?v=)HTML" OPENTAG_GIT_SHA R"HTML("></script>
 </head>
-<body>
+<body><svg class="svg-definitions" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><defs><symbol id="i-spool" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3"/><path d="M6 5l4 4m4 6 4 4M5 18l4-4m6-4 4-4"/></symbol><symbol id="i-scale" viewBox="0 0 24 24"><path d="M5 4h14l3 16H2L5 4Z"/><path d="M8 8a5 5 0 0 1 8 0m-4 3 2-4"/></symbol><symbol id="i-printer" viewBox="0 0 24 24"><path d="M5 9V3h14v6M5 17H2V9h20v8h-3M5 14h14v8H5z"/></symbol><symbol id="i-tag" viewBox="0 0 24 24"><path d="m3 3 9 0 10 10-9 9L3 12Z"/><circle cx="8" cy="8" r="1"/></symbol><symbol id="i-settings" viewBox="0 0 24 24"><path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="3"/><circle cx="16" cy="17" r="3"/></symbol><symbol id="i-search" viewBox="0 0 24 24"><circle cx="10" cy="10" r="7"/><path d="m15 15 6 6"/></symbol><symbol id="i-arrow" viewBox="0 0 24 24"><path d="M4 12h16m-6-6 6 6-6 6"/></symbol><symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 4v16M4 12h16"/></symbol><symbol id="i-check" viewBox="0 0 24 24"><path d="m4 12 5 5L20 6"/></symbol><symbol id="i-edit" viewBox="0 0 24 24"><path d="m4 16 12-12 4 4L8 20H4Z"/></symbol><symbol id="i-link" viewBox="0 0 24 24"><path d="m9 15 6-6m-4-3 2-2a5 5 0 0 1 7 7l-2 2M6 11l-2 2a5 5 0 0 0 7 7l2-2"/></symbol><symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 8A9 9 0 1 0 21 15M20 2v6h-6"/></symbol><symbol id="i-warning" viewBox="0 0 24 24"><path d="m12 3 10 18H2Z M12 9v5m0 3v1"/></symbol><symbol id="i-database" viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 4 18 4 18 0V5M3 12c0 4 18 4 18 0"/></symbol></defs></svg>
 <a class="skip-link" href="#content">Skip to content</a>
 <aside class="product-rail">
 <a class="brand-block" href="#home" aria-label="OpenTag Station home">
 <span class="brand-mark" aria-hidden="true"><span></span></span>
 <span class="brand-name">opentag<small>station</small></span>
 </a>
-<nav class="section-nav" aria-label="Primary navigation">
-<a id="nav-home" href="#home" data-nav="home"><span class="nav-icon" aria-hidden="true">⌂</span><span>Home</span></a>
-<a id="nav-scale" href="#scale" data-nav="scale"><span class="nav-icon" aria-hidden="true">◉</span><span>Scale</span></a>
-<a id="nav-printer" href="#printer" data-nav="printer"><span class="nav-icon" aria-hidden="true">▣</span><span>Printer</span></a>
-<a id="nav-tags" href="#tags" data-nav="tags"><span class="nav-icon" aria-hidden="true">◇</span><span>Tags</span></a>
-<a id="nav-settings" href="#settings" data-nav="settings"><span class="nav-icon" aria-hidden="true">⚙</span><span>Settings</span></a>
-</nav>
+<nav class="section-nav" aria-label="Primary navigation"><a id="nav-home" href="#home" data-nav="home"><svg class="icon" aria-hidden="true"><use href="#i-spool"/></svg><span>Dashboard</span></a><a id="nav-inventory" href="#inventory" data-nav="inventory"><svg class="icon" aria-hidden="true"><use href="#i-database"/></svg><span>Inventory</span></a><a id="nav-printer" href="#printer" data-nav="printer"><svg class="icon" aria-hidden="true"><use href="#i-printer"/></svg><span>Printer</span></a><a id="nav-settings" href="#settings" data-nav="settings"><svg class="icon" aria-hidden="true"><use href="#i-settings"/></svg><span>Settings</span></a></nav>
 <div class="rail-live" aria-live="polite"><span id="live-indicator" class="status-dot pending" aria-hidden="true"></span><span id="live-status">Connecting…</span></div>
 </aside>
 <div class="app-frame">
 <header class="site-header">
-<div><p id="page-eyebrow" class="eyebrow">OPEN TAG STATION</p><h1 id="page-title">Home</h1></div>
+<div><p id="page-eyebrow" class="eyebrow">OPEN TAG STATION</p><h1 id="page-title">Dashboard</h1></div>
 <div class="connection-strip"><span id="health-badge" class="badge neutral">Checking</span><button id="refresh-all" class="button quiet" type="button">Refresh</button></div>
 </header>
 
@@ -64,24 +58,12 @@ const char index_html[] = R"HTML(<!doctype html>
 </article>
 </div>
 </section>
-<section id="overview" class="section product-page home-page" data-page="home" aria-labelledby="overview-title">
-<div class="home-hero">
-<article class="home-copy">
-<p id="home-eyebrow" class="eyebrow">READY</p>
-<h2 id="device-name">OpenTag Station</h2>
-<p id="overview-title" class="home-prompt">Place a spool</p>
-<p id="home-description" class="muted">Present a spool to begin, or capture its weight directly.</p>
-</article>
-<button id="home-weigh" class="home-action" type="button" disabled>
-<span class="home-action-icon" aria-hidden="true">◉</span>
-<span><strong id="home-action-label">WEIGH SPOOL</strong><small id="home-last-weight">No measurement yet</small></span>
-<span aria-hidden="true">›</span>
-</button>
-</div>
-<p id="home-weight-state" class="home-state">Scale snapshot pending</p>
+<section id="overview" class="section product-page" data-page="home" aria-labelledby="overview-title">
+<div id="spool-empty" class="spool-empty"><div class="spool-art" aria-hidden="true"><div class="spool-flange"><div class="spool-winding"><div class="spool-center"></div></div></div></div><p class="eyebrow">YOUR FILAMENT WORKSTATION</p><h2 id="overview-title">Place a spool</h2><p>Set a tagged spool on the station<br>to identify and weigh it.</p><div class="action-row"><button id="new-tag" class="button primary"><svg class="icon" aria-hidden="true"><use href="#i-tag"/></svg> Write a new tag</button><a class="button" href="#inventory">Browse inventory</a></div></div>
+<div id="current-spool" hidden><div class="workspace-heading"><p class="eyebrow">CURRENT SPOOL</p><span id="current-number" class="muted"></span></div><div class="spool-workspace"><div class="spool-object"><div class="spool-art" aria-hidden="true"><div class="spool-flange"><div class="spool-winding"><div class="spool-center"></div></div></div></div><span id="current-color" class="color-caption">Filament</span></div><div class="spool-information"><p id="current-vendor" class="vendor"></p><h2 id="current-name"></h2><p id="current-material" class="muted"></p><div class="remaining-reading"><span id="current-remaining">—</span><small>g <span>remaining</span></small></div><div id="remaining-summary" hidden><progress id="remaining-meter" max="100" value="0" aria-label="Filament remaining"></progress><span id="remaining-caption"></span></div><div class="spool-status"><span id="current-tag"></span><span id="current-link"></span><span id="current-assignment"></span></div><div class="primary-actions"><button id="home-weigh" class="button primary" disabled><svg class="icon" aria-hidden="true"><use href="#i-scale"/></svg> <span id="home-action-label">Weigh</span></button><button id="spool-assign" class="button"><svg class="icon" aria-hidden="true"><use href="#i-printer"/></svg> Assign</button><button id="spool-manage" class="button"><svg class="icon" aria-hidden="true"><use href="#i-tag"/></svg> Manage tag</button></div><div class="secondary-actions"><button id="spool-edit" class="text-button">Edit spool</button><button id="spool-details" class="text-button">View details</button></div></div></div><div class="workspace-bottom"><div><h3>Weight</h3><p id="dashboard-weight">Weigh this spool to compare it with your inventory.</p><p id="home-weight-state" class="muted"></p></div><div><h3>Ready for your next print</h3><p id="dashboard-printer" class="muted">Choose a toolhead to assign this spool.</p><a href="#printer">View printer →</a></div></div></div>
 </section>
-
-<section id="scale" class="section product-page scale-page" data-page="scale" aria-labelledby="page-title" hidden>
+<section id="inventory" class="section product-page" data-page="inventory" hidden><div class="section-heading"><div><p class="eyebrow">YOUR MATERIAL LIBRARY</p><h2>Inventory</h2><p class="muted">Find your next spool. Make it ready for the station.</p></div><button id="inventory-community" class="button"><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg> Add from Community</button></div><div id="inventory-content"></div></section>
+<dialog id="weigh-dialog" class="modal" aria-labelledby="weigh-title"><article><header class="modal-header"><div><p class="eyebrow">CURRENT SPOOL</p><h2 id="weigh-title">Weigh spool</h2></div><button class="button quiet" data-close="weigh-dialog" aria-label="Close weighing">Close</button></header><div id="scale" class="modal-body scale-page">
 <div class="scale-state-row"><span id="scale-badge" class="badge neutral">Idle</span></div>
 <div class="scale-stage">
 <article class="spool-panel" aria-live="polite">
@@ -117,11 +99,11 @@ const char index_html[] = R"HTML(<!doctype html>
 </section>
 </aside>
 </div>
-</section>
+</div></article></dialog>
 
-<section id="nfc" class="section product-page tags-page" data-page="tags" aria-labelledby="nfc-title" hidden>
-<div class="section-heading"><div><p class="eyebrow">OPENPRINTTAG</p><h2 id="nfc-title">Tags</h2></div><span id="nfc-badge" class="badge neutral">Checking</span></div>
-<article class="card"><div class="tag-header"><span class="empty-icon" aria-hidden="true">◇</span><div><h3 id="nfc-summary">Checking NFC reader</h3><p id="nfc-guidance">Waiting for the reader status.</p></div></div><div class="status-chips"><span id="nfc-detected-chip" class="status-chip">NO TAG</span><span id="nfc-decode-chip" class="status-chip">DECODE PENDING</span><span id="nfc-link-chip" class="status-chip">NOT LINKED</span></div>
+<dialog id="manage-dialog" class="modal" aria-labelledby="nfc-title"><article><header class="modal-header"><h2 id="nfc-title">Manage tag</h2><button class="button quiet" data-close="manage-dialog">Close</button></header><div id="nfc" class="modal-body">
+<p id="manage-material" class="vendor"></p><span id="nfc-badge" class="badge neutral">Checking</span>
+<article class="card"><div class="tag-header"><svg class="icon" aria-hidden="true"><use href="#i-tag"/></svg><div><h3 id="nfc-summary">Checking NFC reader</h3><p id="nfc-guidance">Waiting for the reader status.</p></div></div><div class="status-chips"><span id="nfc-detected-chip" class="status-chip">NO TAG</span><span id="nfc-decode-chip" class="status-chip">DECODE PENDING</span><span id="nfc-link-chip" class="status-chip">NOT LINKED</span></div>
 <dl class="facts">
 <div><dt>Reader</dt><dd id="nfc-reader-state">OFF</dd></div>
 <div><dt>Tag</dt><dd id="nfc-tag-state">No tag</dd></div>
@@ -131,10 +113,8 @@ const char index_html[] = R"HTML(<!doctype html>
 </dl>
 <p id="nfc-read-status" class="setup-status" aria-live="polite">No tag data</p>
 <button id="read-tag" class="button" type="button" disabled hidden>Read tag</button>
-<button id="writer-open" class="button primary" type="button">Write / Rewrite</button> <button id="clear-open" class="button destructive-action" type="button">Clear / Reuse Tag</button>
+<button id="tag-update" class="button primary" type="button">Update tag</button><button id="writer-open" class="button primary" type="button">Reassign tag to another spool</button> <button id="clear-open" class="button destructive-action" type="button">Clear / Reuse Tag</button>
 </article>
-<div id="writer-panel" hidden></div>
-<dialog id="clear-dialog" class="modal" aria-labelledby="clear-title"><article><header class="modal-header"><h2 id="clear-title">Clear this OpenPrintTag?</h2><button id="clear-close" class="button" type="button" aria-label="Close clear dialog">×</button></header><div class="modal-body"><p>This removes OpenPrintTag data and its OpenTag/Spoolman association. The permanent NFC UID and protected manufacturer/configuration data are not changed.</p><dl id="clear-summary" class="facts"></dl><p id="clear-message" class="result-banner" role="status" aria-live="polite"></p><progress id="clear-meter" hidden aria-label="Clear progress"></progress><ul id="clear-effects"><li>Erase OpenPrintTag metadata</li><li>Unlink this tag from Spoolman</li><li>Preserve the permanent NFC UID</li><li>Preserve protected blocks 78–79</li></ul></div><footer class="modal-footer"><button id="clear-cancel" class="button" type="button">Cancel</button><button id="clear-confirm" class="button destructive-action" type="button" disabled>Clear tag</button><button id="clear-retry" class="button primary" type="button" hidden>Retry unlink</button></footer></article></dialog>
 <details class="card"><summary>Tag metadata &amp; advanced details</summary><dl class="facts"><div><dt>Geometry</dt><dd id="nfc-geometry">—</dd></div>
 <div><dt>Material</dt><dd id="nfc-material">—</dd></div>
 <div><dt>Type</dt><dd id="nfc-type">—</dd></div>
@@ -147,25 +127,9 @@ const char index_html[] = R"HTML(<!doctype html>
 <div><dt>Measured (g)</dt><dd id="nfc-measured">—</dd></div>
 <div><dt>Image checksum</dt><dd id="nfc-checksum">—</dd></div>
 </dl></details>
-</section>
-
-<section id="spool" class="section product-page home-support" data-page="home" aria-labelledby="spool-title">
-<div class="section-heading"><div><p class="eyebrow">CURRENT MATERIAL</p><h2 id="spool-title">Spool and reconciliation</h2></div><span id="spool-badge" class="badge neutral">Awaiting spool</span></div>
-<div class="card-grid two-column">
-<article class="card"><dl class="facts">
-<div><dt>Spoolman ID</dt><dd id="spool-id">—</dd></div>
-<div><dt>Name</dt><dd id="spool-name">—</dd></div>
-<div><dt>Material</dt><dd id="spool-material">—</dd></div>
-<div><dt>Remaining</dt><dd id="spool-remaining">—</dd></div>
-</dl></article>
-<article class="card"><dl class="facts">
-<div><dt>Workflow</dt><dd id="workflow-stage">—</dd></div>
-<div><dt>Measured remaining</dt><dd id="measured-remaining">—</dd></div>
-<div><dt>Reconciliation</dt><dd id="reconciliation-state">—</dd></div>
-<div><dt>Maximum difference</dt><dd id="reconciliation-difference">—</dd></div>
-</dl></article>
-</div>
-</section>
+</div></article></dialog>
+<div id="writer-panel" hidden></div>
+<dialog id="clear-dialog" class="modal" aria-labelledby="clear-title"><article><header class="modal-header"><h2 id="clear-title">Reuse this NFC tag?</h2><button id="clear-close" class="button" type="button" aria-label="Close clear dialog">×</button></header><div class="modal-body"><p>This removes the filament information and unlinks the tag from Spoolman. Its permanent NFC identifier will not change.</p><dl id="clear-summary" class="facts"></dl><p id="clear-message" class="result-banner" role="status" aria-live="polite"></p><progress id="clear-meter" hidden aria-label="Clear progress"></progress><ul id="clear-effects"><li>Erase OpenPrintTag metadata</li><li>Unlink this tag from Spoolman</li><li>Preserve the permanent NFC UID</li><li><details><summary>Advanced preservation details</summary>Protected blocks 78–79 remain unchanged.</details></li></ul></div><footer class="modal-footer"><button id="clear-cancel" class="button" type="button">Cancel</button><button id="clear-confirm" class="button destructive-action" type="button" disabled>Clear tag</button><button id="clear-retry" class="button primary" type="button" hidden>Retry Spoolman cleanup</button></footer></article></dialog>
 
 <section id="spool-resolution" class="section product-page home-support" data-page="home">
 <p id="spool-guidance" class="hint" role="status"></p>
@@ -184,8 +148,7 @@ const char index_html[] = R"HTML(<!doctype html>
 
 <section id="settings" class="section product-page settings-page" data-page="settings" aria-labelledby="settings-title" hidden>
 <div class="section-heading"><div><p class="eyebrow">STATION CONTROL</p><h2 id="settings-title">Settings</h2></div></div>
-<nav class="settings-nav" aria-label="Settings sections"><a href="#configuration">Configuration</a><a href="#diagnostics">Advanced</a><a href="#maintenance">Device &amp; updates</a></nav>
-<div class="settings-grid">
+<nav class="settings-nav" aria-label="Settings sections"><button class="text-button" data-setting="station">Station</button><button class="text-button" data-setting="integrations">Integrations</button><button class="text-button" data-setting="scale">Scale</button><button class="text-button" data-setting="network">Network</button><button class="text-button" data-setting="display">Display</button><button class="text-button" data-setting="advanced">Advanced</button></nav><div class="settings-grid">
 <article class="card"><h3>Connectivity</h3><dl class="facts compact"><div><dt>Wi-Fi</dt><dd id="wifi-state">—</dd></div><div><dt>LAN address</dt><dd id="device-address">—</dd></div><div><dt>RSSI</dt><dd id="settings-rssi">—</dd></div></dl><a class="button quiet" href="#configuration">Change Wi-Fi</a></article>
 <article class="card"><div class="card-title-row"><h3>Integrations</h3><button id="test-backends" class="button tiny" type="button">Test</button></div><dl class="facts compact"><div><dt>Spoolman</dt><dd id="spoolman-state">Unknown</dd></div><div><dt>FilaBridge</dt><dd id="filabridge-state">Unknown</dd></div><div><dt>Printer</dt><dd id="settings-selected-printer">Not selected</dd></div></dl><span id="spoolman-version" class="visually-hidden">Version —</span><span id="spoolman-capabilities" class="visually-hidden">Capabilities —</span><span id="filabridge-version" class="visually-hidden">Version —</span><span id="filabridge-capabilities" class="visually-hidden">Capabilities —</span></article>
 <article class="card"><h3>Hardware</h3><dl class="facts compact"><div><dt>Scale</dt><dd id="scale-calibration">Checking</dd></div><div><dt>Profile</dt><dd id="scale-profile">—</dd></div><div><dt>Capacity</dt><dd id="scale-capacity">—</dd></div><div><dt>NFC</dt><dd>OpenPrintTag read / write</dd></div><div><dt>Display</dt><dd>WT32-SC01 Plus</dd></div></dl><details><summary>Scale diagnostics</summary><dl class="facts compact"><div><dt>Raw</dt><dd id="scale-raw">—</dd></div><div><dt>Filtered</dt><dd id="scale-filtered">—</dd></div><div><dt>Zero</dt><dd id="scale-zero">—</dd></div><div><dt>Factor</dt><dd id="scale-factor">—</dd></div><div><dt>Reference</dt><dd id="scale-reference">—</dd></div></dl></details></article>
@@ -228,6 +191,7 @@ const char index_html[] = R"HTML(<!doctype html>
 </fieldset>
 <fieldset class="card" disabled><legend>Load-cell profile</legend>
 <label><input id="config-auto-weigh" type="checkbox"> Auto-update Spoolman after Weigh</label><p class="hint">Only explicit completed measurements can update inventory.</p>
+<label for="config-weight-tolerance">Inventory matching tolerance (g)</label><input id="config-weight-tolerance" type="number" min="0" step="0.1">
 <label for="config-scale-profile">YZC-133 variant</label><select id="config-scale-profile"><option value="yzc-133-5kg">5 kg (actual station)</option><option value="yzc-133-2kg">2 kg</option></select>
 <label for="config-overload-ratio">Overload threshold ratio</label><input id="config-overload-ratio" type="number" min="1.01" max="2" step="0.01">
 <p id="profile-capacity-help" class="hint">Rated capacity: 5000 g</p>
@@ -238,6 +202,25 @@ const char index_html[] = R"HTML(<!doctype html>
 <div class="card transfer-card"><h3>Redacted configuration transfer</h3><p class="muted">Exports never include stored credentials. Imported credentials are ignored unless explicitly entered above.</p><div class="action-row"><button id="export-config" class="button" type="button" disabled>Download redacted JSON</button><label id="import-config-label" class="button file-button" for="import-config" aria-disabled="true">Choose JSON to import</label><input id="import-config" class="visually-hidden" type="file" accept="application/json,.json" disabled></div></div>
 </section>
 
+<details id="spool-diagnostics"><summary>Spool diagnostics</summary><section id="spool" class="section" aria-labelledby="spool-title">
+<div class="section-heading"><div><p class="eyebrow">CURRENT MATERIAL</p><h2 id="spool-title">Current spool diagnostics</h2></div><span id="spool-badge" class="badge neutral">Awaiting spool</span></div>
+<div class="card-grid two-column">
+<article class="card"><dl class="facts">
+<div><dt>Spoolman ID</dt><dd id="spool-id">—</dd></div>
+<div><dt>Name</dt><dd id="spool-name">—</dd></div>
+<div><dt>Material</dt><dd id="spool-material">—</dd></div>
+<div><dt>Remaining</dt><dd id="spool-remaining">—</dd></div>
+</dl></article>
+<article class="card"><dl class="facts">
+<div><dt>Workflow</dt><dd id="workflow-stage">—</dd></div>
+<div><dt>Measured remaining</dt><dd id="measured-remaining">—</dd></div>
+<div><dt>Reconciliation</dt><dd id="reconciliation-state">—</dd></div>
+<div><dt>Maximum difference</dt><dd id="reconciliation-difference">—</dd></div>
+</dl></article>
+</div>
+</section>
+
+</details>
 <section id="diagnostics" class="section product-page settings-detail" data-page="settings" aria-labelledby="diagnostics-title" hidden>
 <div class="section-heading"><div><p class="eyebrow">SUPPORT</p><h2 id="diagnostics-title">Diagnostics and logs</h2></div><button id="refresh-diagnostics" class="button quiet" type="button">Refresh diagnostics</button></div>
 <div class="card-grid two-column">
@@ -264,13 +247,53 @@ const char index_html[] = R"HTML(<!doctype html>
 
 <footer class="status-strip"><span><i class="status-dot pending"></i>Spoolman <strong id="footer-spoolman">Checking</strong></span><span><i class="status-dot pending"></i>FilaBridge <strong id="footer-filabridge">Checking</strong></span><span>Printer <strong id="footer-printer">Not selected</strong></span><span id="footer-clock">—</span></footer>
 </div>
+<dialog id="assign-dialog" class="modal" aria-labelledby="assign-title"><article><header class="modal-header"><div><p class="eyebrow">PRINTER ASSIGNMENT</p><h2 id="assign-title">Assign spool</h2></div><button class="button quiet" data-close="assign-dialog">Close</button></header><div class="modal-body"><div id="assign-tools"></div><p id="assign-message" class="result-banner" role="status"></p></div><footer class="modal-footer"><button class="button" data-close="assign-dialog">Cancel</button><button id="assign-confirm" class="button primary" disabled>Choose a toolhead</button></footer></article></dialog>
 <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
 </body>
 </html>)HTML";
 
 const std::size_t index_html_size = sizeof(index_html) - 1U;
 
-const char application_css[] = R"CSS(:root{color-scheme:dark;--shadow:0 14px 36px rgba(0,0,0,.24);font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-synthesis:none}*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;min-width:300px;color:var(--text);line-height:1.5}button,input,select{font:inherit}button,a,input,select{-webkit-tap-highlight-color:transparent}a{color:var(--accent)}:focus-visible{outline:3px solid var(--focus);outline-offset:3px}.skip-link{position:fixed;z-index:100;left:1rem;top:-5rem;padding:.7rem 1rem;background:var(--text);color:var(--bg);border-radius:8px}.skip-link:focus{top:1rem}.site-header{display:flex;align-items:center;justify-content:space-between;gap:1rem}.brand-block,.connection-strip,.action-row,.card-title-row{display:flex;align-items:center;gap:.75rem}.brand-mark{display:grid;place-items:center;color:var(--accent-ink);font-weight:900;letter-spacing:-.05em}h1,h2,h3,p{margin-top:0}h1{margin-bottom:0;font-size:clamp(1.25rem,2vw,1.65rem);letter-spacing:-.03em}h2{margin-bottom:0;font-size:clamp(1.45rem,3vw,2rem);letter-spacing:-.03em}h3{margin-bottom:.75rem;font-size:1.05rem}.eyebrow{margin-bottom:.15rem;color:var(--accent);font:700 .7rem/1.2 ui-monospace,monospace;letter-spacing:.16em}.connection-strip{color:var(--muted);font-size:.9rem}.status-dot{width:.65rem;height:.65rem;flex:none;border-radius:999px;background:var(--muted);box-shadow:0 0 0 4px rgba(158,175,190,.12)}.status-dot.online{background:var(--good);box-shadow:0 0 0 4px rgba(110,231,162,.12)}.status-dot.offline{background:var(--bad);box-shadow:0 0 0 4px rgba(255,117,133,.12)}.status-dot.pending{animation:pulse 1.4s infinite}@keyframes pulse{50%{opacity:.35;}}.section-nav{top:0;z-index:20;overflow-x:auto;border-bottom:1px solid var(--line);scrollbar-width:thin}.section-nav a{flex:none}.section-nav a:hover{background:var(--surface-2);color:var(--text)}main{margin:0 auto}.section{scroll-margin-top:4.5rem}.section-heading{display:flex;flex-wrap:wrap;justify-content:space-between;gap:1rem}.card-grid,.backend-grid,.config-form{display:grid;gap:1rem}.two-column,.backend-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.card{min-width:0;padding:1.15rem;border:1px solid var(--line);border-radius:var(--radius)}.metric-label{margin-bottom:.3rem;color:var(--muted);text-transform:uppercase;font-size:.72rem;font-weight:750;letter-spacing:.12em}.unit{color:var(--muted);font:700 1.25rem ui-monospace,monospace}.quality{color:var(--accent);font-weight:700}.facts{margin:0}.facts div{display:grid;grid-template-columns:minmax(7rem,.8fr) minmax(0,1.4fr);gap:.75rem;padding:.55rem 0;border-bottom:1px solid rgba(74,94,116,.35)}.facts div:last-child{border-bottom:0}.facts dt{color:var(--muted)}.facts dd{margin:0;text-align:right;overflow-wrap:anywhere}.facts.compact{margin-top:1rem}.badge{display:inline-flex;align-items:center;min-height:1.8rem;padding:.25rem .65rem;border:1px solid currentColor;border-radius:999px;font-size:.78rem;font-weight:750}.badge.good{color:var(--good);background:rgba(110,231,162,.08)}.badge.warning{color:var(--warn);background:rgba(255,200,87,.08)}.badge.bad{color:var(--bad);background:rgba(255,117,133,.08)}.badge.neutral{color:var(--muted)}.muted,.hint{color:var(--muted)}.hint{font-size:.86rem}.mono{font-family:ui-monospace,SFMono-Regular,Consolas,monospace}.small{font-size:.78rem;overflow-wrap:anywhere}.large-state{margin-bottom:.25rem;font-size:1.4rem;font-weight:750}.button{display:inline-flex;align-items:center;justify-content:center;min-height:2.65rem;padding:.55rem .9rem;border:1px solid var(--line);border-radius:9px;background:var(--surface-2);color:var(--text);cursor:pointer;font-weight:720}.button:hover:not(:disabled){border-color:var(--accent);transform:translateY(-1px)}.button.primary{border-color:var(--accent);background:var(--accent);color:var(--accent-ink)}.button.quiet{min-height:2.2rem;padding:.4rem .7rem;background:transparent}.button.tiny{min-height:1.9rem;padding:.25rem .55rem;font-size:.78rem}.button.warning{border-color:var(--warn);color:var(--warn);background:rgba(255,200,87,.08)}.button.danger{border-color:var(--bad);color:#fff;background:#a9273c}.button:disabled{opacity:.42;cursor:not-allowed}.file-button{width:fit-content}.action-row{flex-wrap:wrap;margin-top:1rem}.update-card progress{width:100%;height:1rem;accent-color:var(--accent)}.update-stages{padding-left:1.4rem;color:var(--muted);font-size:.86rem}.update-stages .complete{color:var(--good)}.update-stages .active{color:var(--warn);font-weight:700}.stacked-form,fieldset{display:grid;gap:.65rem;align-content:start}label,legend{font-weight:680}legend{padding:0 .35rem}input,select{width:100%;min-height:2.65rem;padding:.55rem .65rem;border:1px solid var(--line);border-radius:8px;background:#0d141d;color:var(--text)}input:invalid{border-color:var(--bad)}.check{display:flex;align-items:start;gap:.55rem;color:var(--muted);font-size:.88rem;font-weight:500}.check input{width:1.1rem;min-height:1.1rem;margin-top:.12rem}.config-form{grid-template-columns:repeat(2,minmax(0,1fr))}.wide-card,.form-actions{grid-column:1 / -1}.form-actions{display:flex;gap:.75rem}.transfer-card{margin-top:1rem}.profile-list{display:grid;gap:.75rem}.profile-row{display:grid;grid-template-columns:4rem 1.2fr .7fr 1fr .7fr auto;gap:.65rem;align-items:end;padding:.75rem;border:1px solid rgba(74,94,116,.45);border-radius:10px}.profile-row label{font-size:.76rem;color:var(--muted)}.profile-row input,.profile-row select{margin-top:.25rem}.profile-enabled{align-self:center}.printer-list{display:grid;gap:1rem;margin-top:1rem}.printer-heading{display:flex;align-items:center;justify-content:space-between;gap:1rem}.toolhead-grid{display:grid;grid-template-columns:repeat(5,minmax(8.5rem,1fr));gap:.7rem;margin-top:1rem;overflow-x:auto;padding-bottom:.25rem}.toolhead{display:flex;flex-direction:column;padding:.8rem;border:1px solid var(--line)}.toolhead-name{font-size:1.2rem;font-weight:800}.toolhead-spool{flex:1;margin:.35rem 0 .75rem;color:var(--muted);overflow-wrap:anywhere}.toolhead-actions{display:grid;gap:.4rem}.danger-card{border-color:rgba(255,117,133,.5)}.json-view{max-height:18rem;margin:0;padding:.8rem;overflow:auto;border-radius:8px;background:#070b10;color:#c7e9e5;white-space:pre-wrap;overflow-wrap:anywhere;font:.78rem/1.55 ui-monospace,monospace}.json-view.tall{max-height:32rem}.log-list{max-height:32rem;margin:0;padding-left:1.8rem;overflow:auto}.log-list li{padding:.45rem .25rem;border-bottom:1px solid rgba(74,94,116,.35);font:.78rem/1.5 ui-monospace,monospace;overflow-wrap:anywhere}.log-error{color:var(--bad)}.log-warning{color:var(--warn)}footer{display:flex;justify-content:space-between;gap:1rem;padding:1.2rem clamp(1rem,4vw,3rem);border-top:1px solid var(--line);color:var(--muted);font-size:.82rem}.toast{position:fixed;z-index:80;right:1rem;bottom:1rem;max-width:min(28rem,calc(100vw - 2rem));padding:.85rem 1rem;border:1px solid var(--accent);border-radius:10px;background:#12282a;box-shadow:var(--shadow)}.toast.error{border-color:var(--bad);background:#38141c}.visually-hidden{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}.setup-portal{padding:1.4rem;margin-top:1.5rem;border:2px solid var(--accent);border-radius:var(--radius);background:rgba(16,54,58,.45)}.setup-portal[hidden]{display:none}.setup-status{min-height:3rem;margin:1rem 0 0;padding:.7rem;border-left:4px solid var(--accent);background:rgba(0,0,0,.2)}.config-status-row{display:flex;align-items:center;justify-content:space-between;gap:1rem;margin-bottom:1rem}.config-status-row .setup-status{flex:1;min-height:auto;margin:0}.self-test-card{margin-top:1rem}.table-scroll{overflow-x:auto}.self-test-table{width:100%;border-collapse:collapse;font-size:.82rem}.self-test-table th,.self-test-table td{padding:.55rem;border-bottom:1px solid var(--line);text-align:left;white-space:nowrap}.self-test-table td:last-child{white-space:normal;overflow-wrap:anywhere}.self-test-pass{color:var(--good);font-weight:700}.self-test-fail{color:var(--bad);font-weight:700}:root{--bg:#071018;--surface:#111c29;--surface-2:#182637;--raised:#1b293b;--line:#26384a;--text:#f8fafc;--muted:#94a3b8;--accent:#16d9c2;--accent-ink:#031b19;--good:#22c55e;--warn:#f59e0b;--bad:#ef4444;--focus:#67e8f9;--radius:18px;--rail:224px}body{min-height:100vh;background:radial-gradient(circle at 58% 32%,rgba(13,148,136,.13),transparent 32rem),linear-gradient(145deg,#050b12,var(--bg))}.product-rail{position:fixed;inset:0 auto 0 0;z-index:40;display:flex;width:var(--rail);flex-direction:column;padding:1.3rem 1rem;border-right:1px solid #1c2d3d;background:linear-gradient(180deg,rgba(5,13,21,.98),rgba(7,16,24,.96))}.brand-block{display:flex;align-items:center;gap:.8rem;min-height:4.2rem;padding:.45rem .35rem 1.25rem;color:var(--text);text-decoration:none}.brand-mark{position:relative;width:2.75rem;height:2.75rem;flex:none;border:3px solid var(--accent);border-radius:50%;background:transparent;box-shadow:0 0 24px rgba(22,217,194,.2)}.brand-mark::before,.brand-mark::after,.brand-mark span{position:absolute;content:"";border-radius:50%}.brand-mark::before{inset:7px;border:2px solid var(--accent)}.brand-mark::after{inset:13px;background:var(--accent)}.brand-mark span{inset:-3px 9px;border-top:3px solid var(--bg);border-bottom:3px solid var(--bg);border-radius:0}.brand-name{font-size:1.15rem;font-weight:800;letter-spacing:-.03em}.brand-name small{display:block;color:var(--muted);font-size:.95rem;font-weight:500}.section-nav{position:static;display:grid;gap:.72rem;overflow:visible;padding:0;border:0;background:transparent}.section-nav a{display:grid;min-height:4.6rem;grid-template-columns:2.6rem 1fr;align-items:center;gap:.7rem;padding:.7rem .85rem;border:1px solid #1d3041;border-radius:13px;background:rgba(17,28,41,.58);color:#bdc8d5;font-size:.96rem;font-weight:700;text-decoration:none}.section-nav a:hover,.section-nav a:focus-visible{border-color:#3a6b70;background:var(--surface);color:var(--text);transform:translateY(-1px)}.section-nav a.active{border-color:var(--accent);background:linear-gradient(115deg,rgba(10,100,95,.42),rgba(17,35,47,.88));color:var(--accent);box-shadow:inset 3px 0 var(--accent),0 0 24px rgba(22,217,194,.12)}.nav-icon{display:grid;width:2.45rem;height:2.45rem;place-items:center;color:currentColor;font-size:1.8rem;font-weight:400}.rail-live{display:flex;align-items:center;gap:.6rem;margin-top:auto;padding:.9rem .55rem .25rem;color:var(--muted);font-size:.74rem}.app-frame{min-height:100vh;margin-left:var(--rail)}.site-header{position:sticky;top:0;z-index:30;min-height:5rem;padding:1rem clamp(1.2rem,3vw,2.5rem);border-bottom:1px solid rgba(38,56,74,.75);background:rgba(7,16,24,.9);backdrop-filter:blur(14px)}.site-header h1{font-size:1.65rem}.connection-strip{justify-content:flex-end}main{width:min(1280px,100%);min-height:calc(100vh - 9.6rem);padding:0 clamp(1.2rem,3vw,2.5rem) 3rem}.product-page[hidden]{display:none !important}.section{padding-top:2rem}.section-heading{align-items:center;margin-bottom:1.35rem}.card{border-color:var(--line);background:linear-gradient(145deg,rgba(24,38,55,.9),rgba(13,24,35,.96));box-shadow:0 18px 50px rgba(0,0,0,.2)}.home-hero{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(18rem,.85fr);gap:1.5rem;align-items:stretch;min-height:19rem}.home-copy{display:flex;flex-direction:column;justify-content:center;padding:clamp(2.25rem,5vw,4.5rem);border:1px solid var(--line);border-radius:24px;background:radial-gradient(circle at 80% 20%,rgba(22,217,194,.18),transparent 18rem),linear-gradient(145deg,#10202e,#09131d)}.home-copy h2{margin-bottom:.7rem;font-size:clamp(2.1rem,5vw,4rem)}.home-prompt{margin-bottom:.45rem;color:var(--text);font-size:clamp(1.45rem,3vw,2.2rem);font-weight:750}.home-action{display:grid;grid-template-columns:4rem minmax(0,1fr) auto;align-items:center;gap:1rem;min-height:12rem;padding:1.5rem;border:1px solid var(--accent);border-radius:24px;background:linear-gradient(135deg,#087c74,#0dafa1);color:white;cursor:pointer;text-align:left;box-shadow:0 18px 55px rgba(13,148,136,.2)}.home-action:hover:not(:disabled){transform:translateY(-2px);filter:brightness(1.08)}.home-action:disabled{opacity:.48;cursor:not-allowed}.home-action strong,.home-action small{display:block}.home-action strong{font-size:1.25rem;letter-spacing:.03em}.home-action small{margin-top:.35rem;color:#d5fffa}.home-action-icon{display:grid;width:4rem;height:4rem;place-items:center;border:2px solid rgba(255,255,255,.72);border-radius:50%;font-size:2.5rem}.home-state{display:inline-flex;width:fit-content;margin:1rem .25rem 0;padding:.45rem .75rem;border:1px solid rgba(74,94,116,.45);border-radius:999px;background:rgba(13,24,35,.65);color:var(--muted)}.home-support{padding-top:1.75rem}.home-support .card-grid{align-items:stretch}.scale-page{padding-top:1.25rem}.scale-state-row{display:flex;min-height:2rem;align-items:center;justify-content:flex-end;margin-bottom:.65rem}.scale-stage{display:grid;grid-template-columns:minmax(32rem,1.2fr) minmax(18rem,20rem);gap:clamp(1.25rem,2.5vw,2rem);align-items:stretch}.spool-panel{display:grid;min-height:35rem;grid-template-rows:minmax(0,1fr) auto;place-items:center;overflow:hidden;padding:1.25rem;border:1px solid #1a3343;border-radius:24px;background:radial-gradient(circle at 50% 48%,rgba(7,115,108,.2),transparent 43%),linear-gradient(145deg,#07121c,#050a10);box-shadow:inset 0 0 80px rgba(0,0,0,.28)}.spool-visual{--state:#506a77;position:relative;width:min(32rem,92%);aspect-ratio:1;border-radius:50%;filter:drop-shadow(0 24px 24px rgba(0,0,0,.45))}.spool-visual[data-state="measuring"]{--state:var(--accent)}.spool-visual[data-state="settling"]{--state:var(--warn)}.spool-visual[data-state="stable"],.spool-visual[data-state="completed"]{--state:var(--good)}.spool-visual[data-state="error"],.spool-visual[data-state="timed_out"],.spool-visual[data-state="failed"]{--state:var(--bad)}.spool-ticks{position:absolute;inset:0;border-radius:50%;background:repeating-conic-gradient(from -1deg,var(--state) 0 1deg,transparent 1deg 4deg);-webkit-mask:radial-gradient(circle,transparent 0 84%,#000 84.5% 88%,transparent 88.5%);mask:radial-gradient(circle,transparent 0 84%,#000 84.5% 88%,transparent 88.5%);opacity:.5}.spool-ticks::before{position:absolute;inset:2%;border:1px solid color-mix(in srgb,var(--state) 46%,transparent);border-radius:50%;content:""}.spool-ticks::after{position:absolute;top:.2%;left:50%;width:4px;height:2.3rem;border-radius:999px;background:var(--state);box-shadow:0 0 14px var(--state);content:"";opacity:.55;transform:translateX(-50%)}.spool-visual:not([data-state="idle"]) .spool-ticks{opacity:.88}.spool-visual:not([data-state="idle"]) .spool-ticks::after{opacity:1}.spool-rim{position:absolute;inset:8%;overflow:hidden;border:10px solid #2c4052;border-radius:50%;background:repeating-radial-gradient(circle,transparent 0 10px,rgba(105,128,146,.13) 11px 12px,transparent 13px 16px),radial-gradient(circle at 42% 34%,#34485a,#152331 62%,#0a131d 100%);box-shadow:inset 0 0 0 2px #617587,inset 0 0 0 16px #101c27,inset 0 0 45px #03070b,0 0 36px color-mix(in srgb,var(--state) 24%,transparent)}.spool-rim i{position:absolute;z-index:2;display:block;width:20%;height:9%;border:2px solid #4d6172;border-radius:999px;background:linear-gradient(#050a10,#0a121b);box-shadow:inset 0 3px 8px #020406}.spool-rim i:nth-child(1){top:17%;left:40%}.spool-rim i:nth-child(2){top:31%;right:14%;transform:rotate(58deg)}.spool-rim i:nth-child(3){right:14%;bottom:31%;transform:rotate(-58deg)}.spool-rim i:nth-child(4){bottom:17%;left:40%}.spool-rim i:nth-child(5){bottom:31%;left:14%;transform:rotate(58deg)}.spool-rim i:nth-child(6){top:31%;left:14%;transform:rotate(-58deg)}.spool-hub{position:absolute;z-index:3;inset:29%;display:flex;flex-direction:column;align-items:center;justify-content:center;border:7px solid #263b4c;border-radius:50%;background:radial-gradient(circle at 50% 38%,#172938,#050a10 72%);box-shadow:0 0 0 2px #657789,0 0 28px rgba(0,0,0,.8),inset 0 -2px 24px color-mix(in srgb,var(--state) 13%,transparent);text-align:center}.spool-reading{display:flex;align-items:baseline;gap:.45rem;margin:.25rem 0 .55rem}.weight-value{font:800 clamp(3.2rem,6vw,5.8rem)/.84 ui-sans-serif,system-ui,sans-serif;letter-spacing:-.07em}.spool-hub .unit{color:var(--state);font-size:clamp(1.1rem,2vw,1.5rem)}.spool-hub .quality{margin:0;color:var(--state);font-size:1.05rem}.spool-meta{align-self:start;margin:-.2rem 0 .15rem;color:var(--muted);font-size:.82rem;letter-spacing:.02em}.scale-actions{display:grid;align-content:center;gap:.85rem}.action-card{display:grid;width:100%;min-height:5.4rem;grid-template-columns:3.4rem 1fr auto;align-items:center;gap:.8rem;padding:1rem;border:1px solid var(--line);border-radius:15px;background:linear-gradient(130deg,#122231,#0d1824);color:var(--text);cursor:pointer;text-align:left}.action-card:hover:not(:disabled){border-color:var(--accent);transform:translateX(2px)}.action-card:disabled{border-color:#28394a;background:#101a26;color:#9aaabd;opacity:.62;cursor:not-allowed}.action-card strong,.action-card small{display:block}.action-card strong{font-size:1.12rem}.action-card small{margin-top:.18rem;color:var(--muted)}.action-icon{color:var(--accent);font-size:2.2rem;text-align:center}.weigh-action{min-height:6.15rem;border-color:var(--accent);background:linear-gradient(135deg,#0b8b81,#07554f);box-shadow:0 14px 32px rgba(8,125,116,.16)}.weigh-action .action-icon,.weigh-action small{color:white}.calibration-drawer{min-width:0;padding:1rem;border:1px solid #315564;border-radius:16px;background:linear-gradient(145deg,#122332,#0b151f);box-shadow:0 16px 40px rgba(0,0,0,.25)}.calibration-drawer[hidden]{display:none}.drawer-heading{display:flex;align-items:center;justify-content:space-between;gap:1rem;margin-bottom:.85rem}.drawer-heading h3,.drawer-heading .eyebrow{margin:0}.drawer-close{width:2.75rem;min-width:2.75rem;height:2.75rem;border:1px solid var(--line);border-radius:50%;background:#0b151f;color:var(--text);cursor:pointer;font-size:1.5rem}.drawer-close:hover{border-color:var(--accent);color:var(--accent)}.calibration-card{display:grid;gap:.7rem;padding:0}.calibration-card label{color:var(--muted);font-size:.75rem;letter-spacing:.04em;text-transform:uppercase}.calibration-submit{width:100%}.scale-guide-status{min-height:2.8rem;margin:0;padding:.75rem .9rem;border-left:3px solid var(--accent);border-radius:7px;background:rgba(17,28,41,.82);color:#afbecd;font-size:.86rem;line-height:1.4}.calibration-steps{display:flex;flex-wrap:wrap;gap:.45rem;margin:0;padding:0;list-style:none}.calibration-steps li{padding:.28rem .5rem;border:1px solid var(--line);border-radius:999px;color:var(--muted);font-size:.7rem}.calibration-steps li.active{border-color:var(--warn);color:var(--warn)}.calibration-steps li.complete{border-color:var(--good);color:var(--good)}.intentional-empty{max-width:42rem;margin:5vh auto 0;padding:clamp(2rem,6vw,4rem);text-align:center}.intentional-empty .empty-icon{display:grid;width:5rem;height:5rem;place-items:center;margin:0 auto 1.25rem;border:1px solid var(--accent);border-radius:50%;color:var(--accent);font-size:3rem}.intentional-empty p{color:var(--muted)}.settings-nav{display:flex;flex-wrap:wrap;gap:.6rem;margin-bottom:1rem}.settings-nav a{padding:.55rem .85rem;border:1px solid var(--line);border-radius:999px;color:var(--muted);text-decoration:none}.settings-nav a:hover{border-color:var(--accent);color:var(--accent)}.settings-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1rem}.settings-detail{padding-top:2.5rem}.printer-list > .card{padding:1.5rem}.toolhead{min-height:10rem;border-radius:14px;background:rgba(5,12,19,.55)}.status-strip{position:sticky;bottom:0;z-index:25;display:flex;justify-content:space-around;gap:1rem;margin:0 1rem 1rem;padding:.75rem 1rem;border:1px solid var(--line);border-radius:14px;background:rgba(8,17,26,.94);backdrop-filter:blur(12px)}.status-strip span{display:flex;align-items:center;gap:.45rem;color:var(--muted)}.status-strip .status-dot{display:inline-block;width:.45rem;height:.45rem}.status-strip strong{color:var(--text);font-weight:650}details summary{cursor:pointer;color:var(--accent)}@media (max-width:850px){.site-header{align-items:start;flex-direction:column;}.overview-grid,.two-column,.backend-grid,.config-form{grid-template-columns:1fr;}.wide-card,.form-actions{grid-column:auto;}.profile-row{grid-template-columns:4rem 1fr 1fr;}.toolhead-grid{grid-template-columns:repeat(5,9.5rem);}}@media (max-width:520px){.section-heading{align-items:start;flex-direction:column;}.connection-strip{width:100%;flex-wrap:wrap;}.facts div{grid-template-columns:1fr;gap:.15rem;}.facts dd{text-align:left;}.profile-row{grid-template-columns:1fr 1fr;}.form-actions,footer{flex-direction:column;}}@media (max-width:1080px){.scale-stage{grid-template-columns:minmax(22rem,1fr) 19rem;gap:1rem;}.spool-panel{min-height:30rem;}.spool-visual{width:min(29rem,92%);}}@media (max-width:900px){.status-strip{display:none;}}@media (max-width:780px){:root{--rail:96px;}.product-rail{padding:.8rem .5rem;}.brand-block{justify-content:center;padding:.2rem 0 .8rem;}.brand-name,.rail-live{display:none;}.section-nav{gap:.5rem;}.section-nav a{min-height:4.55rem;grid-template-columns:1fr;justify-items:center;gap:.08rem;padding:.4rem .2rem;font-size:.72rem;}.section-nav a.active{box-shadow:inset 4px 0 var(--accent),0 0 22px rgba(22,217,194,.16);}.nav-icon{width:2.2rem;height:2.2rem;font-size:1.65rem;}.site-header{min-height:4.4rem;padding:.7rem 1rem;}.site-header .eyebrow{display:none;}main{padding:0 1rem 2rem;}.scale-stage{grid-template-columns:1fr;}.spool-panel{min-height:26rem;}.spool-visual{width:min(24rem,92%);}.scale-actions{grid-template-columns:repeat(2,minmax(0,1fr));}.weigh-action,.scale-guide-status,.calibration-drawer{grid-column:1 / -1;}.settings-grid,.home-hero{grid-template-columns:minmax(0,1fr);}.home-copy{padding:2.2rem;}.status-strip{display:none;}}@media (max-width:520px){.connection-strip #health-badge{display:none;}.section-heading{flex-direction:row;align-items:center;}.spool-panel{min-height:21rem;padding:.8rem;}.spool-visual{width:min(20rem,94%);}.weight-value{font-size:clamp(2.5rem,14vw,4rem);}.action-card{min-height:4.7rem;grid-template-columns:2.6rem 1fr auto;}.action-icon{font-size:1.7rem;}.scale-actions{grid-template-columns:1fr;}.scale-actions > *{grid-column:auto;}.calibration-drawer{padding:.85rem;}.calibration-steps{gap:.35rem;}.status-strip{display:none;}}@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto;}*,*::before,*::after{animation-duration:.01ms !important;animation-iteration-count:1 !important;transition-duration:.01ms !important;}}#writer-content{--w-accent:#74d8bc;--w-line:#44545f;overflow:hidden}.writer-intro{color:var(--muted);max-width:70ch}.writer-steps{display:flex;gap:.5rem;flex-wrap:wrap;padding:0;list-style:none;counter-reset:step}.writer-steps li{padding:.4rem .7rem;border-radius:2rem;font-size:.85rem}.writer-grid{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(0,1fr);gap:1rem}.writer-grid:has(#writer-inventory[hidden]){display:block}.writer-toolbar,.writer-actions,.writer-pages,.writer-filters{display:flex;gap:.6rem;flex-wrap:wrap;align-items:end}.writer-toolbar label{flex:1 1 130px}.writer-pages{justify-content:space-between;align-items:center;margin:1rem 0}.writer-results{display:grid;gap:.55rem}.writer-pane{border:1px solid var(--w-line);border-radius:.8rem;padding:1rem;min-width:0}.writer-editor-grid{display:grid;grid-template-columns:1fr 1fr;gap:.65rem}.writer-editor-grid label{min-width:0}.writer-editor-grid input,.writer-editor-grid textarea{width:100%;box-sizing:border-box}.writer-preview{margin-top:1.2rem}#writer-editor-message{color:#edb664}.writer-toolbar{margin-bottom:.5rem}@media(max-width:760px){.writer-toolbar label{flex-basis:100%}.writer-grid{grid-template-columns:1fr}.writer-editor-grid{grid-template-columns:1fr}.writer-diff{table-layout:fixed}.writer-toolbar{align-items:stretch}.writer-pages{gap:.4rem}.writer-row{padding:.7rem}}[hidden]{display:none!important}body.modal-open{overflow:hidden;overscroll-behavior:none}.card,fieldset{min-width:0}button,input,select,textarea{font:inherit}button,.button,input,select{min-height:44px}label{display:block;margin:.65rem 0 .25rem}input,select,textarea{max-width:100%}button:disabled,.button:disabled{opacity:.45;cursor:not-allowed}input:user-invalid{border-color:var(--bad)}.primary-action,.button.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}.destructive-action{background:#73301e!important;border:1px solid #ffa578!important;color:#fff5eb!important}.status-chip{display:inline-flex;align-items:center;gap:.4rem;padding:.3rem .65rem;border:1px solid currentColor;border-radius:2rem;font-size:.75rem;font-weight:700}.status-success{color:#87e8b1}.status-warning{color:#ffd384}.status-error{color:#ffabb6}.result-banner{padding:.8rem 1rem;border:1px solid var(--line);border-radius:.6rem;background:var(--surface-2);overflow-wrap:anywhere}.result-banner:empty{display:none}.result-banner.status-error{border-color:var(--bad)}.result-banner.status-success{border-color:var(--good)}.empty-state{padding:1.4rem;border:1px dashed var(--line);border-radius:.75rem;color:var(--muted);text-align:center}.field-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1rem}.value-row{display:flex;justify-content:space-between;gap:1rem}.status-chips{display:flex;gap:.5rem;flex-wrap:wrap;margin:1rem 0}.tag-header{display:flex;gap:1rem;align-items:center;margin-bottom:1rem}.tag-header .empty-icon{font-size:2.4rem;color:var(--accent)}.tag-header h3{margin:0}.tag-header p{margin:.3rem 0 0;color:var(--muted)}.facts .copy-value{display:flex;justify-content:end;gap:.5rem;align-items:center}.facts details{margin-top:1rem}.modal{width:min(1060px,calc(100% - 3rem));max-width:none;height:min(860px,calc(100dvh - 3rem));max-height:none;padding:0;border:1px solid var(--line);border-radius:1rem;background:var(--surface);color:var(--text);box-shadow:0 24px 90px #0008;overflow:hidden}.modal::backdrop{background:#020910bf;backdrop-filter:blur(4px)}.modal[open]{display:flex}.modal article{width:100%;min-height:0;display:flex;flex-direction:column}.modal-header,.modal-footer{display:flex;align-items:center;gap:.75rem;padding:1rem 1.25rem;flex-shrink:0;background:var(--surface)}.modal-header{justify-content:space-between;border-bottom:1px solid var(--line)}.modal-header h2{font-size:1.35rem}.modal-header p{margin:0 0 .25rem}.modal-footer{flex-direction:row;border-top:1px solid var(--line);flex-wrap:wrap}.modal-footer>.writer-actions{margin-left:auto}.modal-body{overflow-y:auto;overscroll-behavior:contain;padding:0 1.25rem 1rem;min-height:0;flex:1}.modal .writer-steps{margin:0;padding:.75rem 1.25rem;justify-content:space-between;gap:.3rem;border-bottom:1px solid var(--line);counter-reset:step}.writer-steps li{counter-increment:step;flex:1;text-align:center;color:var(--muted);border:0}.writer-steps li::before{content:counter(step);display:inline-grid;place-items:center;width:1.5rem;height:1.5rem;border:1px solid var(--line);border-radius:50%;margin-right:.35rem}#writer-selection-pane{border:0;padding:0}.writer-editor-grid{margin-top:1rem}#writer-editor{margin-top:1rem;padding:1rem;border:1px solid var(--line);border-radius:.8rem}.writer-row{min-height:76px}#writer-progress{margin:1rem 0;padding:.75rem 1rem}#writer-activity{text-align:center;padding:1.5rem 0}progress{display:block;width:100%;height:12px;accent-color:var(--accent);margin:1rem 0}details>summary{cursor:pointer;padding:.6rem 0;font-weight:650}.spinner{width:1rem;height:1rem;border:2px solid var(--line);border-top-color:var(--accent);border-radius:50%;animation:spin 1s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}@media(max-width:760px){.modal{inset:0;width:100%;height:100dvh;margin:0;border:0;border-radius:0}.modal-header,.modal-footer{padding:.75rem}.modal-body{padding:0 .85rem 1rem}.modal .writer-steps{padding:.5rem}.writer-steps li{font-size:.7rem;padding:.2rem}.writer-steps li::before{display:grid;margin:0 auto .2rem}.modal-footer .hint{display:none}.modal-footer .writer-actions{gap:.4rem}.modal-footer button{padding:.55rem .65rem}.writer-diff td,.writer-diff th{font-size:.85rem}.field-grid{grid-template-columns:1fr}.facts div{grid-template-columns:minmax(0,1fr) minmax(0,1.3fr)}.facts .copy-value{flex-wrap:wrap}.status-strip{flex-wrap:wrap}}@media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;scroll-behavior:auto!important}})CSS";
+const char application_css[] = R"CSS(:root{color-scheme:dark;--bg:#101416;--surface-1:#191f22;--surface-2:#242c30;--surface-3:#303a3f;--text:#f3f5f3;--text-muted:#a4afb0;--border:#354044;--accent:#72dfbe;--success:#85dda4;--warning:#f1c27b;--danger:#ff9999;--radius-sm:8px;--radius-md:16px;--radius-lg:28px;--space-1:4px;--space-2:8px;--space-3:12px;--space-4:16px;--space-5:24px;--space-6:32px;--space-7:48px;--space-8:64px;--shadow-1:0 8px 24px #0003;--shadow-2:0 24px 90px #0008;--rail:216px;--muted:var(--text-muted);--surface:var(--surface-1);--raised:var(--surface-3);--line:var(--border);--good:var(--success);--warn:var(--warning);--bad:var(--danger);--focus:var(--accent);--accent-ink:#112c25;--radius:var(--radius-md);--shadow:var(--shadow-1);font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;font-synthesis:none}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);line-height:1.5;min-width:320px}button,input,select,textarea{font:inherit}button,a,input,select{-webkit-tap-highlight-color:transparent}button{cursor:pointer}button:disabled{cursor:not-allowed;opacity:.42}a{color:var(--accent);text-underline-offset:4px}h1,h2,h3,h4,p{margin:0 0 var(--space-4)}h1,h2,h3{line-height:1.18;letter-spacing:-.035em}h1{font-size:24px;font-weight:550}h2{font-size:32px;font-weight:600}h3{font-size:20px;font-weight:550}h4{font-size:15px}small{font-size:13px}svg.icon{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;flex:none}.svg-definitions{position:absolute;width:0;height:0;overflow:hidden}[hidden],.writer-hidden{display:none!important}:focus-visible{outline:3px solid var(--accent);outline-offset:4px}.visually-hidden{position:absolute;width:1px;height:1px;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap}.skip-link{position:fixed;top:-100px;z-index:100;padding:16px;background:var(--text);color:var(--bg)}.skip-link:focus{top:0}.muted,.hint{color:var(--text-muted)}.hint{font-size:14px}.eyebrow{font-size:11px;font-weight:650;letter-spacing:.16em;color:var(--text-muted);margin-bottom:12px}.product-rail{position:fixed;inset:0 auto 0 0;width:var(--rail);display:flex;flex-direction:column;padding:32px 20px;background:var(--bg);border-right:1px solid var(--border);z-index:20}.brand-block{display:flex;gap:12px;align-items:center;text-decoration:none;color:var(--text);margin-bottom:64px}.brand-name{font-size:23px;letter-spacing:-.04em;font-weight:650;line-height:1}.brand-name small{display:block;margin-top:7px;color:var(--text-muted);font-size:12px;letter-spacing:.12em;font-weight:400}.brand-mark{width:36px;height:36px;border:2px solid var(--accent);border-radius:50%;display:grid;place-items:center}.brand-mark span{width:13px;height:13px;border:2px solid var(--accent);border-radius:50%}.section-nav{display:grid;gap:8px}.section-nav a{display:flex;gap:14px;align-items:center;min-height:52px;padding:12px 14px;border-radius:var(--radius-sm);color:var(--text-muted);text-decoration:none;font-weight:550}.section-nav a:hover{background:var(--surface-1);color:var(--text)}.section-nav a.active{background:var(--surface-2);color:var(--accent)}.rail-live{margin-top:auto;display:flex;align-items:center;gap:10px;color:var(--text-muted);font-size:12px}.status-dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--text-muted)}.status-dot.online{background:var(--success)}.status-dot.offline{background:var(--danger)}.status-dot.pending{background:var(--warning)}.app-frame{margin-left:var(--rail)}.site-header{display:flex;justify-content:space-between;align-items:center;padding:32px 48px 24px;gap:16px}.site-header .eyebrow{margin-bottom:8px;font-size:10px}.connection-strip{display:flex;gap:12px;align-items:center}main{max-width:1440px;margin:auto;padding:0 48px 48px;min-height:calc(100vh - 170px)}.section{padding-top:24px}.section-heading,.workspace-heading{display:flex;justify-content:space-between;align-items:center;gap:24px;flex-wrap:wrap;margin-bottom:24px}.workspace-heading{border-bottom:1px solid var(--border);padding-bottom:16px}.workspace-heading p{margin:0}.button{display:inline-flex;align-items:center;justify-content:center;gap:10px;min-height:48px;padding:11px 20px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface-2);color:var(--text);text-decoration:none;font-weight:600;line-height:1.4;transition:background .15s,border-color .15s}.button:hover:not(:disabled){background:var(--surface-3);border-color:var(--text-muted)}.button.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}.button.primary:hover:not(:disabled){background:#a0edcf}.button.quiet,.button.tiny{background:transparent}.button.destructive-action,.button.warning{color:var(--warning)}.button.danger{color:var(--danger)}.text-button{border:0;background:none;color:var(--text-muted);min-height:44px;padding:8px 12px}.text-button:hover{color:var(--text)}.action-row,.secondary-actions,.primary-actions,.card-title-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.action-row{margin-top:24px}.primary-actions{margin-top:28px}.primary-actions .button{flex:1;padding-inline:12px;white-space:nowrap}.secondary-actions{margin-top:12px}.secondary-actions .text-button:first-child{padding-left:0}.badge,.status-chip{display:inline-flex;align-items:center;gap:8px;font-size:12px;font-weight:550;padding:6px 10px;border-radius:var(--radius-sm);background:var(--surface-2);color:var(--text-muted)}.badge.good,.status-success{color:var(--success)}.badge.warning,.status-warning{color:var(--warning)}.badge.bad,.status-error{color:var(--danger)}.spool-empty{min-height:650px;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center}.spool-empty h2{font-size:44px;margin:8px 0 16px}.spool-empty p:not(.eyebrow){color:var(--text-muted);font-size:17px}.spool-empty .spool-art{width:200px;margin-bottom:40px;opacity:.65}.spool-empty .eyebrow{color:var(--accent)}.spool-workspace{display:grid;grid-template-columns:minmax(240px,.85fr) minmax(0,1.15fr);gap:48px;align-items:center;min-height:480px}.spool-object{text-align:center;position:relative}.spool-art{width:min(100%,340px);aspect-ratio:1;margin:auto;display:grid;place-items:center;filter:drop-shadow(0 30px 28px #0005)}.spool-flange{width:95%;aspect-ratio:1;display:grid;place-items:center;border:14px solid #536064;border-radius:50%;background:repeating-conic-gradient(#738184 0deg 3deg,#414e52 3deg 44deg,#738184 44deg 47deg,#414e52 47deg 90deg);box-shadow:inset 0 0 0 3px #8a9697,0 0 0 2px #899294}.spool-winding{width:81%;aspect-ratio:1;display:grid;place-items:center;border-radius:50%;background:repeating-radial-gradient(circle,var(--filament,#4d615e) 0 2px,#fff2 3px,var(--filament,#4d615e) 4px);border:2px solid #a4b0ad;box-shadow:inset 0 0 20px #000a}.spool-center{width:32%;aspect-ratio:1;border-radius:50%;border:13px solid #788583;background:var(--bg);box-shadow:0 0 0 3px #35413f,inset 0 0 8px #000}.color-caption{display:inline-block;margin-top:24px;color:var(--text-muted);font-size:12px;letter-spacing:.06em}.spool-information .vendor{margin-bottom:10px;color:var(--accent);font-size:16px}.spool-information h2{font-size:clamp(30px,3vw,44px);max-width:550px}.remaining-reading{display:flex;gap:14px;align-items:baseline;margin-top:24px;font-variant-numeric:tabular-nums}.remaining-reading>span{font-size:88px;line-height:1.1;letter-spacing:-.07em;font-weight:550}.remaining-reading small{color:var(--text-muted);font-size:22px}.remaining-reading small span{display:block;font-size:14px}.spool-status{display:flex;gap:12px;flex-wrap:wrap;color:var(--text-muted);font-size:12px;margin-top:24px}.spool-status span::before{content:'';display:inline-block;width:5px;height:5px;border-radius:50%;background:var(--accent);margin-right:7px}#remaining-summary{display:flex;gap:16px;align-items:center;margin-top:20px}progress{appearance:none;border:0;border-radius:8px;height:7px;width:100%;accent-color:var(--accent);background:var(--surface-3)}progress::-webkit-progress-bar{background:var(--surface-3);border-radius:8px}progress::-webkit-progress-value{background:var(--accent);border-radius:8px}#remaining-summary progress{max-width:220px}#remaining-caption{font-size:12px;white-space:nowrap;color:var(--text-muted)}.workspace-bottom{display:grid;grid-template-columns:1fr 1fr;gap:48px;border-top:1px solid var(--border);padding-top:32px;margin-top:32px}.workspace-bottom h3{font-size:18px}.workspace-bottom p{font-size:14px}.workspace-bottom a{font-size:14px}.status-strip{display:flex;gap:20px;flex-wrap:wrap;padding:16px 48px;border-top:1px solid var(--border);color:var(--text-muted);font-size:11px}.status-strip strong{font-weight:400}.status-strip .status-dot{margin-right:6px}.status-strip #footer-clock{margin-left:auto}.modal{width:min(850px,calc(100vw - 64px));max-height:calc(100dvh - 64px);border:1px solid var(--border);border-radius:var(--radius-lg);padding:0;background:var(--surface-1);color:var(--text);box-shadow:var(--shadow-2);overflow:hidden}.modal::backdrop{background:#080e12bd;backdrop-filter:blur(8px)}.modal>article{display:flex;flex-direction:column;max-height:calc(100dvh - 66px);min-height:0}.modal-header{display:flex;align-items:center;justify-content:space-between;gap:20px;padding:28px 32px;border-bottom:1px solid var(--border);flex:none}.modal-header h2{font-size:26px;margin:0}.modal-header p{margin-bottom:8px}.modal-body{padding:28px 32px;overflow:auto;overscroll-behavior:contain;min-height:0}.modal-footer{display:flex;gap:12px;align-items:center;flex-wrap:wrap;border-top:1px solid var(--border);padding:20px 32px;background:var(--surface-1);flex:none}.modal-footer .writer-actions{margin-left:auto}.modal-open{overflow:hidden}.result-banner{padding:12px 16px;background:var(--surface-2);border-radius:var(--radius-sm);font-size:14px;overflow-wrap:anywhere}.result-banner:empty{display:none}.toast{position:fixed;bottom:24px;right:24px;max-width:calc(100vw - 48px);z-index:100;background:var(--surface-3);border:1px solid var(--accent);padding:16px 24px;border-radius:var(--radius-md);box-shadow:var(--shadow-2)}.toast.error{border-color:var(--danger)}.card{background:var(--surface-1);padding:24px;border:0;border-radius:var(--radius-md);min-width:0}.card-grid,.field-grid,.settings-grid{display:grid;gap:24px}.two-column,.field-grid,.settings-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.facts{margin:0}.facts>div{display:flex;justify-content:space-between;gap:24px;padding:10px 0;border-bottom:1px solid var(--border)}.facts>div:last-child{border:0}.facts dt{color:var(--text-muted)}.facts dd{margin:0;text-align:right;overflow-wrap:anywhere;min-width:0}.copy-value{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.status-chips{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:24px}.tag-header{display:flex;gap:16px;margin:20px 0}.tag-header .icon{width:36px;height:36px;color:var(--accent)}.tag-header h3{margin-bottom:8px}.tag-header p{color:var(--text-muted)}#nfc .card{padding:0}#nfc .button{margin:12px 8px 0 0}details{margin-top:24px}summary{cursor:pointer;color:var(--text-muted);padding:12px 0;min-height:44px}summary:hover{color:var(--text)}input,select,textarea{width:100%;min-width:0;min-height:48px;border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px 12px;color:var(--text);background:var(--bg)}textarea{min-height:90px}label{display:block;font-size:14px;color:var(--text-muted)}label input,label select{margin-top:8px}input[type=checkbox]{width:20px;min-height:20px;height:20px;accent-color:var(--accent);vertical-align:middle}.check{display:flex;gap:10px;align-items:center}.check input{flex:none}.stacked-form,fieldset{display:grid;gap:12px;align-content:start}fieldset{margin:0}fieldset[disabled]{opacity:.65}legend{font-size:20px;font-weight:550;color:var(--text)}.config-form{display:grid;gap:24px}.form-actions{display:flex;gap:12px;padding-top:24px}.config-status-row{display:flex;align-items:center;gap:16px}.settings-nav{display:flex;gap:8px;border-bottom:1px solid var(--border);overflow-x:auto;margin-bottom:32px}.settings-nav button{white-space:nowrap}.settings-nav [aria-current=page]{color:var(--accent);border-bottom:2px solid var(--accent)}.settings-pane{max-width:800px}.settings-pane .card{margin-bottom:24px}.settings-edit{margin:0 0 16px;border-bottom:1px solid var(--border)}.settings-edit fieldset{margin-bottom:24px}.settings-pane .section{padding:0}.settings-pane .section-heading .eyebrow{display:none}.profile-list{display:grid;gap:16px}.profile-row{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.json-view,.writer-advanced pre{white-space:pre-wrap;overflow-wrap:anywhere;background:var(--bg);padding:16px;max-height:360px;overflow:auto;font-size:12px}.table-scroll{overflow:auto}.self-test-table{font-size:12px;text-align:left}.self-test-table td,.self-test-table th{padding:8px}.log-list{max-height:360px;overflow:auto;padding-left:20px;font-size:12px;overflow-wrap:anywhere}.update-card progress{margin:16px 0}.setup-portal{background:var(--surface-1);padding:32px;border-radius:var(--radius-lg);margin-bottom:32px}.setup-status{color:var(--text-muted);margin:16px 0}.toolhead-grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px;margin-top:24px}.printer-heading{display:flex;justify-content:space-between;gap:16px;align-items:center}.printer-heading h3{font-size:28px;margin:0}.toolhead{background:var(--surface-2);border-radius:var(--radius-md);padding:20px 12px;display:flex;flex-direction:column;min-width:0}.toolhead-name{font-size:32px;font-weight:550;margin-bottom:24px}.toolhead-spool{color:var(--text-muted);font-size:13px;overflow-wrap:anywhere;margin-bottom:24px;flex:1}.toolhead-actions{display:grid;gap:8px}.toolhead-actions .button{font-size:12px;padding:8px}.tool-choice{display:flex;flex-direction:column;gap:24px;text-align:left;padding:20px 16px;min-height:150px;border:1px solid var(--border);border-radius:var(--radius-md);background:var(--surface-2);color:var(--text)}.tool-choice strong{font-size:28px;font-weight:550}.tool-choice span{font-size:13px;color:var(--text-muted)}.tool-choice[aria-pressed=true]{border:2px solid var(--accent);background:#244138}.intentional-empty{text-align:center;padding:64px 24px}.intentional-empty p{color:var(--text-muted)}.scale-state-row{text-align:right}.scale-stage{display:grid;grid-template-columns:.8fr 1.2fr;gap:32px}.spool-panel{align-self:start;text-align:center;padding-top:32px}.spool-reading{font-size:64px;line-height:1.2;letter-spacing:-.06em;font-weight:550}.spool-reading .unit{font-size:24px;color:var(--text-muted);margin-left:8px}.metric-label,.quality,.spool-meta{font-size:13px;color:var(--text-muted)}.spool-ticks,.spool-rim>i{display:none}.scale-actions{display:flex;flex-direction:column;gap:16px}.action-card{display:flex;align-items:center;gap:12px;text-align:left;border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px 16px;background:var(--surface-2);color:var(--text);min-height:48px}.action-card strong{font-size:16px}.action-card small{display:block;color:var(--text-muted)}.action-card>span:last-child{margin-left:auto}.action-icon{display:none}.weigh-action{background:var(--accent);color:var(--accent-ink)}.weigh-action small{color:var(--accent-ink)}.scale-actions .card{padding:0}.scale-guide-status{font-size:13px;color:var(--text-muted)}.drawer-heading{display:flex;justify-content:space-between;gap:16px}.drawer-close{background:var(--surface-2);color:var(--text);border:0;width:44px;height:44px;border-radius:8px}.calibration-steps{font-size:14px;color:var(--text-muted);padding-left:24px}.calibration-steps .active{color:var(--accent)}.writer-steps{display:flex;justify-content:space-between;list-style:none;padding:20px 32px;margin:0;border-bottom:1px solid var(--border);counter-reset:step;gap:8px}.writer-steps li{font-size:12px;color:var(--text-muted);display:flex;gap:8px;align-items:center}.writer-steps li::before{counter-increment:step;content:counter(step);display:grid;place-items:center;width:24px;height:24px;border-radius:50%;background:var(--surface-3)}.writer-grid{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,1fr);gap:24px}.writer-grid:has(#writer-inventory[hidden]){grid-template-columns:1fr}.writer-toolbar{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:24px}.writer-toolbar label:has(#writer-search){grid-column:1/-1}.writer-toolbar input[type=search]{font-size:17px}.writer-toolbar>button{align-self:end}.writer-results{display:grid;gap:8px;min-height:100px}.writer-pages{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:24px;font-size:13px}.writer-pane{border-left:1px solid var(--border);padding-left:24px;min-width:0}.writer-pane h3{margin-top:12px}.writer-pane .card{padding:16px 0;border-top:1px solid var(--border);border-radius:0;background:none}.writer-editor-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}.writer-editor-grid>label{min-width:0}.writer-actions{display:flex;gap:8px;flex-wrap:wrap}.writer-preview h3{font-size:32px}.writer-preview h4{margin-top:24px}.writer-source-choices{display:flex;gap:8px;margin-bottom:24px}.writer-source-choices button{flex:1}.writer-source-choices button[aria-pressed=true]{border-color:var(--accent);color:var(--accent)}#writer-activity{text-align:center;padding:40px 0}#writer-activity h3{font-size:28px}#writer-activity progress{max-width:360px;margin:24px auto}#writer-progress{margin-bottom:24px}#inventory-content #writer-content{max-height:none}#inventory-content .modal-header,#inventory-content .writer-steps,#inventory-content #writer-dismiss,#inventory-content #writer-advanced{display:none}#inventory-content .modal-body{padding:0;overflow:visible}#inventory-content .modal-footer{padding:24px 0;background:none}#inventory-content .writer-grid{grid-template-columns:minmax(0,1.5fr) minmax(260px,1fr)}.spinner{display:block;width:28px;height:28px;margin:32px auto;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}
+@media(min-width:1280px){.spool-information{padding-right:24px}.spool-workspace{min-height:540px}.toolhead{padding:24px 16px}}
+@media(max-width:1100px){:root{--rail:176px}.product-rail{padding:24px 12px}.site-header{padding:24px}main{padding:0 24px 32px}.spool-workspace{gap:24px;grid-template-columns:.7fr 1fr}.remaining-reading>span{font-size:72px}.primary-actions{flex-wrap:wrap}.primary-actions .button{min-width:110px}.toolhead-grid{gap:8px}.status-strip{padding:16px 24px}.toolhead-name{font-size:26px}.toolhead .button{padding:8px 4px}#inventory-content .writer-grid{grid-template-columns:1fr}.writer-pane{border-left:0;padding-left:0;border-top:1px solid var(--border);padding-top:24px}.writer-grid{grid-template-columns:1fr}.writer-pane:has(#writer-selected-title):has(.empty-state){display:none}}
+@media(max-width:800px){:root{--rail:76px}.brand-name,.section-nav a span,.rail-live{display:none}.product-rail{padding:24px 12px}.section-nav a{justify-content:center;padding:12px}.brand-block{justify-content:center}.spool-workspace{grid-template-columns:1fr}.spool-object .spool-art{width:210px}.spool-object .color-caption{margin-top:8px}.spool-information{max-width:600px;margin:auto;width:100%}.remaining-reading>span{font-size:72px}.spool-workspace{gap:24px}.workspace-bottom{gap:24px}.toolhead-grid{grid-template-columns:repeat(3,minmax(0,1fr))}.two-column,.field-grid,.settings-grid{grid-template-columns:1fr}.spool-empty{min-height:650px}.scale-stage{grid-template-columns:1fr}.spool-panel{padding:0}.modal{width:calc(100vw - 32px);max-height:calc(100dvh - 32px)}.modal>article{max-height:calc(100dvh - 34px)}}
+@media(max-width:520px){.product-rail{inset:auto 0 0;width:100%;height:74px;padding:4px 8px 8px;border:0;border-top:1px solid var(--border);background:var(--bg)}.brand-block{display:none}.section-nav{display:grid;grid-template-columns:repeat(4,1fr);gap:4px}.section-nav a{flex-direction:column;gap:4px;padding:8px 4px;min-height:58px;font-size:10px;border-radius:8px}.section-nav a span{display:block}.section-nav a.active{background:transparent}.section-nav .icon{width:20px;height:20px}.app-frame{margin:0}.site-header{padding:24px 20px 12px;align-items:center}.site-header h1{font-size:22px}.connection-strip .badge{display:none}.site-header .eyebrow{font-size:9px}.connection-strip .button{padding:8px;min-height:44px;font-size:12px}main{padding:0 20px 100px;min-height:calc(100dvh - 150px)}.section{padding-top:20px}.spool-empty{min-height:calc(100dvh - 220px)}.spool-empty h2{font-size:36px}.spool-empty .spool-art{width:170px;margin-bottom:32px}.spool-empty p:not(.eyebrow){font-size:15px}.spool-empty .action-row{width:100%;display:grid}.spool-empty .button{width:100%}.spool-object .spool-art{width:164px}.spool-object .color-caption{display:none}.workspace-heading{margin-bottom:24px;font-size:12px}.spool-workspace{gap:24px}.spool-information h2{font-size:30px}.spool-information .vendor{font-size:14px;margin-bottom:8px}.remaining-reading{margin-top:20px}.remaining-reading>span{font-size:76px}.spool-status{gap:8px;font-size:11px}.primary-actions{display:grid;grid-template-columns:1fr 1fr;gap:10px}.primary-actions .button:first-child{grid-column:1/-1}.primary-actions .button{min-height:50px;font-size:14px}.secondary-actions{justify-content:center}.workspace-bottom{grid-template-columns:1fr;gap:24px;padding-top:24px;margin-top:24px}.workspace-bottom>div+div{border-top:1px solid var(--border);padding-top:24px}.status-strip{display:none}.modal{width:100%;height:100dvh;max-height:100dvh;max-width:100vw;margin:0;border:0;border-radius:0}.modal>article{height:100dvh;max-height:100dvh}.modal-header{padding:20px;gap:12px}.modal-header h2{font-size:23px}.modal-body{padding:20px}.modal-footer{padding:16px 20px}.modal-footer .writer-actions{margin-left:0;flex:1;justify-content:flex-end}.modal-footer #writer-footer-selection{display:none}.writer-steps{padding:16px 20px;gap:4px}.writer-steps li{font-size:10px;gap:4px}.writer-steps li::before{width:18px;height:18px}.writer-editor-grid{grid-template-columns:1fr}.writer-toolbar{gap:10px}.writer-toolbar label{font-size:12px}.writer-source-choices{gap:8px}.writer-source-choices .button{font-size:12px;padding:8px}.writer-pane{padding-top:20px}.writer-preview h3{font-size:28px}.toolhead-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.tool-choice{min-height:132px}.toolhead{padding:20px 16px}.toolhead .button{font-size:13px;padding:10px}.printer-heading h3{font-size:24px}.settings-nav{gap:0;margin-inline:-20px;padding-inline:12px}.settings-nav button{padding:12px}.settings-pane .card{padding:20px}.profile-row{grid-template-columns:1fr 1fr}.facts>div{gap:16px;font-size:14px}.toast{bottom:88px;left:20px;right:20px;max-width:none}.setup-portal{padding:20px}.card{padding:20px}.config-status-row{flex-wrap:wrap}}
+/* Inventory rows share the same picker in the guided writer. */
+:root{--w-line:var(--border);--w-accent:var(--accent)}
+.writer-toolbar .writer-source-choices{grid-column:1/-1;margin:0}
+#writer-results .writer-row{grid-template-columns:36px minmax(0,1fr);align-items:center;padding:14px 16px;min-height:80px;border-radius:8px;border:1px solid var(--border);background:var(--surface-1)}
+#writer-results .writer-row.writer-selected{border-color:var(--accent);background:#223b33}
+#writer-results .writer-row>.writer-swatch{width:32px;height:32px;display:grid;place-items:center;color:#fff;text-shadow:0 1px 3px #000;border:1px solid var(--text-muted);border-radius:50%;margin:0}
+#writer-results .writer-row small{display:inline-block;margin:4px 12px 0 0;font-size:12px}
+#writer-results .writer-row strong{font-size:14px;font-weight:550}
+#scale-hardware .action-card{width:100%;margin-bottom:12px}
+.scale-actions>.card{order:-1}
+.scale-actions .result-banner{margin-top:16px}
+#settings>.section-heading h2,#inventory>.section-heading h2{font-size:28px}
+#assign-message{margin-top:24px}
+#current-tag[data-valid=false]::before{background:var(--warning)}
+@media(max-width:520px){.spool-workspace{position:relative;display:block;min-height:0}.spool-object{position:absolute;right:0;top:0}.spool-object .spool-art{width:105px}.spool-information>.vendor,.spool-information>h2,.spool-information>.muted{padding-right:116px}.spool-information h2{font-size:28px;min-height:66px;margin-bottom:8px}.spool-information>.muted{margin-bottom:8px}.remaining-reading{margin-top:20px}.spool-status{margin-top:20px}.primary-actions{margin-top:20px}#nfc .button{width:100%;margin-right:0}}
+@media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
+
+/* Keep the library focused on results, with optional page refinements. */
+#inventory>.section-heading h2,#inventory>.section-heading .eyebrow,#settings>.section-heading,#printers>.section-heading h2,#printers>.section-heading .eyebrow{display:none}
+#inventory-content .writer-toolbar>.writer-source-choices:first-child{display:none}
+.writer-toolbar{grid-template-columns:1fr 1fr auto;align-items:end}
+.writer-toolbar>label:has(#writer-search){grid-column:1/-1}
+#writer-clear-search{grid-column:3;font-size:12px;padding:8px}
+.inventory-refine{margin:0 0 16px}.inventory-refine summary{font-size:13px}.inventory-refine .hint{margin:12px 0 0}
+#writer-open{background:var(--surface-2);color:var(--text)}
+@media(max-width:520px){#inventory>.section-heading{margin-bottom:20px}.writer-toolbar{grid-template-columns:minmax(0,1fr) auto auto}.writer-toolbar>label:has(#writer-material){grid-column:1}#writer-search-button{font-size:12px;padding:8px}.inventory-refine .field-grid{grid-template-columns:1fr 1fr}}
+
+@media(max-width:520px){#nfc .copy-value .button{width:auto;margin:0}.scale-stage{gap:16px}.spool-panel{padding-top:8px}.spool-panel .spool-reading{font-size:52px}.spool-panel .spool-meta{margin:8px 0}.scale-actions .facts>div{padding:8px 0}}
+
+.spool-choice-buttons{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px}.spool-choice-buttons:empty{display:none}.spool-choice-buttons [aria-pressed=true]{border-color:var(--accent);color:var(--accent)}
+#clear-effects>li:has(details){list-style:none}
+
+@media(max-width:520px){.settings-nav{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));overflow:visible;margin-inline:0;padding:0}.settings-nav button{padding:10px 4px;font-size:13px}}
+)CSS";
 
 const std::size_t application_css_size = sizeof(application_css) - 1U;
 
@@ -292,20 +315,9 @@ const SELF_TEST_PATHS = Object.freeze([
 '/device', '/health', '/network', '/config', '/scale', '/spool',
 '/printers', '/toolheads', '/logs', '/diagnostics', '/update'
 ]);
-const PRODUCT_PAGES = Object.freeze({
-home: ['overview', 'spool', 'spool-resolution'],
-scale: ['scale'],
-printer: ['printers'],
-tags: ['nfc'],
-settings: ['settings', 'configuration', 'diagnostics', 'maintenance']
-});
-const PRODUCT_TITLES = Object.freeze({
-home: 'Home', scale: 'Scale', printer: 'Printer', tags: 'Tags', settings: 'Settings'
-});
-const PRODUCT_EYEBROWS = Object.freeze({
-home: 'OPEN TAG STATION', scale: 'FILAMENT SCALE', printer: 'PRINTER CONTROL',
-tags: 'OPENPRINTTAG', settings: 'STATION SETTINGS'
-});
+const PRODUCT_PAGES = Object.freeze({home:['overview','spool-resolution'],inventory:['inventory'],printer:['printers'],settings:['settings']});
+const PRODUCT_TITLES = Object.freeze({home:'Dashboard',inventory:'Inventory',printer:'Printer',settings:'Settings'});
+const PRODUCT_EYEBROWS = Object.freeze({home:'IDENTIFY · WEIGH · MAKE',inventory:'YOUR COLLECTION',printer:'READY TO PRINT',settings:'MAKE IT YOURS'});
 const state = {
 apiToken: '',
 authMode: 'UNKNOWN',
@@ -408,12 +420,13 @@ const value = String(hash || '').replace(/^#/, '');
 if (Object.prototype.hasOwnProperty.call(PRODUCT_PAGES, value)) return value;
 if (value === 'overview' || value === 'spool') return 'home';
 if (value === 'printers') return 'printer';
-if (value === 'nfc') return 'tags';
+if (value === 'nfc' || value === 'tags' || value === 'scale') return 'home';
 if (value === 'configuration' || value === 'diagnostics' || value === 'maintenance') return 'settings';
 return 'home';
 }
 
 function activateProductPage(page) {
+if(page==='scale'){openProductDialog('weigh-dialog');return 'home';}if(page==='tags'){openProductDialog('manage-dialog');return 'home';}
 const selected = Object.prototype.hasOwnProperty.call(PRODUCT_PAGES, page) ? page : 'home';
 Object.keys(PRODUCT_PAGES).forEach(function (candidate) {
 PRODUCT_PAGES[candidate].forEach(function (id) {
@@ -432,6 +445,7 @@ setText('page-eyebrow', PRODUCT_EYEBROWS[selected]);
 if (selected !== 'scale' && state.calibrationOpen) setCalibrationPanel(false);
 else syncCalibrationRefresh();
 if (selected === 'settings') ensureConfigReady();
+if (selected === 'inventory') mountInventory();
 return selected;
 }
 
@@ -1079,7 +1093,7 @@ state.configError = error ? String(error.message || error) : '';
 const ready = next === CONFIG_STATE.READY;
 const editable = ready && !state.maintenance;
 const loading = next === CONFIG_STATE.LOADING;
-Array.from(document.querySelectorAll('#config-form fieldset')).forEach(function (fieldset) {
+Array.from(document.querySelectorAll('#settings fieldset')).forEach(function (fieldset) {
 fieldset.disabled = !editable;
 });
 const save = byId('config-save');
@@ -1273,7 +1287,7 @@ function calibrationRefreshEligible() {
 const scale = asObject(state.scale);
 const calibrated = first(scale.calibrated, scale.calibration_loaded,
 asObject(scale.calibration).configured, false) === true;
-return state.calibrationOpen && state.currentPage === 'scale' && !calibrated &&
+return state.calibrationOpen && byId('weigh-dialog')?.open === true && !calibrated &&
 !state.scaleBusy && !state.maintenance && !state.unloading &&
 document.hidden !== true;
 }
@@ -1315,6 +1329,7 @@ syncCalibrationRefresh();
 }
 
 function setCalibrationPanel(open) {
+if(byId('scale-hardware'))byId('scale-hardware').open=open;
 const panel = byId('calibration-panel');
 const trigger = byId('calibrate-scale');
 state.calibrationOpen = open === true;
@@ -1450,8 +1465,7 @@ measurementState === 'timed_out' || measurementState === 'failed' ? 'Retry' : 'W
 setText('home-last-weight', Number.isFinite(completed)
 ? 'Last: ' + Math.round(completed) + ' g' : 'No measurement yet');
 setText('home-eyebrow', calibrated ? 'READY' : 'SCALE SETUP REQUIRED');
-setText('overview-title', calibrated ? 'Place a spool' :
-'Calibrate the scale before weighing');
+setText('overview-title','Place a spool');
 setText('home-description', calibrated
 ? 'Present a spool to begin, or capture its weight directly.'
 : 'Complete the guided tare and reference-weight calibration.');
@@ -1487,15 +1501,16 @@ setText('scale-reference', formatGrams(first(calibration.reference_grams,
 scale.reference_grams)));
 if (calibrated && state.calibrationOpen) setCalibrationPanel(false);
 updateScaleControls();
+renderCurrentSpool();
 }
 
-function tagStatus(){const t=state.currentTag||{},w=state.tagWorkflow||{},inv=t.inventory||{},present=first(t.present,inv.present,false),uid=String(first(t.uid,inv.uid,'')),writer=window.OpenTagWriter?.writerState?.snapshot||{};
+function tagStatus(){renderCurrentSpool();const t=state.currentTag||{},w=state.tagWorkflow||{},inv=t.inventory||{},present=first(t.present,inv.present,false),uid=String(first(t.uid,inv.uid,'')),writer=window.OpenTagWriter?.writerState?.snapshot||{};
 const same=uid&&String(w.tag?.uid||'').replace(/:/g,'')===uid.replace(/:/g,''),linked=present&&same&&w.openprinttag_available&&w.spool,owned=present&&uid&&String(writer.uid||'').replace(/:/g,'')===uid.replace(/:/g,'');
 const cleared=state.clearSnapshot||{},blank=String(cleared.uid||'').replace(/:/g,'')===uid.replace(/:/g,'')&&['cleared','unlink_pending','unlinking'].includes(cleared.phase);
 const pending=owned&&writer.phase==='association_pending',complete=owned&&writer.phase==='complete';const id=blank?0:pending?0:complete?writer.spool_id:linked?(w.spool.id||w.spool.spool_id):0;
-setText('nfc-detected-chip',present?'TAG DETECTED':'NO TAG');setText('nfc-decode-chip',t.decode==='pass'?'DECODE PASS':t.decode==='fail'?'DECODE FAILED':'DECODE PENDING');setText('nfc-link-chip',pending?'ASSOCIATION PENDING':id?'SPOOL LINKED':'NOT LINKED');
+setText('nfc-detected-chip',present?'Tag detected':'No tag');setText('nfc-decode-chip',t.decode==='pass'?'Tag valid':t.decode==='fail'?'Tag needs attention':'Reading tag…');setText('nfc-link-chip',pending?'Link pending':id?'Linked to Spoolman':'Not linked');
 setText('nfc-association',pending?'Association pending — open Write / Rewrite to retry':id?'Linked · Spool #'+id:'Not linked');setText('nfc-identity',id?'Spoolman #'+id:'—');byId('nfc-identity-row').hidden=!id;byId('nfc-copy').disabled=!uid;
-if(t.blank_compatible&&!blank){setText('nfc-summary','Blank compatible NFC tag');setText('nfc-guidance','Ready to write');setText('nfc-decode-chip','BLANK');}if(blank){setText('nfc-summary','Blank compatible NFC tag');setText('nfc-guidance',cleared.phase==='cleared'?'Ready to reuse':'Tag is blank and verified. Spoolman unlink is still pending.');setText('nfc-decode-chip','BLANK VERIFIED');setText('nfc-link-chip',cleared.phase==='cleared'?'UNLINKED':'UNLINK PENDING');}
+if(t.blank_compatible&&!blank){setText('nfc-summary','Tag ready to reuse');setText('nfc-guidance','Ready to write');setText('nfc-decode-chip','BLANK');}if(blank){setText('nfc-summary','Tag ready to reuse');setText('nfc-guidance',cleared.phase==='cleared'?'Ready to reuse':'Tag is blank and verified. Spoolman unlink is still pending.');setText('nfc-decode-chip','BLANK VERIFIED');setText('nfc-link-chip',cleared.phase==='cleared'?'UNLINKED':'UNLINK PENDING');}
 if(uid)setText('nfc-uid',uid.replace(/[^a-f0-9]/gi,'').match(/.{1,2}/g)?.join(':')||uid);
 ['detected','decode','link'].forEach((k,i)=>byId('nfc-'+k+'-chip').className='status-chip '+([present,t.decode==='pass',!!id][i]?'status-success':pending?'status-warning':''));
 }
@@ -1616,6 +1631,7 @@ const spool = asObject(first(workflow.spool, payload.spool, {}));
 const reconciliation = asObject(first(workflow.reconciliation, payload.reconciliation, {}));
 const recognizedTag = asObject(workflow.tag);
 state.tagWorkflow=workflow;state.spool = Object.keys(spool).length ? spool : null;tagStatus();
+renderCurrentSpool();
 state.spoolGeneration = first(workflow.spool_generation, payload.spool_generation, state.spoolGeneration);
 setText('spool-id', first(spool.id, spool.spool_id));
 setText('spool-name', first(spool.display_name, spool.name, recognizedTag.material_name,
@@ -1632,12 +1648,12 @@ const guidance = {
 waiting_for_stable_weight: 'OpenPrintTag recognized. Waiting for a stable weight; calibrate the scale if required.',
 resolving_spool: 'Finding the matching Spoolman spool…',
 spool_not_found: 'No Spoolman spool matched. Enter its Spoolman ID to confirm a local mapping.',
-spool_selection_required: 'Multiple spools matched. Select and confirm the spool on the station.',
+spool_selection_required: 'More than one Spoolman spool matches this tag. Choose the spool on the station, then confirm.',
 spool_resolution_unavailable: 'Spoolman resolution failed. Check the backend connection, then reinsert the spool or confirm its ID.',
-spool_ready: 'Spool resolved. Open Printer and select T1–T5.',
+spool_ready: '',
 assignment_complete: 'Assignment verified by FilaBridge readback.'
 };
-setText('spool-guidance', workflow.error || guidance[workflow.stage] || 'Place an OpenPrintTag spool on the station.');
+byId('spool-guidance').textContent=workflow.error || guidance[workflow.stage] || '';
 byId('confirm-spool-form').hidden = !workflow.openprinttag_available ||
 !['spool_not_found', 'spool_selection_required', 'spool_resolution_unavailable'].includes(workflow.stage);
 const choices = byId('spool-candidates');
@@ -1648,6 +1664,7 @@ option.value = candidate.id;
 option.textContent = candidate.display_name || ('Spool #' + candidate.id);
 choices.appendChild(option);
 });
+renderSpoolChoices(workflow);
 }
 
 function normalizePrinters(payload) {
@@ -1679,6 +1696,7 @@ return button;
 }
 
 function renderPrinters() {
+renderCurrentSpool();
 const container = byId('printer-list');
 if (!container) return;
 container.replaceChildren();
@@ -1735,7 +1753,7 @@ const mapped = first(toolhead.assigned_spool_id,
 toolhead.assigned_spool, toolhead.spool_id);
 const spoolText = document.createElement('div');
 spoolText.className = 'toolhead-spool';
-spoolText.textContent = mapped === null ? 'Unassigned' : 'Spool assigned';
+spoolText.textContent = mapped === null ? 'Empty' : (toolhead.filament_name || toolhead.spool_name || 'Spool #'+mapped);
 const actions = document.createElement('div');
 actions.className = 'toolhead-actions';
 const revision = first(printer.revision,
@@ -1743,8 +1761,8 @@ printer.printer_revision, state.printerRevision);
 const ready = Number.isInteger(backendId) && state.spool &&
 first(state.spool.id, state.spool.spool_id) !== null &&
 state.spoolGeneration !== null && revision !== null && !state.maintenance;
-actions.appendChild(makeButton('Assign', 'button primary',
-function () { assignToolhead(printer, toolhead, revision); }, !ready));
+actions.appendChild(makeButton(mapped===null?'Assign current spool':'Change', 'button primary',
+function () { openAssignment(); }, !ready));
 actions.appendChild(makeButton('Unassign', 'button quiet',
 function () { unassignToolhead(printer, toolhead, revision); },
 mapped === null || revision === null || state.maintenance));
@@ -1793,6 +1811,7 @@ advanced_override: advanced
 }
 });
 showToast(operationMessage(operation, 'Assignment completed and was verified.'));
+return true;
 } catch (error) { showToast(error.message, true); }
 }
 
@@ -1898,6 +1917,8 @@ const profileId = String(first(profile.id, profile.profile,
 Number(profile.rated_capacity_grams) === 2000 ? 'yzc-133-2kg' : 'yzc-133-5kg'));
 setValue('config-scale-profile', profileId);
 byId('config-auto-weigh').checked=asObject(payload.reconciliation).auto_update_after_weigh===true;
+setValue('config-weight-tolerance',asObject(payload.reconciliation).normal_tolerance_grams);
+byId('config-weight-tolerance').max=asObject(payload.reconciliation).warning_tolerance_grams??1000;
 setValue('config-overload-ratio', first(profile.overload_ratio, 1.1));
 setValue('config-wifi-password', '');
 setValue('config-spoolman-token', '');
@@ -1981,7 +2002,7 @@ wifi: { ssid: rawValueOf('config-ssid') },
 spoolman: { url: valueOf('config-spoolman-url') },
 filabridge: { url: valueOf('config-filabridge-url'), selected_printer_id: rawValueOf('config-printer-id') },
 scale_profile: { id: profileId, model: 'YZC-133', rated_capacity_grams: profileId === 'yzc-133-2kg' ? 2000 : 5000, overload_ratio: Number(valueOf('config-overload-ratio')) },
-reconciliation: {auto_update_after_weigh:checked('config-auto-weigh')},
+reconciliation: {auto_update_after_weigh:checked('config-auto-weigh'),...(valueOf('config-weight-tolerance')!==''?{normal_tolerance_grams:Number(valueOf('config-weight-tolerance'))}:{})},
 toolheads: collectProfiles()
 };
 return applyEnteredCredentials(patch);
@@ -2040,6 +2061,7 @@ const capacity = valueOf('config-scale-profile') === 'yzc-133-2kg' ? 2000 : 5000
 byId('reference-grams').max = String(capacity);
 setText('profile-capacity-help', 'Rated capacity: ' + capacity + ' g');
 updateScaleControls();
+renderCurrentSpool();
 }
 
 function renderDiagnostics(payload) { const node = byId('diagnostics-json'); if (node) node.textContent = pretty(payload); }
@@ -2853,6 +2875,7 @@ onProgress: function (progress) {
 state.scaleProgress = 'Operation #' + progress.id + ': ' +
 String(first(progress.message, normalizeState(progress.state)));
 updateScaleControls();
+renderCurrentSpool();
 }
 });
 if (path === '/scale/tare' &&
@@ -2976,7 +2999,7 @@ function startHomeWeigh() {
 const scale = asObject(state.scale);
 const calibrated = first(scale.calibrated, scale.calibration_loaded,
 asObject(scale.calibration).configured, false) === true;
-navigateProductPage('scale');
+openProductDialog('weigh-dialog');
 if (!calibrated) {
 setCalibrationPanel(true);
 return Promise.resolve(true);
@@ -2990,6 +3013,7 @@ return true;
 }
 
 function wireActions() {
+bindProduct();
 byId('refresh-all').addEventListener('click', function () { refreshAll(false); });
 byId('confirm-spool-form').addEventListener('submit', async function (event) {
 event.preventDefault();
@@ -3239,15 +3263,15 @@ function renderWeighSync(value){const v=asObject(value);state.weighSync=v;
 setText('weigh-spool',v.spool_id?(v.name||'Spool')+' · #'+v.spool_id:'Place a spool');
 ['gross','tare','measured','canonical_remaining','difference'].forEach(k=>setText('weigh-'+k,formatGrams(v[k])));
 setText('weigh-policy','Auto-update Spoolman: '+(v.policy_auto?'ON · Captured Weigh only':'OFF · Review and update manually'));
-setText('weigh-message',v.message||'Press Weigh to capture a measurement');byId('weigh-message').className='result-banner '+(['updated','unchanged'].includes(v.phase)?'status-success':['failed','conflict','unavailable'].includes(v.phase)?'status-error':'');
+setText('weigh-message',v.message||(v.phase==='ready'&&v.difference!=null?'Measurement differs by '+formatGrams(Math.abs(v.difference))+'. Review before updating.':'Press Weigh to capture a measurement'));byId('weigh-message').className='result-banner '+(['updated','unchanged'].includes(v.phase)?'status-success':['failed','conflict','unavailable'].includes(v.phase)?'status-error':'');
 byId('weigh-update').disabled=!v.can_update||state.weighUpdating===true;byId('weigh-update').hidden=!!v.automatic&&v.phase==='ready';
 }
 async function updateWeighedSpool(){const v=state.weighSync;if(!v?.can_update||state.weighUpdating)return;state.weighUpdating=true;renderWeighSync(v);try{await submitMutation('/scale/update',{body:{measurement_id:v.measurement_id}});}catch(e){setText('weigh-message',e.message);}finally{state.weighUpdating=false;await load('/scale',renderScale,true,PRIORITY.CONTROL);}}
 let clearView={},clearBusy=false;
 function clearLocked(){return clearBusy||['validating','clearing','verifying','unlinking'].includes(clearView.phase);}
 function renderClear(v){clearView=asObject(v);state.clearSnapshot=clearView;const p=clearView.phase,locked=clearLocked();
-setText('clear-title',p==='cleared'?'✓ Tag cleared and verified':p==='unlink_pending'?'Tag blank · unlink pending':p==='clearing'?'Clearing OpenPrintTag':'Clear this OpenPrintTag?');
-setText('clear-message',clearView.message||'Reading this exact tag…');byId('clear-message').className='result-banner '+(p==='cleared'?'status-success':p==='failed'?'status-error':p==='unlink_pending'?'status-warning':'');
+setText('clear-title',p==='cleared'?'Tag ready to reuse · verified':p==='unlink_pending'?'Tag cleared · cleanup pending':p==='clearing'?'Clearing tag':'Reuse this NFC tag?');
+setText('clear-message',p==='unlink_pending'?'Tag blank and verified. Spoolman cleanup still needs attention. Retry cleanup without rewriting the tag.':clearView.message||(p==='clear_preview'?'Ready for your confirmation. Nothing has been changed.':'Reading this tag…'));byId('clear-message').className='result-banner '+(p==='cleared'?'status-success':p==='failed'?'status-error':p==='unlink_pending'?'status-warning':'');
 const list=byId('clear-summary');list.replaceChildren();[['Tag',clearView.uid],['Current material',clearView.material_name],['Spoolman',clearView.spool_id?'Spool #'+clearView.spool_id:'Exact owner checked after blank verification']].forEach(([k,v])=>{const row=document.createElement('div'),dt=document.createElement('dt'),dd=document.createElement('dd');dt.textContent=k;dd.textContent=v||'—';row.append(dt,dd);list.append(row);});
 byId('clear-confirm').hidden=p!=='clear_preview';byId('clear-confirm').disabled=locked||p!=='clear_preview';byId('clear-retry').hidden=p!=='unlink_pending';byId('clear-retry').disabled=locked;
 ['close','cancel'].forEach(k=>byId('clear-'+k).disabled=locked);setText('clear-cancel',p==='cleared'?'Done':'Cancel');
@@ -3256,9 +3280,244 @@ setText('clear-open',p==='unlink_pending'?'Retry unlink':'Clear / Reuse Tag');ta
 async function clearCommand(action){if(clearLocked())return;const p=clearView,body={action};if(action==='clear'){if(p.phase!=='clear_preview')return;['uid','generation','current_checksum','target_checksum'].forEach(k=>body[k]=p[k]);}
 window.OpenTagWriter?.writerState&&(window.OpenTagWriter.writerState.invalidated=true);clearBusy=true;renderClear({...p,phase:action==='clear_preview'?'reading':action==='clear'?'clearing':'unlinking',message:action==='clear_preview'?'Reading complete tag and protection state…':'Keep tag on reader. Do not remove power.'});let fetching=false,accepting=true;
 try{await submitMutation('/tag-writer',{body,operationTimeoutMs:180000,onProgress:()=>{if(fetching)return;fetching=true;api('/tag-writer',{priority:PRIORITY.CONTROL}).then(v=>{if(accepting)renderClear(v);}).catch(()=>{}).finally(()=>fetching=false);}});}catch(e){setText('clear-message',e.message);}finally{accepting=false;clearBusy=false;try{renderClear(await api('/tag-writer',{priority:PRIORITY.CONTROL}));}catch(e){renderClear({phase:'failed',message:e.message});}}}
-async function openClear(){if(window.OpenTagWriter?.writerState?.busy)return;byId('clear-dialog').showModal();document.body.classList.add('modal-open');try{const v=await api('/tag-writer',{priority:PRIORITY.CONTROL});if(v.mode==='clear'&&['unlink_pending','clearing','verifying','unlinking'].includes(v.phase)){renderClear(v);byId('clear-retry').focus();return;}if(['association_pending','writing','associating','validating','decoding'].includes(v.phase)){renderClear({phase:'failed',message:'Finish the pending write or association in Write / Rewrite first.'});return;}}catch(e){renderClear({phase:'failed',message:e.message});return;}await clearCommand('clear_preview');byId('clear-confirm').focus();}
-function closeClear(){if(clearLocked())return;byId('clear-dialog').close();document.body.classList.remove('modal-open');byId('clear-open').focus();}
+async function openClear(){if(window.OpenTagWriter?.writerState?.busy)return;closeProductDialog('manage-dialog');byId('clear-dialog').showModal();document.body.classList.add('modal-open');try{const v=await api('/tag-writer',{priority:PRIORITY.CONTROL});if(v.mode==='clear'&&['unlink_pending','clearing','verifying','unlinking'].includes(v.phase)){renderClear(v);byId('clear-retry').focus();return;}if(['association_pending','writing','associating','validating','decoding'].includes(v.phase)){renderClear({phase:'failed',message:'Finish the pending write or association in Write / Rewrite first.'});return;}}catch(e){renderClear({phase:'failed',message:e.message});return;}await clearCommand('clear_preview');byId('clear-confirm').focus();}
+function closeClear(){if(clearLocked())return;byId('clear-dialog').close();document.body.classList.remove('modal-open');openProductDialog('manage-dialog');byId('clear-open').focus();}
 function bindWeighAndClear(){byId('weigh-update').addEventListener('click',updateWeighedSpool);byId('clear-open').addEventListener('click',openClear);['close','cancel'].forEach(k=>byId('clear-'+k).addEventListener('click',closeClear));byId('clear-dialog').addEventListener('cancel',e=>{e.preventDefault();closeClear();});byId('clear-confirm').addEventListener('click',()=>clearCommand('clear'));byId('clear-retry').addEventListener('click',()=>clearCommand('retry_unlink'));}
+
+// PRODUCT PRESENTATION BEGIN
+// Presentation only. All commands go through the station's existing fenced handlers.
+const productDialogs = new Map();
+function openProductDialog(id) {
+  const dialog = byId(id);
+  if (!dialog || dialog.open) return;
+  productDialogs.set(id, document.activeElement);
+  dialog.showModal();
+  document.body.classList.add('modal-open');
+}
+function closeProductDialog(id) {
+  const dialog = byId(id);
+  if (!dialog?.open || dialog.dataset.busy === 'true') return;
+  dialog.close();
+  if (!document.querySelector('dialog[open]')) document.body.classList.remove('modal-open');
+  productDialogs.get(id)?.focus();
+}
+function spoolIdentity() {
+  const t=state.currentTag||{}, w=state.tagWorkflow||{}, inv=t.inventory||{};
+  const uid=String(first(t.uid,inv.uid,'')).replace(/:/g,'');
+  const present=first(t.present,inv.present,false)===true;
+  const same=present&&uid&&uid===String(w.tag?.uid||'').replace(/:/g,'');
+  return {t,w,present,spool:same&&w.openprinttag_available?w.spool:null};
+}
+function renderSpoolChoices(workflow) {
+  const form=byId('confirm-spool-form');
+  if(!form||byId('overview').dataset.bound!=='true')return;
+  let list=byId('spool-choice-buttons');
+  if(!list){list=productElement('div',null,'spool-choice-buttons');list.id='spool-choice-buttons';form.prepend(list);}
+  list.replaceChildren();
+  asArray(workflow.candidates).forEach(candidate=>{
+    const button=makeButton('#'+candidate.id+' · '+(candidate.display_name||'Spool'), 'button',()=>{
+      setValue('confirm-spool-id',candidate.id);
+      list.querySelectorAll('button').forEach(b=>b.setAttribute('aria-pressed',String(b===button)));
+      form.querySelector('[type=submit]').focus();
+    });
+    button.setAttribute('aria-pressed','false');list.append(button);
+  });
+}
+function renderCurrentSpool() {
+  if (!byId('current-spool')) return;
+  const {t,w,present,spool}=spoolIdentity(), s=spool||{};
+  byId('spool-empty').hidden=present;
+  byId('current-spool').hidden=!present;
+  if (!present) return;
+  const remaining=first(s.remaining_grams,t.remaining_weight);
+  const initial=first(s.initial_grams,t.actual_full_weight,t.nominal_full_weight);
+  const name=first(s.display_name,t.material_name,t.blank_compatible?'Blank tag':'Reading spool…');
+  setText('current-name',name);setText('manage-material',name);
+  setText('current-vendor',first(s.vendor,t.brand_name,t.brand,''));
+  setText('current-material',first(s.material,t.material_abbreviation,''));
+  setText('current-number',s.id?'Spool #'+s.id:'Not yet linked');
+  setText('current-remaining',remaining===null?'—':Math.round(Number(remaining)));
+  const percentage=remaining!==null&&Number(initial)>0?Math.max(0,Math.min(100,Math.round(Number(remaining)/Number(initial)*100))):null;
+  byId('remaining-summary').hidden=percentage===null;
+  if(percentage!==null){byId('remaining-meter').value=percentage;setText('remaining-caption',percentage+'% of '+Math.round(initial)+' g');}
+  const c=s.primary_color||t.primary_color||t.color;
+  const color=Array.isArray(c)?c.slice(0,3):c&&typeof c==='object'?[c.red,c.green,c.blue]:null;
+  const safe=color?.length===3&&color.every(n=>Number.isInteger(n)&&n>=0&&n<=255);
+  byId('current-spool').style.setProperty('--filament',safe?'rgb('+color.join(',')+')':'#879b9b');
+  setText('current-color',safe?'Filament color':'Color not provided');
+  setText('current-tag',t.blank_compatible?'Blank tag':t.decode==='pass'?'Tag valid':t.decode==='fail'?'Tag needs attention':'Reading tag…');
+  byId('current-tag').dataset.valid=String(t.decode==='pass');
+  setText('current-link',s.id?'Linked to Spoolman':w.stage==='resolving_spool'?'Looking up spool…':'Not linked to Spoolman');
+  const assignments=state.printers.flatMap(p=>asArray(p.toolheads).filter(h=>s.id&&Number(first(h.assigned_spool_id,h.assigned_spool,h.spool_id))===Number(s.id)).map(h=>(p.display_name||p.name||'Printer')+' · T'+(Number(first(h.backend_id,h.id))+1)));
+  setText('current-assignment',assignments.length?assignments.join(', '):'Not assigned');
+  setText('dashboard-printer',assignments.length?assignments.join(', '):'Choose a toolhead to assign this spool.');
+  const v=state.weighSync||{}, sameWeight=s.id&&Number(v.spool_id)===Number(s.id);
+  setText('dashboard-weight',sameWeight&&v.measured!=null?formatGrams(v.measured)+' measured · '+formatGrams(v.canonical_remaining)+' in Spoolman':'Weigh this spool to compare it with your inventory.');
+  setText('home-action-label',state.scale?.measurement?.active?'Weighing…':'Weigh');
+  byId('spool-edit').disabled=!s.id;byId('tag-update').disabled=!s.id;
+  byId('spool-assign').disabled=!s.id||state.maintenance;
+}
+function presentWriter() {
+  const d=byId('writer-dialog'),content=byId('writer-content');
+  byId('writer-panel').hidden=false;
+  if(content&&content.parentElement!==d)d.append(content);
+  if(byId('manage-dialog')?.open){window.OpenTagWriter.writerState.returnManage=true;closeProductDialog('manage-dialog');}
+  if(!d.open)d.showModal();
+  document.body.classList.add('modal-open');
+}
+async function mountInventory() {
+  const W=window.OpenTagWriter, d=byId('writer-dialog');
+  if(!W?.writerState||!d||d.open||W.writerState.busy)return;
+  try {
+    const pending=await api('/tag-writer',{priority:PRIORITY.CONTROL});
+    if(state.currentPage!=='inventory')return;
+    if(pending.mode==='clear'&&['unlink_pending','clear_recovery','clearing','verifying','unlinking'].includes(pending.phase)){await openClear();return;}
+    if(['association_pending','validating','writing','verifying','decoding','associating'].includes(pending.phase)){presentWriter();W.renderWriter(pending);return;}
+  } catch(error) {showToast('Inventory unavailable. '+error.message+' Open Inventory again to retry.',true);return;}
+  byId('inventory-content').replaceChildren(byId('writer-content'));
+  W.writerState.step=1;
+  W.selected(W.writerState.selected,W.writerState.material);
+  await W.writerSearch('refresh');
+}
+async function currentSpoolTask(edit=false) {
+  const s=spoolIdentity().spool,W=window.OpenTagWriter;
+  if(!s?.id||!W||W.writerState.busy)return;
+  presentWriter();
+  // Fetches authoritative data and a fresh exact-tag preview; never writes here.
+  if(await W.writerCommand({action:'preview',spool_id:s.id,mode:'rewrite'})){
+    if(edit)W.openEditor('spool');
+  }
+}
+function productElement(tag,text,cls) {
+  const n=document.createElement(tag);if(text!=null)n.textContent=text;if(cls)n.className=cls;return n;
+}
+function bindInventoryFilters() {
+  const group=productElement('details',null,'inventory-refine');
+  group.append(productElement('summary','Refine this page'));
+  const row=productElement('div',null,'field-grid'),color=productElement('select'),status=productElement('select');
+  color.id='inventory-color';status.id='inventory-status';
+  for(const [node,title] of [[color,'Color'],[status,'Status']]){const label=productElement('label',title);label.append(node);row.append(label);}
+  for(const [value,title] of [['','All statuses'],['available','Filament remaining'],['empty','Empty'],['archived','Archived']]){const o=productElement('option',title);o.value=value;status.append(o);}
+  const note=productElement('p',null,'hint');group.append(row,note);
+  byId('writer-inventory').querySelector('.writer-toolbar').after(group);
+  const apply=()=>{
+    const S=window.OpenTagWriter.writerState;let count=0;
+    S.rows?.forEach((row,i)=>{const s=S.items[i],f=S.entity==='spool'?asObject(s.filament):s;
+      const matches=(!color.value||f.color_hex===color.value)&&(!status.value||S.entity!=='spool'||(status.value==='archived'?s.archived:status.value==='empty'?Number(s.remaining_weight)===0:!s.archived&&Number(s.remaining_weight)>0));
+      row.hidden=!matches;if(matches)count++;
+    });
+    note.textContent=count+' visible on this page. Search and vendor/material filters apply across inventory.';
+  };
+  window.OpenTagInventoryFilter=()=>{
+    const S=window.OpenTagWriter.writerState,previous=color.value;
+    color.replaceChildren(productElement('option','All colors'));color.firstChild.value='';
+    const colors=new Set(S.items.map(s=>(S.entity==='spool'?asObject(s.filament):s).color_hex).filter(Boolean));
+    for(const value of colors){const o=productElement('option','#'+value);o.value=value;color.append(o);}
+    if(colors.has(previous))color.value=previous;
+    status.disabled=S.entity!=='spool';group.hidden=S.entity==='vendor';apply();
+  };
+  color.addEventListener('change',apply);status.addEventListener('change',apply);
+}
+function openAssignment() {
+  const s=spoolIdentity().spool;
+  if(!s?.id)return;
+  const generation=state.spoolGeneration,spoolId=s.id;
+  const dialog=byId('assign-dialog'),list=byId('assign-tools'),submit=byId('assign-confirm');
+  list.replaceChildren();submit.disabled=true;dialog.dataset.busy='false';
+  setText('assign-title','Assign '+(s.display_name||'spool #'+s.id));
+  setText('assign-message','Choose a toolhead.');
+  let choice=null;
+  state.printers.forEach(printer=>{
+    list.append(productElement('h3',printer.display_name||printer.name||'Printer'));
+    const grid=productElement('div',null,'toolhead-grid');
+    asArray(printer.toolheads).forEach(tool=>{
+      const id=Number(first(tool.backend_id,tool.id)),mapped=first(tool.assigned_spool_id,tool.assigned_spool,tool.spool_id);
+      const b=makeButton('', 'tool-choice',()=>{
+        choice={printer:structuredClone(printer),tool:structuredClone(tool),revision:first(printer.revision,printer.printer_revision,state.printerRevision)};
+        list.querySelectorAll('button').forEach(n=>n.setAttribute('aria-pressed',String(n===b)));
+        setText('assign-message',mapped===null?'T'+(id+1)+' selected':'T'+(id+1)+' currently holds spool #'+mapped+'. You will be asked to confirm replacement.');
+        submit.textContent='Assign to T'+(id+1);submit.disabled=choice.revision===null;
+      },!Number.isInteger(id));
+      b.setAttribute('aria-pressed','false');b.append(productElement('strong','T'+(id+1)),productElement('span',mapped===null?'Empty':'Spool #'+mapped));grid.append(b);
+    });list.append(grid);
+  });
+  if(!list.children.length)setText('assign-message','Printer unavailable. Check FilaBridge in Settings, then try again. Nothing has been assigned.');
+  submit.onclick=async()=>{
+    if(!choice||dialog.dataset.busy==='true')return;
+    if(state.spoolGeneration!==generation||spoolIdentity().spool?.id!==spoolId){setText('assign-message','The spool changed. Close this dialog and select the current spool again. Nothing was assigned.');submit.disabled=true;return;}
+    dialog.dataset.busy='true';submit.disabled=true;
+    setText('assign-message','Assigning to T'+(Number(first(choice.tool.backend_id,choice.tool.id))+1)+'…');
+    const success=await assignToolhead(choice.printer,choice.tool,choice.revision);
+    dialog.dataset.busy='false';
+    setText('assign-message',success?'Assigned and verified on the printer.':'Assignment was not verified. Check the station message and refresh the printer before trying again.');
+    setText('assign-confirm',success?'Assigned':'Close and retry');
+  };
+  openProductDialog('assign-dialog');
+}
+function selectSettings(name) {
+  document.querySelectorAll('[data-settings-pane]').forEach(n=>n.hidden=n.dataset.settingsPane!==name);
+  document.querySelectorAll('[data-setting]').forEach(n=>n.setAttribute('aria-current',n.dataset.setting===name?'page':'false'));
+}
+function buildSettings() {
+  const root=byId('settings'),form=byId('config-form');
+  if(!form)return;
+  const panes={};
+  for(const name of ['station','integrations','scale','network','display','advanced']){
+    const pane=productElement('div',null,'settings-pane');pane.dataset.settingsPane=name;panes[name]=pane;root.append(pane);
+  }
+  const config=byId('configuration');config.hidden=false;panes.station.append(config);
+  const fields=[...form.querySelectorAll('fieldset')];
+  fields.forEach(field=>{
+    const title=field.querySelector('legend')?.textContent||'';
+    const name=/Spoolman|FilaBridge/.test(title)?'integrations':/Load-cell/.test(title)?'scale':/Wi-Fi/.test(title)?'network':/Toolhead|security/.test(title)?'advanced':'station';
+    const group=productElement('details',null,'settings-edit');group.append(productElement('summary','Edit '+title),field);panes[name].append(group);
+    // Preserve the single optimistic-concurrency form even though fields are grouped visually.
+    field.querySelectorAll('input,select,button').forEach(n=>n.setAttribute('form','config-form'));
+  });
+  const grid=root.querySelector('.settings-grid');
+  if(grid){[...grid.children].forEach((n,i)=>panes[['network','integrations','scale','advanced'][i]||'advanced'].prepend(n));grid.remove();}
+  setText('configuration-title','Your station');
+  panes.advanced.append(byId('config-revision'),config.querySelector('.transfer-card'));
+  const deviceGroup=panes.station.querySelector('.settings-edit');if(deviceGroup)deviceGroup.open=true;
+  const policy=productElement('fieldset',null,'card');policy.disabled=true;policy.append(productElement('legend','Weight updates'));
+  const automatic=byId('config-auto-weigh').parentElement,hint=automatic.nextElementSibling;
+  policy.append(automatic,hint,root.querySelector('label[for="config-weight-tolerance"]'),byId('config-weight-tolerance'));
+  panes.scale.insertBefore(policy,panes.scale.querySelector('.settings-edit'));
+  const networkLink=panes.network.querySelector('a[href="#configuration"]');
+  networkLink?.addEventListener('click',e=>{e.preventDefault();panes.network.querySelector('.settings-edit').open=true;byId('config-ssid').focus();});
+  const display=productElement('div');display.append(productElement('h3','Touchscreen display'),productElement('p','Adjust brightness and sleep on the station touchscreen.','muted'));panes.display.append(display);
+  const calibration=makeButton('Recalibrate scale','button',()=>{openProductDialog('weigh-dialog');setCalibrationPanel(true);});panes.scale.append(calibration);
+  for(const id of ['diagnostics','maintenance','spool-diagnostics']){const n=byId(id);if(n){n.hidden=false;panes.advanced.append(n);}}
+  const save=byId('config-save').parentElement;root.append(save);
+  byId('config-save').setAttribute('form','config-form');
+  root.addEventListener('input',markConfigDirty);
+  root.addEventListener('change',markConfigDirty);
+  // Dynamically created profile fields remain part of the optimistic settings form.
+  const station=fields.find(f=>f.querySelector('#config-brightness'));
+  if(station){const brightness=byId('config-brightness'),label=station.querySelector('label[for="config-brightness"]');panes.display.replaceChildren(productElement('h3','Touchscreen display'),productElement('p','Set a comfortable brightness for the station.','muted'),label,brightness);}
+  selectSettings('station');
+}
+function bindProduct() {
+  if(byId('overview').dataset.bound)return;byId('overview').dataset.bound='true';
+  document.querySelectorAll('[data-close]').forEach(b=>b.addEventListener('click',()=>closeProductDialog(b.dataset.close)));
+  ['weigh-dialog','manage-dialog','assign-dialog'].forEach(id=>byId(id).addEventListener('cancel',e=>{e.preventDefault();closeProductDialog(id);}));
+  byId('new-tag').addEventListener('click',()=>{window.OpenTagWriter.writerState.opener=byId('new-tag');window.OpenTagWriter.openModal();});
+  byId('spool-manage').addEventListener('click',()=>openProductDialog('manage-dialog'));
+  byId('spool-details').addEventListener('click',()=>openProductDialog('manage-dialog'));
+  byId('spool-assign').addEventListener('click',openAssignment);
+  byId('spool-edit').addEventListener('click',()=>currentSpoolTask(true));
+  byId('tag-update').addEventListener('click',()=>currentSpoolTask());
+  byId('inventory-community').addEventListener('click',async()=>{await window.OpenTagWriter.openModal();setValue('writer-source','community');byId('writer-source').dispatchEvent(new Event('change'));});
+  document.querySelectorAll('[data-setting]').forEach(n=>n.addEventListener('click',()=>selectSettings(n.dataset.setting)));
+  buildSettings();bindInventoryFilters();renderCurrentSpool();
+  const tagAdvanced=byId('nfc').querySelector('details .facts');
+  ['nfc-reader-state','nfc-technology','nfc-identity'].forEach(id=>{const row=byId(id)?.closest('.facts>div');if(row&&tagAdvanced)tagAdvanced.append(row);});
+  byId('nfc-read-status').classList.add('visually-hidden');
+  const hardware=productElement('details');hardware.id='scale-hardware';hardware.append(productElement('summary','Scale setup'));
+  for(const id of ['tare-scale','calibrate-scale','calibration-panel','scale-action-status'])hardware.append(byId(id));
+  byId('weigh-scale').parentElement.append(hardware);
+}
+// PRODUCT PRESENTATION END
 
 async function start() {
 bindWeighAndClear();
@@ -3357,26 +3616,25 @@ setText('writer-selection',s?'SELECTED · SPOOL #'+s.id:f?'SELECTED · FILAMENT 
 setText('writer-selected-title',f?String(f.name||'Unnamed filament'):'Choose a physical spool');
 if(f){d.append(swatch(f.color_hex),el('span',String(asObject(f.vendor).name||'')+' · '+fmt(f.material)));
 const cards=el('div',undefined,S.step===2?'field-grid':'');d.append(cards);const card=(title,rows,button)=>{const c=el('section',undefined,'card');c.append(el('h4',title),button);values(c,rows);cards.append(c);};
-if(s)card('PHYSICAL SPOOL #'+s.id,[['Remaining',s.remaining_weight,' g'],['Initial',s.initial_weight,' g'],['Used',s.used_weight,' g'],['Tare',s.spool_weight,' g'],['Location',s.location]],bs);
-if(S.step===2||!s)card('FILAMENT DEFINITION #'+f.id,[['Nominal weight',f.weight,' g'],['Default tare',f.spool_weight,' g'],['Diameter',f.diameter,' mm'],['Density',f.density,' g/cm³'],['Color',f.color_hex]],bf);
+if(s)card('Spool #'+s.id,[['Remaining',s.remaining_weight,' g'],['Initial',s.initial_weight,' g'],['Used',s.used_weight,' g'],['Tare',s.spool_weight,' g'],['Location',s.location]],bs);
+if(S.step===2||!s)card('Filament #'+f.id,[['Nominal weight',f.weight,' g'],['Default tare',f.spool_weight,' g'],['Diameter',f.diameter,' mm'],['Density',f.density,' g/cm³'],['Color',f.color_hex]],bf);
 }else d.append(el('p','Select a result to see its material and weight here. Continue to review before writing.','empty-state'));
 visible('writer-edit-spool',!!s&&S.step===2);visible('writer-edit-filament',!!f&&S.step===2);visible('writer-create',!!f&&!s);
-if(f&&!s)buildFields('writer-create-fields',fields.spool,{},'create');
+if(f&&!s){buildFields('writer-create-fields',fields.spool,{initial_weight:f.weight,spool_weight:f.spool_weight},'create');byId('writer-create').open=true;}
 };
 window.OpenTagWriterPreview=function(v,S,{byId,asObject,asArray,setText,visible,values,el,fmt,swatch,uidText}){const active=['preview','association_pending','complete','import_preview'].includes(v.phase)&&!(v.phase==='preview'&&S.invalidated);visible('writer-review',active);if(!active)return;
 const tag=byId('writer-tag');tag.replaceChildren();const diff=byId('writer-diff');diff.replaceChildren();const critical=byId('writer-critical');critical.replaceChildren();const notices=byId('writer-notice-list');notices.replaceChildren();
-setText('writer-review-title',v.phase==='import_preview'?'Review Community import':v.phase==='complete'?'✓ OpenPrintTag written and verified':v.phase==='association_pending'?'Tag verified · association pending':'What will be written');
+setText('writer-review-title',v.phase==='import_preview'?'Review Community import':v.phase==='complete'?'✓ OpenPrintTag written and verified':v.phase==='association_pending'?'Tag verified · association pending':'Ready to write');
 if(v.phase==='import_preview'){values(tag,[['Source','COMMUNITY — NOT YET IN SPOOLMAN'],['Vendor',v.vendor_name],['Product',asObject(v.proposed_filament).name],['Material',asObject(v.proposed_filament).material],['Nominal weight',asObject(v.proposed_filament).weight,' g'],['Density',asObject(v.proposed_filament).density,' g/cm³'],['Diameter',asObject(v.proposed_filament).diameter,' mm']]);}
 else{values(tag,[['Inventory',S.material?.name],['UID',uidText(v.uid)],['Spool','#'+v.spool_id]]);
-const table=el('table',undefined,'writer-diff'),head=el('tr');['Field','Current','Proposed'].forEach(t=>head.append(el('th',t)));const thead=el('thead');thead.append(head);table.append(thead);const tbody=el('tbody');
-window.OpenTagWriterDiffFields.forEach(([key,label,unit])=>{const a=asObject(v.current)[key],b=asObject(v.proposed)[key],row=el('tr',undefined,JSON.stringify(a)!==JSON.stringify(b)?'writer-changed':'');row.append(el('th',label));[a,b].forEach(value=>{const cell=el('td',key==='primary_color'?(Array.isArray(value)?'#'+value.map(n=>Number(n).toString(16).padStart(2,'0')).join(''):'—'):fmt(value,unit||''));if(key==='primary_color')cell.append(swatch(value));row.append(cell);});tbody.append(row);});table.append(tbody);if(v.phase==='preview'){diff.append(el('h4','What will change'),table);}else if(v.phase==='complete')values(diff,[['✓ Tag readback','Verified'],['✓ OpenPrintTag decode','Valid'],['✓ Spoolman link','Spool #'+v.spool_id]]);
+if(v.phase==='preview'){diff.append(el('h4','This tag will contain'));values(diff,window.OpenTagWriterDiffFields.filter(([key])=>['brand_name','material_name','material_abbreviation','actual_netto_full_weight','empty_container_weight','primary_color'].includes(key)).map(([key,label,unit])=>[label,key==='primary_color'?(Array.isArray(v.proposed?.[key])?'#'+v.proposed[key].slice(0,3).map(n=>Number(n).toString(16).padStart(2,'0')).join(''):'Not provided'):v.proposed?.[key],unit]));}else if(v.phase==='complete')values(diff,[['✓ Tag readback','Verified'],['✓ OpenPrintTag decode','Valid'],['✓ Spoolman link','Spool #'+v.spool_id]]);
 }
 const warn=text=>critical.append(el('p',text,'writer-warning'));
-if(v.phase==='preview'&&v.semantic_no_change)warn('No changes needed. This tag already matches Spoolman.');if(v.phase==='association_pending')warn('Tag write verified. Only the Spoolman link is pending. Retry association without rewriting the tag.');if(v.previous_spool_id>0)warn('MOVE this NFC UID from Spool #'+v.previous_spool_id+' to Spool #'+v.spool_id+'. The previous spool UUID is retained.');
+if(v.phase==='preview'&&v.semantic_no_change)warn('No changes needed. This tag already matches Spoolman.');if(v.phase==='association_pending')warn('Tag write verified. Only the Spoolman link is pending. Retry association without rewriting the tag.');if(v.previous_spool_id>0)warn('Move this tag from Spool #'+v.previous_spool_id+' to Spool #'+v.spool_id+'. The previous spool stays in your inventory.');
 else if(v.repurpose)warn('Repurpose: this write replaces the tag’s current spool identity.');
 if(v.recovering_interrupted_write)warn('Recovery: this is an interrupted write. Confirm an explicit rewrite only after reviewing the recovered tag.');
 const optional=asArray(v.warnings).filter(w=>/^missing recommended /i.test(w));
-const metadata=asArray(v.warnings).filter(w=>!String(w).includes('association will move')&&!/not atomic|Full rewrite/i.test(w));asArray(v.warnings).filter(w=>/not atomic|Full rewrite/i.test(w)).forEach(warn);
+const metadata=asArray(v.warnings).filter(w=>!String(w).includes('association will move')&&!/not atomic|Full rewrite/i.test(w));if(asArray(v.warnings).some(w=>/not atomic|Full rewrite/i.test(w)))warn('Keep the spool on the station until writing finishes. Removing it may leave an incomplete tag.');
 metadata.forEach(w=>notices.append(el('li',String(w))));visible('writer-notices',metadata.length>0);setText('writer-notice-count',optional.length?optional.length+' optional metadata fields are not populated':'Metadata notices');
 }
 ;
@@ -3391,9 +3649,9 @@ window.OpenTagWriterForms=function(byId,el){
 function buildFields(id,schema,record,prefix){const d=byId(id);d.replaceChildren();schema.forEach(([key,label,max])=>{const l=el('label',label),input=el(key==='comment'?'textarea':'input');input.id='writer-'+prefix+'-'+key;input.name=key;input.value=record[key]??'';if(key!=='comment')input.type=max?'number':'text';if(max){input.min=['density','diameter','weight'].includes(key)?'0.001':'0';input.max=String(max);input.step=key.startsWith('settings_')?'1':'any';}else input.maxLength=key==='comment'?1024:64;const hint=el('small','','hint');input.addEventListener('invalid',()=>{hint.textContent=input.validationMessage;input.setAttribute('aria-invalid','true');});input.addEventListener('input',()=>{hint.textContent='';input.removeAttribute('aria-invalid');});l.append(input,hint);if(key==='color_hex'){const paint=()=>{hint.replaceChildren(window.OpenTagWriterUi(byId).swatch(input.value));};input.addEventListener('input',paint);paint();}d.append(l);});}
 function formValues(id,schema,original){const out={};schema.forEach(([key,,max])=>{const input=byId(id).querySelector('[name="'+key+'"]');const raw=String(input.value).trim();if(raw===''&&(max||original[key]==null))return;let v=max?Number(raw):raw;if(v===original[key])return;if(key==='color_hex')v=v.toUpperCase();if(max&&(!Number.isFinite(v)||v<Number(input.min)||v>max||(key.startsWith('settings_')&&!Number.isInteger(v))))throw new Error('Check '+key+' value');if(!max&&new TextEncoder().encode(v).length>(key==='comment'?1024:64))throw new Error(key+' exceeds the Spoolman text limit');if(key==='color_hex'&&!/^(?:[a-f\d]{6}|[a-f\d]{8})$/i.test(v))throw new Error('Color must be 6 or 8 hex digits');if(v!==original[key]&&!(v===''&&original[key]==null))out[key]=v;});return out;}
 return {buildFields,formValues};};
-window.OpenTagWriterHost = {byId,asObject,asArray,first,setText,setValue,valueOf,showToast,api,load,submitMutation,PRIORITY,state,validateCommunity,communityCatalog,tagStatus,openClear};
+window.OpenTagWriterHost = {mountInventory,openProductDialog,presentWriter,closeProductDialog,byId,asObject,asArray,first,setText,setValue,valueOf,showToast,api,load,submitMutation,PRIORITY,state,validateCommunity,communityCatalog,tagStatus,openClear};
 if (window.__OPENTAG_TEST__) {
-window.__OpenTagTest = {
+window.__OpenTagTest = {bindProduct,renderCurrentSpool,openProductDialog,openAssignment,selectSettings,
 renderWeighSync,updateWeighedSpool,renderClear,openClear,closeClear,clearCommand,bindWeighAndClear,clearLocked,
 ApiError: ApiError,
 RequestScheduler: RequestScheduler,

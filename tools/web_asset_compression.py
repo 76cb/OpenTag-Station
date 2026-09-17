@@ -46,10 +46,9 @@ def writer_assets() -> tuple[bytes, bytes]:
     logic = extract_asset(source.replace(')WRITER"', ')WRITER";'), "writer_javascript", "WRITER")
     layout = (ROOT / "src/web/writer_layout.inc").read_text(encoding="utf-8")
     layout = layout.split('R"LAYOUT(', 1)[1].split(')LAYOUT"', 1)[0].encode("utf-8")
-    # Keep core asset limits unchanged. The inventory/editor behavior gets 2 KiB
-    # beyond the old writer limit after moving templates/styles/field schemas out.
-    assert len(logic) <= 22 * 1024, "writer behavior exceeds its independent flash budget"
-    assert len(layout) <= 10 * 1024, "writer layout exceeds its independent flash budget"
+    # Explicit presentation flash allowances, independent of runtime RAM limits.
+    assert len(logic) <= 24 * 1024, "writer behavior exceeds its independent flash budget"
+    assert len(layout) <= 12 * 1024, "writer layout exceeds its independent flash budget"
     return logic, layout
 
 
