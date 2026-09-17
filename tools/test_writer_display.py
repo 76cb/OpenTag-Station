@@ -79,8 +79,9 @@ T.renderWriter({phase:'failed',message:'Tag moved. Place the same tag back on th
 for(const page of ['home','scale','printer','tags','settings']){A.activateProductPage(page);check(document.documentElement.scrollWidth<=innerWidth,'no horizontal page overflow '+page);}
 A.activateProductPage('tags');check(document.querySelector('#diagnostics-json').closest('details')!==null,'diagnostics disclosed');
 id('fixture-status').textContent='PASS: '+count+' real-browser assertions at '+innerWidth+'px';id('fixture-status').dataset.result='passed';
+parent.postMessage({fixtureResult:id('fixture-status').textContent,result:'passed'},location.origin);
 }
-checks().catch(e=>{id('fixture-status').textContent='FAIL: '+e.message;id('fixture-status').dataset.result='failed';});
+checks().catch(e=>{id('fixture-status').textContent='FAIL: '+e.message;id('fixture-status').dataset.result='failed';parent.postMessage({fixtureResult:id('fixture-status').textContent,result:'failed'},location.origin);});
 """
 
 
@@ -117,19 +118,32 @@ def main():
     with tempfile.TemporaryDirectory(prefix='opentag-writer-') as folder:
         page = pathlib.Path(folder) / 'writer.html'
         page.write_text(fixture(page), encoding='utf-8')
+        # Modern headless Chrome clamps narrow top-level windows. An exact-width
+        # frame gives the production document a real 390px layout viewport.
+        # Only the harness is outside the station CSP; the child retains it.
+        (page.parent / 'frame-result.js').write_text("""
+addEventListener('message',e=>{if(e.origin!==location.origin||e.source!==document.querySelector('iframe').contentWindow||!e.data.fixtureResult)return;
+const result=document.getElementById('fixture-status');result.textContent=e.data.fixtureResult;result.dataset.result=e.data.result;});
+""", encoding='utf-8')
         server = http.server.ThreadingHTTPServer(('127.0.0.1', 0),
             functools.partial(http.server.SimpleHTTPRequestHandler, directory=folder))
         threading.Thread(target=server.serve_forever, daemon=True).start()
         try:
             for width in (1440, 1280, 1024, 768, 390):
+                (page.parent / 'frame.html').write_text(
+                    '<!doctype html><html><body style="margin:0"><p id="fixture-status">Running</p>'
+                    '<script src="frame-result.js"></script>'
+                    f'<iframe title="Production UI fixture" src="writer.html" style="border:0;width:{width}px;height:1000px"></iframe></body></html>',
+                    encoding='utf-8')
                 result = subprocess.run([chrome, '--headless', '--no-sandbox', '--disable-gpu',
                     '--no-proxy-server', '--virtual-time-budget=5000', '--dump-dom',
-                    f'--window-size={width},1000', f'--user-data-dir={folder}/profile-{width}',
-                    f'http://127.0.0.1:{server.server_port}/writer.html'],
+                    f'--window-size={max(width,800)},1100', f'--user-data-dir={folder}/profile-{width}',
+                    f'http://127.0.0.1:{server.server_port}/frame.html'],
                     capture_output=True, text=True, timeout=45)
                 if result.returncode or 'data-result="passed"' not in result.stdout or f'assertions at {width}px' not in result.stdout:
                     raise SystemExit(f'{width}px browser test failed:\n{result.stdout[-5000:]}\n{result.stderr[-1000:]}')
-                print(f'PASS: {width}px production writer CSS, edit workflow and responsive display')
+                status = re.search(r'PASS: \d+ real-browser assertions at \d+px', result.stdout)[0]
+                print(status)
         finally:
             server.shutdown()
             server.server_close()
