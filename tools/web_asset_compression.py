@@ -41,6 +41,18 @@ def gzip_asset(value: bytes) -> bytes:
     return gzip.compress(value, compresslevel=9, mtime=0)
 
 
+def writer_assets() -> tuple[bytes, bytes]:
+    source = (ROOT / "src/web/writer_assets.cpp").read_text(encoding="utf-8")
+    logic = extract_asset(source.replace(')WRITER"', ')WRITER";'), "writer_javascript", "WRITER")
+    layout = (ROOT / "src/web/writer_layout.inc").read_text(encoding="utf-8")
+    layout = layout.split('R"LAYOUT(', 1)[1].split(')LAYOUT"', 1)[0].encode("utf-8")
+    # Keep core asset limits unchanged. The inventory/editor behavior gets 2 KiB
+    # beyond the old writer limit after moving templates/styles/field schemas out.
+    assert len(logic) <= 22 * 1024, "writer behavior exceeds its independent flash budget"
+    assert len(layout) <= 10 * 1024, "writer layout exceeds its independent flash budget"
+    return logic, layout
+
+
 def _array(name: str, value: bytes) -> str:
     rows = []
     for offset in range(0, len(value), 16):
@@ -55,8 +67,7 @@ def _array(name: str, value: bytes) -> str:
 
 def generated_include() -> str:
     stylesheet, javascript = browser_assets()
-    writer = extract_asset((ROOT / "src/web/writer_assets.cpp").read_text(), "writer_javascript", "WRITER")
-    assert len(writer) <= 20 * 1024, "writer module exceeds its independent flash budget"
+    writer = b"".join(writer_assets())
     return (
         "// Generated deterministically by tools/precompress_web_assets.py.\n"
         "// Do not edit this build artifact.\n\n"
