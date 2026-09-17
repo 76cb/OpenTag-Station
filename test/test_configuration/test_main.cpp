@@ -932,6 +932,17 @@ void test_confirmed_spool_mapping_round_trips_and_conflicts_are_rejected() {
       1U, reader.load_spool_identity_mappings().value().size());
 }
 
+
+void test_clear_mapping_preserves_unrelated_and_persists(){
+ MemoryDocumentStore docs;LegacyScaleStore legacy;ConfigurationService service(docs,legacy);TEST_ASSERT_TRUE(service.initialize().ok());
+ opentag::domain::ConfirmedSpoolMapping mapping;mapping.spool_id=17;mapping.nfc_uid="E004010203040506";mapping.instance_uuid="00112233-4455-6677-8899-aabbccddeeff";TEST_ASSERT_TRUE(service.confirm_spool_identity_mapping(mapping).ok());
+ auto other=mapping;other.spool_id=18;other.nfc_uid="E004010203040507";other.instance_uuid="00112233-4455-6677-8899-aabbccddeefe";TEST_ASSERT_TRUE(service.confirm_spool_identity_mapping(other).ok());
+ TEST_ASSERT_FALSE(service.clear_spool_identity_mapping(*mapping.nfc_uid,*mapping.instance_uuid,99).ok());
+ docs.save_fails=true;TEST_ASSERT_FALSE(service.clear_spool_identity_mapping(*mapping.nfc_uid,*mapping.instance_uuid,17).ok());TEST_ASSERT_EQUAL(2,service.load_spool_identity_mappings().value().size());docs.save_fails=false;
+ TEST_ASSERT_TRUE(service.clear_spool_identity_mapping(*mapping.nfc_uid,*mapping.instance_uuid,17).ok());ConfigurationService restored(docs,legacy);TEST_ASSERT_TRUE(restored.initialize().ok());auto values=restored.load_spool_identity_mappings();TEST_ASSERT_EQUAL(1,values.value().size());TEST_ASSERT_EQUAL(18,values.value()[0].spool_id);
+}
+void test_auto_weigh_defaults_off_and_persists(){MemoryDocumentStore docs;LegacyScaleStore legacy;ConfigurationService service(docs,legacy);TEST_ASSERT_TRUE(service.initialize().ok());TEST_ASSERT_FALSE(service.snapshot().reconciliation.auto_update_after_weigh);auto config=service.snapshot();config.reconciliation.auto_update_after_weigh=true;TEST_ASSERT_TRUE(service.replace(config).ok());ConfigurationService restored(docs,legacy);TEST_ASSERT_TRUE(restored.initialize().ok());TEST_ASSERT_TRUE(restored.snapshot().reconciliation.auto_update_after_weigh);}
+
 void test_browser_setup_completion_is_transactional_and_tokenless() {
   MemoryDocumentStore documents;
   LegacyScaleStore legacy;
@@ -985,6 +996,8 @@ void test_first_run_navigation_allows_tokenless_setup_completion() {
 
 int main(int, char**) {
   UNITY_BEGIN();
+  RUN_TEST(test_clear_mapping_preserves_unrelated_and_persists);
+  RUN_TEST(test_auto_weigh_defaults_off_and_persists);
   RUN_TEST(test_loaded_configuration_retains_psram_allocator_and_releases_candidates);
   RUN_TEST(test_missing_document_creates_current_schema_defaults);
   RUN_TEST(test_legacy_scale_calibration_is_migrated_and_mirrored);

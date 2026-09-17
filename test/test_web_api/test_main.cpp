@@ -246,8 +246,8 @@ void setUp() {}
 void tearDown() {}
 
 void test_route_table_contains_the_complete_versioned_surface() {
-  TEST_ASSERT_EQUAL_UINT(34U, opentag::web::api::routes.size());
-  const std::array<std::pair<Method, const char*>, 34U> expected = {{
+  TEST_ASSERT_EQUAL_UINT(35U, opentag::web::api::routes.size());
+  const std::array<std::pair<Method, const char*>, 35U> expected = {{
       {Method::get, "/api/v1/tag-writer"},
       {Method::post, "/api/v1/tag-writer"},
       {Method::get, "/api/v1/status"},
@@ -259,6 +259,7 @@ void test_route_table_contains_the_complete_versioned_surface() {
       {Method::post, "/api/v1/network/setup-mode"},
       {Method::get, "/api/v1/scale"},
       {Method::post, "/api/v1/scale/weigh"},
+      {Method::post, "/api/v1/scale/update"},
       {Method::post, "/api/v1/scale/tare"},
       {Method::post, "/api/v1/scale/calibrate"},
       {Method::get, "/api/v1/nfc"},
@@ -1546,8 +1547,33 @@ void test_writer_requires_specific_authorized_high_level_confirmation() {
   TEST_ASSERT_EQUAL(1,context.submit_calls);
   TEST_ASSERT_EQUAL(static_cast<int>(MutationKind::tag_writer),static_cast<int>(context.last_mutation->kind));
 }
+void test_clear_route_requires_and_forwards_exact_confirmation() {
+  FakeContext context; Router router(context);
+  for (const auto* body : {R"({"action":"clear"})",
+       R"({"action":"clear","uid":"E00401086627D8D4","generation":"3","target_checksum":"12345678"})",
+       R"({"action":"clear_preview","bytes":[0]})",
+       R"({"action":"retry_unlink","spool_id":28})"})
+    TEST_ASSERT_EQUAL(400,router.handle(mutation_request(Method::post,"/api/v1/tag-writer",body)).status);
+  TEST_ASSERT_EQUAL(0,context.submit_calls);
+  const auto* body=R"({"action":"clear","uid":"E00401086627D8D4","generation":"3","current_checksum":"87654321","target_checksum":"12345678"})";
+  TEST_ASSERT_EQUAL(202,router.handle(mutation_request(Method::post,"/api/v1/tag-writer",body)).status);
+  TEST_ASSERT_EQUAL(1,context.submit_calls);
+  TEST_ASSERT_EQUAL(static_cast<int>(MutationKind::tag_writer),static_cast<int>(context.last_mutation->kind));
+}
+void test_weight_update_route_requires_only_explicit_measurement_id() {
+  FakeContext context; Router router(context);
+  for (const auto* body : {"{}",R"({"measurement_id":0})",R"({"measurement_id":-1})",
+       R"({"measurement_id":"8"})",R"({"measurement_id":8,"remaining_weight":712})"})
+    TEST_ASSERT_EQUAL(400,router.handle(mutation_request(Method::post,"/api/v1/scale/update",body)).status);
+  TEST_ASSERT_EQUAL(0,context.submit_calls);
+  TEST_ASSERT_EQUAL(202,router.handle(mutation_request(Method::post,"/api/v1/scale/update",R"({"measurement_id":8})")).status);
+  TEST_ASSERT_EQUAL(1,context.submit_calls);
+  TEST_ASSERT_EQUAL(static_cast<int>(MutationKind::scale_update),static_cast<int>(context.last_mutation->kind));
+}
 int main(int, char**) {
   UNITY_BEGIN();
+  RUN_TEST(test_clear_route_requires_and_forwards_exact_confirmation);
+  RUN_TEST(test_weight_update_route_requires_only_explicit_measurement_id);
   RUN_TEST(test_writer_requires_specific_authorized_high_level_confirmation);
   RUN_TEST(test_response_allocation_failure_sends_static_valid_503);
   RUN_TEST(test_spool_confirmation_is_explicit_bounded_and_queued);

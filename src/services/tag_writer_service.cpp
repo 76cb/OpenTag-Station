@@ -706,6 +706,300 @@ Result TagWriterService::clear_previous_uid() {
     return fail("Previous NFC UID cleanup readback failed; target not patched");
   return Result::success();
 }
+__attribute__((noinline)) bool TagWriterService::restore_ready() {
+  auto result = restore_cleanup();
+  if (!result.ok())
+    publish("failed", result.error().message.c_str());
+  return result.ok();
+}
+__attribute__((noinline)) Result TagWriterService::restore_cleanup() {
+  if (plan_ || !journal_)
+    return Result::success();
+  auto saved =
+      network::make_external<nfc::WriterPlan>([] { return nfc::WriterPlan{}; });
+  if (!saved)
+    return fail("Recovery workspace unavailable");
+  std::int32_t owner = 0;
+  std::uint32_t backend = 0;
+  if (!journal_->load(*saved, owner, backend) ||
+      saved->operation != nfc::WriterPlan::Operation::clear)
+    return Result::success();
+  if (backend != backend_identity(spoolman_.settings_))
+    return fail("Pending clear belongs to different Spoolman settings; restore "
+                "settings first");
+  clear_recovery_required_ = true;
+  if (!saved->cleanup_pending) {
+    publish("clear_recovery", "Interrupted clear. Present the same tag and "
+                              "preview Clear / Reuse to recover.");
+    return Result::success();
+  }
+  plan_ = std::move(saved);
+  spool_id_ = owner;
+  unlink_pending_ = true;
+  settings_url_ = spoolman_.settings_.url;
+  identity_key_ = spoolman_.settings_.identity_field;
+  uid_key_ = spoolman_.settings_.nfc_uid_field;
+  uuid_ = plan_->cleared_instance
+              ? nfc::openprinttag::instance_uuid_text(*plan_->cleared_instance)
+              : "";
+  view_.clear();
+  view_["uid"] = plan_->uid.hex();
+  view_["spool_id"] = spool_id_;
+  view_["mode"] = "clear";
+  publish("unlink_pending",
+          "Tag is blank and verified. Spoolman unlink is still pending.");
+  return Result::success();
+}
+__attribute__((noinline)) Result TagWriterService::persist_clear() {
+  if (!journal_ ||
+      !journal_->save(*plan_, spool_id_, backend_identity(spoolman_.settings_)))
+    return fail("Clear recovery checkpoint could not be verified; cleanup not "
+                "advanced");
+  return Result::success();
+}
+__attribute__((noinline)) Result TagWriterService::prepare_clear() {
+  if (!journal_)
+    return fail("Clear requires a durable recovery journal");
+  if (spoolman_.settings_.url.empty() ||
+      spoolman_.settings_.identity_field.empty() ||
+      spoolman_.settings_.nfc_uid_field.empty() ||
+      spoolman_.settings_.identity_field == spoolman_.settings_.nfc_uid_field)
+    return fail(
+        "Configure Spoolman and distinct identity fields before clearing");
+  auto previous = std::move(plan_);
+  std::int32_t owner = 0;
+  std::uint32_t backend = 0;
+  auto saved =
+      network::make_external<nfc::WriterPlan>([] { return nfc::WriterPlan{}; });
+  if (!saved) {
+    plan_ = std::move(previous);
+    return fail("Clear recovery workspace unavailable");
+  }
+  if (journal_->load(*saved, owner, backend)) {
+    if (backend != backend_identity(spoolman_.settings_)) {
+      plan_ = std::move(previous);
+      return fail("Restore the journal's Spoolman settings before recovery");
+    }
+    previous = std::move(saved);
+  }
+  plan_ =
+      network::make_external<nfc::WriterPlan>([] { return nfc::WriterPlan{}; });
+  if (!plan_) {
+    plan_ = std::move(previous);
+    return fail("Clear workspace unavailable");
+  }
+  view_.clear();
+  publish("reading", "Reading complete tag and protection state");
+  auto read = writer_.read(*plan_, previous.get());
+  if (!read.ok()) {
+    plan_ = std::move(previous);
+    return read;
+  }
+  if (previous && previous->attempted && !previous->verified &&
+      !(previous->uid == plan_->uid)) {
+    plan_ = std::move(previous);
+    return fail("A different tag has pending recovery; restore that tag before "
+                "clearing");
+  }
+  auto planned = writer_.plan_clear(*plan_, previous.get());
+  if (!planned.ok())
+    return planned;
+  settings_url_ = spoolman_.settings_.url;
+  identity_key_ = spoolman_.settings_.identity_field;
+  uid_key_ = spoolman_.settings_.nfc_uid_field;
+  spool_id_ = 0;
+  uuid_ = plan_->cleared_instance
+              ? nfc::openprinttag::instance_uuid_text(*plan_->cleared_instance)
+              : "";
+  view_["mode"] = "clear";
+  view_["uid"] = plan_->uid.hex();
+  view_["generation"] = std::to_string(plan_->generation);
+  view_["current_checksum"] =
+      nfc::nfcv::format_diagnostic_checksum(plan_->current_checksum).data();
+  view_["target_checksum"] =
+      nfc::nfcv::format_diagnostic_checksum(plan_->target_checksum).data();
+  view_["material_name"] = plan_->current.material.material_name.value_or(
+      "Blank compatible NFC tag");
+  view_["preserved_blocks"] = "78-79";
+  view_["tag_type"] = "NXP ICODE SLIX2";
+  view_["block_count"] = 80;
+  view_["block_size"] = 4;
+  view_["recovering_interrupted_write"] = plan_->recovery;
+  auto blocks = view_["changed_blocks"].to<JsonArray>();
+  for (std::size_t i = 0; i < plan_->count; ++i)
+    blocks.add(plan_->blocks[i]);
+  // A recovered target still goes through the two complete physical reads.
+  if (previous && previous->operation == nfc::WriterPlan::Operation::clear &&
+      plan_->journal_state == nfc::WriterPlan::JournalState::target) {
+    plan_->verified = plan_->cleanup_pending = true;
+    plan_->cleanup_owner_bound = previous->cleanup_owner_bound;
+    spool_id_ = owner;
+    unlink_pending_ = true;
+    auto saved_result = persist_clear();
+    if (!saved_result.ok())
+      return saved_result;
+    publish("unlink_pending",
+            "Tag is blank and verified. Spoolman unlink is still pending.");
+    return Result::success();
+  }
+  publish("clear_preview", "Review this exact tag before clearing", 0,
+          plan_->count);
+  return Result::success();
+}
+__attribute__((noinline)) Result
+TagWriterService::commit_clear(JsonObjectConst c) {
+  if (!plan_ || plan_->operation != nfc::WriterPlan::Operation::clear ||
+      view_["phase"].as<std::string>() != "clear_preview" ||
+      c["uid"].as<std::string>() != plan_->uid.hex() ||
+      c["generation"].as<std::string>() != std::to_string(plan_->generation) ||
+      c["current_checksum"].as<std::string>() !=
+          nfc::nfcv::format_diagnostic_checksum(plan_->current_checksum)
+              .data() ||
+      c["target_checksum"].as<std::string>() !=
+          nfc::nfcv::format_diagnostic_checksum(plan_->target_checksum).data())
+    return fail("Clear confirmation does not match this exact preview");
+  if (settings_url_ != spoolman_.settings_.url ||
+      identity_key_ != spoolman_.settings_.identity_field ||
+      uid_key_ != spoolman_.settings_.nfc_uid_field)
+    return fail("Spoolman settings changed; preview clear again");
+  auto saved = persist_clear();
+  if (!saved.ok())
+    return saved;
+  clear_recovery_required_ = true;
+  auto physical = writer_.execute(
+      *plan_, [&](const char *phase, std::size_t done, std::size_t total) {
+        publish(phase, "Keep tag on reader. Do not remove power.", done, total);
+      });
+  if (!physical.ok())
+    return physical;
+  plan_->cleanup_pending = true;
+  unlink_pending_ = true;
+  return unlink();
+}
+__attribute__((noinline)) Result TagWriterService::unlink() {
+  if (!plan_ || !plan_->verified || !unlink_pending_)
+    return fail("No verified blank tag awaiting cleanup");
+  if (settings_url_ != spoolman_.settings_.url ||
+      identity_key_ != spoolman_.settings_.identity_field ||
+      uid_key_ != spoolman_.settings_.nfc_uid_field)
+    return fail(
+        "Spoolman settings changed; restore settings before retrying unlink");
+  // Persist physical success BEFORE the first ownership lookup or PATCH.
+  auto saved = persist_clear();
+  if (!saved.ok())
+    return saved;
+  publish("unlinking", "Tag blank and verified; checking exact Spoolman owner");
+  auto owner = uid_owner();
+  if (!owner.ok())
+    return Result::failure(owner.error());
+  if (plan_->cleanup_owner_bound && owner.value() != 0 &&
+      owner.value() != spool_id_)
+    return fail("NFC UID owner changed; unlink refused");
+  if (!plan_->cleanup_owner_bound) {
+    spool_id_ = owner.value();
+    if (!spool_id_ && !uuid_.empty()) {
+      auto matches =
+          api("GET", "/spool?allow_archived=true&limit=2&offset=0&extra." +
+                         encode(identity_key_) + "=" + encode(quote(uuid_)));
+      if (!matches.ok())
+        return Result::failure(matches.error());
+      if (!matches.value().is<JsonArray>() || matches.value().size() > 1)
+        return fail("Conflicting instance UUID owners; unlink refused");
+      if (matches.value().size()) {
+        spool_id_ = matches.value()[0]["id"].as<int>();
+        if (spool_id_ <= 0)
+          return fail("Malformed unlink owner");
+      }
+    }
+  }
+  if (spool_id_) {
+    const auto path = "/spool/" + std::to_string(spool_id_);
+    auto before = api("GET", path);
+    if (!before.ok())
+      return Result::failure(before.error());
+    if (before.value()["id"].as<int>() != spool_id_)
+      return fail("Unlink owner readback ID mismatch");
+    auto extra = before.value()["extra"];
+    if (!uid_cleared(extra[uid_key_]) &&
+        normalized_uid(scalar(extra[uid_key_])) != plan_->uid.hex())
+      return fail("Owner now names a different NFC tag; unlink refused");
+    const auto instance = scalar(extra[identity_key_]);
+    if (!uid_cleared(extra[identity_key_]) && instance.empty())
+      return fail("Malformed owner identity; unlink refused");
+    if (!uuid_.empty() && !instance.empty() && instance != uuid_)
+      return fail("Owner instance UUID changed; unlink refused");
+    if (uuid_.empty() && !instance.empty()) {
+      if (plan_->cleanup_owner_bound)
+        return fail("Owner gained a new instance UUID; unlink refused");
+      auto parsed = nfc::openprinttag::parse_instance_uuid(instance);
+      if (!parsed.ok())
+        return Result::failure(parsed.error());
+      plan_->cleared_instance = parsed.value();
+      uuid_ = instance;
+    }
+    if (!uuid_.empty()) {
+      auto unique = unique_identity();
+      if (!unique.ok())
+        return unique;
+    }
+    plan_->cleanup_owner_bound = true;
+    saved = persist_clear();
+    if (!saved.ok())
+      return saved;
+    if (!uid_cleared(extra[uid_key_]) || !uid_cleared(extra[identity_key_])) {
+      network::BackendDocument patch;
+      patch["extra"][uid_key_] = nullptr;
+      patch["extra"][identity_key_] = nullptr;
+      if (patch.overflowed())
+        return fail("Unlink patch workspace unavailable");
+      auto updated = api("PATCH", path, patch.as<JsonVariantConst>());
+      if (!updated.ok())
+        return Result::failure(updated.error());
+    }
+    auto after = api("GET", path);
+    if (!after.ok())
+      return Result::failure(after.error());
+    if (after.value()["id"].as<int>() != spool_id_ ||
+        !uid_cleared(after.value()["extra"][uid_key_]) ||
+        !uid_cleared(after.value()["extra"][identity_key_]))
+      return fail("Spoolman unlink readback mismatch");
+  } else {
+    plan_->cleanup_owner_bound = true;
+    saved = persist_clear();
+    if (!saved.ok())
+      return saved;
+  }
+  auto final_owner = uid_owner();
+  if (!final_owner.ok())
+    return Result::failure(final_owner.error());
+  if (final_owner.value())
+    return fail("NFC UID acquired an owner during unlink; review required");
+  if (!uuid_.empty()) {
+    auto remaining =
+        api("GET", "/spool?allow_archived=true&limit=2&offset=0&extra." +
+                       encode(identity_key_) + "=" + encode(quote(uuid_)));
+    if (!remaining.ok())
+      return Result::failure(remaining.error());
+    if (!remaining.value().is<JsonArray>() || remaining.value().size())
+      return fail(
+          "Instance UUID acquired an owner during unlink; review required");
+  }
+  if (!clear_mapping_)
+    return fail("Local identity cleanup is unavailable");
+  auto local = clear_mapping_(plan_->uid.hex(), uuid_, spool_id_);
+  if (!local.ok())
+    return local;
+  if (!journal_->clear())
+    return fail(
+        "Tag and unlink verified; recovery journal cleanup is still pending");
+  unlink_pending_ = false;
+  clear_recovery_required_ = false;
+  plan_->cleanup_pending = false;
+  view_["spool_id"] = spool_id_;
+  publish("cleared", "Tag cleared and verified. Ready to reuse.",
+          plan_->completed, plan_->count);
+  return Result::success();
+}
 Result TagWriterService::prepare(JsonObjectConst c) {
   if (association_pending_)
     return fail("Retry the pending association before preparing another tag");
@@ -843,6 +1137,7 @@ Result TagWriterService::prepare(JsonObjectConst c) {
                         plan_->current.material.instance_uuid != uuid.value());
   auto current = view_["current"].to<JsonObject>();
   nfc::openprinttag::material_json(current, plan_->current.material);
+  view_["semantic_no_change"] = plan_->count == 0;
   auto blocks = view_["changed_blocks"].to<JsonArray>();
   for (std::size_t i = 0; i < plan_->count; ++i)
     blocks.add(plan_->blocks[i]);
@@ -921,9 +1216,10 @@ Result TagWriterService::associate() {
     return Result::failure(owner.error());
   if (owner.value() != spool_id_)
     return fail("Final NFC UID ownership is not uniquely the target spool");
+  if (journal_ && !journal_->clear())
+    return fail(
+        "Association verified; recovery journal cleanup is still pending");
   association_pending_ = false;
-  if (journal_)
-    journal_->clear();
   publish("complete",
           "Tag and Spoolman association verified; ready to weigh and assign",
           plan_->completed, plan_->count);
@@ -936,8 +1232,54 @@ TagWriterService::edit_and_report(JsonObjectConst c, bool filament) {
     publish("failed", result.error().message.c_str());
   return result;
 }
+__attribute__((noinline)) Result
+TagWriterService::commit_write(JsonObjectConst c) {
+  Result result = fail("Write not started");
+  if (!plan_ || view_["phase"].as<std::string>() != "preview" ||
+      c["uid"].as<std::string>() != plan_->uid.hex() ||
+      c["generation"].as<std::string>() != std::to_string(plan_->generation) ||
+      c["spool_id"].as<int>() != spool_id_ ||
+      !c["previous_spool_id"].is<int>() ||
+      c["previous_spool_id"].as<int>() != plan_->previous_spool_id ||
+      c["target_checksum"].as<std::string>() !=
+          nfc::nfcv::format_diagnostic_checksum(plan_->target_checksum).data())
+    result = fail("Specific confirmation does not match the current preview");
+  else if (settings_url_ != spoolman_.settings_.url ||
+           identity_key_ != spoolman_.settings_.identity_field ||
+           uid_key_ != spoolman_.settings_.nfc_uid_field)
+    result = fail("Spoolman settings changed; preview again before writing");
+  else {
+    if (journal_ && !journal_->save(*plan_, spool_id_,
+                                    backend_identity(spoolman_.settings_))) {
+      publish("failed",
+              "Recovery journal could not be verified; no tag bytes written");
+      return fail("Writer recovery journal unavailable");
+    }
+    result = writer_.execute(
+        *plan_, [&](const char *phase, std::size_t done, std::size_t total) {
+          publish(phase, "Keep tag present and power connected", done, total);
+        });
+    if (result.ok()) {
+      association_pending_ = true;
+      result = associate();
+    }
+  }
+
+  return result;
+}
 Result TagWriterService::process(JsonObjectConst c) {
   const std::string action = c["action"] | "";
+  if (!restore_ready())
+    return fail("Writer recovery unavailable; see status before continuing");
+  if (clear_recovery_required_ && action != "clear_preview" &&
+      action != "clear" && action != "retry_unlink")
+    return fail("Finish Clear / Reuse recovery before another operation");
+  if (unlink_pending_ && action != "retry_unlink") {
+    publish("unlink_pending",
+            "Tag is blank and verified. Spoolman unlink is still pending.");
+    return action == "clear_preview" ? Result::success()
+                                     : fail("Retry pending unlink first");
+  }
   if (association_pending_ && action != "retry_association") {
     publish("association_pending",
             "Tag written successfully; Spoolman association pending.");
@@ -947,7 +1289,13 @@ Result TagWriterService::process(JsonObjectConst c) {
   if (action == "update_spool" || action == "update_filament")
     return edit_and_report(c, action == "update_filament");
   Result result = fail("Unknown writer operation");
-  if (action == "catalog")
+  if (action == "clear_preview")
+    result = prepare_clear();
+  else if (action == "clear")
+    result = commit_clear(c);
+  else if (action == "retry_unlink")
+    result = unlink();
+  else if (action == "catalog")
     result = catalog(c);
   else if (action == "import_preview")
     result = import_preview(c);
@@ -957,43 +1305,19 @@ Result TagWriterService::process(JsonObjectConst c) {
     result = create_spool(c);
   else if (action == "preview")
     result = prepare(c);
-  else if (action == "write") {
-    if (!plan_ || view_["phase"].as<std::string>() != "preview" ||
-        c["uid"].as<std::string>() != plan_->uid.hex() ||
-        c["generation"].as<std::string>() !=
-            std::to_string(plan_->generation) ||
-        c["spool_id"].as<int>() != spool_id_ ||
-        !c["previous_spool_id"].is<int>() ||
-        c["previous_spool_id"].as<int>() != plan_->previous_spool_id ||
-        c["target_checksum"].as<std::string>() !=
-            nfc::nfcv::format_diagnostic_checksum(plan_->target_checksum)
-                .data())
-      result = fail("Specific confirmation does not match the current preview");
-    else if (settings_url_ != spoolman_.settings_.url ||
-             identity_key_ != spoolman_.settings_.identity_field ||
-             uid_key_ != spoolman_.settings_.nfc_uid_field)
-      result = fail("Spoolman settings changed; preview again before writing");
-    else {
-      if (journal_ && !journal_->save(*plan_, spool_id_,
-                                      backend_identity(spoolman_.settings_))) {
-        publish("failed",
-                "Recovery journal could not be verified; no tag bytes written");
-        return fail("Writer recovery journal unavailable");
-      }
-      result = writer_.execute(
-          *plan_, [&](const char *phase, std::size_t done, std::size_t total) {
-            publish(phase, "Keep tag present and power connected", done, total);
-          });
-      if (result.ok()) {
-        association_pending_ = true;
-        result = associate();
-      }
-    }
-  } else if (action == "retry_association")
+  else if (action == "write")
+    result = commit_write(c);
+  else if (action == "retry_association")
     result =
         association_pending_ ? associate() : fail("No association pending");
   if (!result.ok()) {
-    if (association_pending_)
+    if (unlink_pending_) {
+      const auto message =
+          "Tag is blank and verified. Spoolman unlink is still pending. " +
+          result.error().message;
+      publish("unlink_pending", message.c_str(), plan_->completed,
+              plan_->count);
+    } else if (association_pending_)
       publish("association_pending",
               "Tag written successfully; Spoolman association pending.",
               plan_->completed, plan_->count);

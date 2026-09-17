@@ -92,29 +92,29 @@ void test_scale_ui_uses_raw_stability_only_for_calibration_actions() {
       refresh.find("5. Ready to calibrate") != std::string::npos);
 }
 
-void test_scale_visual_is_a_state_gauge_with_collapsed_calibration() {
+void test_scale_receipt_has_explicit_update_and_collapsed_calibration() {
   const auto source = read_source("src/ui/ui_service.cpp");
   const auto build = method(
       source,
       "void UiService::build_scale_page()",
       "void UiService::build_printer_page()");
   TEST_ASSERT_TRUE(
-      build.find("lv_arc_set_value(arc, 0)") != std::string::npos);
+      build.find("weight_update_callback") != std::string::npos);
   TEST_ASSERT_TRUE(build.find("opening_positions") == std::string::npos);
   TEST_ASSERT_TRUE(build.find("filament") == std::string::npos);
   TEST_ASSERT_TRUE(build.find("hub") == std::string::npos);
   TEST_ASSERT_TRUE(
-      build.find("lv_obj_set_size(workflow_scale_indicator_, 150, 150)") !=
+      build.find("weight_policy_callback") !=
       std::string::npos);
   TEST_ASSERT_TRUE(
-      build.find("lv_obj_set_style_border_width(workflow_scale_indicator_, 2") !=
+      build.find("Auto-update OFF") !=
       std::string::npos);
   TEST_ASSERT_TRUE(
       build.find(
           "lv_obj_add_flag(workflow_reference_input_, "
           "LV_OBJ_FLAG_HIDDEN)") != std::string::npos);
   TEST_ASSERT_TRUE(build.find("GROSS WEIGHT") != std::string::npos);
-  TEST_ASSERT_TRUE(build.find("Last: -- g") != std::string::npos);
+  TEST_ASSERT_TRUE(build.find("workflow_scale_capture_label_") != std::string::npos);
   TEST_ASSERT_TRUE(build.find("\"WEIGH\", 44") != std::string::npos);
   TEST_ASSERT_TRUE(build.find("\"TARE\", 102") != std::string::npos);
   TEST_ASSERT_TRUE(build.find("\"CALIBRATE\", 160") != std::string::npos);
@@ -142,8 +142,8 @@ void test_scale_screen_has_bounded_480x320_layout_and_distinct_states() {
       source,
       "void UiService::build_scale_page()",
       "void UiService::build_printer_page()");
-  TEST_ASSERT_TRUE(build.find("lv_obj_set_pos(arc, 112, 44)") != std::string::npos);
-  TEST_ASSERT_TRUE(build.find("lv_obj_set_size(arc, 184, 184)") != std::string::npos);
+  TEST_ASSERT_TRUE(build.find("lv_obj_set_pos(workflow_weight_label_,112,48)") != std::string::npos);
+  TEST_ASSERT_TRUE(build.find("lv_obj_set_size(weight_update_,170,44)") != std::string::npos);
   TEST_ASSERT_TRUE(build.find("lv_obj_set_pos(button, 310, y)") != std::string::npos);
   TEST_ASSERT_TRUE(build.find("lv_obj_set_size(button, 156, 48)") != std::string::npos);
   TEST_ASSERT_TRUE(build.find("lv_obj_set_pos(workflow_status_label_, 112, 270)") !=
@@ -237,14 +237,61 @@ void test_tags_page_exposes_guarded_writer_and_reader_state() {
   TEST_ASSERT_TRUE(build.find("FORMAT") == std::string::npos);
 }
 
+void test_clear_has_two_steps_and_large_touch_targets() {
+  const auto source = read_source("src/ui/ui_service.cpp");
+  const auto preview = method(source, "void UiService::clear_preview_callback",
+                              "void UiService::weight_update_callback");
+  TEST_ASSERT_TRUE(preview.find("clear_preview") != std::string::npos);
+  TEST_ASSERT_TRUE(preview.find("writer_confirmation_.clear()") != std::string::npos);
+  TEST_ASSERT_TRUE(preview.find("LV_STATE_DISABLED") != std::string::npos);
+  for (const char* token : {"CONFIRM CLEAR", "Retry unlink", "current_checksum",
+                            "lv_obj_set_size(clear_preview_,155,44)",
+                            "lv_obj_set_size(writer_confirm_,155,44)"})
+    TEST_ASSERT_TRUE_MESSAGE(source.find(token) != std::string::npos, token);
+}
+
+void test_only_explicit_weigh_notifies_sync_and_timeout_finishes_it() {
+  const auto nfc = read_source("src/application/nfc_worker.cpp");
+  TEST_ASSERT_TRUE(nfc.find("submit_weigh(now, false)") != std::string::npos);
+  const auto queue = read_source("src/application/scale_command_queue.cpp");
+  const auto timeout = method(queue,
+      "if (status.measurement_state == services::ScaleMeasurementState::timed_out",
+      "operations_.succeed(");
+  TEST_ASSERT_TRUE(timeout.find("weigh_finished(active_->operation_id, std::nullopt)") != std::string::npos);
+  TEST_ASSERT_TRUE(queue.find("command.explicit_request && weigh_started") != std::string::npos);
+  TEST_ASSERT_TRUE(queue.find("active_->explicit_request && weigh_finished") != std::string::npos);
+}
+
+void test_weigh_readback_uses_captured_policy_behind_revision_fence() {
+  const auto source = read_source("src/application/weigh_commands.cpp");
+  const auto capture = method(source, "void BackendWorker::begin_weigh",
+                              "void BackendWorker::complete_weigh");
+  for (const char* token : {"config.reconciliation.normal_tolerance_grams",
+                            "config.reconciliation.warning_tolerance_grams",
+                            "captured.settings_revision = revision"})
+    TEST_ASSERT_TRUE_MESSAGE(capture.find(token) != std::string::npos, token);
+  const auto fence = method(source, "BackendWorker::weight_fence",
+                            "BackendWorker::process_weight_update");
+  TEST_ASSERT_LESS_THAN(fence.find("reader_.field_on()"),
+                        fence.find("captured.settings_revision != configuration_.revision()"));
+  const auto readback = method(source, "BackendWorker::process_weight_update",
+                               "void BackendWorker::auto_weight_update");
+  TEST_ASSERT_TRUE(readback.find("captured.gross, captured.tolerances") != std::string::npos);
+  TEST_ASSERT_LESS_THAN(readback.find("workflow_.apply_weight_readback"),
+                        readback.find("captured.settings_revision == configuration_.revision()"));
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
   UNITY_BEGIN();
+  RUN_TEST(test_weigh_readback_uses_captured_policy_behind_revision_fence);
+  RUN_TEST(test_clear_has_two_steps_and_large_touch_targets);
+  RUN_TEST(test_only_explicit_weigh_notifies_sync_and_timeout_finishes_it);
   RUN_TEST(test_touchscreen_has_five_product_destinations_in_order);
   RUN_TEST(test_home_weigh_opens_scale_before_refreshing);
   RUN_TEST(test_scale_ui_uses_raw_stability_only_for_calibration_actions);
-  RUN_TEST(test_scale_visual_is_a_state_gauge_with_collapsed_calibration);
+  RUN_TEST(test_scale_receipt_has_explicit_update_and_collapsed_calibration);
   RUN_TEST(test_scale_screen_has_bounded_480x320_layout_and_distinct_states);
   RUN_TEST(test_repeated_native_navigation_rebuilds_one_bounded_screen);
   RUN_TEST(test_idle_home_and_scale_refresh_do_not_copy_full_configuration);

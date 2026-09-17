@@ -43,6 +43,7 @@ inline void write_nfc(JsonObject out, const nfc::ReadSnapshot& status,
         nfc::nfcv::format_diagnostic_checksum(*status.checksum).data();
   else
     out["checksum"] = nullptr;
+  out["blank_compatible"]=status.blank_compatible;
   out["decode"] = status.tag                                    ? "pass"
                   : status.state == nfc::ReadState::unsupported ? "fail"
                                                                 : "pending";

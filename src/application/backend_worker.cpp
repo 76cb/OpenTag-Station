@@ -607,6 +607,7 @@ void BackendWorker::run() {
     if (received && command != nullptr) {
       transport_.begin_operation(millis());
       if (command->type == CommandType::writer) process_writer(*command);
+      else if(command->type==CommandType::weight_update) process_weight_update(command->measurement_id,command->operation_id);
       else process(*command);
       transport_.end_operation();
       delete command;
@@ -615,6 +616,8 @@ void BackendWorker::run() {
     poll_nfc();
     const auto now_ms = millis();
     const bool changed = apply_backend_settings_if_changed();
+    (void)ensure_writer();
+    auto_weight_update();
     if (changed || static_cast<std::uint32_t>(now_ms - last_probe_ms_) >=
         probe_interval_ms) {
       transport_.begin_operation(millis());

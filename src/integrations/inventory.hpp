@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <functional>
 #include <map>
 #include <optional>
 #include <string>
@@ -27,6 +28,7 @@ struct RemainingWeightUpdate {
   float remaining_grams{0.0F};
   float concurrency_tolerance_grams{0.05F};
   float verification_tolerance_grams{0.25F};
+  std::function<bool()> before_mutation;
 };
 
 struct CreateSpoolRequest {

@@ -92,6 +92,9 @@ class UiService {
   static void assignment_confirmation_callback(lv_event_t* event);
   static void writer_preview_callback(lv_event_t* event);
   static void writer_confirm_callback(lv_event_t* event);
+  static void clear_preview_callback(lv_event_t* event);
+  static void weight_update_callback(lv_event_t* event);
+  static void weight_policy_callback(lv_event_t* event);
 
   bool allocate_buffers();
   void build_workflow_screen();
@@ -132,6 +135,9 @@ class UiService {
   lv_obj_t* nfc_detail_{nullptr};
   lv_obj_t* writer_spool_{nullptr};
   lv_obj_t* writer_confirm_{nullptr};
+  lv_obj_t* clear_preview_{nullptr};
+  lv_obj_t* weight_update_{nullptr};
+  lv_obj_t* weight_policy_{nullptr};
   std::string writer_confirmation_;
   application::BackendWorker& backend_worker_;
   lv_color_t* buffer_one_{nullptr};

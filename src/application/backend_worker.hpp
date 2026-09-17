@@ -21,6 +21,7 @@
 #include "services/spool_identity_resolver.hpp"
 #include "services/station_workflow.hpp"
 #include "services/tag_writer_service.hpp"
+#include "services/weigh_sync.hpp"
 
 namespace opentag::application {
 
@@ -86,6 +87,11 @@ class BackendWorker final {
       std::optional<std::uint64_t> expected_printer_revision = std::nullopt);
   [[nodiscard]] CommandReceipt submit_refresh();
   [[nodiscard]] CommandReceipt submit_spool_confirmation(domain::SpoolId, std::uint64_t);
+  void begin_weigh(std::uint64_t id);
+  void complete_weigh(std::uint64_t id, std::optional<float> grams);
+  CommandReceipt submit_weight_update(std::uint64_t id);
+  void write_weigh_snapshot(JsonObject out) const;
+  services::WeighSyncSnapshot weigh_snapshot() const { return weigh_sync_.snapshot(); }
   [[nodiscard]] CommandReceipt submit_writer(std::string_view payload);
   [[nodiscard]] network::ResponseBody writer_snapshot() const;
   [[nodiscard]] BackendWorkerSnapshot snapshot() const;
@@ -106,6 +112,7 @@ class BackendWorker final {
     refresh,
     confirm_spool,
     writer,
+    weight_update,
   };
 
   struct Command {
@@ -123,6 +130,7 @@ class BackendWorker final {
     services::ToolheadMutationPrecondition precondition;
     std::optional<std::uint64_t> expected_printer_revision;
     std::uint64_t operation_id{0U};
+    std::uint64_t measurement_id{0U};
     std::uint32_t enqueued_at_ms{0U};
     network::ResponseBody writer_payload{4096};
   };
@@ -134,6 +142,12 @@ class BackendWorker final {
   [[nodiscard]] bool apply_backend_settings_if_changed();
   void process(Command& command);
   void process_writer(Command& command);
+  bool ensure_writer();
+  bool physical_writer_ready() const;
+  void process_weight_update(std::uint64_t id, std::uint64_t operation = 0);
+  void auto_weight_update();
+  bool weight_fence(const services::WeighSyncSnapshot& captured);
+  services::WeighSync weigh_sync_;
   [[nodiscard]] bool enqueue(Command* command);
 
   static constexpr std::uint32_t probe_interval_ms = 30000U;

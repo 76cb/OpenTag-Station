@@ -220,6 +220,7 @@ void write_known(JsonDocument& document, const Configuration& configuration) {
   }
 
   auto reconciliation = object_at(document, "reconciliation");
+  reconciliation["auto_update_after_weigh"] = configuration.reconciliation.auto_update_after_weigh;
   reconciliation["normal_tolerance_grams"] =
       configuration.reconciliation.normal_tolerance_grams;
   reconciliation["warning_tolerance_grams"] =
@@ -418,6 +419,7 @@ core::Result<void> read_configuration(
   }
 
   const auto reconciliation = document["reconciliation"].as<JsonObjectConst>();
+  result.reconciliation.auto_update_after_weigh = reconciliation["auto_update_after_weigh"] | false;
   result.reconciliation.normal_tolerance_grams = number_or<float>(
       reconciliation["normal_tolerance_grams"],
       result.reconciliation.normal_tolerance_grams);
@@ -1068,4 +1070,25 @@ core::Result<void> ConfigurationService::confirm_spool_identity_mapping(
   return persist_locked(updated);
 }
 
+core::Result<void> ConfigurationService::clear_spool_identity_mapping(
+    const std::string& uid, const std::string& uuid, std::int32_t owner) {
+  const std::lock_guard<std::mutex> lock(mutex_);
+  if(!status_.initialized||uid.size()!=16||owner<0)
+    return core::Result<void>::failure(configuration_error("Invalid local unlink identity"));
+  const auto equal=[](const std::optional<std::string>& value,const std::string& expected) {
+    return value&& !expected.empty() &&value->size()==expected.size()&&
+        std::equal(value->begin(),value->end(),expected.begin(),[](char a,char b){return std::tolower(static_cast<unsigned char>(a))==std::tolower(static_cast<unsigned char>(b));});
+  };
+  auto updated=configuration_;auto& mappings=updated.spool_identity_mappings;
+  for(const auto& m:mappings) {
+    if(!equal(m.nfc_uid,uid)&&!equal(m.instance_uuid,uuid))continue;
+    if((owner&&m.spool_id!=owner)||(m.nfc_uid&&!equal(m.nfc_uid,uid))||
+        (!uuid.empty()&&m.instance_uuid&&!equal(m.instance_uuid,uuid)))
+      return core::Result<void>::failure(configuration_error("Confirmed local identity changed; unlink refused"));
+  }
+  const auto end=std::remove_if(mappings.begin(),mappings.end(),[&](const auto& m){return equal(m.nfc_uid,uid)||equal(m.instance_uuid,uuid);});
+  if(end==mappings.end())return core::Result<void>::success();
+  mappings.erase(end,mappings.end());
+  return persist_locked(updated);
+}
 }  // namespace opentag::config

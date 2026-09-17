@@ -597,10 +597,11 @@ core::Result<domain::Spool> SpoolmanAdapter::set_remaining_weight(
   }
   const auto current = get_spool(id);
   if (!current.ok()) return current;
+  if(current.value().id!=id)return core::Result<domain::Spool>::failure({core::ErrorCategory::invalid_response,"Spoolman weight snapshot ID mismatch",false});
   if (std::fabs(current.value().used_grams - update.expected_used_grams) >
       update.concurrency_tolerance_grams) {
     return core::Result<domain::Spool>::failure(
-        {core::ErrorCategory::invalid_response,
+        {core::ErrorCategory::conflict,
          "Spoolman usage changed after the reconciliation snapshot",
          false});
   }
@@ -612,12 +613,14 @@ core::Result<domain::Spool> SpoolmanAdapter::set_remaining_weight(
   }
   std::string serialized;
   serializeJson(body, serialized);
+  if(update.before_mutation && !update.before_mutation())
+    return core::Result<domain::Spool>::failure({core::ErrorCategory::conflict, "Spool changed before weight mutation", false});
   auto response = request("PATCH", "/spool/" + std::to_string(id), serialized);
   if (!response.ok()) return core::Result<domain::Spool>::failure(response.error());
 
   const auto verified = get_spool(id);
   if (!verified.ok()) return verified;
-  if (!verified.value().remaining_grams.has_value() ||
+  if (verified.value().id!=id || !verified.value().remaining_grams.has_value() ||
       std::fabs(*verified.value().remaining_grams - update.remaining_grams) >
           update.verification_tolerance_grams) {
     return core::Result<domain::Spool>::failure(

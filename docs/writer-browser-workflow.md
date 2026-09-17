@@ -11,6 +11,9 @@ operations disable Close, Escape and Back. A resumed active operation offers
 The touchscreen keeps its compact spool/preview/confirmation workflow, with
 44 px action buttons, clearer progress and explicit verified/pending results.
 
+For Clear / Reuse, Community loading and explicit-Weigh inventory updating, see
+[Clear, weigh, and reuse](clear-weigh-workflows.md).
+
 ## Pick inventory
 
 Choose **My Spoolman** or **SpoolmanDB Community**. My Spoolman supports spool,
@@ -116,8 +119,8 @@ association must be retried before editing or starting another workflow.
 
 ## Review the tag
 
-The primary preview shows UID, spool, mode, tag type, changed-block count,
-and preserved blocks 78–79. A Current/Proposed table shows brand, product,
+The primary preview shows the product, UID and spool as a receipt. Technical
+mode, geometry, changed blocks and preserved range remain under Advanced. A Current/Proposed table shows brand, product,
 material, weights, tare, density, diameter, consumption and color. Destructive
 warnings (non-atomic write, UID move, recovery and full metadata replacement)
 remain prominent. Optional metadata notices are collapsed with a count.
@@ -131,7 +134,7 @@ association are mutually exclusive by phase. Inactive actions have
 
 Writing shows block progress and tag/power guidance. A pending association says
 the tag is already verified and offers only an association retry. Verified shows
-the product, UID, linked spool and PASS results; **Done** returns to Tags. Printer
+the product, UID, linked spool and independent readback/decode/link results; **Done** returns to Tags. Printer
 assignment remains on the existing Printer page.
 
 The Tags page distinguishes detection, decoding and canonical Spoolman resolution.

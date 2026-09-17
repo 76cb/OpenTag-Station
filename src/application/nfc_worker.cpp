@@ -38,7 +38,7 @@ void NfcWorker::run_once() {
       if (!measurement_requested_ && scale.scale_calibrated &&
           scale.scale_adc_ready && !diagnostics_.scale_measurement_active() &&
           scale_.pending() == 0U) {
-        const auto receipt = scale_.submit_weigh(now);
+        const auto receipt = scale_.submit_weigh(now, false);
         if (receipt.accepted) {
           measurement_requested_ = true;
           measurement_requested_at_ = now;

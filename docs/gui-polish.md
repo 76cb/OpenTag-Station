@@ -1,6 +1,12 @@
 # Appliance interface polish
 
-This pass builds on merged PR #29. It changes browser presentation and the WT32
+The original polish pass built on merged PR #29.
+
+The current follow-up is documented in [Clear, weigh, and reuse](clear-weigh-workflows.md),
+including Community CSP, browser/WT32 clear confirmation, and explicit-Weigh
+inventory updates. The notes below describe the original PR #30 baseline.
+
+That pass It changes browser presentation and the WT32
 touchscreen's existing widgets; NFC/backend implementations, request contracts,
 optimistic edit fencing, task sizes, resource limits and CSP remain unchanged.
 

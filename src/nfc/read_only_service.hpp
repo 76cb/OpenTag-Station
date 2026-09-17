@@ -55,6 +55,7 @@ struct ReadSnapshot {
   ReadState state{ReadState::starting};
   bool initialized{false};
   bool present{false};
+  bool blank_compatible{false};
   std::size_t tag_count{0};
   std::optional<nfcv::Uid> uid;
   nfcv::TagGeometry geometry;

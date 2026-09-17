@@ -33,6 +33,7 @@ private:
 };
 
 struct WriterPlan {
+  enum class Operation : std::uint8_t { write, clear };
   enum class JournalState { none, original, target, partial };
   // Only the physically validated SLIX2 profile is approved in this release.
   static constexpr std::size_t physical_bytes = 320;
@@ -50,6 +51,9 @@ struct WriterPlan {
   std::size_t count{0}, completed{0};
   bool blank{false}, recovery{false}, mutable_only{false}, attempted{false},
       verified{false};
+  Operation operation{Operation::write};
+  bool cleanup_pending{false}, cleanup_owner_bound{false};
+  std::optional<std::array<std::uint8_t, 16>> cleared_instance;
   openprinttag::DecodedTag current, proposed, verified_tag;
 };
 
@@ -62,6 +66,8 @@ public:
   core::Result<void> read(WriterPlan &plan,
                           const WriterPlan *interrupted = nullptr);
   core::Result<void> plan(WriterPlan &plan);
+  core::Result<void> plan_clear(WriterPlan &plan,
+                               const WriterPlan *interrupted = nullptr);
   core::Result<void> execute(WriterPlan &plan, const Progress &progress);
 
 private:

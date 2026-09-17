@@ -71,6 +71,8 @@ class StationWorkflow final {
         assignment_service_(printer_backend) {}
 
   void clear();
+  void apply_weight_readback(std::uint64_t generation, const domain::Spool& spool,
+                            std::optional<float> gross, ReconciliationTolerances tolerances);
   // Publishes identification immediately; resolution runs on the backend owner.
   std::uint64_t begin_identified_spool(const nfc::openprinttag::MaterialRecord&,
       const nfc::nfcv::Uid&);

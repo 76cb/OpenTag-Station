@@ -61,6 +61,7 @@ struct ToolheadProfile {
 };
 
 struct ReconciliationSettings {
+  bool auto_update_after_weigh{false};
   float normal_tolerance_grams{5.0F};
   float warning_tolerance_grams{20.0F};
 };
@@ -180,6 +181,8 @@ class ConfigurationService final : public services::IScaleCalibrationStore,
   load_spool_identity_mappings() override;
   [[nodiscard]] core::Result<void> confirm_spool_identity_mapping(
       const domain::ConfirmedSpoolMapping& mapping) override;
+  [[nodiscard]] core::Result<void> clear_spool_identity_mapping(
+      const std::string& uid, const std::string& uuid, std::int32_t owner) override;
 
  private:
   struct Impl;

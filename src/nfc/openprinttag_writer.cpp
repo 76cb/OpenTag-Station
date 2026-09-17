@@ -179,6 +179,35 @@ core::Result<void> OpenPrintTagWriter::read(WriterPlan &p,
       nfcv::diagnostic_checksum(p.original.data(), p.original.size());
   return field.close();
 }
+core::Result<void> OpenPrintTagWriter::plan_clear(WriterPlan &p,
+                                               const WriterPlan *interrupted) {
+  p.operation = WriterPlan::Operation::clear;
+  p.cleared_instance = p.current.material.instance_uuid;
+  if (interrupted && interrupted->uid == p.uid &&
+      p.journal_state != WriterPlan::JournalState::none) {
+    if (interrupted->operation == WriterPlan::Operation::clear)
+      p.cleared_instance = interrupted->cleared_instance;
+    else {
+      auto decoded = openprinttag::Codec::decode(
+          {interrupted->original.data(), WriterPlan::usable_bytes}, p.proposed);
+      if (decoded.ok())
+        p.cleared_instance = p.proposed.material.instance_uuid;
+    }
+  }
+  p.target = p.original;
+  std::fill_n(p.target.begin(), WriterPlan::usable_bytes, 0);
+  p.count = p.completed = 0;
+  // Header last: retain the envelope while payload blocks are cleared. Any
+  // interrupted mixture must still pass journal block classification BEFORE
+  // decoding; a surviving envelope never authorizes an unknown mixed image.
+  for (std::size_t block = 1; block < 78; ++block)
+    if (std::memcmp(p.original.data() + block * 4, p.target.data() + block * 4, 4))
+      p.blocks[p.count++] = block;
+  if (std::memcmp(p.original.data(), p.target.data(), 4))
+    p.blocks[p.count++] = 0;
+  p.target_checksum = nfcv::diagnostic_checksum(p.target.data(), p.target.size());
+  return core::Result<void>::success();
+}
 core::Result<void> OpenPrintTagWriter::plan(WriterPlan &p) {
   p.count = p.completed = 0;
   if (!std::equal(p.original.begin() + WriterPlan::usable_bytes,
@@ -244,7 +273,7 @@ core::Result<void> OpenPrintTagWriter::execute(WriterPlan &p,
     if (security != p.security[block] ||
         std::memcmp(p.scratch.data(), p.original.data() + block * 4, 4))
       return fail("Block content/protection changed before write");
-    progress("writing", i + 1, p.count);
+    progress(p.operation == WriterPlan::Operation::clear ? "clearing" : "writing", p.completed, p.count);
     auto write = reader_.commit_openprinttag_block(p.uid, block,
                                                    p.target.data() + block * 4);
     if (!write.ok())
@@ -267,6 +296,17 @@ core::Result<void> OpenPrintTagWriter::execute(WriterPlan &p,
   if (p.scratch != p.target)
     return fail("Complete physical readback mismatch",
                 core::ErrorCategory::nfc_crc);
+  if (p.operation == WriterPlan::Operation::clear) {
+    if (!std::all_of(p.scratch.begin(), p.scratch.begin() + WriterPlan::usable_bytes,
+                    [](auto byte) { return byte == 0; }))
+      return fail("Final blank verification failed");
+    auto check = fence(p);
+    if (!check.ok()) return check;
+    auto off = field.close();
+    if (!off.ok()) return off;
+    p.verified = true;
+    return core::Result<void>::success();
+  }
   progress("decoding", p.completed, p.count);
   auto decoded = openprinttag::Codec::decode(
       {p.scratch.data(), WriterPlan::usable_bytes}, p.verified_tag);

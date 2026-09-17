@@ -472,6 +472,7 @@ void write_configuration(
     encoded["notes"] = toolhead.notes;
   }
   auto reconciliation = document["reconciliation"].to<JsonObject>();
+  reconciliation["auto_update_after_weigh"] = value.reconciliation.auto_update_after_weigh;
   reconciliation["normal_tolerance_grams"] =
       value.reconciliation.normal_tolerance_grams;
   reconciliation["warning_tolerance_grams"] =
@@ -913,6 +914,7 @@ core::Result<api::JsonBody> ApplicationApiContext::snapshot_json(
           diagnostics_.scale_snapshot(),
           now_ms);
       document["command_queue_depth"] = scale_commands_.pending();
+      backend_worker_.write_weigh_snapshot(document["weigh_sync"].to<JsonObject>());
       break;
     }
     case api::Resource::tag_writer:
@@ -1113,6 +1115,8 @@ core::Result<api::OperationReceipt> ApplicationApiContext::submit_fresh(
     const api::Mutation& mutation,
     std::uint32_t now_ms) {
   switch (mutation.kind) {
+    case api::MutationKind::scale_update:
+      return receipt_result(backend_worker_.submit_weight_update(std::get<api::WeightUpdateMutation>(mutation.payload).measurement_id), "Weight update queue unavailable");
     case api::MutationKind::scale_weigh:
       return receipt_result(
           scale_commands_.submit_weigh(now_ms),
