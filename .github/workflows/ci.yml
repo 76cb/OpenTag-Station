@@ -3,11 +3,27 @@ name: CI
 on:
   push:
   pull_request:
+  workflow_call:
 
 permissions:
   contents: read
 
 jobs:
+  documentation:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r documentation-site/requirements.txt
+      - run: python tools/check_public_privacy.py
+      - run: python tools/check_hardware_docs.py
+      - run: python tools/export_docs.py --check
+      - run: python tools/check_committed_images.py
+      - run: python documentation-site/scripts/check_images.py
+      - run: python -m mkdocs build --strict -f documentation-site/mkdocs.yml
+      - run: python documentation-site/scripts/validate.py documentation-site/site
   ui-review:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -22,14 +38,16 @@ jobs:
       - run: python -m pip install Pillow==11.3.0
       - run: npm install --prefix .pio/review-tools playwright@1.62.1
       - run: .pio/review-tools/node_modules/.bin/playwright install --with-deps chromium
+      - run: python tools/check_public_privacy.py
       - run: python tools/generate_product_ui.py --check
       - run: python tools/product_review.py --output .pio/ui-review
       - run: python tools/render_touch_review.py --output .pio/ui-review
       - run: node tools/capture_product_review.cjs .pio/ui-review
         env:
           NODE_PATH: .pio/review-tools/node_modules
+      - run: python tools/check_public_privacy.py .pio/ui-review
       - name: Upload complete UI review
-        if: always()
+        if: success()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: opentag-ui-review
@@ -59,10 +77,12 @@ jobs:
       - run: python -m pip install --requirement .reference/openprinttag-specification/requirements.txt
       - run: git diff --check 4b825dc642cb6eb9a060e54bf8d69288fbee4904 HEAD
       - run: python tools/verify_openprinttag_initializer_reference.py --spec-root .reference/openprinttag-specification
+      - run: python tools/release_version.py
+      - run: python -m unittest discover -s tools -p test_release_packaging.py
       - run: python tools/check_web_assets.py
       - run: node --test tools/test_web_transport.mjs
       - run: python tools/test_writer_display.py
-      - run: python tools/web_flasher.py validate-source --page web-flasher/index.html --manifest web-flasher/manifest.json --diagnostic-manifest web-flasher/i2c-test-manifest.json
+      - run: python tools/web_flasher.py validate-source --page web-flasher/index.html --manifest web-flasher/manifest.json
       - run: pio test --environment native
       - run: pio test --environment native-writer-sanitized
         env:
@@ -72,26 +92,13 @@ jobs:
       - run: python tools/check_production_nfc.py
       - run: pio run --environment wt32-sc01-plus
       - run: python tools/check_production_nfc.py --elf
+      - run: python tools/release_version.py --binary .pio/build/wt32-sc01-plus/firmware.bin --metadata .pio/build/wt32-sc01-plus/build-metadata.json
       - run: python tools/check_production_memory.py
-      - run: pio run --environment wt32-sc01-plus-i2c-test
       - run: python tools/analyze_stack_usage.py
-      - run: python tools/analyze_stack_usage.py .pio/build/wt32-sc01-plus-i2c-test
-      - run: python tools/check_diagnostic_stack_usage.py
-      - run: python tools/check_diagnostic_http_stack_usage.py
       - run: python tools/check_production_nfc_stack_usage.py
       - run: python tools/check_production_http_stack_usage.py
       - run: pio run --environment wt32-sc01-plus --target web-flasher
       - run: python tools/web_flasher.py validate-bundle --bundle-dir .pio/build/wt32-sc01-plus/web-flasher --maximum-size 16777216
-      - run: pio run --environment wt32-sc01-plus-i2c-test --target web-flasher
-      - run: python tools/web_flasher.py validate-bundle --kind diagnostic --bundle-dir .pio/build/wt32-sc01-plus-i2c-test/web-flasher --maximum-size 16777216
-      - name: Upload PR NFC-V diagnostic bundle
-        if: github.event_name == 'pull_request'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: opentag-nfc-v-diagnostic-pr
-          path: .pio/build/wt32-sc01-plus-i2c-test/web-flasher
-          if-no-files-found: error
-          include-hidden-files: true
       - name: Upload PR production NFC bundle
         if: github.event_name == 'pull_request'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -100,5 +107,11 @@ jobs:
           path: .pio/build/wt32-sc01-plus/web-flasher
           if-no-files-found: error
           include-hidden-files: true
-      - run: python tools/web_flasher.py assemble-pages --factory-bundle .pio/build/wt32-sc01-plus/web-flasher --diagnostic-bundle .pio/build/wt32-sc01-plus-i2c-test/web-flasher --output-dir .pio/build/web-flasher-pages --maximum-size 16777216
+      - run: python tools/web_flasher.py assemble-pages --factory-bundle .pio/build/wt32-sc01-plus/web-flasher --output-dir .pio/build/web-flasher-pages --maximum-size 16777216
       - run: python tools/web_flasher.py validate-pages --bundle-dir .pio/build/web-flasher-pages --maximum-size 16777216
+      - run: python tools/prepare_release.py
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: opentag-production-release
+          path: .pio/release
+          if-no-files-found: error

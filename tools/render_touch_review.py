@@ -4,7 +4,8 @@ These are not LVGL framebuffers or proof of physical touch/color fidelity.
 The renderer checks bounds, action sizes, and text fit at 480 x 320.
 """
 from pathlib import Path
-import argparse,re
+import argparse,re,json,hashlib
+from check_public_privacy import assert_public_text
 from PIL import Image,ImageDraw,ImageFont
 
 ROOT=Path(__file__).resolve().parents[1]
@@ -20,18 +21,21 @@ def font(size):
 def render(scene,out):
     im=Image.new('RGB',(480,320),BG);d=ImageDraw.Draw(im)
     def label(box,text,size=16,color=TEXT):
+        assert_public_text(text)
         x,y,w,h=BOXES[box];f=font(size)
         for line_no,line in enumerate(text.split('\n')):
             while d.textbbox((0,0),line,font=f)[2]>w:line=line[:-2]+'…'
             assert (line_no+1)*(size+4)<=h+4,(scene,box,text)
             d.text((x+(w-d.textbbox((0,0),line,font=f)[2])/2 if scene=='empty' else x,y+line_no*(size+4)),line,font=f,fill=color)
     def button(box,text,primary=False):
+        assert_public_text(text)
         x,y,w,h=BOXES[box];assert h>=44 and w>=44
         d.rounded_rectangle((x,y,x+w-1,y+h-1),8,fill=MINT if primary else SURFACE)
         f=font(16);bounds=d.multiline_textbbox((0,0),text,font=f,align='center');assert bounds[2]<=w-8 and bounds[3]<=h-4,(box,text)
         d.multiline_text((x+(w-bounds[2])/2,y+(h-bounds[3])/2-2),text,font=f,fill='#112c25' if primary else TEXT,align='center')
     page={'empty':0,'home':0,'weigh':1,'assign':2,'tag':3,'settings':4}[scene]
     for i,title in enumerate(['Home','Weigh','Assign','Tag','Settings']):
+        assert_public_text(title)
         d.rectangle((i*96,272,(i+1)*96-1,319),fill='#303a3f' if i==page else '#191f22')
         d.text((i*96+(96-d.textbbox((0,0),title,font=font(16))[2])/2,285),title,font=font(16),fill=MINT if i==page else MUTED)
     if scene in ['home','empty']:
@@ -46,7 +50,7 @@ def render(scene,out):
         label('receipt','Empty spool  130 g\nFilament  712 g\nSpoolman  720 g\nDifference  -8 g')
         button('weigh','WEIGH AGAIN',True);button('update','Update Spoolman');label('feedback','Measurement differs by 8 g',14,MUTED)
     elif scene=='assign':
-        label('printer_name',"Casy's Prusa XL",20);label('printer_spool','PLA+ 2.0 Black · Spool #28',color=MUTED)
+        label('printer_name',"Prusa XL",20);label('printer_spool','PLA+ 2.0 Black · Spool #28',color=MUTED)
         for i in range(1,6):button('tool'+str(i),'T'+str(i)+'\n'+({2:'Spool #27',4:'Spool #31'}.get(i,'Empty')))
         label('feedback','Select a toolhead to review assignment',14,MUTED)
     elif scene=='tag':
@@ -54,12 +58,14 @@ def render(scene,out):
         button('tag_update','UPDATE TAG',True);button('tag_clear','CLEAR / REUSE');button('tag_confirm','Review before writing')
     else:
         label('heading','Display brightness',20);x,y,w,h=BOXES['brightness'];d.rounded_rectangle((x,y+18,x+w,y+26),4,fill=SURFACE);d.rounded_rectangle((x,y+18,x+w*.8,y+26),4,fill=MINT);d.ellipse((x+w*.8-10,y+12,x+w*.8+10,y+32),fill=TEXT)
-        button('policy','Auto-update OFF');button('calibration','Calibrate scale');button('about','About / Advanced');label('wifi','Wi-Fi connected\n192.168.1.42',16,MUTED)
+        button('policy','Auto-update OFF');button('calibration','Calibrate scale');button('about','About / Advanced');label('wifi','Wi-Fi connected\n192.0.2.42',16,MUTED)
     im.save(out/f'wt32-{scene}.png')
 
 def main():
     p=argparse.ArgumentParser();p.add_argument('--output',type=Path,required=True);args=p.parse_args();args.output.mkdir(parents=True,exist_ok=True)
     for scene in ['empty','home','weigh','assign','tag','settings']:render(scene,args.output)
+    images={f'wt32-{scene}.png':hashlib.sha256((args.output/f'wt32-{scene}.png').read_bytes()).hexdigest() for scene in ['empty','home','weigh','assign','tag','settings']}
+    (args.output/'touch-provenance.json').write_text(json.dumps({'privacy_checked_before_capture':True,'images':images},indent=2)+'\n',encoding='utf-8')
     (args.output/'WT32-READ-ME.txt').write_text(__doc__+'\nShared production layout: src/ui/product_layout.hpp\n',encoding='utf-8')
     print('6 WT32 fixtures: bounds, text fit, and 44 px action checks passed')
 if __name__=='__main__':main()

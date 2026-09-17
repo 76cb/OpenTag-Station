@@ -26,7 +26,7 @@ and raw diagnostic snapshots start collapsed. Existing scale and printer
 workflows are retained.
 
 Review fixture: Sunlu PLA+ 2.0 Black, spool #28, filament #22, UID
-`E00401086627D8D4`, NXP ICODE SLIX2, 80 × 4 B, 1000 g initial and 130 g tare.
+`E004000000000028`, NXP ICODE SLIX2, 80 × 4 B, 1000 g initial and 130 g tare.
 Editor tests deliberately start nominal weight at 777.12 g, save 1000 g, then
 simulate concurrent consumption changing 0 → 15 g against a 25 g draft.
 Only the fixture performs those changes. It blocks unexpected HTTP requests.

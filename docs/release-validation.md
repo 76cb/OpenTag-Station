@@ -4,9 +4,9 @@ Use the production artifact from the feature PR after all CI gates pass. Do not
 merge before acceptance. PR #27 already passed the memory/backend/NFC blocker;
 use its physical readings as the comparison baseline.
 
-Configured services: Spoolman `http://192.168.1.215:7912` (the adapter appends
+Historical service versions (addresses replaced with documentation examples): Spoolman `http://192.0.2.10:7912` (the adapter appends
 `/api/v1`), text extra fields `opentag_instance_uuid` and `nfc_uid`; FilaBridge
-`http://192.168.1.155:5000`. These addresses are configuration, never firmware
+`http://192.0.2.20:5000`. These addresses are configuration, never firmware
 constants. Keep one evidence log with firmware SHA, screenshots, operation IDs,
 serial output, checksums, Spoolman IDs and exact FilaBridge readback. An HTTP
 receipt is not evidence of a successful physical write.
@@ -24,7 +24,7 @@ receipt is not evidence of a successful physical write.
 4. **Compatible blank tag.** Place exactly one expendable blank NXP SLIX2 tag.
    Automatic reading may report no OpenPrintTag yet; the writer's preview will
    classify its complete content. Blank requires all 312 usable bytes zero.
-   The known tag `E0:04:01:08:66:27:D8:D4` may already contain the diagnostic
+   The known tag `[physical tag UID omitted]` may already contain the diagnostic
    initializer (`9E639911`); use a separate blank tag for genuine blank acceptance.
 5. **Existing Spoolman catalog.** Browse vendors, filaments and spools. Exercise
    search, material filter, more than one page and Search / Refresh. Compare IDs
@@ -105,8 +105,8 @@ receipt is not evidence of a successful physical write.
 22. **Weight reconciliation.** Check the actual tare source, gross/net and
     used/remaining weight. Apply the existing explicit reconciliation workflow;
     verify authoritative Spoolman readback and any warnings before assignment.
-23. **Detect the printer.** Discover `Casy's Prusa XL`, exact printer ID
-    `printer_1785006977542801400_535`, through configured FilaBridge.
+23. **Detect the printer.** Discover `Prusa XL`, exact printer ID
+    `prusa-xl`, through configured FilaBridge.
 24. **Detect tools.** Confirm T1–T5 map to backend tool IDs 0–4. Retain existing
     occupied-tool and active-print safeguards.
 25. **Assign T1.** Assign this actual resolved Spoolman spool to T1 (backend 0),

@@ -18,7 +18,7 @@ from web_flasher import FlashPart, build_bundle, flash_size_bytes  # noqa: E402
 
 def git_short_sha() -> str:
     return subprocess.check_output(
-        ["git", "-C", str(PROJECT_DIR), "rev-parse", "--short=12", "HEAD"],
+        ["git", "-C", str(PROJECT_DIR), "rev-parse", "HEAD"],
         text=True,
     ).strip()
 
@@ -32,18 +32,11 @@ def build_web_flasher(source: object, target: object, env: object) -> None:
     build_env = env
     board = build_env.BoardConfig()
     build_dir = pathlib.Path(build_env.subst("$BUILD_DIR"))
-    diagnostic = build_env.subst("$PIOENV") == "wt32-sc01-plus-i2c-test"
-    image_name = (
-        "opentag-station-i2c-test.bin"
-        if diagnostic
-        else "opentag-station-factory.bin"
-    )
-    manifest_name = "i2c-test-manifest.json" if diagnostic else "manifest.json"
-    product_name = (
-        "OpenTag Station Dual I2C / NFC-V RF Test"
-        if diagnostic
-        else "OpenTag Station"
-    )
+    if build_env.subst("$PIOENV") != "wt32-sc01-plus":
+        raise RuntimeError("Only production firmware may be distributed")
+    image_name = "opentag-station-factory.bin"
+    manifest_name = "manifest.json"
+    product_name = "OpenTag Station"
     application = build_dir / f"{build_env.subst('$PROGNAME')}.bin"
     extra_images = build_env.get("FLASH_EXTRA_IMAGES", [])
     parts = [

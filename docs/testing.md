@@ -216,14 +216,10 @@ Run the release checks with:
 git diff --check
 python3 tools/check_web_assets.py
 node --test tools/test_web_transport.mjs
-python3 tools/web_flasher.py validate-source --page web-flasher/index.html --manifest web-flasher/manifest.json --diagnostic-manifest web-flasher/i2c-test-manifest.json
+python3 tools/web_flasher.py validate-source --page web-flasher/index.html --manifest web-flasher/manifest.json
 .venv/bin/pio test --environment native
 .venv/bin/pio run --environment wt32-sc01-plus
 python3 tools/analyze_stack_usage.py
-.venv/bin/pio run --environment wt32-sc01-plus-i2c-test
-python3 tools/analyze_stack_usage.py .pio/build/wt32-sc01-plus-i2c-test
-python3 tools/check_diagnostic_stack_usage.py
-python3 tools/check_diagnostic_http_stack_usage.py
 .venv/bin/pio run --environment wt32-sc01-plus --target web-flasher
 python3 tools/web_flasher.py validate-bundle --bundle-dir .pio/build/wt32-sc01-plus/web-flasher --maximum-size 16777216
 ```
@@ -234,12 +230,9 @@ PlatformIO upload inputs, and the 16 MiB size bound. They generate no release
 or tag and do not prove a physical USB flash; follow
 [web-flasher.md](web-flasher.md) for that pending hardware/browser validation.
 
-The opt-in dual-I2C lane additionally builds
-`wt32-sc01-plus-i2c-test`, generates its `web-flasher` target, validates the
-diagnostic component, and assembles/validates the combined Pages directory as
-shown in [web-flasher.md](web-flasher.md). Host classification coverage lives
-in `test_shared_i2c_diagnostic`; the firmware build cannot claim a physical
-line, ACK, identity, IRQ, or coexistence PASS.
+Native transport classification coverage remains in `test_shared_i2c_diagnostic`.
+Only the production firmware and production Pages bundle are built. Host coverage
+does not establish physical wiring or coexistence acceptance.
 
 The final count/build measurements and all-UNVERIFIED hardware/soak matrix are
 maintained in [release-validation.md](release-validation.md).
@@ -310,15 +303,11 @@ Two lanes are maintained:
 
 ### Board/display/touch
 
-First flash `wt32-sc01-plus-display-test`. Verify every labeled color swatch,
-the dark-to-light grayscale order, full border, true center marker, and
-TOP/BOTTOM/LEFT/RIGHT labels. Touch all four corners and confirm the orange
-marker and reported coordinates. Then return to the normal
-`wt32-sc01-plus` build and verify the setup, workflow, and diagnostics
-screens are readable with no clipped controls. These observations remain
-**UNVERIFIED** until performed on physical hardware.
+Install the normal `wt32-sc01-plus` firmware. Inspect Home, Weigh, Assign, Tag
+and Settings for correct color, orientation, text and touch targeting. No separate
+firmware target is required or offered.
 
-Flash the Phase 1 image and verify:
+Using normal OpenTag Station, verify the applicable hardware checks:
 
 1. the 480 × 320 diagnostics screen renders with correct color and orientation;
 2. touch reaches all four corners and the brightness slider tracks accurately;
@@ -344,7 +333,7 @@ full spools without NFC field interference.
 The dedicated 100 kHz `Wire1` transport on GPIO13/14, `0x50` ACK, chip ID,
 GPIO12 IRQ, ELECHOUSE RFAL initialization, and NFC-V inventory have passed on
 physical hardware. Sixty consecutive inventory rounds returned the normalized
-UID `E0:04:01:08:66:27:D8:D4`; removal transitioned cleanly to zero devices and
+UID `[physical tag UID omitted]`; removal transitioned cleanly to zero devices and
 reinsertion recovered the same UID. Both buses remained error-free and scale
 sampling continued.
 

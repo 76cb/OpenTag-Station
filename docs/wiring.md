@@ -1,83 +1,28 @@
-# Wiring
+# Production wiring
 
-## Release validation boundary
+Use the full [assembly guide](../documentation-site/docs/hardware/wiring.md),
+[BOM](../documentation-site/docs/hardware/bill-of-materials.md),
+[pinout](../documentation-site/docs/hardware/pinout.md) and
+[power requirements](../documentation-site/docs/hardware/power.md).
+The published manual is separate from the firmware installer:
+[OpenTag Station documentation](https://76cb.github.io/OpenTag-Station-Docs/hardware/wiring/).
 
-The dedicated dual-I2C scale/NFC transport below is physically validated on a
-WT32-SC01 Plus, including NFC-V RF inventory, full reads and OpenPrintTag decode.
-Production now uses that Wire1 mapping read-only. Normal UI/touch coexistence and
-scale accuracy still need their own physical evidence; see [production NFC](production-nfc.md).
-
-## Rule
-
-The active board profile is the only firmware source of pin assignments. Driver,
-service, and UI code may not contain board GPIO numbers.
-
-## NAU7802
-
-The external I2C connector is currently verified as SDA GPIO 10 and SCL GPIO 11.
-For the referenced NAU7802 breakout/load-cell color convention:
-
-| Load-cell wire | NAU7802 terminal |
-|---|---|
-| Red | E+ |
-| Black | E− |
-| White | A+ |
-| Green | A− |
-
-Wire colors are not a universal electrical contract. Confirm the load-cell data
-sheet or resistance measurements before power. If force produces the opposite
-sign, swap A+ and A− only after confirming the four-wire mapping.
-
-## ST25R3916B
-
-The exact module is the ELECHOUSE `NFC_ST25R3916B` with this 1.25 mm connector:
-
-The ELECHOUSE ST25R3916B module uses the same mapping for production and the
-opt-in `wt32-sc01-plus-i2c-test` physical diagnostic:
-
-| Diagnostic signal | WT32 pin |
-|---|---|
-| SDA | GPIO 13, production/diagnostic NFC `Wire1` bus |
-| SCL | GPIO 14, production/diagnostic NFC `Wire1` bus |
-| IRQ | GPIO 12 |
-| Supply | board 5 V |
-| Ground | GND |
-| I2C target address | `0x50` |
-
-The module's I2C solder bridge must be closed. CS/BSS and MOSI are not used by
-this diagnostic. The NFC target runs on `Wire1` at 100 kHz. The opt-in image
-enables its RF field only for bounded ELECHOUSE RFAL operations and always
-disables it afterward. Normal boot inventory and complete-memory reads remain
-read-only. The separately confirmed blank-tag initializer is the only write
-transaction that was physically run; it was restricted to blocks 0–77 and
-preserved blocks 78–79. Its UI and route are now disabled, so the current
-diagnostic exposes no NFC write path.
-
-Production binds only the pinned ELECHOUSE I2C backend. Touch uses LovyanGFX's
-software I2C port -1 on GPIO6/5; it does not own Wire1 or either hardware I2C controller.
-
-| Pin | Module signal |
+| WT32 EXT board contact | Production connection |
 |---:|---|
-| 1 | IRQ |
-| 2 | CS / BSS |
-| 3 | SCLK / SCL |
-| 4 | MOSI |
-| 5 | MISO / SDA |
-| 6 | +5V |
-| 7 | GND |
+| 1 / +5V | NFC pin 6; scale supply only if its exact breakout accepts 5 V |
+| 2 / GND | NFC pin 7; NAU7802 GND |
+| 3 / GPIO10 | NAU7802 SDA, Wire/controller 0, address 0x2A, 400 kHz |
+| 4 / GPIO11 | NAU7802 SCL |
+| 5 / GPIO12 | NFC pin 1 IRQ |
+| 6 / GPIO13 | NFC pin 5 MISO/SDA, Wire1/controller 1, address 0x50, 100 kHz |
+| 7 / GPIO14 | NFC pin 3 SCLK/SCL |
+| 8 / GPIO21 | Unconnected |
 
-It exposes neither reset nor power-enable. Do not assign a fake GPIO for either.
-The diagnostic transport uses the documented I2C module configuration on its
-own `Wire1` bus, with IRQ on GPIO12:
+NFC pin 2 CS/BSS and pin 4 MOSI stay **DISCONNECTED**. Close the module's I²C
+solder bridge. GPIO uses 3.3 V logic; verify breakout pull-ups. Touch remains on
+the separate software GPIO6/5 bus. Identify connector contacts from board labels
+and continuity, never cable color or a mirrored photo. Install OpenTag Station
+and run the normal production diagnostics for post-assembly checks.
 
-| Module signal | Diagnostic WT32 connection |
-|---|---|
-| SDA | GPIO13, production/diagnostic NFC `Wire1` bus |
-| SCL | GPIO14, production/diagnostic NFC `Wire1` bus |
-| IRQ | GPIO12 |
-| +5V | EXT 5V |
-| GND | EXT GND |
-| CS / BSS, MOSI | not connected in ELECHOUSE's I2C quick-start hookup |
-| Reset, power-enable | not present on the module |
-
-This wiring is active in both production read-only firmware and the diagnostic. Production NFC runs on the shared backend task and touch remains enabled through software I2C. The physical NFC bring-up is complete; use [release validation](release-validation.md) for integrated acceptance.
+`tools/check_hardware_docs.py` checks source GPIOs, bus ownership, clocks, addresses,
+approved tag profile and generated SVGs to prevent silent documentation drift.

@@ -14,6 +14,8 @@ import shutil
 import subprocess
 import tempfile
 import threading
+from release_version import version
+from check_public_privacy import assert_public_text
 
 from web_asset_compression import browser_assets, writer_assets
 
@@ -27,7 +29,7 @@ HOST = r"""
 const originalHost=window.OpenTagWriterHost;
 const spool={id:28,initial_weight:1000,remaining_weight:1000,used_weight:0,spool_weight:130,archived:false,
 filament:{id:22,name:'Sunlu PLA+ 2.0 Black',material:'PLA+',weight:777.12,density:1.24,diameter:1.75,color_hex:'000000',vendor:{id:5,name:'Sunlu'}}};
-const preview={phase:'preview',mode:'rewrite',spool_id:28,previous_spool_id:0,uid:'E00401086627D8D4',tag_type:'NXP ICODE SLIX2',block_count:80,block_size:4,generation:'3',current_checksum:'9E639911',target_checksum:'B57D9186',changed_blocks:[2,3,7],total_blocks:3,instance_uuid:'fea84b36-1234-4234-9234-123456789012',current:{},proposed:{brand_name:'Sunlu',material_name:'Sunlu PLA+ 2.0 Black',material_abbreviation:'PLA+',nominal_netto_full_weight:1000,actual_netto_full_weight:1000,empty_container_weight:130,density:1.24,filament_diameter:1.75,consumed_weight:0,primary_color:[0,0,0,255]},warnings:['Writing is not atomic. Keep tag and power in place.','missing recommended GTIN','missing recommended manufactured date','missing recommended min_print_temperature']};
+const preview={phase:'preview',mode:'rewrite',spool_id:28,previous_spool_id:0,uid:'E004000000000028',tag_type:'NXP ICODE SLIX2',block_count:80,block_size:4,generation:'3',current_checksum:'9E639911',target_checksum:'B57D9186',changed_blocks:[2,3,7],total_blocks:3,instance_uuid:'fea84b36-1234-4234-9234-123456789012',current:{},proposed:{brand_name:'Sunlu',material_name:'Sunlu PLA+ 2.0 Black',material_abbreviation:'PLA+',nominal_netto_full_weight:1000,actual_netto_full_weight:1000,empty_container_weight:130,density:1.24,filament_diameter:1.75,consumed_weight:0,primary_color:[0,0,0,255]},warnings:['Writing is not atomic. Keep tag and power in place.','missing recommended GTIN','missing recommended manufactured date','missing recommended min_print_temperature']};
 let result={phase:'idle'},hold=null;const requests=[];
 const id=n=>document.getElementById(n);
 window.OpenTagWriterHost={...originalHost,byId:id,showToast:m=>id('fixture-status').textContent=m,api:async()=>structuredClone(result),submitMutation:async(path,{body,onProgress})=>{
@@ -55,7 +57,7 @@ CHECKS = r"""
 window.OpenTagWriter.bind();window.OpenTagWriter.bindWriter();const T=window.OpenTagWriter,A=window.__OpenTagTest;A.bindProduct();A.bindWeighAndClear();
 document.querySelectorAll('[data-nav]').forEach(n=>n.addEventListener('click',e=>{e.preventDefault();A.activateProductPage(n.dataset.nav);}));
 A.renderConfig(fixtureConfig);
-A.renderDevice({device:{hostname:'OpenTag Station',hardware_id:'WT32-SC01 Plus',local_url:'http://opentag-station.local'},build:{version:'UI review fixture',git_sha:'fixture',build_date:'2026-09-17'}});
+A.renderDevice({device:{hostname:'OpenTag Station',hardware_id:'WT32-SC01 Plus',local_url:'http://station.example'},build:{version:'__PROJECT_VERSION__',git_sha:'fixture',build_date:'2026-09-17'}});
 A.renderNetwork({system:{network:{connected:true,rssi_dbm:-48,provisioning:{active:false}}},networks:[]});
 A.renderScale({revision:1,adc_ready:true,calibrated:true,tare_ready:true,stable:true,samples_in_filter:3,measurement:{state:'completed',last_completed_grams:1130,last_completed_age_ms:1000},profile:{id:'yzc-133-5kg',rated_capacity_grams:5000}});
 A.renderPrinters();A.renderDiagnostics({status:'Fixture only',free_heap_bytes:65000});A.renderLogs({items:[]});
@@ -77,7 +79,7 @@ id('writer-continue').click();check(shown('writer-selection-pane')&&!shown('writ
 id('writer-edit-filament').click();check(id('writer-editor-warning').textContent.includes('every Spoolman spool'),'shared warning');const weight=id('writer-editor-fields').querySelector('[name="weight"]');check(weight.value==='777.12','nominal snapshot');weight.value='1000';await T.saveEditor();check(T.writerState.material.weight===1000,'verified save');check(T.writerState.step===2,'save stays in Review');check(id('writer-progress').textContent.includes('Saved and verified in Spoolman'),'persistent save result');
 id('writer-edit-spool').click();const used=id('writer-editor-fields').querySelector('[name="used_weight"]');used.value='25';spool.used_weight=15;await T.saveEditor();check(spool.used_weight===15,'conflict no PATCH');check(used.value==='25','draft retained');check(id('writer-editor-message').textContent.includes('Used weight (g): 15'),'fresh value visible');check(id('writer-editor-message').textContent.includes('your draft 25'),'draft visible beside fresh');check(!shown('writer-confirm'),'stale exact write hidden');await T.saveEditor();check(spool.used_weight===25,'explicit resave');check(!shown('writer-editor'),'editor closes after verification');
 let release;hold=new Promise(r=>release=r);const reading=T.writerCommand({action:'preview',spool_id:28});check(shown('writer-activity'),'reading busy card');check(id('writer-activity-title').textContent==='Reading tag','purposeful reading');check(id('writer-close').disabled,'busy close disabled');dialog.dispatchEvent(new Event('cancel',{cancelable:true}));check(dialog.open,'busy Escape refused');release();hold=null;await reading;
-check(shown('writer-review'),'preview visible');check(id('writer-detail').textContent.includes('NXP ICODE SLIX2'),'tag type retained in Advanced');check(id('writer-diff').textContent.includes('1000 g'),'readable proposal');check(id('writer-tag').textContent.includes('E0:04:01:08:66:27:D8:D4'),'readable UID');check(!id('writer-advanced').open,'Advanced collapsed');check(!id('writer-notices').open,'metadata collapsed');check(id('writer-critical').textContent.includes('incomplete tag'),'critical warning prominent');check(shown('writer-confirm')&&!shown('writer-import')&&!shown('writer-retry'),'one applicable action');
+check(shown('writer-review'),'preview visible');check(id('writer-detail').textContent.includes('NXP ICODE SLIX2'),'tag type retained in Advanced');check(id('writer-diff').textContent.includes('1000 g'),'readable proposal');check(id('writer-tag').textContent.includes('E0:04:00:00:00:00:00:28'),'readable UID');check(!id('writer-advanced').open,'Advanced collapsed');check(!id('writer-notices').open,'metadata collapsed');check(id('writer-critical').textContent.includes('incomplete tag'),'critical warning prominent');check(shown('writer-confirm')&&!shown('writer-import')&&!shown('writer-retry'),'one applicable action');
 hold=new Promise(r=>release=r);const writing=T.writerCommand({action:'write',uid:preview.uid,generation:preview.generation,target_checksum:preview.target_checksum,spool_id:28,previous_spool_id:0});T.renderWriter({...preview,phase:'writing',completed_blocks:2,total_blocks:3});
 check(T.writerState.step===4,'Write step');check(id('writer-meter').value===2&&id('writer-meter').max===3,'block progress');check(id('writer-activity-detail').textContent.includes('2 / 3'),'block count text');check(id('writer-close').disabled&&id('writer-back').disabled,'write navigation locked');dialog.dispatchEvent(new Event('cancel',{cancelable:true}));T.closeModal();check(dialog.open,'write cannot dismiss');check(!shown('writer-inventory'),'inventory unavailable during write');release();hold=null;await writing;
 check(T.writerState.snapshot.phase==='association_pending','pending link');check(id('writer-critical').textContent.includes('without rewriting'),'no rewrite instruction');check(shown('writer-retry')&&!shown('writer-confirm'),'association only action');check(id('nfc-association').textContent.includes('pending'),'tag page pending link');id('writer-retry').click();await settle();check(requests.filter(r=>r.action==='write').length===1,'retry did not rewrite');check(T.writerState.step===5,'Verified step');check(id('writer-review-title').textContent.includes('written and verified'),'strong success');check(['Tag readback', 'Verified', 'OpenPrintTag decode', 'Valid', 'Spoolman link'].every(t=>id('writer-diff').textContent.includes(t)),'three independent verification results');check(shown('writer-done'),'Done action');check(id('writer-tag').textContent.includes('Sunlu'),'success retains product');
@@ -111,6 +113,8 @@ def fixture(page):
     files = {'writer-fixture.css': css.decode("utf-8"), 'fixture-bootstrap.js': BOOTSTRAP,
              'writer-core.js': core.decode('utf-8'), 'writer-host.js': HOST, 'writer-production.js': writer, 'writer-checks.js': CHECKS}
     for name, content in files.items():
+        content = content.replace('__PROJECT_VERSION__', version())
+        assert_public_text(content, name)
         (page.parent / name).write_text(content, encoding='utf-8')
     root = pathlib.Path(__file__).resolve().parents[1]
     server = root / 'src/web/local_web_server.cpp'

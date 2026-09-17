@@ -25,7 +25,7 @@ module.exports=async function productJourneys(page,scene,width){
   }
   if(scene==='settings'){
     assert.equal(await visible('config-spoolman-token'),false);assert.equal(await visible('diagnostics'),false);
-    await page.getByText('Edit Spoolman',{exact:true}).click();await page.locator('#config-spoolman-url').fill('http://spoolman.local:7912');
+    await page.getByText('Edit Spoolman',{exact:true}).click();await page.locator('#config-spoolman-url').fill('http://spoolman.example:7912');
     assert.equal(await page.evaluate(()=>window.__OpenTagTest.state.configDirty),true,'grouped fields preserve dirty tracking');
     await page.locator('[data-setting="advanced"]').click();assert.equal(await visible('diagnostics'),true);
   }

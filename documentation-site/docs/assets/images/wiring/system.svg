@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1100" height="593" viewBox="0 0 1100 593" role="img" aria-labelledby="title desc">
+<title id="title">Complete station wiring</title><desc id="desc">Electrical connections, board-contact numbering; not a cable-side physical orientation drawing.</desc>
+<rect width="1100" height="593" rx="16" fill="#10191e"/>
+<g font-family="sans-serif" fill="#edf5f2">
+<text x="32" y="42" font-size="27">Complete station wiring</text>
+<text x="32" y="73" font-size="16" fill="#adbcbf">Board contacts • identify pin 1 from labels and continuity • GPIO is 3.3 V logic</text>
+<text x="32" y="112" font-size="20">WT32-SC01 Plus / EXT</text>
+<text x="690" y="112" font-size="20">Peripheral connector</text>
+<text x="32" y="150" font-size="18">EXT 1 / qualified supply</text>
+<path d="M370 144 H665" stroke="#e5a84b" stroke-width="3"/>
+<text x="690" y="150" font-size="18">NAU7802 VIN (verify rating)</text>
+<text x="32" y="192" font-size="18">EXT 2 / GND</text>
+<path d="M370 186 H665" stroke="#87969b" stroke-width="3"/>
+<text x="690" y="192" font-size="18">NAU7802 GND</text>
+<text x="32" y="234" font-size="18">EXT 3 / GPIO10</text>
+<path d="M370 228 H665" stroke="#55d7b3" stroke-width="3"/>
+<text x="690" y="234" font-size="18">NAU7802 SDA</text>
+<text x="32" y="276" font-size="18">EXT 4 / GPIO11</text>
+<path d="M370 270 H665" stroke="#55d7b3" stroke-width="3"/>
+<text x="690" y="276" font-size="18">NAU7802 SCL</text>
+<text x="32" y="318" font-size="18">EXT 1 / +5 V</text>
+<path d="M370 312 H665" stroke="#e5a84b" stroke-width="3"/>
+<text x="690" y="318" font-size="18">NFC 6 / +5V</text>
+<text x="32" y="360" font-size="18">EXT 2 / GND</text>
+<path d="M370 354 H665" stroke="#87969b" stroke-width="3"/>
+<text x="690" y="360" font-size="18">NFC 7 / GND</text>
+<text x="32" y="402" font-size="18">EXT 5 / GPIO12</text>
+<path d="M370 396 H665" stroke="#bb9ae8" stroke-width="3"/>
+<text x="690" y="402" font-size="18">NFC 1 / IRQ</text>
+<text x="32" y="444" font-size="18">EXT 6 / GPIO13</text>
+<path d="M370 438 H665" stroke="#74b8ee" stroke-width="3"/>
+<text x="690" y="444" font-size="18">NFC 5 / MISO-SDA</text>
+<text x="32" y="486" font-size="18">EXT 7 / GPIO14</text>
+<path d="M370 480 H665" stroke="#74b8ee" stroke-width="3"/>
+<text x="690" y="486" font-size="18">NFC 3 / SCLK-SCL</text>
+<text x="32" y="538" font-size="16" fill="#55d7b3">Scale: Wire / 0, 0x2A, 400 kHz. NFC: Wire1 / 1, 0x50, 100 kHz. Touch: software GPIO6/5.</text>
+</g></svg>

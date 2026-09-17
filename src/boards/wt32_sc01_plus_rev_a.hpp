@@ -67,7 +67,7 @@ struct Wt32Sc01PlusRevA {
   static constexpr std::int8_t scale_scl = 11;
   static constexpr std::uint8_t nau7802_address = 0x2A;
 
-  // Physically validated dual-I2C wiring shared with the troubleshooting image.
+  // Production dual-I2C wiring; diagnostic aliases remain for native test helpers.
   static constexpr std::int8_t diagnostic_nfc_sda = 13;
   static constexpr std::int8_t diagnostic_nfc_scl = 14;
   static constexpr std::uint8_t diagnostic_nfc_i2c_address = 0x50;

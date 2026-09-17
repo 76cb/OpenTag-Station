@@ -1,5 +1,12 @@
 # NFC hardware bring-up checkpoint
 
+## DEVELOPMENT HISTORY — NOT SHIPPED
+
+This is an archived engineering record, not installation guidance. The standalone
+firmware, build environment and distribution are removed. Install normal OpenTag
+Station and use [production wiring](wiring.md) and [release acceptance](releasing.md).
+
+
 Production NFC inventory, full reads, OpenPrintTag decode, removal/reinsertion and stationary soak have passed. The historical diagnostic evidence below records how the transport was brought up; it is not another acceptance gate. Production now uses the same Wire1 mapping on the shared backend task, with guarded OpenPrintTag writing. Use [production NFC](production-nfc.md) for current ownership and [release validation](release-validation.md) for the one integrated physical procedure.
 
 ## Proven transport
@@ -99,7 +106,7 @@ For the known-tag test:
    throughout.
 
 The completed follow-up also proved an 80 × 4 geometry and two matching
-320-byte reads of UID `E0:04:01:08:66:27:D8:D4`; the blank image checksum was
+320-byte reads of UID `[physical tag UID omitted]`; the blank image checksum was
 `97B79EC5`. The one-time guarded initializer subsequently passed and the stable
 initialized image checksum is `9E639911`. Its UI and POST route are now
 disabled. Production read-only recognition and soak subsequently passed; the current integrated acceptance is in [release validation](release-validation.md).

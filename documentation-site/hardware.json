@@ -1,0 +1,17 @@
+{
+  "scale_sda": 10,
+  "scale_scl": 11,
+  "nau7802_address": 42,
+  "diagnostic_nfc_sda": 13,
+  "diagnostic_nfc_scl": 14,
+  "diagnostic_nfc_interrupt": 12,
+  "diagnostic_nfc_i2c_address": 80,
+  "nfc_clock_hz": 100000,
+  "touch_i2c_port": -1,
+  "touch_sda": 6,
+  "touch_scl": 5,
+  "touch_interrupt": 7,
+  "touch_address": 56,
+  "touch_frequency_hz": 400000,
+  "scale_frequency_hz": 400000
+}

@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1100" height="468" viewBox="0 0 1100 468" role="img" aria-labelledby="title desc">
+<title id="title">Scale and load cell</title><desc id="desc">Electrical connections, board-contact numbering; not a cable-side physical orientation drawing.</desc>
+<rect width="1100" height="468" rx="16" fill="#10191e"/>
+<g font-family="sans-serif" fill="#edf5f2">
+<text x="32" y="42" font-size="27">Scale and load cell</text>
+<text x="32" y="73" font-size="16" fill="#adbcbf">Board contacts • identify pin 1 from labels and continuity • GPIO is 3.3 V logic</text>
+<text x="32" y="112" font-size="20">WT32-SC01 Plus / EXT</text>
+<text x="690" y="112" font-size="20">Peripheral connector</text>
+<text x="32" y="150" font-size="18">EXT 1 / qualified supply</text>
+<path d="M370 144 H665" stroke="#e5a84b" stroke-width="3"/>
+<text x="690" y="150" font-size="18">NAU7802 VIN (verify rating)</text>
+<text x="32" y="192" font-size="18">EXT 2 / GND</text>
+<path d="M370 186 H665" stroke="#87969b" stroke-width="3"/>
+<text x="690" y="192" font-size="18">NAU7802 GND</text>
+<text x="32" y="234" font-size="18">EXT 3 / GPIO10</text>
+<path d="M370 228 H665" stroke="#55d7b3" stroke-width="3"/>
+<text x="690" y="234" font-size="18">NAU7802 SDA</text>
+<text x="32" y="276" font-size="18">EXT 4 / GPIO11</text>
+<path d="M370 270 H665" stroke="#55d7b3" stroke-width="3"/>
+<text x="690" y="276" font-size="18">NAU7802 SCL</text>
+<text x="32" y="328" font-size="16" fill="#55d7b3">NAU7802 E+ / E- → cell excitation + / -; A+ / A- → signal + / -.</text>
+<text x="32" y="362" font-size="16">Wire / controller 0 • 0x2A • 400 kHz bus • 10 samples/s • gain 128</text>
+<text x="32" y="394" font-size="16">Use cell datasheet for lead pairs. Colors vary. VIN and pull-up voltage depend on breakout.</text>
+</g></svg>
