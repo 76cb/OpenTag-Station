@@ -1540,7 +1540,7 @@ void test_writer_requires_specific_authorized_high_level_confirmation() {
       R"({"action":"write","uid":"E004","generation":"1","target_checksum":"12345678","spool_id":12,"bytes":[0]})"})
     TEST_ASSERT_EQUAL(400,router.handle(mutation_request(Method::post,"/api/v1/tag-writer",body)).status);
   TEST_ASSERT_EQUAL(0,context.submit_calls);
-  const auto* body=R"({"action":"write","uid":"E00401086627D8D4","generation":"3","target_checksum":"12345678","spool_id":12})";
+  const auto* body=R"({"action":"write","uid":"E00401086627D8D4","generation":"3","target_checksum":"12345678","spool_id":12,"previous_spool_id":0})";
   TEST_ASSERT_EQUAL(401,router.handle(mutation_request(Method::post,"/api/v1/tag-writer",body,"writer-unauthorized","wrong")).status);
   TEST_ASSERT_EQUAL(202,router.handle(mutation_request(Method::post,"/api/v1/tag-writer",body)).status);
   TEST_ASSERT_EQUAL(1,context.submit_calls);

@@ -84,6 +84,8 @@ core::Result<void> OpenPrintTagWriter::read(WriterPlan &p,
   started_ms_ = reader_.now_ms();
   WriterFieldScope field{reader_};
   p.attempted = p.verified = false;
+  p.recovery = false;
+  p.journal_state = WriterPlan::JournalState::none;
   p.count = p.completed = 0;
   p.generation = generation_();
   auto on = reader_.field_on();
@@ -126,6 +128,29 @@ core::Result<void> OpenPrintTagWriter::read(WriterPlan &p,
     return repeated;
   if (p.original != p.scratch)
     return fail("Unstable tag content; preview again");
+  // A valid CBOR decode is not evidence that an interrupted transaction is
+  // intact. Classify all physical blocks first, including the preserved tail.
+  if (interrupted && interrupted->attempted && !interrupted->verified &&
+      interrupted->uid == p.uid) {
+    if (interrupted->geometry.block_count != p.geometry.block_count ||
+        interrupted->geometry.block_size != p.geometry.block_size ||
+        interrupted->system != p.system || interrupted->security != p.security)
+      return fail(
+          "Tag geometry/system/protection differs from recovery journal");
+    for (std::size_t b = 0; b < p.geometry.block_count; ++b) {
+      const auto *value = p.original.data() + 4 * b;
+      if (std::memcmp(value, interrupted->original.data() + 4 * b, 4) &&
+          std::memcmp(value, interrupted->target.data() + 4 * b, 4))
+        return fail("Torn/unknown block differs from both journal images; "
+                    "refusing rewrite");
+    }
+    p.journal_state = p.original == interrupted->target
+                          ? WriterPlan::JournalState::target
+                      : p.original == interrupted->original
+                          ? WriterPlan::JournalState::original
+                          : WriterPlan::JournalState::partial;
+    p.recovery = p.journal_state == WriterPlan::JournalState::partial;
+  }
   p.blank = std::all_of(p.original.begin(),
                         p.original.begin() + WriterPlan::usable_bytes,
                         [](auto byte) { return byte == 0; });
@@ -133,19 +158,10 @@ core::Result<void> OpenPrintTagWriter::read(WriterPlan &p,
     auto decoded = openprinttag::Codec::decode(
         {p.original.data(), WriterPlan::usable_bytes}, p.current);
     if (!decoded.ok()) {
-      // Recovery is restricted to the recorded interrupted writer image.
-      // Every complete physical block must be one of its two authorized values.
-      p.recovery = interrupted && interrupted->attempted &&
-                   !interrupted->verified && interrupted->uid == p.uid &&
-                   interrupted->system == p.system &&
-                   interrupted->security == p.security;
-      if (p.recovery)
-        for (std::size_t b = 0; b < 80; ++b) {
-          const auto *value = p.original.data() + 4 * b;
-          if (std::memcmp(value, interrupted->original.data() + 4 * b, 4) &&
-              std::memcmp(value, interrupted->target.data() + 4 * b, 4))
-            p.recovery = false;
-        }
+      // An original image can itself be an authorized partial image if a
+      // recovery was interrupted again before any additional block changed.
+      p.recovery =
+          p.recovery || p.journal_state == WriterPlan::JournalState::original;
       if (!p.recovery)
         return fail("Unsupported or incomplete OpenPrintTag; refusing unknown "
                     "data overwrite",

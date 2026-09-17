@@ -77,8 +77,14 @@ def main():
     writer_transport = writer_controller + max(writer_prepare + frame(writer_path, "OpenPrintTagWriter::read("),
         frame(writer_path, "OpenPrintTagWriter::execute(")) + frame(writer_path, "OpenPrintTagWriter::full_read(") + frame(writer_path, "OpenPrintTagWriter::fence(") + max(
         largest("hardware/nfc/st25r3916b/i2c_reader"), largest("hardware/nfc/st25r3916b/openprinttag_write_binding")) + 2048
-    writer_http = writer_controller + 2 * largest("services/tag_writer_service") + frame(spoolman, "SpoolmanAdapter::request(") + frame("network/http_transport", "HttpTransport::perform(") + 2048
-    writer_storage = writer_controller + largest("platform/storage/writer_journal") + 2048
+    # UID ownership queries now have an explicit helper chain beneath preview
+    # or association/previous-owner cleanup. Include every ancestor instead of
+    # assuming the existing two-largest-frame allowance covers that depth.
+    writer_uid_http = max(
+        writer_prepare + frame("services/tag_writer_service", "TagWriterService::prepare_uid_owner("),
+        frame("services/tag_writer_service", "TagWriterService::associate(") + frame("services/tag_writer_service", "TagWriterService::clear_previous_uid(")) + frame("services/tag_writer_service", "TagWriterService::uid_owner(") + frame("services/tag_writer_service", "TagWriterService::api(")
+    writer_http = writer_controller + max(2 * largest("services/tag_writer_service"), writer_uid_http) + frame(spoolman, "SpoolmanAdapter::request(") + frame("network/http_transport", "HttpTransport::perform(") + 2048
+    writer_storage = writer_controller + writer_prepare + largest("platform/storage/writer_journal") + 2048
     worst = max(decoded, transport, backend, persistence, writer_decode, writer_transport, writer_http, writer_storage)
     print(f"Approved writer decode={writer_decode}; transport={writer_transport}; HTTP={writer_http}")
     print(f"Shared backend stack={stack}; nested NFC decode={decoded}; NFC transport={transport}; backend HTTP={backend}; confirmation persistence={persistence}; remaining={stack-worst}; required={safety}")

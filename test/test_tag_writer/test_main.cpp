@@ -333,10 +333,27 @@ struct Http : network::IHttpTransport {
   std::function<std::string(const network::HttpRequest &)> custom;
   int custom_status = 200;
   network::BackendDocument spool;
+  network::BackendDocument previous;
   int patches = 0;
+  int clears = 0;
+  bool multiple_uid = false, fail_clear = false, bad_clear_readback = false,
+       fail_target = false, final_uid_conflict = false;
   bool offline = false, duplicate = false, bad_page = false;
   std::vector<std::string> urls;
-  Http() { deserializeJson(spool, canonical); }
+  std::vector<std::string> events;
+  Http() {
+    deserializeJson(spool, canonical);
+    deserializeJson(
+        previous,
+        R"({"id":9,"archived":true,"extra":{"opentag_instance_uuid":"\"12345678-1234-4234-9234-123456789012\"","keep":"\"unchanged\""}})");
+  }
+  void claim_previous(const std::string &uid) {
+    network::BackendDocument value;
+    value.set(uid);
+    std::string encoded;
+    serializeJson(value, encoded);
+    previous["extra"]["nfc_uid"] = encoded;
+  }
   core::Result<network::HttpResponse>
   perform(const network::HttpRequest &request) override {
     urls.push_back(request.url);
@@ -345,18 +362,46 @@ struct Http : network::IHttpTransport {
           {core::ErrorCategory::network, "offline", true});
     network::BackendDocument result;
     auto path = request.url.substr(request.url.find("/api/v1") + 7);
+    events.push_back(request.method + " " + path);
     if (path == "/field/spool")
       deserializeJson(
           result,
           R"([{"key":"opentag_instance_uuid","name":"UUID","field_type":"text"},{"key":"nfc_uid","name":"UID","field_type":"text"}])");
     else if (path == "/spool/12") {
       if (request.method == "PATCH") {
+        if (fail_target)
+          return core::Result<network::HttpResponse>::failure(
+              {core::ErrorCategory::network, "target PATCH failed", true});
         network::BackendDocument patch;
         deserializeJson(patch, request.body);
         spool["extra"].set(patch["extra"]);
         ++patches;
       }
       result.set(spool);
+    } else if (path == "/spool/9") {
+      if (request.method == "PATCH") {
+        if (fail_clear)
+          return core::Result<network::HttpResponse>::failure(
+              {core::ErrorCategory::network, "previous PATCH failed", true});
+        network::BackendDocument patch;
+        deserializeJson(patch, request.body);
+        TEST_ASSERT_EQUAL(1, patch["extra"].size());
+        TEST_ASSERT_TRUE(
+            patch["extra"].as<JsonObject>().containsKey("nfc_uid"));
+        TEST_ASSERT_TRUE(patch["extra"]["nfc_uid"].isNull());
+        ++clears;
+        if (!bad_clear_readback)
+          previous["extra"].remove("nfc_uid");
+      }
+      result.set(previous);
+    } else if (path.find("extra.nfc_uid") != std::string::npos) {
+      auto a = result.to<JsonArray>();
+      if (!previous["extra"]["nfc_uid"].isNull())
+        a.add<JsonObject>()["id"] = 9;
+      if (!spool["extra"]["nfc_uid"].isNull())
+        a.add<JsonObject>()["id"] = 12;
+      if (multiple_uid || (final_uid_conflict && patches))
+        a.add<JsonObject>()["id"] = 99;
     } else if (path.find("extra.opentag_instance_uuid") != std::string::npos) {
       auto a = result.to<JsonArray>();
       if (duplicate)
@@ -401,7 +446,8 @@ struct ServiceFixture {
   R confirm() {
     network::BackendDocument c;
     c["action"] = "write";
-    for (const auto *key : {"uid", "generation", "spool_id", "target_checksum"})
+    for (const auto *key : {"uid", "generation", "spool_id",
+                            "previous_spool_id", "target_checksum"})
       c[key] = view[key];
     return service.process(c.as<JsonObjectConst>());
   }
@@ -617,10 +663,12 @@ struct Journal : nfc::WriterJournal {
   }
   void clear() override { present = false; }
 };
-void recovery_case(bool replacement) {
+void recovery_case(bool replacement, bool move = false) {
   Reader reader;
   Http http;
   Journal journal;
+  if (move)
+    http.claim_previous(reader.uid.hex());
   reader.before_write = [&] { TEST_ASSERT_TRUE(journal.present); };
   integrations::spoolman::SpoolmanAdapter adapter{http,
                                                   {"http://spoolman.test"}};
@@ -639,14 +687,23 @@ void recovery_case(bool replacement) {
     TEST_ASSERT_TRUE(service.process(c.as<JsonObjectConst>()).ok());
     c.clear();
     c["action"] = "write";
-    for (const auto *key : {"uid", "generation", "spool_id", "target_checksum"})
+    for (const auto *key : {"uid", "generation", "spool_id",
+                            "previous_spool_id", "target_checksum"})
       c[key] = view[key];
-    http.offline = true;
+    http.offline = !move;
+    http.fail_target = move;
     TEST_ASSERT_FALSE(service.process(c.as<JsonObjectConst>()).ok());
     TEST_ASSERT_TRUE(journal.present);
+    if (move) {
+      TEST_ASSERT_EQUAL(9, journal.saved.previous_spool_id);
+      TEST_ASSERT_EQUAL(1, http.clears);
+      TEST_ASSERT_EQUAL_STRING("association_pending",
+                               view["phase"].as<const char *>());
+    }
   }
   const auto writes = reader.writes;
   http.offline = false;
+  http.fail_target = false;
   if (replacement)
     reader.uid.bytes[7] ^= 1;
   {
@@ -666,14 +723,20 @@ void recovery_case(bool replacement) {
     }
     TEST_ASSERT_EQUAL_STRING("association_pending",
                              view["phase"].as<const char *>());
+    TEST_ASSERT_EQUAL(move ? 9 : 0, view["previous_spool_id"].as<int>());
     c.clear();
     c["action"] = "retry_association";
     TEST_ASSERT_TRUE(service.process(c.as<JsonObjectConst>()).ok());
   }
   TEST_ASSERT_EQUAL(writes, reader.writes);
   TEST_ASSERT_FALSE(journal.present);
+  if (move)
+    TEST_ASSERT_EQUAL(1, http.clears);
 }
 void recovery_after_reboot_associates_without_write() { recovery_case(false); }
+void uid_move_recovery_after_reboot_without_write() {
+  recovery_case(false, true);
+}
 void journal_does_not_recover_replacement_uid() { recovery_case(true); }
 void repeated_writer_lifecycles_release_storage() {
   const auto baseline = network::backend_json_allocator.used();
@@ -749,7 +812,8 @@ void journal_failure_prevents_write() {
   TEST_ASSERT_TRUE(service.process(c.as<JsonObjectConst>()).ok());
   c.clear();
   c["action"] = "write";
-  for (const auto *key : {"uid", "generation", "spool_id", "target_checksum"})
+  for (const auto *key : {"uid", "generation", "spool_id", "previous_spool_id",
+                          "target_checksum"})
     c[key] = view[key];
   TEST_ASSERT_FALSE(service.process(c.as<JsonObjectConst>()).ok());
   TEST_ASSERT_EQUAL(0, reader.writes);
@@ -785,6 +849,255 @@ void diameter_current_key_and_legacy_compatibility() {
                         .ok());
 }
 
+void prepare_interrupted_rewrite(Fixture &f) {
+  f.prepare();
+  TEST_ASSERT_TRUE(f.execute().ok());
+  f.spool["filament"]["name"] = "PLA Gold";
+  f.spool["used_weight"] = 250;
+  f.prepare();
+  f.plan.attempted = true;
+}
+void make_valid_partial(Fixture &f) {
+  prepare_interrupted_rewrite(f);
+  TEST_ASSERT_GREATER_THAN(1, f.plan.count);
+  const auto block = f.plan.blocks[0];
+  std::copy_n(f.plan.target.data() + block * 4, 4,
+              f.reader.bytes.data() + block * 4);
+  nfc::openprinttag::DecodedTag decoded;
+  TEST_ASSERT_TRUE(
+      nfc::openprinttag::Codec::decode({f.reader.bytes.data(), 312}, decoded)
+          .ok());
+  TEST_ASSERT_TRUE(decoded.material.validation.valid());
+  TEST_ASSERT_TRUE(f.reader.bytes != f.plan.original &&
+                   f.reader.bytes != f.plan.target);
+}
+void journal_valid_decode_partial_is_recovery() {
+  Fixture f;
+  make_valid_partial(f);
+  nfc::WriterPlan read;
+  TEST_ASSERT_TRUE(f.writer.read(read, &f.plan).ok());
+  TEST_ASSERT_TRUE(read.recovery);
+  TEST_ASSERT_TRUE(read.journal_state ==
+                   nfc::WriterPlan::JournalState::partial);
+}
+void journal_exact_original_is_normal() {
+  Fixture f;
+  prepare_interrupted_rewrite(f);
+  nfc::WriterPlan read;
+  TEST_ASSERT_TRUE(f.writer.read(read, &f.plan).ok());
+  TEST_ASSERT_FALSE(read.recovery);
+  TEST_ASSERT_TRUE(read.journal_state ==
+                   nfc::WriterPlan::JournalState::original);
+}
+void journal_exact_target_is_classified_before_decode() {
+  Fixture f;
+  prepare_interrupted_rewrite(f);
+  f.reader.bytes = f.plan.target;
+  nfc::WriterPlan read;
+  TEST_ASSERT_TRUE(f.writer.read(read, &f.plan).ok());
+  TEST_ASSERT_FALSE(read.recovery);
+  TEST_ASSERT_TRUE(read.journal_state == nfc::WriterPlan::JournalState::target);
+  TEST_ASSERT_TRUE(read.current.material.validation.valid());
+}
+void corrupt_valid_text(Reader &reader) {
+  const char text[] = "PLA Gold";
+  auto found = std::search(reader.bytes.begin(), reader.bytes.begin() + 312,
+                           text, text + 8);
+  TEST_ASSERT_TRUE(found != reader.bytes.begin() + 312);
+  *found = 'Q';
+  nfc::openprinttag::DecodedTag decoded;
+  TEST_ASSERT_TRUE(
+      nfc::openprinttag::Codec::decode({reader.bytes.data(), 312}, decoded)
+          .ok());
+  TEST_ASSERT_TRUE(decoded.material.validation.valid());
+}
+void journal_valid_decode_unauthorized_block_refused() {
+  Fixture f;
+  prepare_interrupted_rewrite(f);
+  f.reader.bytes = f.plan.target;
+  corrupt_valid_text(f.reader);
+  nfc::WriterPlan read;
+  TEST_ASSERT_FALSE(f.writer.read(read, &f.plan).ok());
+  TEST_ASSERT_FALSE(read.verified);
+}
+void journal_system_security_geometry_mismatch_refused() {
+  for (int kind = 0; kind < 3; ++kind) {
+    Fixture f;
+    prepare_interrupted_rewrite(f);
+    if (kind == 0)
+      ++f.plan.system.bytes[0];
+    if (kind == 1)
+      f.plan.security[79] = 1;
+    if (kind == 2)
+      --f.plan.geometry.block_count;
+    nfc::WriterPlan read;
+    TEST_ASSERT_FALSE(f.writer.read(read, &f.plan).ok());
+  }
+}
+void journal_survives_multiple_unconfirmed_previews() {
+  Fixture f;
+  make_valid_partial(f);
+  Http http;
+  Journal journal;
+  journal.saved = f.plan;
+  journal.present = true;
+  journal.spool = 12;
+  integrations::spoolman::SpoolmanAdapter adapter{http,
+                                                  {"http://spoolman.test"}};
+  network::BackendDocument view, command;
+  services::TagWriterService service(
+      adapter, f.reader, [&] { return f.reader.generation; },
+      [](std::uint8_t *p, std::size_t n) { std::memset(p, 0x33, n); },
+      [&](const auto &b) { deserializeJson(view, b.data(), b.size()); },
+      &journal);
+  command["action"] = "preview";
+  command["spool_id"] = 12;
+  TEST_ASSERT_TRUE(service.process(command.as<JsonObjectConst>()).ok());
+  TEST_ASSERT_TRUE(view["recovering_interrupted_write"].as<bool>());
+  // Even a later valid decode cannot replace the durable transaction's bounds.
+  f.reader.bytes = f.plan.target;
+  corrupt_valid_text(f.reader);
+  TEST_ASSERT_FALSE(service.process(command.as<JsonObjectConst>()).ok());
+  TEST_ASSERT_FALSE(service.physical_pass());
+}
+void uid_unowned_and_target_owned() {
+  ServiceFixture f;
+  TEST_ASSERT_TRUE(f.run(R"({"action":"preview","spool_id":12})").ok());
+  TEST_ASSERT_EQUAL(0, f.view["previous_spool_id"].as<int>());
+  TEST_ASSERT_TRUE(f.confirm().ok());
+  const auto writes = f.reader.writes;
+  TEST_ASSERT_TRUE(f.run(R"({"action":"preview","spool_id":12})").ok());
+  TEST_ASSERT_EQUAL(0, f.view["previous_spool_id"].as<int>());
+  TEST_ASSERT_TRUE(f.confirm().ok());
+  TEST_ASSERT_EQUAL(writes, f.reader.writes);
+}
+void uid_repurpose_preview_discloses_and_binds_owner() {
+  ServiceFixture f;
+  f.http.claim_previous(f.reader.uid.hex());
+  TEST_ASSERT_TRUE(f.run(R"({"action":"preview","spool_id":12})").ok());
+  TEST_ASSERT_EQUAL(9, f.view["previous_spool_id"].as<int>());
+  TEST_ASSERT_EQUAL(12, f.view["spool_id"].as<int>());
+  TEST_ASSERT_EQUAL_STRING(f.reader.uid.hex().c_str(),
+                           f.view["uid"].as<const char *>());
+  TEST_ASSERT_TRUE(f.view["repurpose"].as<bool>());
+  std::string warnings;
+  serializeJson(f.view["warnings"], warnings);
+  TEST_ASSERT_TRUE(warnings.find("association will move") != std::string::npos);
+  f.view["previous_spool_id"] = 0;
+  TEST_ASSERT_FALSE(f.confirm().ok());
+  TEST_ASSERT_EQUAL(0, f.reader.writes);
+}
+void uid_multiple_owners_refused() {
+  ServiceFixture f;
+  f.http.claim_previous(f.reader.uid.hex());
+  f.http.multiple_uid = true;
+  TEST_ASSERT_FALSE(f.run(R"({"action":"preview","spool_id":12})").ok());
+  TEST_ASSERT_EQUAL(0, f.reader.writes);
+}
+void uid_move_clears_only_previous_uid_and_verifies() {
+  ServiceFixture f;
+  f.http.claim_previous("e0:04:01:08:66:27:d8:d4");
+  const auto old_uuid =
+      f.http.previous["extra"]["opentag_instance_uuid"].as<std::string>();
+  TEST_ASSERT_TRUE(f.run(R"({"action":"preview","spool_id":12})").ok());
+  TEST_ASSERT_TRUE(f.confirm().ok());
+  TEST_ASSERT_EQUAL(1, f.http.clears);
+  TEST_ASSERT_EQUAL(1, f.http.patches);
+  TEST_ASSERT_TRUE(f.http.previous["extra"]["nfc_uid"].isNull());
+  TEST_ASSERT_EQUAL_STRING(
+      old_uuid.c_str(),
+      f.http.previous["extra"]["opentag_instance_uuid"].as<const char *>());
+  TEST_ASSERT_EQUAL_STRING("\"unchanged\"",
+                           f.http.previous["extra"]["keep"].as<const char *>());
+  auto clear =
+      std::find(f.http.events.begin(), f.http.events.end(), "PATCH /spool/9");
+  auto target =
+      std::find(f.http.events.begin(), f.http.events.end(), "PATCH /spool/12");
+  TEST_ASSERT_TRUE(clear < target);
+  TEST_ASSERT_TRUE(std::find(clear + 1, target, "GET /spool/9") != target);
+  for (const auto &url : f.http.urls)
+    if (url.find("extra.nfc_uid") != std::string::npos)
+      TEST_ASSERT_TRUE(url.find("allow_archived=true") != std::string::npos);
+  TEST_ASSERT_TRUE(f.http.previous["archived"].as<bool>());
+}
+void uid_previous_clear_failure_stops_target() {
+  ServiceFixture f;
+  f.http.claim_previous(f.reader.uid.hex());
+  TEST_ASSERT_TRUE(f.run(R"({"action":"preview","spool_id":12})").ok());
+  f.http.fail_clear = true;
+  TEST_ASSERT_FALSE(f.confirm().ok());
+  TEST_ASSERT_EQUAL(0, f.http.patches);
+  TEST_ASSERT_EQUAL_STRING("association_pending",
+                           f.view["phase"].as<const char *>());
+  const auto writes = f.reader.writes;
+  f.http.fail_clear = false;
+  TEST_ASSERT_TRUE(f.run(R"({"action":"retry_association"})").ok());
+  TEST_ASSERT_EQUAL(writes, f.reader.writes);
+}
+void uid_previous_clear_readback_failure_stops_target() {
+  ServiceFixture f;
+  f.http.claim_previous(f.reader.uid.hex());
+  TEST_ASSERT_TRUE(f.run(R"({"action":"preview","spool_id":12})").ok());
+  f.http.bad_clear_readback = true;
+  TEST_ASSERT_FALSE(f.confirm().ok());
+  TEST_ASSERT_EQUAL(0, f.http.patches);
+}
+void uid_target_patch_failure_after_clear_is_retryable() {
+  ServiceFixture f;
+  f.http.claim_previous(f.reader.uid.hex());
+  TEST_ASSERT_TRUE(f.run(R"({"action":"preview","spool_id":12})").ok());
+  f.http.fail_target = true;
+  TEST_ASSERT_FALSE(f.confirm().ok());
+  TEST_ASSERT_TRUE(f.http.previous["extra"]["nfc_uid"].isNull());
+  TEST_ASSERT_EQUAL_STRING("association_pending",
+                           f.view["phase"].as<const char *>());
+  const auto writes = f.reader.writes;
+  f.http.fail_target = false;
+  TEST_ASSERT_TRUE(f.run(R"({"action":"retry_association"})").ok());
+  TEST_ASSERT_EQUAL(writes, f.reader.writes);
+  TEST_ASSERT_EQUAL(1, f.http.clears);
+}
+void uid_owner_changed_after_preview_is_not_cleared() {
+  ServiceFixture f;
+  TEST_ASSERT_TRUE(f.run(R"({"action":"preview","spool_id":12})").ok());
+  f.http.claim_previous(f.reader.uid.hex());
+  TEST_ASSERT_FALSE(f.confirm().ok());
+  TEST_ASSERT_EQUAL(0, f.http.clears);
+  TEST_ASSERT_EQUAL(0, f.http.patches);
+  TEST_ASSERT_EQUAL_STRING("association_pending",
+                           f.view["phase"].as<const char *>());
+}
+void uid_final_uniqueness_recheck_blocks_success() {
+  ServiceFixture f;
+  TEST_ASSERT_TRUE(f.run(R"({"action":"preview","spool_id":12})").ok());
+  f.http.final_uid_conflict = true;
+  TEST_ASSERT_FALSE(f.confirm().ok());
+  TEST_ASSERT_EQUAL_STRING("association_pending",
+                           f.view["phase"].as<const char *>());
+  const auto writes = f.reader.writes;
+  f.http.final_uid_conflict = false;
+  TEST_ASSERT_TRUE(f.run(R"({"action":"retry_association"})").ok());
+  TEST_ASSERT_EQUAL(writes, f.reader.writes);
+}
+void uid_formatted_queries_and_cross_format_conflicts() {
+  ServiceFixture f;
+  bool conflict = false;
+  f.http.custom = [&](const network::HttpRequest &request) -> std::string {
+    if (request.url.find("extra.nfc_uid=") == std::string::npos)
+      return {};
+    if (request.url.find("%3A") != std::string::npos &&
+        request.url.find("e0") != std::string::npos)
+      return R"([{"id":9}])";
+    if (conflict && request.url.find("E0") != std::string::npos)
+      return R"([{"id":99}])";
+    return "[]";
+  };
+  TEST_ASSERT_TRUE(f.run(R"({"action":"preview","spool_id":12})").ok());
+  TEST_ASSERT_EQUAL(9, f.view["previous_spool_id"].as<int>());
+  conflict = true;
+  TEST_ASSERT_FALSE(f.run(R"({"action":"preview","spool_id":12})").ok());
+  TEST_ASSERT_EQUAL(0, f.reader.writes);
+}
 } // namespace
 void setUp() {}
 void tearDown() {}
@@ -844,5 +1157,22 @@ int main() {
   RUN_TEST(journal_failure_prevents_write);
   RUN_TEST(partial_recovery_requires_known_blocks);
   RUN_TEST(diameter_current_key_and_legacy_compatibility);
+  RUN_TEST(journal_valid_decode_partial_is_recovery);
+  RUN_TEST(journal_exact_original_is_normal);
+  RUN_TEST(journal_exact_target_is_classified_before_decode);
+  RUN_TEST(journal_valid_decode_unauthorized_block_refused);
+  RUN_TEST(journal_system_security_geometry_mismatch_refused);
+  RUN_TEST(journal_survives_multiple_unconfirmed_previews);
+  RUN_TEST(uid_unowned_and_target_owned);
+  RUN_TEST(uid_repurpose_preview_discloses_and_binds_owner);
+  RUN_TEST(uid_multiple_owners_refused);
+  RUN_TEST(uid_move_clears_only_previous_uid_and_verifies);
+  RUN_TEST(uid_previous_clear_failure_stops_target);
+  RUN_TEST(uid_previous_clear_readback_failure_stops_target);
+  RUN_TEST(uid_target_patch_failure_after_clear_is_retryable);
+  RUN_TEST(uid_owner_changed_after_preview_is_not_cleared);
+  RUN_TEST(uid_final_uniqueness_recheck_blocks_success);
+  RUN_TEST(uid_move_recovery_after_reboot_without_write);
+  RUN_TEST(uid_formatted_queries_and_cross_format_conflicts);
   return UNITY_END();
 }

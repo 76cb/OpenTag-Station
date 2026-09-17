@@ -50,8 +50,11 @@ receipt is not evidence of a successful physical write.
     without modifying the replacement, then reread and obtain a fresh preview.
     Multiple tags, protected blocks and unknown/non-OpenPrintTag content must also
     be refused; use appropriate expendable fixtures where available.
+    For a UID owned by another spool (including an archived spool), require the
+    previous and target spool IDs, UID and explicit move warning. Multiple owners
+    must refuse preview; changing the confirmed previous ID must refuse writing.
 11. **Initialize.** Explicitly confirm that exact UID/generation/checksum/spool
-    plan. Keep tag and power in place. Confirmation from an obsolete preview must
+    plan, including the disclosed previous UID owner. Keep tag and power in place. Confirmation from an obsolete preview must
     fail. Touchscreen confirmation must refer to the same displayed target.
 12. **Per-block readback.** Observe bounded writing progress. Every changed block
     must be written once and read back; unchanged blocks must not be written.
@@ -68,6 +71,13 @@ receipt is not evidence of a successful physical write.
     association-pending, then retry. For a controlled partial write, reboot and
     reread; only saved old/new blocks may enter explicit recovery. Never claim
     partial success, recover an unrelated UID, or overwrite unknown torn bytes.
+    Repeat with a partial old/new image that still decodes: require recovery.
+    Valid CBOR containing any unauthorized block must be refused. Exact original
+    permits ordinary preview; exact target recovers association pending.
+    For an approved move, verify previous UID clear/readback precedes target
+    PATCH, previous UUID remains, and final UID lookup returns only the target.
+    Failed cleanup must prevent target PATCH. Failed target PATCH after cleanup
+    must remain pending and retry successfully without NFC writes, also after reboot.
 15. **Remove/reinsert.** Remove the finished tag; stale identity/candidates must
     clear. Reinsert and require fresh stable inventory and OpenPrintTag decoding.
 16. **Automatic Spoolman resolution.** Require the exact associated physical

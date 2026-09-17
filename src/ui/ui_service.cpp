@@ -1679,12 +1679,12 @@ void UiService::refresh_workflow() {
       const std::string phase=view["phase"]|"";
       std::string status=phase+": "+std::string(view["message"]|"");
       if(view["spool_id"].as<int>()>0)status+="\nSpool #"+std::to_string(view["spool_id"].as<int>())+" "+std::string(view["spool"]["filament"]["name"]|"");
-      if(phase=="preview")status="Preview #"+std::to_string(view["spool_id"].as<int>())+" "+std::string(view["spool"]["filament"]["name"]|"").substr(0,24)+"\nUID "+std::string(view["uid"]|"")+"\nTarget "+std::string(view["target_checksum"]|"")+" / "+std::to_string(view["total_blocks"].as<int>())+" blocks\nConfirm below after checking tag";
+      if(phase=="preview")status="Preview #"+std::to_string(view["spool_id"].as<int>())+" "+std::string(view["spool"]["filament"]["name"]|"").substr(0,24)+"\nUID "+std::string(view["uid"]|"")+"\nTarget "+std::string(view["target_checksum"]|"")+" / "+std::to_string(view["total_blocks"].as<int>())+" blocks\n"+(view["previous_spool_id"].as<int>()>0?"MOVE UID from spool #"+std::to_string(view["previous_spool_id"].as<int>()):"Confirm below after checking tag");
       if(phase=="writing")status+="\n"+std::to_string(view["completed_blocks"].as<int>())+" / "+std::to_string(view["total_blocks"].as<int>());
       lv_label_set_text(nfc_detail_,status.c_str());writer_confirmation_.clear();
       if(phase=="preview") {
         JsonDocument confirmation(&allocator);confirmation["action"]="write";
-        for(const auto* key:{"uid","generation","spool_id","target_checksum"})confirmation[key]=view[key];
+        for(const auto* key:{"uid","generation","spool_id","previous_spool_id","target_checksum"})confirmation[key]=view[key];
         serializeJson(confirmation,writer_confirmation_);
       } else if(phase=="association_pending")writer_confirmation_="{\"action\":\"retry_association\"}";
       if(writer_confirm_) { if(writer_confirmation_.empty())lv_obj_add_state(writer_confirm_,LV_STATE_DISABLED);else lv_obj_clear_state(writer_confirm_,LV_STATE_DISABLED); }

@@ -28,6 +28,9 @@ private:
   core::Result<void> prepare(JsonObjectConst command);
   core::Result<void> associate();
   core::Result<void> unique_identity();
+  core::Result<std::int32_t> uid_owner();
+  core::Result<void> prepare_uid_owner();
+  core::Result<void> clear_previous_uid();
   void publish(const char *phase, const char *message = "",
                std::size_t done = 0, std::size_t total = 0);
   integrations::spoolman::SpoolmanAdapter &spoolman_;

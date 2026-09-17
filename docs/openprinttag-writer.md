@@ -132,7 +132,8 @@ recognized diagnostic empty envelope can be initialized/rewritten. Other NFC-V
 applications, locked blocks, changing content, multiple tags, or bus errors are
 refused. Neither the API nor UI accepts raw data or block-write commands.
 
-Confirmation includes UID, generation, spool ID, and target checksum. A queued
+Confirmation includes UID, generation, target spool ID, previous UID owner ID
+(zero when there is no move), and target checksum. A queued
 write expires after 15 seconds. Changing the configured Spoolman destination or
 identity fields invalidates confirmation before any physical write. The physical transaction has its own bounded
 120-second deadline. Every changed block is addressed, fenced, written once,
@@ -147,14 +148,29 @@ queued work. The entire target is local before the destructive sequence; no
 network call occurs during it.
 
 Only then are the configured Spoolman instance UUID and NFC UID extra fields
-patched. Both must be text fields. Unique ownership is checked before preparation
-and association, and the spool is read back after PATCH. Existing valid spool
-UUIDs are retained; unassociated target spools receive random RFC 4122 variant
-version-4 identities. A different spool is clearly marked as repurposing.
+patched. Both must be text fields. Preview checks UUID and UID ownership,
+including archived spools. UID queries cover upper/lowercase hexadecimal with
+no separator, colons, or hyphens, deduplicating the returned IDs. No owner or the
+target owner is accepted. One other owner requires an explicit move warning
+showing its ID, the target ID and physical UID; multiple owners refuse preview.
+The previous owner is frozen into confirmation and the recovery journal.
+Existing valid spool UUIDs are retained; unassociated target spools receive
+random RFC 4122 variant version-4 identities.
+
+After physical verification, association rechecks UUID uniqueness and UID
+ownership. An approved move clears **only the configured NFC UID field** on the
+previous spool, then GET verifies that it is cleared before PATCHing the target.
+The previous spool UUID and other fields remain intact. The target is GET-verified
+for UUID and UID, UUID uniqueness is rechecked, and a final UID query must return
+exactly the target owner. A changed, unapproved owner fails closed. These separate
+Spoolman requests cannot prevent concurrent edits by external clients after the
+final check.
 
 Association failure reports **“Tag written successfully; Spoolman association
-pending.”** Retry association rechecks canonical identity ownership, patches and
-reads back, without invoking the NFC write loop. The normal read/workflow state
+pending.”** Failed previous-owner cleanup prevents the target PATCH. If cleanup
+succeeds and target association fails, retry accepts the already-cleared previous
+field, rechecks ownership, patches and reads back without invoking the NFC write
+loop. This approved move also survives reboot. The normal read/workflow state
 is invalidated after a write attempt so it reads actual bytes and requests a new
 weigh; no stale pre-write decoded object is reused.
 
@@ -162,16 +178,23 @@ weigh; no stale pre-write decoded object is reused.
 
 Physical writing is not atomic. A failed rewrite can temporarily decode as mixed
 metadata. Do not remove power or the tag during writing. Before the first write,
-an 813-byte versioned, checksummed LittleFS recovery record is written and read
+an 817-byte version-2, checksummed LittleFS recovery record is written and read
 back. It retains UID, full system/security state, original/target bytes, spool ID,
-and configured-backend identity. It contains no backend credentials.
+approved previous UID owner ID, and configured-backend identity. It contains no
+backend credentials. Legacy 813-byte version-1 records remain readable but never
+authorize moving a previous UID owner.
 
-Recovery requires complete rereads. Every physical block must equal either its
-recorded old or authorized new block, and the preserved tail must still match.
-Unknown bytes are refused. A complete target recovered after reboot is decoded
-and verified, then exposed as association pending. A partial known write can be
-previewed and explicitly rewritten. A torn block, corrupt/missing journal, or
-unrecognized application is not automatically overwritten. The journal is cleared
+Every preview consults the durable journal, even after another unconfirmed
+preview. After two complete identical rereads, matching journal UID, geometry,
+system information and security are checked **before decoding**. All 80 physical
+blocks are classified: exact original resumes ordinary preview; exact target is
+decoded and verified, then exposed as association pending; a mixture of complete
+old/new blocks enters explicit recovery. Any block matching neither image is
+refused even if the bytes decode as valid CBOR. The preserved tail must match.
+An original image that was itself a previously authorized partial recovery can
+still require recovery if it does not decode. A replacement UID cannot recover
+the saved association. Without a usable journal, undecodable bytes cannot enter
+recovery. The journal is cleared
 after verified association. To discover recovery after reboot, place the tag and
 request a preview; the stored spool association takes priority over a new write.
 

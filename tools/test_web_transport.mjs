@@ -2505,6 +2505,25 @@ test('writer import uses canonical Spoolman filament before spool selection', ()
   app.T.renderWriter({phase:'spool_selected',spool:{id:56,filament:{id:34,name:'Canonical Blue'}}});
   assert.equal(app.T.writerState.spool,56);
 });
+
+test('writer repurpose confirmation discloses and submits the approved previous owner', async () => {
+  const app = loadApplication({fetch: async () => jsonResponse(200, {phase:'complete'})});
+  app.T.bindWriter();
+  let warning = '';
+  app.context.window.confirm = text => { warning = text; return true; };
+  app.T.renderWriter({phase:'preview',mode:'rewrite',uid:'E00401086627D8D4',generation:'42',target_checksum:'12345678',spool_id:12,previous_spool_id:9});
+  app.document.getElementById('writer-confirm').click();
+  await flushPromises();
+  assert.match(warning, /MOVE this NFC UID from spool #9 to #12/);
+  assert.match(warning, /E00401086627D8D4/);
+  assert.match(warning, /Previous spool UUID is retained/);
+  const posted = app.fetchCalls.find(call => call.init.method === 'POST');
+  assert.ok(posted);
+  const body = JSON.parse(posted.init.body);
+  assert.equal(body.previous_spool_id, 9);
+  assert.equal(body.spool_id, 12);
+  assert.equal(body.uid, 'E00401086627D8D4');
+});
 test('writer receipt polling reaches physical verification result through shared scheduler', async () => {
   let polls=0;
   const app=loadApplication({fetch:async(url,init)=>{
@@ -2512,7 +2531,7 @@ test('writer receipt polling reaches physical verification result through shared
     if(String(url).includes('/operations/'))return jsonResponse(200,{id:42,state:++polls>1?'succeeded':'running'});
     return jsonResponse(200,{phase:'complete',message:'Tag and association verified'});
   }});
-  await drivePromise(app.T.writerCommand({action:'write',uid:'E00401086627D8D4',generation:'1',target_checksum:'12345678',spool_id:12}),app.clock);
+  await drivePromise(app.T.writerCommand({action:'write',uid:'E00401086627D8D4',generation:'1',target_checksum:'12345678',spool_id:12,previous_spool_id:0}),app.clock);
   assert.equal(app.T.writerState.busy,false);assert.equal(app.T.writerState.snapshot.phase,'complete');
   assert.equal(app.fetchCalls.filter(c=>c.init.method==='POST').length,1);
 });

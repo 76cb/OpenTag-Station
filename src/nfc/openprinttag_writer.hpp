@@ -33,6 +33,7 @@ private:
 };
 
 struct WriterPlan {
+  enum class JournalState { none, original, target, partial };
   // Only the physically validated SLIX2 profile is approved in this release.
   static constexpr std::size_t physical_bytes = 320;
   static constexpr std::size_t usable_bytes = 312;
@@ -41,6 +42,8 @@ struct WriterPlan {
   std::uint64_t generation{0};
   WriterSystemInformation system;
   std::uint32_t current_checksum{0}, target_checksum{0};
+  std::int32_t previous_spool_id{0};
+  JournalState journal_state{JournalState::none};
   std::array<std::uint8_t, physical_bytes> original{}, target{}, scratch{};
   std::array<std::uint8_t, 80> security{};
   std::array<std::uint8_t, 78> blocks{};

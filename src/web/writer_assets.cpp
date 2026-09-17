@@ -120,8 +120,8 @@ window.OpenTagWriter={bind:function(){const {byId,asObject,asArray,first,setText
     byId('writer-source').addEventListener('change',function(){writerState.offset=0;writerState.vendor=0;writerState.filament=0;});
     ['preview','update'].forEach(function(name){byId('writer-'+name).addEventListener('click',function(){writerCommand({action:'preview',spool_id:writerState.spool,mode:name==='update'?'update':'rewrite'});});});
     byId('writer-import').addEventListener('click',function(){writerCommand({action:'import',import_token:writerState.snapshot.import_token});});
-    byId('writer-confirm').addEventListener('click',function(){const p=writerState.snapshot;if(p.phase!=='preview'||!window.confirm('Write '+p.mode+' to UID '+p.uid+' for spool #'+p.spool_id+'? Target '+p.target_checksum+'. Keep tag and power in place.'))return;
-      writerCommand({action:'write',uid:p.uid,generation:p.generation,target_checksum:p.target_checksum,spool_id:p.spool_id});});
+    byId('writer-confirm').addEventListener('click',function(){const p=writerState.snapshot;if(p.phase!=='preview'||!window.confirm('Write '+p.mode+' to UID '+p.uid+' for spool #'+p.spool_id+'? Target '+p.target_checksum+'. '+(p.previous_spool_id>0?'MOVE this NFC UID from spool #'+p.previous_spool_id+' to #'+p.spool_id+'. Previous spool UUID is retained. ':'')+'Keep tag and power in place.'))return;
+      writerCommand({action:'write',uid:p.uid,generation:p.generation,target_checksum:p.target_checksum,spool_id:p.spool_id,previous_spool_id:p.previous_spool_id});});
     byId('writer-retry').addEventListener('click',function(){writerCommand({action:'retry_association'});});
     byId('writer-create-form').addEventListener('submit',function(event){event.preventDefault();const spool={filament_id:writerState.filament};
       new FormData(event.target).forEach(function(value,key){if(String(value).trim()!=='')spool[key]=['location','lot_nr','comment'].includes(key)?String(value):Number(value);});

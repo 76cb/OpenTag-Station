@@ -52,6 +52,30 @@ bool text_bound(JsonVariantConst v, std::size_t n, bool required = false) {
          (v.is<const char *>() && std::strlen(v.as<const char *>()) <= n &&
           (!required || *v.as<const char *>()));
 }
+std::string normalized_uid(const std::string &value) {
+  std::string result;
+  for (char c : value) {
+    if (c == ':' || c == '-')
+      continue;
+    if (c >= 'a' && c <= 'f')
+      c -= 'a' - 'A';
+    if (!((c >= '0' && c <= '9') || (c >= 'A' && c <= 'F')))
+      return {};
+    result += c;
+  }
+  return result.size() == 16 ? result : std::string{};
+}
+bool uid_cleared(JsonVariantConst value) {
+  if (value.isNull())
+    return true;
+  if (!value.is<const char *>())
+    return false;
+  network::BackendDocument decoded;
+  if (deserializeJson(decoded, value.as<const char *>()))
+    return false;
+  return decoded.isNull() ||
+         (decoded.is<const char *>() && !*decoded.as<const char *>());
+}
 std::uint32_t backend_identity(const config::SpoolmanSettings &s) {
   const auto identity =
       s.url + "\n" + s.identity_field + "\n" + s.nfc_uid_field;
@@ -421,9 +445,12 @@ Result TagWriterService::create_spool(JsonObjectConst c) {
   return Result::success();
 }
 Result TagWriterService::unique_identity() {
+  const auto quoted = quote(uuid_);
+  if (quoted.size() != uuid_.size() + 2)
+    return fail("Identity query workspace unavailable");
   auto matches =
       api("GET", "/spool?allow_archived=true&limit=2&offset=0&extra." +
-                     encode(identity_key_) + "=" + encode(quote(uuid_)));
+                     encode(identity_key_) + "=" + encode(quoted));
   if (!matches.ok())
     return Result::failure(matches.error());
   if (!matches.value().is<JsonArray>() || matches.value().size() > 1)
@@ -432,17 +459,106 @@ Result TagWriterService::unique_identity() {
     return fail("Instance UUID belongs to another Spoolman spool");
   return Result::success();
 }
+core::Result<std::int32_t> TagWriterService::uid_owner() {
+  std::int32_t owner = 0;
+  const auto physical = plan_->uid.hex();
+  // Existing external clients may store separated or lower-case UIDs. Query
+  // each bounded exact spelling and deduplicate IDs across those responses.
+  for (char separator : {'\0', ':', '-'}) {
+    std::string value;
+    for (std::size_t i = 0; i < physical.size(); ++i) {
+      if (separator && i && i % 2 == 0)
+        value += separator;
+      value += physical[i];
+    }
+    for (bool lower : {false, true}) {
+      if (lower)
+        for (auto &ch : value)
+          if (ch >= 'A' && ch <= 'F')
+            ch += 'a' - 'A';
+      const auto quoted = quote(value);
+      if (quoted.size() != value.size() + 2)
+        return core::Result<std::int32_t>::failure(
+            fail("NFC UID query workspace unavailable").error());
+      auto matches =
+          api("GET", "/spool?allow_archived=true&limit=2&offset=0&extra." +
+                         encode(uid_key_) + "=" + encode(quoted));
+      if (!matches.ok())
+        return core::Result<std::int32_t>::failure(matches.error());
+      if (!matches.value().is<JsonArray>() || matches.value().size() > 1)
+        return core::Result<std::int32_t>::failure(
+            fail("Multiple NFC UID owners; clean up Spoolman before continuing")
+                .error());
+      if (!matches.value().size())
+        continue;
+      const auto id = matches.value()[0]["id"].as<int>();
+      if (id <= 0 || (owner && owner != id))
+        return core::Result<std::int32_t>::failure(
+            fail("Conflicting/malformed NFC UID ownership").error());
+      owner = id;
+    }
+  }
+  return core::Result<std::int32_t>::success(owner);
+}
+Result TagWriterService::prepare_uid_owner() {
+  auto owner = uid_owner();
+  if (!owner.ok())
+    return Result::failure(owner.error());
+  plan_->previous_spool_id = owner.value() == spool_id_ ? 0 : owner.value();
+  return Result::success();
+}
+Result TagWriterService::clear_previous_uid() {
+  auto owner = uid_owner();
+  if (!owner.ok())
+    return Result::failure(owner.error());
+  if (owner.value() && owner.value() != spool_id_ &&
+      owner.value() != plan_->previous_spool_id)
+    return fail("NFC UID owner changed after confirmation; association "
+                "requires review");
+  if (!plan_->previous_spool_id)
+    return Result::success();
+  const auto path = "/spool/" + std::to_string(plan_->previous_spool_id);
+  auto previous = api("GET", path);
+  if (!previous.ok())
+    return Result::failure(previous.error());
+  if (previous.value()["id"].as<int>() != plan_->previous_spool_id)
+    return fail("Previous spool readback ID mismatch");
+  if (uid_cleared(previous.value()["extra"][uid_key_]))
+    return Result::success();
+  if (normalized_uid(scalar(previous.value()["extra"][uid_key_])) !=
+      plan_->uid.hex())
+    return fail(
+        "Previous spool NFC UID changed; refusing to clear a different tag");
+  network::BackendDocument patch;
+  patch["extra"][uid_key_] = nullptr;
+  if (patch.overflowed())
+    return fail("Previous UID cleanup workspace unavailable");
+  auto cleared = api("PATCH", path, patch.as<JsonVariantConst>());
+  if (!cleared.ok())
+    return Result::failure(cleared.error());
+  auto verified = api("GET", path);
+  if (!verified.ok())
+    return Result::failure(verified.error());
+  if (verified.value()["id"].as<int>() != plan_->previous_spool_id ||
+      !uid_cleared(verified.value()["extra"][uid_key_]))
+    return fail("Previous NFC UID cleanup readback failed; target not patched");
+  return Result::success();
+}
 Result TagWriterService::prepare(JsonObjectConst c) {
   if (association_pending_)
     return fail("Retry the pending association before preparing another tag");
   auto previous = std::move(plan_);
   std::int32_t journal_spool = spool_id_;
   std::uint32_t journal_backend = backend_identity(spoolman_.settings_);
-  if (!previous && journal_) {
-    previous = network::make_external<nfc::WriterPlan>(
+  if (journal_) {
+    auto recorded = network::make_external<nfc::WriterPlan>(
         [] { return nfc::WriterPlan{}; });
-    if (previous && !journal_->load(*previous, journal_spool, journal_backend))
-      previous.reset();
+    if (!recorded) {
+      plan_ = std::move(previous);
+      return fail("Recovery journal workspace unavailable");
+    }
+    if (journal_->load(*recorded, journal_spool, journal_backend))
+      previous = std::move(recorded);
   }
   plan_ =
       network::make_external<nfc::WriterPlan>([] { return nfc::WriterPlan{}; });
@@ -457,10 +573,8 @@ Result TagWriterService::prepare(JsonObjectConst c) {
     plan_ = std::move(previous);
     return read;
   }
-  if (previous && previous->attempted && !previous->verified &&
-      previous->uid == plan_->uid && previous->system == plan_->system &&
-      previous->security == plan_->security &&
-      previous->target == plan_->original && journal_spool > 0) {
+  if (plan_->journal_state == nfc::WriterPlan::JournalState::target &&
+      journal_spool > 0) {
     if (journal_backend != backend_identity(spoolman_.settings_))
       return fail("Recovery record belongs to different Spoolman settings; "
                   "restore settings first");
@@ -472,6 +586,7 @@ Result TagWriterService::prepare(JsonObjectConst c) {
     settings_url_ = spoolman_.settings_.url;
     identity_key_ = spoolman_.settings_.identity_field;
     uid_key_ = spoolman_.settings_.nfc_uid_field;
+    plan_->previous_spool_id = previous->previous_spool_id;
     auto valid = writer_.plan(*plan_);
     if (!valid.ok())
       return valid;
@@ -480,6 +595,7 @@ Result TagWriterService::prepare(JsonObjectConst c) {
     view_["spool_id"] = spool_id_;
     view_["instance_uuid"] = uuid_;
     view_["uid"] = plan_->uid.hex();
+    view_["previous_spool_id"] = plan_->previous_spool_id;
     publish("association_pending", "Recovered complete physical target; retry "
                                    "Spoolman association without rewriting");
     return Result::success();
@@ -530,6 +646,9 @@ Result TagWriterService::prepare(JsonObjectConst c) {
   auto unique = unique_identity();
   if (!unique.ok())
     return unique;
+  unique = prepare_uid_owner();
+  if (!unique.ok())
+    return unique;
   const bool mutable_only = c["mode"].as<std::string>() == "update";
   auto mapped = nfc::openprinttag::map_spoolman(
       spool.value().as<JsonObjectConst>(), uuid.value(), *plan_, mutable_only);
@@ -542,6 +661,7 @@ Result TagWriterService::prepare(JsonObjectConst c) {
   view_["uid"] = plan_->uid.hex();
   view_["generation"] = std::to_string(plan_->generation);
   view_["spool_id"] = spool_id_;
+  view_["previous_spool_id"] = plan_->previous_spool_id;
   view_["instance_uuid"] = uuid_;
   view_["block_size"] = 4;
   view_["block_count"] = 80;
@@ -556,14 +676,19 @@ Result TagWriterService::prepare(JsonObjectConst c) {
                   : plan_->blank ? "initialize"
                                  : "rewrite";
   view_["recovering_interrupted_write"] = plan_->recovery;
-  view_["repurpose"] = plan_->current.material.instance_uuid.has_value() &&
-                       plan_->current.material.instance_uuid != uuid.value();
+  view_["repurpose"] = plan_->previous_spool_id > 0 ||
+                       (plan_->current.material.instance_uuid.has_value() &&
+                        plan_->current.material.instance_uuid != uuid.value());
   auto current = view_["current"].to<JsonObject>();
   nfc::openprinttag::material_json(current, plan_->current.material);
   auto blocks = view_["changed_blocks"].to<JsonArray>();
   for (std::size_t i = 0; i < plan_->count; ++i)
     blocks.add(plan_->blocks[i]);
   auto warnings = view_["warnings"].to<JsonArray>();
+  if (plan_->previous_spool_id > 0)
+    warnings.add("Physical NFC UID association will move from the previous "
+                 "spool to this target spool after verification. The previous "
+                 "spool UUID is retained.");
   warnings.add("Writing is not atomic. Keep this tag on the reader and power "
                "connected until complete.");
   warnings.add("Names exceeding OpenPrintTag limits and metadata without an "
@@ -597,6 +722,9 @@ Result TagWriterService::associate() {
   auto unique = unique_identity();
   if (!unique.ok())
     return unique;
+  unique = clear_previous_uid();
+  if (!unique.ok())
+    return unique;
   auto before = api("GET", "/spool/" + std::to_string(spool_id_));
   if (!before.ok())
     return Result::failure(before.error());
@@ -609,7 +737,8 @@ Result TagWriterService::associate() {
   network::BackendDocument patch;
   patch["extra"][identity_key_] = quote(uuid_);
   patch["extra"][uid_key_] = quote(plan_->uid.hex());
-  if (patch.overflowed())
+  if (patch.overflowed() || scalar(patch["extra"][identity_key_]) != uuid_ ||
+      scalar(patch["extra"][uid_key_]) != plan_->uid.hex())
     return fail("Association workspace unavailable; retry association");
   auto updated = api("PATCH", "/spool/" + std::to_string(spool_id_),
                      patch.as<JsonVariantConst>());
@@ -625,6 +754,11 @@ Result TagWriterService::associate() {
   unique = unique_identity();
   if (!unique.ok())
     return unique;
+  auto owner = uid_owner();
+  if (!owner.ok())
+    return Result::failure(owner.error());
+  if (owner.value() != spool_id_)
+    return fail("Final NFC UID ownership is not uniquely the target spool");
   association_pending_ = false;
   if (journal_)
     journal_->clear();
@@ -657,6 +791,8 @@ Result TagWriterService::process(JsonObjectConst c) {
         c["generation"].as<std::string>() !=
             std::to_string(plan_->generation) ||
         c["spool_id"].as<int>() != spool_id_ ||
+        !c["previous_spool_id"].is<int>() ||
+        c["previous_spool_id"].as<int>() != plan_->previous_spool_id ||
         c["target_checksum"].as<std::string>() !=
             nfc::nfcv::format_diagnostic_checksum(plan_->target_checksum)
                 .data())
