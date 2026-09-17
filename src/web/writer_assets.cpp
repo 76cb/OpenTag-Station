@@ -1,16 +1,13 @@
 #include "web/web_assets.hpp"
 namespace opentag::web::assets {
 const char writer_javascript[] = R"WRITER((function(){
-window.OpenTagWriter={bind:function(){const {byId,asObject,asArray,first,setText,setValue,valueOf,showToast,api,submitMutation,PRIORITY}=window.OpenTagWriterHost;
-  const writerState={snapshot:{},busy:false,spool:0,filament:0,vendor:0,filterFilament:0,offset:0,start:0,hasMore:false,community:null,matches:[],items:[],entity:'spool',selected:null,material:null,editor:null,invalidated:false};
+window.OpenTagWriter={bind:function(){const {byId,asObject,asArray,first,setText,setValue,valueOf,showToast,api,submitMutation,PRIORITY,validateCommunity,communityCatalog,tagStatus}=window.OpenTagWriterHost;
+  const writerState={snapshot:{},busy:false,spool:0,filament:0,vendor:0,filterFilament:0,offset:0,start:0,hasMore:false,community:null,matches:[],items:[],entity:'spool',selected:null,material:null,editor:null,invalidated:false,step:1};
   const S=writerState, fields=window.OpenTagWriterFields;
-  const fmt=(v,unit='')=>v===null||v===undefined||v===''?'—':String(v)+unit;
-  function el(tag,text,cls){const n=document.createElement(tag);if(text!==undefined)n.textContent=text;if(cls)n.className=cls;return n;}
-  function visible(id,show){const n=byId(id);n.hidden=!show;n.className=n.className.split(/\s+/).filter(x=>x&&x!=='writer-hidden').concat(show?[]:['writer-hidden']).join(' ');}
-  function swatch(v){const color=Array.isArray(v)?v.map(n=>Number(n).toString(16).padStart(2,'0')).join(''):String(v||'');const n=el('span','', 'writer-swatch');if(/^(?:[a-f\d]{6}|[a-f\d]{8})$/i.test(color)){n.style.backgroundColor='#'+color;n.setAttribute('aria-label','Color #'+color);n.title='#'+color;}else n.hidden=true;return n;}
-  function values(target,pairs){const dl=el('dl',undefined,'writer-values');pairs.forEach(p=>{dl.append(el('dt',p[0]),el('dd',fmt(p[1],p[2]||'')));});target.append(dl);}
+  const {fmt,el,visible,swatch,values}=window.OpenTagWriterUi(byId);
+  const {buildFields,formValues}=window.OpenTagWriterForms(byId,el);
   function controls(){
-    const locked=S.busy||!!S.communityLoading||S.snapshot.phase==='association_pending';
+    const locked=lockedModal()||!!S.communityLoading||S.snapshot.phase==='association_pending';
     ['source','entity','search','material','search-button','edit-spool','edit-filament','save','cancel','create-submit'].forEach(k=>byId('writer-'+k).disabled=locked);
     byId('writer-entity').disabled=locked||valueOf('writer-source')==='community';
     byId('writer-previous').disabled=locked||S.start===0;
@@ -19,7 +16,7 @@ window.OpenTagWriter={bind:function(){const {byId,asObject,asArray,first,setText
     ['confirm','import','retry'].forEach(k=>{const phase={confirm:'preview',import:'import_preview',retry:'association_pending'}[k];visible('writer-'+k,S.snapshot.phase===phase&&(k!=='confirm'||!S.invalidated));byId('writer-'+k).disabled=S.busy||!!S.editor;});
     S.rows?.forEach(n=>n.disabled=locked);
     document.querySelectorAll('#writer-panel input, #writer-panel textarea, #writer-panel select, #writer-filters button').forEach(n=>{n.disabled=locked||(n.id==='writer-entity'&&valueOf('writer-source')==='community');});
-    byId('writer-content').setAttribute('aria-busy',String(S.busy));
+    byId('writer-content').setAttribute('aria-busy',String(S.busy));wizard();
   }
   function invalidate(){S.invalidated=true;S.snapshot={phase:'idle',message:'Selection or data changed. Generate a new tag preview.'};visible('writer-review',false);setText('writer-detail','No current tag preview.');setText('writer-progress',S.snapshot.message);controls();}
   function details(){
@@ -27,7 +24,7 @@ window.OpenTagWriter={bind:function(){const {byId,asObject,asArray,first,setText
     setText('writer-selection',s?'SELECTED · SPOOL #'+s.id:f?'SELECTED · FILAMENT #'+f.id:'NO SPOOL SELECTED');
     setText('writer-selected-title',f?String(f.name||'Unnamed filament'):'Choose a spool to continue');
     if(f){d.append(swatch(f.color_hex),el('span',String(asObject(f.vendor).name||'')+' · '+fmt(f.material)));
-      if(s)values(d,[['Remaining',s.remaining_weight,' g'],['Initial',s.initial_weight,' g'],['Used',s.used_weight,' g'],['Tare',s.spool_weight,' g'],['Status',s.archived?'Archived':'Active']]);
+      if(s)values(d,[['Remaining',s.remaining_weight,' g'],['Initial',s.initial_weight,' g'],['Used',s.used_weight,' g'],['Tare',s.spool_weight,' g'],['Location',s.location],['Lot',s.lot_nr],['Status',s.archived?'Archived':'Active']]);
       d.append(el('h4','Filament definition #'+f.id));values(d,[['Nominal weight',f.weight,' g'],['Default tare',f.spool_weight,' g'],['Diameter',f.diameter,' mm'],['Density',f.density,' g/cm³'],['Color',f.color_hex]]);
     }
     visible('writer-edit-spool',!!s);visible('writer-edit-filament',!!f);visible('writer-create',!!f&&!s);
@@ -48,70 +45,44 @@ window.OpenTagWriter={bind:function(){const {byId,asObject,asArray,first,setText
         selected(entity==='spool'?item:null,f);
         if(entity==='filament'){S.filterFilament=Number(item.id);S.filamentName=item.name;setValue('writer-entity','spool');filters();writerSearch(false);}
       });S.rows.push(b);list.append(b);
-    });markRows();controls();
+    });if(!items.length)list.append(el('p','No matching '+(entity==='community'?'Community filaments':entity+'s')+'. Try changing your search or material filter.','empty-state'));markRows();controls();
   }
-  function buildFields(id,schema,record,prefix){const d=byId(id);d.replaceChildren();schema.forEach(([key,label,max])=>{const l=el('label',label),input=el(key==='comment'?'textarea':'input');input.id='writer-'+prefix+'-'+key;input.name=key;input.value=record[key]??'';input.type=max?'number':'text';if(max){input.min=['density','diameter','weight'].includes(key)?'0.001':'0';input.max=String(max);input.step=key.startsWith('settings_')?'1':'any';}else input.maxLength=key==='comment'?1024:64;l.append(input);d.append(l);});}
-  function openEditor(kind){if(S.busy)return;const record=kind==='spool'?S.selected:S.material;if(!record)return;S.editor={kind,record:JSON.parse(JSON.stringify(record))};invalidate();setText('writer-editor-title',kind==='spool'?'Edit this physical spool':'Edit shared filament definition');setText('writer-editor-warning',kind==='spool'?'Changes apply only to Spool #'+record.id+'.':'Changes to filament #'+record.id+' affect every Spoolman spool using this filament.');setText('writer-editor-message','');buildFields('writer-editor-fields',fields[kind],record,'edit');visible('writer-editor',true);controls();}
+  function openEditor(kind){if(S.busy)return;const record=kind==='spool'?S.selected:S.material;if(!record)return;S.step=2;S.editor={kind,record:JSON.parse(JSON.stringify(record))};invalidate();setText('writer-editor-title',kind==='spool'?'Edit this physical spool':'Edit shared filament definition');setText('writer-editor-warning',kind==='spool'?'Changes apply only to Spool #'+record.id+'.':'Changes to filament #'+record.id+' affect every Spoolman spool using this filament.');setText('writer-editor-message','');buildFields('writer-editor-fields',fields[kind],record,'edit');visible('writer-editor',true);controls();}
   function closeEditor(){S.editor=null;visible('writer-editor',false);controls();}
-  function formValues(id,schema,original){const out={};schema.forEach(([key,,max])=>{const input=byId(id).querySelector('[name="'+key+'"]');const raw=String(input.value).trim();if(raw===''&&(max||original[key]==null))return;let v=max?Number(raw):raw;if(v===original[key])return;if(key==='color_hex')v=v.toUpperCase();if(max&&(!Number.isFinite(v)||v<Number(input.min)||v>max||(key.startsWith('settings_')&&!Number.isInteger(v))))throw new Error('Check '+key+' value');if(!max&&new TextEncoder().encode(v).length>(key==='comment'?1024:64))throw new Error(key+' exceeds the Spoolman text limit');if(key==='color_hex'&&!/^(?:[a-f\d]{6}|[a-f\d]{8})$/i.test(v))throw new Error('Color must be 6 or 8 hex digits');if(v!==original[key]&&!(v===''&&original[key]==null))out[key]=v;});return out;}
-  async function saveEditor(){if(!S.editor||S.busy)return;const edit=S.editor;try{const changes=formValues('writer-editor-fields',fields[edit.kind],edit.record);if(!Object.keys(changes).length){setText('writer-editor-message','No changed values to save.');return;}const expected=Object.fromEntries(Object.keys(changes).map(k=>[k,({...edit.record,...edit.expected})[k]??null]));const body={action:'update_'+edit.kind,changes,expected};body[edit.kind+'_id']=edit.record.id;if(edit.kind==='filament'&&S.spool)body.spool_id=S.spool;if(await writerCommand(body))closeEditor();else{const v=S.snapshot,fresh=v[edit.kind];if(v.edit_conflict&&fresh){setText('writer-editor-message','Spoolman changed. Current values: '+fields[edit.kind].filter(([k])=>k in changes).map(([k,label])=>label+': '+fmt(fresh[k])).join('; ')+'. Your draft is unchanged. Review these values, then Save Changes again.');edit.expected={...edit.expected,...Object.fromEntries(Object.keys(changes).map(k=>[k,fresh[k]??null]))};}else setText('writer-editor-message','Save was not verified. Refresh before retrying.');}}catch(e){setText('writer-editor-message',e.message);}}
-  function preview(v){const active=['preview','association_pending','complete','import_preview'].includes(v.phase)&&!(v.phase==='preview'&&S.invalidated);visible('writer-review',active);if(!active)return;
-    const tag=byId('writer-tag');tag.replaceChildren();const diff=byId('writer-diff');diff.replaceChildren();const critical=byId('writer-critical');critical.replaceChildren();const notices=byId('writer-notice-list');notices.replaceChildren();
-    setText('writer-review-title',v.phase==='import_preview'?'Review Community import':v.phase==='complete'?'Tag and association verified':v.phase==='association_pending'?'Tag verified · association pending':'Review OpenPrintTag changes');
-    if(v.phase==='import_preview'){values(tag,[['Source','COMMUNITY — NOT YET IN SPOOLMAN'],['Vendor',v.vendor_name],['Product',asObject(v.proposed_filament).name],['Material',asObject(v.proposed_filament).material],['Nominal weight',asObject(v.proposed_filament).weight,' g'],['Density',asObject(v.proposed_filament).density,' g/cm³'],['Diameter',asObject(v.proposed_filament).diameter,' mm']]);}
-    else{values(tag,[['UID',v.uid],['Mode',v.mode],['Spool','#'+v.spool_id],['OpenPrintTag UUID',v.instance_uuid],['Current checksum',v.current_checksum],['Target checksum',v.target_checksum],['Changed blocks',asArray(v.changed_blocks).length],['Preserved','78–79']]);
-      const table=el('table',undefined,'writer-diff'),head=el('tr');['Field','Current','Proposed'].forEach(t=>head.append(el('th',t)));const thead=el('thead');thead.append(head);table.append(thead);const tbody=el('tbody');
-      window.OpenTagWriterDiffFields.forEach(([key,label,unit])=>{const a=asObject(v.current)[key],b=asObject(v.proposed)[key],row=el('tr',undefined,JSON.stringify(a)!==JSON.stringify(b)?'writer-changed':'');row.append(el('th',label));[a,b].forEach(value=>{const cell=el('td',key==='primary_color'?(Array.isArray(value)?'#'+value.map(n=>Number(n).toString(16).padStart(2,'0')).join(''):'—'):fmt(value,unit||''));if(key==='primary_color')cell.append(swatch(value));row.append(cell);});tbody.append(row);});table.append(tbody);diff.append(table);
-    }
-    const warn=text=>critical.append(el('p',text,'writer-warning'));
-    if(v.previous_spool_id>0)warn('MOVE this NFC UID from Spool #'+v.previous_spool_id+' to Spool #'+v.spool_id+'. The previous spool UUID is retained.');
-    else if(v.repurpose)warn('Repurpose: this write replaces the tag’s current spool identity.');
-    if(v.recovering_interrupted_write)warn('Recovery: this is an interrupted write. Confirm an explicit rewrite only after reviewing the recovered tag.');
-    const optional=asArray(v.warnings).filter(w=>/^missing recommended /i.test(w));
-    const metadata=asArray(v.warnings).filter(w=>!String(w).includes('association will move')&&!/not atomic|Full rewrite/i.test(w));asArray(v.warnings).filter(w=>/not atomic|Full rewrite/i.test(w)).forEach(warn);
-    metadata.forEach(w=>notices.append(el('li',String(w))));visible('writer-notices',metadata.length>0);setText('writer-notice-count',optional.length?optional.length+' optional metadata fields are not populated':'Metadata notices');
-  }
-  function renderWriter(data){const v=asObject(data);S.snapshot=v;
+  async function saveEditor(){if(!S.editor||S.busy)return;const edit=S.editor;try{const changes=formValues('writer-editor-fields',fields[edit.kind],edit.record);if(!Object.keys(changes).length){setText('writer-editor-message','No changed values to save.');return;}const expected=Object.fromEntries(Object.keys(changes).map(k=>[k,({...edit.record,...edit.expected})[k]??null]));const body={action:'update_'+edit.kind,changes,expected};body[edit.kind+'_id']=edit.record.id;if(edit.kind==='filament'&&S.spool)body.spool_id=S.spool;if(await writerCommand(body))closeEditor();else{const v=S.snapshot,fresh=v[edit.kind];if(v.edit_conflict&&fresh){setText('writer-editor-message','Spoolman changed. Current values: '+fields[edit.kind].filter(([k])=>k in changes).map(([k,label])=>label+': '+fmt(fresh[k])+' → your draft '+fmt(changes[k])).join('; ')+'. Your draft is unchanged. Review these values, then Save Changes again.');edit.expected={...edit.expected,...Object.fromEntries(Object.keys(changes).map(k=>[k,fresh[k]??null]))};}else setText('writer-editor-message','Save was not verified. Refresh before retrying.');}}catch(e){setText('writer-editor-message',e.message);}}
+  const preview=v=>window.OpenTagWriterPreview(v,S,{byId,asObject,asArray,setText,visible,values,el,fmt,swatch,uidText});
+  function renderWriter(data){const v=asObject(data);S.snapshot=v;if(['reading','loading_spool','preview'].includes(v.phase))S.step=3;if(['validating','writing','verifying','decoding','associating','association_pending'].includes(v.phase))S.step=4;if(v.phase==='complete')S.step=5;if(['updated','spool_selected'].includes(v.phase))S.step=2;
     if(v.phase==='catalog'){const match=asArray(v.items).find(i=>v.entity==='spool'&&Number(i.id)===S.spool);if(match)selected(match,match.filament);writerResults(asArray(v.items),v.entity);page(asArray(v.items),Number(v.offset||0),!!v.has_more);S.offset=Number(v.next_offset||0);}
     if(v.phase==='imported'&&v.filament){S.communitySelected=null;writerResults([],'spool');page([],0,false);selected(null,v.filament);S.filterFilament=Number(v.filament.id);S.filamentName=v.filament.name;setValue('writer-source','spoolman');setValue('writer-entity','spool');filters();}
     if(['preview','updated','spool_selected'].includes(v.phase)){if(v.spool&&Number(v.spool.id)>0){selected(v.spool,v.spool.filament);if(v.phase==='updated'&&S.entity==='spool')writerResults(S.items.map(i=>Number(i.id)===S.spool?v.spool:i),'spool');}else if(v.phase==='updated'&&v.filament)selected(null,v.filament);}
     setText('writer-progress',String(v.message||(window.OpenTagWriterProgress[v.phase]||v.phase||'Select a spool to begin.'))+(v.phase==='writing'?' ('+v.completed_blocks+'/'+v.total_blocks+' blocks)':''));
-    setText('writer-detail',JSON.stringify(v,null,2));preview(v);controls();
+    setText('writer-detail',JSON.stringify(v,null,2));preview(v);controls();tagStatus?.();
   }
-  async function writerCommand(body){if(S.busy)return false;S.busy=true;if(body.action==='preview')S.invalidated=false;if(body.action.startsWith('update_'))invalidate();controls();let refreshing=false,success=false,accepting=true;const editing=body.action.startsWith('update_');
-    try{await submitMutation('/tag-writer',{body,operationTimeoutMs:180000,onProgress:()=>{if(!refreshing){refreshing=true;api('/tag-writer',{priority:PRIORITY.CONTROL}).then(v=>{if(accepting&&(!editing||['editing','failed','association_pending'].includes(v.phase)))renderWriter(v);}).catch(()=>{}).finally(()=>refreshing=false);}}});success=true;}catch(error){showToast(error.message,true);}
-    finally{accepting=false;try{const v=await api('/tag-writer',{priority:PRIORITY.CONTROL});const entity=body.action.slice(7);if(editing&&(!success||v.phase!=='updated'||Number(asObject(v[entity]).id)!==body[entity+'_id'])){success=false;renderWriter(v.phase==='failed'&&v.edit_conflict&&Number(asObject(v[entity]).id)===body[entity+'_id']?v:{phase:'failed',message:v.message||'Edit readback was not verified; refresh before retrying.'});}else renderWriter(v);}catch(error){success=false;showToast(error.message,true);}S.busy=false;controls();}return success&&S.snapshot.phase!=='failed';
+  async function writerCommand(body){if(S.busy)return false;S.busy=true;if(body.action==='preview')S.invalidated=false;if(body.action.startsWith('update_'))invalidate();controls();let refreshing=false,success=false,accepting=true,failure='';const editing=body.action.startsWith('update_');if(body.action==='preview')S.step=3;if(['write','retry_association'].includes(body.action))S.step=4;renderWriter({phase:({preview:'reading',write:'writing',retry_association:'associating',catalog:'searching',import:'importing'})[body.action]||'editing',message:body.action==='preview'?'Reading complete tag and protection state…':window.OpenTagWriterStatus[body.action]||'Working…'});
+    try{await submitMutation('/tag-writer',{body,operationTimeoutMs:180000,onProgress:()=>{if(!refreshing){refreshing=true;api('/tag-writer',{priority:PRIORITY.CONTROL}).then(v=>{if(accepting&&(!editing||['editing','failed','association_pending'].includes(v.phase)))renderWriter(v);}).catch(()=>{}).finally(()=>refreshing=false);}}});success=true;}catch(error){failure=error.message;showToast(error.message,true);}
+    finally{accepting=false;try{const v=await api('/tag-writer',{priority:PRIORITY.CONTROL});const entity=body.action.slice(7);if(editing&&(!success||v.phase!=='updated'||Number(asObject(v[entity]).id)!==body[entity+'_id'])){success=false;renderWriter(v.phase==='failed'&&v.edit_conflict&&Number(asObject(v[entity]).id)===body[entity+'_id']?v:{phase:'failed',message:v.message||'Edit readback was not verified; refresh before retrying.'});}else renderWriter(!success&&failure&&!['failed','association_pending','complete','validating','writing','verifying','decoding','associating'].includes(v.phase)?{phase:'failed',message:failure}:v);}catch(error){success=false;renderWriter({phase:'failed',message:error.message});}S.busy=false;controls();}return success&&S.snapshot.phase!=='failed';
   }
-  function validateCommunity(data) {
-    if (!Array.isArray(data) || data.length > 100000) throw new Error('Unsupported Community catalog shape/size');
-    const ids = new Set();
-    data.forEach(function (item) {
-      if (!item || typeof item !== 'object' || ['id','manufacturer','name','material'].some(function (k) { return typeof item[k] !== 'string' || !item[k] || item[k].length > (k === 'id' ? 180 : 128); }) ||
-          !Number.isFinite(item.density) || !Number.isFinite(item.diameter) || ids.has(item.id)) throw new Error('Malformed Community catalog or duplicate identity');
-      ids.add(item.id);
-    });
-    return data;
-  }
-  async function communityCatalog() {
-    // Public compiled source used by the upstream UI. Catalog storage lives in
-    // the browser, never the station's internal RAM or backend JSON allocator.
-    const controller = new AbortController();const timer = window.setTimeout(function () {controller.abort();},30000);
-    try {
-      const r = await fetch('https://icezaza2543.github.io/SpoolmanDB-Community/filaments.json', {signal:controller.signal,cache:'no-cache'});
-      if (!r.ok || !r.body || Number(r.headers.get('Content-Length')) > 67108864) throw new Error('Community catalog unavailable or oversized');
-      const reader = r.body.getReader();const chunks=[];let count=0;
-      for (;;) {const part=await reader.read();if(part.done)break;count+=part.value.byteLength;if(count>67108864){await reader.cancel();throw new Error('Community catalog exceeds 64 MiB bound');}chunks.push(part.value);}
-      const bytes=new Uint8Array(count);let offset=0;chunks.forEach(function (chunk){bytes.set(chunk,offset);offset+=chunk.length;});
-      return validateCommunity(JSON.parse(new TextDecoder().decode(bytes)));
-    } finally {window.clearTimeout(timer);}
-  }
-
   async function writerSearch(direction){if(S.busy||S.snapshot.phase==='association_pending')return;const sig=JSON.stringify([valueOf('writer-source'),valueOf('writer-entity'),valueOf('writer-search'),valueOf('writer-material'),S.vendor,S.filterFilament]);const start=direction==='previous'?Math.max(0,S.start-8):direction===true?S.offset:direction==='refresh'&&sig===S.query?S.start:0;S.query=sig;
-    if(valueOf('writer-source')==='community'){try{if(!S.community){if(!S.communityLoading)S.communityLoading=communityCatalog().finally(()=>{S.communityLoading=null;controls();});controls();S.community=await S.communityLoading;}if(valueOf('writer-source')!=='community')return;const q=valueOf('writer-search').toLowerCase(),m=valueOf('writer-material').toLowerCase();S.matches=S.community.filter(i=>(!m||i.material.toLowerCase().includes(m))&&(!q||JSON.stringify(i).toLowerCase().includes(q)));const items=S.matches.slice(start,start+8);writerResults(items,'community');page(items,start,start+8<S.matches.length,S.matches.length);}catch(error){showToast(error.message,true);}return;}
+    if(valueOf('writer-source')==='community'){try{if(!S.community){if(!S.communityLoading){setText('writer-progress','Loading Community catalog…');}if(!S.communityLoading)S.communityLoading=communityCatalog().finally(()=>{S.communityLoading=null;controls();});controls();S.community=await S.communityLoading;}if(valueOf('writer-source')!=='community')return;const q=valueOf('writer-search').toLowerCase(),m=valueOf('writer-material').toLowerCase();S.matches=S.community.filter(i=>(!m||i.material.toLowerCase().includes(m))&&(!q||JSON.stringify(i).toLowerCase().includes(q)));const items=S.matches.slice(start,start+8);writerResults(items,'community');page(items,start,start+8<S.matches.length,S.matches.length);}catch(error){showToast(error.message,true);}return;}
     await writerCommand({action:'catalog',entity:valueOf('writer-entity')||'spool',offset:start,search:valueOf('writer-search'),material:valueOf('writer-material'),vendor_id:S.vendor,filament_id:S.filterFilament});
   }
+  function uidText(uid){return String(uid||'—').replace(/[^a-f0-9]/gi,'').match(/.{1,2}/g)?.join(':')||'—';}
+  function lockedModal(){return S.busy||['validating','writing','verifying','decoding','associating'].includes(S.snapshot.phase);}
+  function closeModal(){if(lockedModal())return;if(S.editor&&!window.confirm('Discard the unsaved editor draft?'))return;closeEditor();if(S.snapshot.phase!=='association_pending')invalidate();byId('writer-dialog').close();document.body.classList.remove('modal-open');byId('writer-open').focus();}
+  async function openModal(){byId('writer-panel').hidden=false;byId('writer-dialog').showModal();document.body.classList.add('modal-open');S.step=S.snapshot.phase==='association_pending'?4:1;controls();byId('writer-search').focus();try{const v=await api('/tag-writer',{priority:PRIORITY.CONTROL});if(['association_pending','validating','writing','verifying','decoding','associating'].includes(v.phase)){renderWriter(v);return;}}catch(e){setText('writer-progress',e.message);}if(byId('writer-dialog').open&&!lockedModal())writerSearch('refresh');}
+  function wizard(){const p=S.snapshot.phase,n=S.step,locked=lockedModal();
+    for(let i=1;i<=5;i++){const node=byId('writer-step-'+i);node.setAttribute('aria-current',i===n?'step':'false');node.dataset.complete=String(i<n);}
+    visible('writer-inventory',n===1);visible('writer-selection-pane',n===2||(n===1&&!!S.material&&!S.spool));
+    ['preview','update'].forEach(k=>visible('writer-'+k,n===2&&!S.editor));visible('writer-continue',n===1&&p!=='import_preview');byId('writer-continue').disabled=locked||!S.spool;
+    visible('writer-back',n>1&&(n<4||p==='failed'));byId('writer-back').disabled=locked;visible('writer-dismiss',n===1||n===4);['close','dismiss'].forEach(k=>byId('writer-'+k).disabled=locked);
+    visible('writer-done',n===5);byId('writer-done').disabled=locked;visible('writer-check',locked&&!S.busy);visible('writer-advanced',n>=3);setText('writer-footer-selection',S.spool?'Spool #'+S.spool:'Select a physical spool');
+    const busy=S.busy||['reading','loading_spool','validating','writing','verifying','decoding','associating'].includes(p);visible('writer-activity',busy);setText('writer-activity-title',window.OpenTagWriterStatus[p]||'Working…');setText('writer-activity-detail',n===4?'Keep the tag on the reader. Do not remove power.':S.snapshot.message||'Please wait.');
+    const meter=byId('writer-meter');if(p==='writing'&&S.snapshot.total_blocks){meter.max=S.snapshot.total_blocks;meter.value=S.snapshot.completed_blocks||0;setText('writer-activity-detail',meter.value+' / '+meter.max+' blocks. Keep tag and power in place.');}else meter.removeAttribute('value');
+    byId('writer-progress').className='result-banner '+(p==='failed'?'status-error':p==='updated'||p==='complete'?'status-success':p==='association_pending'?'status-warning':'');
+    if(p==='failed'&&n>=3)setText('writer-progress',(S.snapshot.message||'Unable to complete this step')+' Keep the same tag nearby. Return to Review for a fresh safety preview.');if(n===2&&p==='catalog')setText('writer-progress','Review this spool, then preview the tag.');if(p==='updated')setText('writer-progress','✓ Saved to Spoolman. Generate a new tag preview.');
+  }
   function bindWriter(){if(window.CSSStyleSheet){const sheet=new CSSStyleSheet();sheet.replaceSync(window.OpenTagWriterCss);document.adoptedStyleSheets=[...document.adoptedStyleSheets,sheet];}byId('writer-panel').innerHTML=window.OpenTagWriterLayout;
-    byId('writer-open').addEventListener('click',()=>{byId('writer-panel').hidden=false;if(S.snapshot.phase==='association_pending'){controls();return;}writerSearch(false);});
+    byId('writer-open').addEventListener('click',openModal);['close','dismiss','done'].forEach(k=>byId('writer-'+k).addEventListener('click',closeModal));byId('writer-dialog').addEventListener('cancel',e=>{e.preventDefault();closeModal();});byId('writer-continue').addEventListener('click',()=>{if(S.spool&&!lockedModal()){S.step=2;controls();byId('writer-title').focus();}});byId('writer-back').addEventListener('click',()=>{if(!lockedModal()){S.step=S.step>=3?2:1;closeEditor();invalidate();byId('writer-title').focus();}});byId('writer-check').addEventListener('click',async()=>{try{renderWriter(await api('/tag-writer',{priority:PRIORITY.CONTROL}));}catch(e){setText('writer-progress',e.message);}});
     byId('writer-search-button').addEventListener('click',()=>writerSearch('refresh'));['next','previous'].forEach(k=>byId('writer-'+k).addEventListener('click',()=>writerSearch(k==='next'?true:'previous')));
     ['source','entity'].forEach(k=>byId('writer-'+k).addEventListener('change',()=>{if(S.busy)return;closeEditor();invalidate();S.start=0;S.offset=0;S.hasMore=false;if(k==='source'){S.communitySelected=null;S.vendor=0;S.filterFilament=0;selected(null,null);}else if(valueOf('writer-entity')!=='spool')S.filterFilament=0;filters();writerResults([],valueOf('writer-entity'));writerSearch(false);}));
     ['preview','update'].forEach(name=>byId('writer-'+name).addEventListener('click',()=>{if(S.spool&&!S.editor)writerCommand({action:'preview',spool_id:S.spool,mode:name==='update'?'update':'rewrite'});}));
@@ -123,7 +94,7 @@ window.OpenTagWriter={bind:function(){const {byId,asObject,asArray,first,setText
     byId('writer-create-form').addEventListener('submit',event=>{event.preventDefault();if(S.busy||!S.filament)return;try{const spool=Object.assign({filament_id:S.filament},formValues('writer-create-fields',fields.spool,{}));if(window.confirm('Create this physical spool in Spoolman?'))writerCommand({action:'create_spool',spool});}catch(error){showToast(error.message,true);}});
     controls();
   }
-Object.assign(window.OpenTagWriter,{writerState,renderWriter,writerCommand,validateCommunity,bindWriter,writerSearch,writerResults,openEditor,saveEditor,selected,filters});
+Object.assign(window.OpenTagWriter,{openModal,closeModal,writerState,renderWriter,writerCommand,validateCommunity,bindWriter,writerSearch,writerResults,openEditor,saveEditor,selected,filters});
 if(!window.__OPENTAG_TEST__)bindWriter();
 }};
 })();)WRITER"

@@ -26,10 +26,10 @@ static_assert(
     LV_COLOR_16_SWAP == 0,
     "LovyanGFX owns the LVGL RGB565 byte swap at the display boundary");
 
-constexpr std::uint32_t screen_background = 0x111827;
+constexpr std::uint32_t screen_background = 0x071018;
 constexpr std::uint32_t primary_text = 0xF8FAFC;
 constexpr std::uint32_t secondary_text = 0xCBD5E1;
-constexpr std::uint32_t accent_text = 0x93C5FD;
+constexpr std::uint32_t accent_text = 0x24D6A1;
 constexpr std::uint32_t warning_text = 0xFDE68A;
 
 void style_screen(lv_obj_t* screen) {
@@ -117,7 +117,7 @@ bool UiService::initialize() {
   auto* lv_display = lv_disp_drv_register(&display_driver_);
   auto* theme = lv_theme_default_init(
       lv_display,
-      lv_color_hex(0x2563EB),
+      lv_color_hex(0x147D73),
       lv_color_hex(0x475569),
       true,
       &lv_font_montserrat_16);
@@ -409,9 +409,11 @@ void UiService::build_product_rail() {
     lv_obj_set_size(button, 86, 48);
     lv_obj_set_style_radius(button, 12, 0);
     lv_obj_set_style_shadow_width(button, 0, 0);
+    lv_obj_set_style_border_width(button, 1, 0);
     const bool selected = index == static_cast<std::size_t>(active_page_);
     lv_obj_set_style_bg_color(
         button, lv_color_hex(selected ? 0x24D6A1 : 0x102B33), 0);
+    lv_obj_set_style_border_color(button, lv_color_hex(selected ? 0x88F0CF : 0x1A4A52), 0);
     lv_obj_add_event_cb(
         button, navigation_callback, LV_EVENT_CLICKED, this);
     auto* label = lv_label_create(button);
@@ -727,8 +729,10 @@ void UiService::build_tags_page() {
   lv_obj_set_pos(title, 112, 12);
 
   auto* card = lv_obj_create(screen);
-  lv_obj_set_pos(card, 112, 54);
-  lv_obj_set_size(card, 354, 238);
+  lv_obj_set_pos(card, 112, 48);
+  lv_obj_set_size(card, 354, 258);
+  lv_obj_set_style_pad_all(card, 12, 0);
+  lv_obj_clear_flag(card, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_style_radius(card, 18, 0);
   lv_obj_set_style_border_width(card, 1, 0);
   lv_obj_set_style_border_color(card, lv_color_hex(0x1A4A52), 0);
@@ -753,6 +757,7 @@ void UiService::build_tags_page() {
       detail,
       "Initializing NFC-V reader...");
   lv_obj_set_width(detail, 310);
+  lv_obj_set_style_text_font(detail, &lv_font_montserrat_14, 0);
   lv_obj_set_style_text_align(detail, LV_TEXT_ALIGN_CENTER, 0);
   lv_obj_set_style_text_color(detail, lv_color_hex(0x9AB8BC), 0);
   lv_obj_align(detail, LV_ALIGN_TOP_MID, 0, 32);
@@ -762,13 +767,13 @@ void UiService::build_tags_page() {
   lv_textarea_set_accepted_chars(writer_spool_, "0123456789");
   lv_textarea_set_max_length(writer_spool_, 9);
   lv_textarea_set_placeholder_text(writer_spool_, "Spoolman spool ID");
-  lv_obj_set_size(writer_spool_, 155, 38);lv_obj_set_pos(writer_spool_, 0, 134);
+  lv_obj_set_size(writer_spool_, 155, 44);lv_obj_set_pos(writer_spool_, 0, 132);
   lv_obj_add_event_cb(writer_spool_, scale_textarea_callback, LV_EVENT_FOCUSED, this);
-  auto* preview = lv_btn_create(card);lv_obj_set_size(preview, 145, 38);lv_obj_set_pos(preview, 165, 134);
-  auto* preview_label=lv_label_create(preview);lv_label_set_text(preview_label,"Write / Rewrite");lv_obj_center(preview_label);
+  auto* preview = lv_btn_create(card);lv_obj_set_size(preview, 155, 44);lv_obj_set_pos(preview, 165, 132);
+  auto* preview_label=lv_label_create(preview);lv_label_set_text(preview_label,"Preview tag");lv_obj_center(preview_label);
   lv_obj_add_event_cb(preview,writer_preview_callback,LV_EVENT_CLICKED,this);
-  writer_confirm_=lv_btn_create(card);lv_obj_set_size(writer_confirm_,310,36);lv_obj_set_pos(writer_confirm_,0,178);
-  auto* confirm_label=lv_label_create(writer_confirm_);lv_label_set_text(confirm_label,"Confirm displayed tag / Retry association");lv_obj_center(confirm_label);
+  writer_confirm_=lv_btn_create(card);lv_obj_set_size(writer_confirm_,320,44);lv_obj_set_pos(writer_confirm_,0,184);
+  auto* confirm_label=lv_label_create(writer_confirm_);lv_label_set_text(confirm_label,"Preview before writing");lv_obj_center(confirm_label);
   lv_obj_add_state(writer_confirm_,LV_STATE_DISABLED);
   lv_obj_add_event_cb(writer_confirm_,writer_confirm_callback,LV_EVENT_CLICKED,this);
   scale_keyboard_=lv_keyboard_create(screen);
@@ -1668,10 +1673,15 @@ void UiService::refresh_workflow() {
   }
 
   if (active_page_ == ProductPage::tags && nfc_detail_ != nullptr) {
-    const auto scale = diagnostics_.scale_snapshot();
-    const auto text = nfc::describe(nfc_.snapshot(), scale.scale_last_completed_available
-        ? std::optional<float>(scale.scale_last_completed_milligrams / 1000.0F) : std::nullopt);
-    lv_label_set_text(nfc_detail_, text.c_str());
+    {
+      const auto tag = nfc_.snapshot();
+      std::string text = tag.tag ? "OpenPrintTag recognized" : tag.present ? "Reading tag..." : "Place a tag on the reader";
+      if (tag.tag) text += "\n" + tag.tag->decoded.material.material_name.value_or("Unnamed material").substr(0, 32);
+      if (tag.uid) text += "\nUID " + std::string(nfc::nfcv::format_diagnostic_uid(tag.uid->bytes).data());
+      if (tag.error) text += "\n" + tag.error->message;
+      lv_label_set_text(nfc_detail_, text.c_str());
+      lv_obj_set_style_text_color(nfc_detail_, lv_color_hex(tag.error ? 0xFFABB6 : 0xCBD5E1), 0);
+    }
     auto writer=backend_worker_.writer_snapshot();
     network::BackendJsonAllocator allocator;
     JsonDocument view(&allocator);
@@ -1680,7 +1690,16 @@ void UiService::refresh_workflow() {
       std::string status=phase+": "+std::string(view["message"]|"");
       if(view["spool_id"].as<int>()>0)status+="\nSpool #"+std::to_string(view["spool_id"].as<int>())+" "+std::string(view["spool"]["filament"]["name"]|"");
       if(phase=="preview")status="Preview #"+std::to_string(view["spool_id"].as<int>())+" "+std::string(view["spool"]["filament"]["name"]|"").substr(0,24)+"\nUID "+std::string(view["uid"]|"")+"\nTarget "+std::string(view["target_checksum"]|"")+" / "+std::to_string(view["total_blocks"].as<int>())+" blocks\n"+(view["previous_spool_id"].as<int>()>0?"MOVE UID from spool #"+std::to_string(view["previous_spool_id"].as<int>()):"Confirm below after checking tag");
+      if(phase=="writing")status="Writing OpenPrintTag\nKeep tag and power in place";
       if(phase=="writing")status+="\n"+std::to_string(view["completed_blocks"].as<int>())+" / "+std::to_string(view["total_blocks"].as<int>());
+      if(phase=="complete")status=LV_SYMBOL_OK " Written and verified\nSpool #"+std::to_string(view["spool_id"].as<int>())+" linked\nTag + OpenPrintTag: PASS";
+      if(phase=="association_pending")status="Tag verified\nSpoolman link pending\nRetry association below. No tag rewrite.";
+      if(phase=="failed")status="Unable to complete\n"+std::string(view["message"]|"");
+      lv_obj_set_style_text_color(nfc_detail_,lv_color_hex(phase=="complete"?0x88F0CF:phase=="failed"?0xFFABB6:phase=="association_pending"?0xFFD384:0xCBD5E1),0);
+      if(writer_confirm_) {
+        lv_label_set_text(lv_obj_get_child(writer_confirm_,0),phase=="association_pending"?"Retry Spoolman link":phase=="preview"?"Write this exact tag":"Preview before writing");
+        lv_obj_set_style_bg_color(writer_confirm_,lv_color_hex(phase=="preview"?0x73301E:0x147D73),0);
+      }
       lv_label_set_text(nfc_detail_,status.c_str());writer_confirmation_.clear();
       if(phase=="preview") {
         JsonDocument confirmation(&allocator);confirmation["action"]="write";
