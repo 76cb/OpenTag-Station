@@ -5,6 +5,9 @@ initialize/rewrite preview, explicit physical confirmation, consumed-weight
 updates, and retryable identity association. Nothing writes in response to a
 presence event, scale change, periodic health probe, or ordinary read.
 
+The [browser inventory/editor guide](writer-browser-workflow.md) describes
+selection, paging, canonical Spoolman editing and the human-readable preview.
+
 ## Source of truth and catalog contract
 
 Spoolman is authoritative. Every tag is generated from a fresh canonical

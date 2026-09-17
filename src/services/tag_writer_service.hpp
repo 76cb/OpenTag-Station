@@ -25,6 +25,8 @@ private:
   core::Result<void> import_preview(JsonObjectConst command);
   core::Result<void> import_commit(JsonObjectConst command);
   core::Result<void> create_spool(JsonObjectConst command);
+  core::Result<void> edit_record(JsonObjectConst command, bool filament);
+  core::Result<void> edit_and_report(JsonObjectConst command, bool filament);
   core::Result<void> prepare(JsonObjectConst command);
   core::Result<void> associate();
   core::Result<void> unique_identity();

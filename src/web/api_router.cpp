@@ -911,11 +911,17 @@ core::Result<Mutation> parse_mutation(
   if (request.path == "/api/v1/tag-writer") {
     const std::string action = object["action"] | "";
     if (action != "catalog" && action != "import_preview" && action != "import" && action != "create_spool" &&
-        action != "preview" && action != "write" && action != "retry_association")
+        action != "preview" && action != "write" && action != "retry_association" && action != "update_spool" && action != "update_filament")
       return core::Result<Mutation>::failure(invalid_request("Unknown high-level writer action"));
     if (!keys_allowed(object, {"action", "entity", "offset", "search", "material", "article_number", "vendor_id", "filament_id",
-                              "entry", "contract", "import_token", "import_name", "spool", "spool_id", "previous_spool_id", "mode", "uid", "generation", "target_checksum"}))
+                              "entry", "contract", "import_token", "import_name", "spool", "spool_id", "previous_spool_id", "mode", "uid", "generation", "target_checksum", "changes"}))
       return core::Result<Mutation>::failure(invalid_request("Unsupported writer fields; raw writes are forbidden"));
+    if ((action == "update_spool" || action == "update_filament") &&
+        (!keys_allowed(object, {"action", "spool_id", "filament_id", "changes"}) ||
+         !object[action == "update_spool" ? "spool_id" : "filament_id"].is<int>() ||
+         object[action == "update_spool" ? "spool_id" : "filament_id"].as<int>() <= 0 ||
+         !object["changes"].is<JsonObjectConst>() || object["changes"].size() == 0))
+      return core::Result<Mutation>::failure(invalid_request("Edit needs an exact record ID and explicit changed fields"));
     if (action == "write" && (!object["uid"].is<const char*>() || !object["generation"].is<const char*>() ||
         !object["target_checksum"].is<const char*>() || !object["spool_id"].is<int>() || object["spool_id"].as<int>() <= 0 ||
         !object["previous_spool_id"].is<int>() || object["previous_spool_id"].as<int>() < 0))

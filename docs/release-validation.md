@@ -43,6 +43,11 @@ receipt is not evidence of a successful physical write.
 9. **Generate preview.** Choose Preview initialize / rewrite. Wait for complete
    current reads and canonical Spoolman retrieval. Check Initialize classification,
    current/proposed metadata, vendor, filament, material, color and UUID.
+   Before previewing, exercise the browser's selected-row indicator, details,
+   Previous/Next pages and visible filters. On a test Spoolman record, separately
+   save a spool-instance edit and a shared-filament edit; require canonical
+   readback and a fresh preview. Confirm that optional metadata notices and raw
+   JSON are collapsed, and only the applicable confirmation action is displayed.
 10. **Verify the exact plan.** Record UID, insertion generation, current and target
     checksums, spool ID, changed block numbers/count and warnings. Require 80 × 4
     = 320 physical bytes, 312 OpenPrintTag bytes, writable blocks 0–77 and preserved

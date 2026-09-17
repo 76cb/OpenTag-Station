@@ -9,7 +9,7 @@ import subprocess
 import sys
 import tempfile
 
-from web_asset_compression import browser_assets, generated_include, gzip_asset
+from web_asset_compression import browser_assets, generated_include, gzip_asset, writer_assets
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 
@@ -32,7 +32,9 @@ def main() -> int:
             "application_javascript_gzip_size" not in generated):
         print("precompressed C++ include generation is invalid or nondeterministic", file=sys.stderr)
         return 1
-    javascript = javascript_bytes.decode("utf-8")
+    writer_logic, writer_layout = writer_assets()
+    writer = writer_logic + writer_layout
+    javascript = javascript_bytes.decode("utf-8") + "\n" + writer.decode("utf-8")
 
     node = shutil.which("node") or shutil.which("node.exe")
     if node is None:
@@ -64,6 +66,8 @@ def main() -> int:
             f"(CSS {len(stylesheet_bytes)} -> {len(stylesheet_gzip)} gzip bytes; "
             f"JS {len(javascript_bytes)} -> {len(javascript_gzip)} gzip bytes)"
         )
+        print(f"writer assets OK (behavior {len(writer_logic)}, layout/styles {len(writer_layout)}, "
+              f"total {len(writer)} -> {len(gzip_asset(writer))} gzip bytes)")
     return checked.returncode
 
 

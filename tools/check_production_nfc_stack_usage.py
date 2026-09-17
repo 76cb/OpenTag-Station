@@ -83,7 +83,8 @@ def main():
     writer_uid_http = max(
         writer_prepare + frame("services/tag_writer_service", "TagWriterService::prepare_uid_owner("),
         frame("services/tag_writer_service", "TagWriterService::associate(") + frame("services/tag_writer_service", "TagWriterService::clear_previous_uid(")) + frame("services/tag_writer_service", "TagWriterService::uid_owner(") + frame("services/tag_writer_service", "TagWriterService::api(")
-    writer_http = writer_controller + max(2 * largest("services/tag_writer_service"), writer_uid_http) + frame(spoolman, "SpoolmanAdapter::request(") + frame("network/http_transport", "HttpTransport::perform(") + 2048
+    writer_edit_http = frame("services/tag_writer_service", "TagWriterService::edit_and_report(") + frame("services/tag_writer_service", "TagWriterService::edit_record(") + frame("services/tag_writer_service", "TagWriterService::api(")
+    writer_http = writer_controller + max(2 * largest("services/tag_writer_service"), writer_uid_http, writer_edit_http) + frame(spoolman, "SpoolmanAdapter::request(") + frame("network/http_transport", "HttpTransport::perform(") + 2048
     writer_storage = writer_controller + writer_prepare + largest("platform/storage/writer_journal") + 2048
     worst = max(decoded, transport, backend, persistence, writer_decode, writer_transport, writer_http, writer_storage)
     print(f"Approved writer decode={writer_decode}; transport={writer_transport}; HTTP={writer_http}")

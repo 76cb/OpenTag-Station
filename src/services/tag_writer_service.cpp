@@ -76,6 +76,53 @@ bool uid_cleared(JsonVariantConst value) {
   return decoded.isNull() ||
          (decoded.is<const char *>() && !*decoded.as<const char *>());
 }
+bool edit_field(const std::string &key, JsonVariantConst value, bool filament) {
+  const auto contains = [&](const char *keys) {
+    return key.find('|') == std::string::npos &&
+           std::string(keys).find("|" + key + "|") != std::string::npos;
+  };
+  if (contains(filament ? "|name|material|article_number|color_hex|"
+                        : "|location|lot_nr|comment|")) {
+    if (!value.is<const char *>() ||
+        value.as<JsonString>().size() > (key == "comment" ? 1024U : 64U))
+      return false;
+    if (key != "color_hex")
+      return true;
+    const std::string color = value.as<std::string>();
+    return (color.size() == 6 || color.size() == 8) &&
+           color.find_first_not_of("0123456789abcdefABCDEF") ==
+               std::string::npos;
+  }
+  if (!contains(filament ? "|weight|density|diameter|spool_weight|settings_"
+                           "extruder_temp|settings_bed_temp|"
+                         : "|initial_weight|used_weight|spool_weight|price|"))
+    return false;
+  if (!value.is<double>())
+    return false;
+  const double n = value.as<double>();
+  const double maximum = key == "density"                  ? 30
+                         : key == "diameter"               ? 10
+                         : key == "settings_extruder_temp" ? 500
+                         : key == "settings_bed_temp"      ? 200
+                         : key == "price"                  ? 1000000
+                                                           : 100000;
+  if (!std::isfinite(n) || n < 0 || n > maximum)
+    return false;
+  if ((key == "density" || key == "diameter" || key == "weight") && n == 0)
+    return false;
+  return (key != "settings_extruder_temp" && key != "settings_bed_temp") ||
+         value.is<int>();
+}
+bool canonical_record(JsonVariantConst record, int id, bool filament) {
+  if (!record.is<JsonObjectConst>() || !record["id"].is<int>() ||
+      record["id"].as<int>() != id)
+    return false;
+  const auto material = filament ? record : record["filament"];
+  return material["id"].is<int>() && material["id"].as<int>() > 0 &&
+         edit_field("density", material["density"], true) &&
+         edit_field("diameter", material["diameter"], true) &&
+         (filament || edit_field("used_weight", record["used_weight"], false));
+}
 std::uint32_t backend_identity(const config::SpoolmanSettings &s) {
   const auto identity =
       s.url + "\n" + s.identity_field + "\n" + s.nfc_uid_field;
@@ -444,6 +491,97 @@ Result TagWriterService::create_spool(JsonObjectConst c) {
   publish("spool_selected", "Canonical spool created; preview before writing");
   return Result::success();
 }
+Result TagWriterService::edit_record(JsonObjectConst c, bool filament) {
+  // Edits never invoke the reader or writer. Pending associations are rejected
+  // by process() before reaching here. Any edit invalidates the old preview.
+  plan_.reset();
+  view_.clear();
+  const auto id_value = c[filament ? "filament_id" : "spool_id"];
+  if (!id_value.is<int>() || id_value.as<int>() <= 0)
+    return fail("Edit requires an exact positive record ID");
+  const int id = id_value.as<int>();
+  const auto changes = c["changes"].as<JsonObjectConst>();
+  if (changes.isNull() || changes.size() == 0 || changes.size() > 11)
+    return fail("Supply explicit changed fields");
+  for (auto field : changes)
+    if (!edit_field(field.key().c_str(), field.value(), filament))
+      return fail("Unsupported edit field, type or value outside safe bounds");
+  if (filament && !c["spool_id"].isNull() &&
+      (!c["spool_id"].is<int>() || c["spool_id"].as<int>() <= 0))
+    return fail("Invalid selected spool ID");
+  const auto path =
+      std::string(filament ? "/filament/" : "/spool/") + std::to_string(id);
+  publish("editing",
+          "Saving canonical Spoolman data; a fresh tag preview is required");
+  network::BackendDocument patch;
+  {
+    auto before = api("GET", path);
+    if (!before.ok())
+      return Result::failure(before.error());
+    if (!canonical_record(before.value().as<JsonVariantConst>(), id, filament))
+      return fail("Malformed canonical record; nothing patched");
+    for (auto field : changes)
+      if (!same(before.value()[field.key()], field.value()))
+        patch[field.key()] = field.value();
+  }
+  if (filament && c["spool_id"].is<int>()) {
+    auto selected =
+        api("GET", "/spool/" + std::to_string(c["spool_id"].as<int>()));
+    if (!selected.ok())
+      return Result::failure(selected.error());
+    if (!canonical_record(selected.value().as<JsonVariantConst>(),
+                          c["spool_id"].as<int>(), false) ||
+        selected.value()["filament"]["id"].as<int>() != id)
+      return fail(
+          "Selected spool no longer uses this filament; refresh selection");
+  }
+  if (patch.overflowed())
+    return fail("Edit workspace unavailable; nothing patched");
+  if (patch.size()) {
+    auto updated = api("PATCH", path, patch.as<JsonVariantConst>());
+    if (!updated.ok())
+      return Result::failure(updated.error());
+  }
+  {
+    auto after = api("GET", path);
+    if (!after.ok())
+      return Result::failure(after.error());
+    if (!canonical_record(after.value().as<JsonVariantConst>(), id, filament))
+      return fail("Malformed canonical edit readback; refresh before retrying");
+    for (auto field : changes)
+      if (!same(after.value()[field.key()], field.value()))
+        return fail("Spoolman edit readback mismatch; refresh before retrying");
+    view_[filament ? "filament" : "spool"].set(after.value());
+  }
+  if (filament && c["spool_id"].is<int>()) {
+    auto selected =
+        api("GET", "/spool/" + std::to_string(c["spool_id"].as<int>()));
+    if (!selected.ok()) {
+      view_.clear();
+      return Result::failure(selected.error());
+    }
+    if (!canonical_record(selected.value().as<JsonVariantConst>(),
+                          c["spool_id"].as<int>(), false) ||
+        selected.value()["filament"]["id"].as<int>() != id) {
+      view_.clear();
+      return fail("Selected spool readback changed; refresh before previewing");
+    }
+    for (auto field : changes)
+      if (!same(selected.value()["filament"][field.key()], field.value())) {
+        view_.clear();
+        return fail("Selected spool has stale filament readback; refresh "
+                    "before previewing");
+      }
+    view_["spool"].set(selected.value());
+  }
+  if (view_.overflowed() || measureJson(view_) > 24000) {
+    view_.clear();
+    return fail("Edit readback exceeds workspace; refresh before previewing");
+  }
+  publish("updated",
+          "Saved and verified in Spoolman. Generate a new tag preview.");
+  return Result::success();
+}
 Result TagWriterService::unique_identity() {
   const auto quoted = quote(uuid_);
   if (quoted.size() != uuid_.size() + 2)
@@ -767,6 +905,13 @@ Result TagWriterService::associate() {
           plan_->completed, plan_->count);
   return Result::success();
 }
+__attribute__((noinline)) Result
+TagWriterService::edit_and_report(JsonObjectConst c, bool filament) {
+  auto result = edit_record(c, filament);
+  if (!result.ok())
+    publish("failed", result.error().message.c_str());
+  return result;
+}
 Result TagWriterService::process(JsonObjectConst c) {
   const std::string action = c["action"] | "";
   if (association_pending_ && action != "retry_association") {
@@ -774,6 +919,9 @@ Result TagWriterService::process(JsonObjectConst c) {
             "Tag written successfully; Spoolman association pending.");
     return fail("Retry pending association first");
   }
+  // Editing has a separate result frame; it is not an ancestor of NFC decode.
+  if (action == "update_spool" || action == "update_filament")
+    return edit_and_report(c, action == "update_filament");
   Result result = fail("Unknown writer operation");
   if (action == "catalog")
     result = catalog(c);

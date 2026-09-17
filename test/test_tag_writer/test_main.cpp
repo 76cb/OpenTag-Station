@@ -25,7 +25,11 @@ struct Reader : nfc::IWriterReader {
     bytes[319] = 0x92;
   }
   R initialize() override { return R::success(); }
-  R field_on() override { return R::success(); }
+  int field_calls = 0;
+  R field_on() override {
+    ++field_calls;
+    return R::success();
+  }
   R field_off() override { return R::success(); }
   R health() override { return R::success(); }
   core::Result<std::vector<nfc::nfcv::Uid>> inventory() override {
@@ -339,6 +343,7 @@ struct Http : network::IHttpTransport {
   bool multiple_uid = false, fail_clear = false, bad_clear_readback = false,
        fail_target = false, final_uid_conflict = false;
   bool offline = false, duplicate = false, bad_page = false;
+  bool fail_edit = false, mismatch_edit = false;
   std::vector<std::string> urls;
   std::vector<std::string> events;
   Http() {
@@ -374,10 +379,28 @@ struct Http : network::IHttpTransport {
               {core::ErrorCategory::network, "target PATCH failed", true});
         network::BackendDocument patch;
         deserializeJson(patch, request.body);
-        spool["extra"].set(patch["extra"]);
+        if (fail_edit && !patch["extra"].is<JsonObject>())
+          return core::Result<network::HttpResponse>::failure(
+              {core::ErrorCategory::network, "edit PATCH failed", true});
+        if (!mismatch_edit)
+          for (auto field : patch.as<JsonObjectConst>())
+            spool[field.key()] = field.value();
         ++patches;
       }
       result.set(spool);
+    } else if (path == "/filament/4") {
+      if (request.method == "PATCH") {
+        if (fail_edit)
+          return core::Result<network::HttpResponse>::failure(
+              {core::ErrorCategory::network, "edit PATCH failed", true});
+        network::BackendDocument patch;
+        deserializeJson(patch, request.body);
+        if (!mismatch_edit)
+          for (auto field : patch.as<JsonObjectConst>())
+            spool["filament"][field.key()] = field.value();
+        ++patches;
+      }
+      result.set(spool["filament"]);
     } else if (path == "/spool/9") {
       if (request.method == "PATCH") {
         if (fail_clear)
@@ -1098,11 +1121,205 @@ void uid_formatted_queries_and_cross_format_conflicts() {
   TEST_ASSERT_FALSE(f.run(R"({"action":"preview","spool_id":12})").ok());
   TEST_ASSERT_EQUAL(0, f.reader.writes);
 }
+void edit_allowlisted_spool_fields_and_no_nfc() {
+  ServiceFixture f;
+  TEST_ASSERT_TRUE(
+      f.run(
+           R"({"action":"update_spool","spool_id":12,"changes":{"initial_weight":1100,"used_weight":0,"spool_weight":130,"price":25.5,"location":"Shelf","lot_nr":"Batch","comment":"Verified"}})")
+          .ok());
+  TEST_ASSERT_EQUAL(1100, f.view["spool"]["initial_weight"].as<int>());
+  TEST_ASSERT_EQUAL(0, f.view["spool"]["used_weight"].as<int>());
+  TEST_ASSERT_EQUAL_STRING("updated", f.view["phase"].as<const char *>());
+  TEST_ASSERT_EQUAL(1, f.http.patches);
+  TEST_ASSERT_EQUAL(0, f.reader.field_calls);
+  TEST_ASSERT_EQUAL(0, f.reader.reads);
+  TEST_ASSERT_EQUAL(0, f.reader.writes);
+}
+void edit_allowlisted_filament_and_selected_spool_readback() {
+  ServiceFixture f;
+  f.http.spool["filament"]["weight"] = 777.12;
+  TEST_ASSERT_TRUE(
+      f.run(
+           R"({"action":"update_filament","filament_id":4,"spool_id":12,"changes":{"name":"Sunlu PLA+ 2.0 Black","material":"PLA+","weight":1000,"density":1.24,"diameter":1.75,"spool_weight":130,"color_hex":"000000","article_number":"SKU","settings_extruder_temp":215,"settings_bed_temp":60}})")
+          .ok());
+  TEST_ASSERT_EQUAL(1000, f.view["filament"]["weight"].as<int>());
+  TEST_ASSERT_EQUAL(1000, f.view["spool"]["filament"]["weight"].as<int>());
+  TEST_ASSERT_EQUAL(0, f.reader.field_calls);
+  TEST_ASSERT_EQUAL(0, f.reader.writes);
+}
+void edit_rejects_unknown_spool_field() {
+  ServiceFixture f;
+  TEST_ASSERT_FALSE(
+      f.run(
+           R"({"action":"update_spool","spool_id":12,"changes":{"initial_weight|used_weight":1}})")
+          .ok());
+  TEST_ASSERT_FALSE(
+      f.run(
+           R"({"action":"update_spool","spool_id":12,"changes":{"extra":{"nfc_uid":"x"}}})")
+          .ok());
+  TEST_ASSERT_FALSE(
+      f.run(
+           R"({"action":"update_spool","spool_id":12,"changes":{"filament_id":99}})")
+          .ok());
+  TEST_ASSERT_EQUAL(0, f.http.patches);
+}
+void edit_rejects_unknown_filament_field() {
+  ServiceFixture f;
+  TEST_ASSERT_FALSE(
+      f.run(
+           R"({"action":"update_filament","filament_id":4,"changes":{"vendor_id":99}})")
+          .ok());
+  TEST_ASSERT_FALSE(
+      f.run(
+           R"({"action":"update_filament","filament_id":4,"changes":{"external_id":"x"}})")
+          .ok());
+  TEST_ASSERT_EQUAL(0, f.http.patches);
+}
+void edit_rejects_invalid_numbers_types_and_strings() {
+  ServiceFixture f;
+  for (auto json : {R"({"used_weight":-1})", R"({"used_weight":100001})",
+                    R"({"used_weight":1e999})", R"({"used_weight":"1000"})",
+                    R"({"used_weight":true})", R"({"location":12})"}) {
+    network::BackendDocument c;
+    c["action"] = "update_spool";
+    c["spool_id"] = 12;
+    network::BackendDocument change;
+    deserializeJson(change, json);
+    c["changes"].set(change);
+    TEST_ASSERT_FALSE(f.service.process(c.as<JsonObjectConst>()).ok());
+  }
+  for (auto json :
+       {R"({"density":0})", R"({"diameter":11})", R"({"weight":0})",
+        R"({"color_hex":"red"})", R"({"settings_bed_temp":60.5})"}) {
+    network::BackendDocument c;
+    c["action"] = "update_filament";
+    c["filament_id"] = 4;
+    network::BackendDocument change;
+    deserializeJson(change, json);
+    c["changes"].set(change);
+    TEST_ASSERT_FALSE(f.service.process(c.as<JsonObjectConst>()).ok());
+  }
+  TEST_ASSERT_EQUAL(0, f.http.patches);
+  TEST_ASSERT_EQUAL(0, f.reader.field_calls);
+}
+void edit_rejects_malformed_canonical_record() {
+  ServiceFixture f;
+  f.http.spool["filament"]["density"] = nullptr;
+  TEST_ASSERT_FALSE(
+      f.run(
+           R"({"action":"update_spool","spool_id":12,"changes":{"used_weight":0}})")
+          .ok());
+  TEST_ASSERT_EQUAL(0, f.http.patches);
+}
+void edit_string_bounds_include_embedded_nul() {
+  ServiceFixture f;
+  for (bool embedded : {false, true}) {
+    network::BackendDocument c;
+    c["action"] = "update_spool";
+    c["spool_id"] = 12;
+    std::string value(65, 'x');
+    if (embedded)
+      value[1] = '\0';
+    c["changes"]["location"] = value;
+    TEST_ASSERT_FALSE(f.service.process(c.as<JsonObjectConst>()).ok());
+  }
+  TEST_ASSERT_EQUAL(0, f.http.patches);
+}
+void edit_rejects_wrong_target_and_spool_relationship() {
+  ServiceFixture f;
+  TEST_ASSERT_FALSE(
+      f.run(
+           R"({"action":"update_filament","filament_id":4,"spool_id":9,"changes":{"weight":1000}})")
+          .ok());
+  TEST_ASSERT_FALSE(
+      f.run(
+           R"({"action":"update_spool","spool_id":0,"changes":{"used_weight":0}})")
+          .ok());
+  f.http.spool["id"] = 999;
+  TEST_ASSERT_FALSE(
+      f.run(
+           R"({"action":"update_spool","spool_id":12,"changes":{"used_weight":0}})")
+          .ok());
+  TEST_ASSERT_EQUAL(0, f.http.patches);
+}
+void edit_patch_failure_keeps_failure_state() {
+  ServiceFixture f;
+  f.http.fail_edit = true;
+  TEST_ASSERT_FALSE(
+      f.run(
+           R"({"action":"update_spool","spool_id":12,"changes":{"used_weight":0}})")
+          .ok());
+  TEST_ASSERT_EQUAL_STRING("failed", f.view["phase"].as<const char *>());
+  TEST_ASSERT_EQUAL(100, f.http.spool["used_weight"].as<int>());
+  TEST_ASSERT_EQUAL(0, f.reader.field_calls);
+}
+void edit_readback_mismatch_fails() {
+  ServiceFixture f;
+  f.http.mismatch_edit = true;
+  TEST_ASSERT_FALSE(
+      f.run(
+           R"({"action":"update_filament","filament_id":4,"changes":{"weight":777}})")
+          .ok());
+  TEST_ASSERT_EQUAL_STRING("failed", f.view["phase"].as<const char *>());
+  TEST_ASSERT_TRUE(f.view["filament"].isNull());
+}
+void edit_only_patches_changed_values() {
+  ServiceFixture f;
+  TEST_ASSERT_TRUE(
+      f.run(
+           R"({"action":"update_spool","spool_id":12,"changes":{"used_weight":100}})")
+          .ok());
+  TEST_ASSERT_EQUAL(0, f.http.patches);
+  TEST_ASSERT_EQUAL(2, f.http.events.size());
+}
+void edit_invalidates_old_preview() {
+  ServiceFixture f;
+  TEST_ASSERT_TRUE(f.run(R"({"action":"preview","spool_id":12})").ok());
+  network::BackendDocument c;
+  c["action"] = "write";
+  for (auto key : {"uid", "generation", "spool_id", "previous_spool_id",
+                   "target_checksum"})
+    c[key] = f.view[key];
+  const auto calls = f.reader.field_calls;
+  TEST_ASSERT_TRUE(
+      f.run(
+           R"({"action":"update_spool","spool_id":12,"changes":{"used_weight":0}})")
+          .ok());
+  TEST_ASSERT_FALSE(f.service.process(c.as<JsonObjectConst>()).ok());
+  TEST_ASSERT_EQUAL(calls, f.reader.field_calls);
+  TEST_ASSERT_EQUAL(0, f.reader.writes);
+}
+void edit_cannot_bypass_pending_association() {
+  ServiceFixture f;
+  TEST_ASSERT_TRUE(f.run(R"({"action":"preview","spool_id":12})").ok());
+  f.http.offline = true;
+  TEST_ASSERT_FALSE(f.confirm().ok());
+  f.http.offline = false;
+  TEST_ASSERT_FALSE(
+      f.run(
+           R"({"action":"update_spool","spool_id":12,"changes":{"used_weight":0}})")
+          .ok());
+  TEST_ASSERT_EQUAL_STRING("association_pending",
+                           f.view["phase"].as<const char *>());
+}
 } // namespace
 void setUp() {}
 void tearDown() {}
 int main() {
   UNITY_BEGIN();
+  RUN_TEST(edit_allowlisted_spool_fields_and_no_nfc);
+  RUN_TEST(edit_allowlisted_filament_and_selected_spool_readback);
+  RUN_TEST(edit_rejects_unknown_spool_field);
+  RUN_TEST(edit_rejects_unknown_filament_field);
+  RUN_TEST(edit_rejects_invalid_numbers_types_and_strings);
+  RUN_TEST(edit_rejects_malformed_canonical_record);
+  RUN_TEST(edit_string_bounds_include_embedded_nul);
+  RUN_TEST(edit_rejects_wrong_target_and_spool_relationship);
+  RUN_TEST(edit_patch_failure_keeps_failure_state);
+  RUN_TEST(edit_readback_mismatch_fails);
+  RUN_TEST(edit_only_patches_changed_values);
+  RUN_TEST(edit_invalidates_old_preview);
+  RUN_TEST(edit_cannot_bypass_pending_association);
   RUN_TEST(blank_and_complete_verification);
   RUN_TEST(nonblank_rejected);
   RUN_TEST(geometry_rejected);

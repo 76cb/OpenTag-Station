@@ -34,6 +34,7 @@ jobs:
       - run: python tools/verify_openprinttag_initializer_reference.py --spec-root .reference/openprinttag-specification
       - run: python tools/check_web_assets.py
       - run: node --test tools/test_web_transport.mjs
+      - run: python tools/test_writer_display.py
       - run: python tools/web_flasher.py validate-source --page web-flasher/index.html --manifest web-flasher/manifest.json --diagnostic-manifest web-flasher/i2c-test-manifest.json
       - run: pio test --environment native
       - run: pio test --environment native-writer-sanitized
