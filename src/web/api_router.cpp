@@ -914,12 +914,13 @@ core::Result<Mutation> parse_mutation(
         action != "preview" && action != "write" && action != "retry_association" && action != "update_spool" && action != "update_filament")
       return core::Result<Mutation>::failure(invalid_request("Unknown high-level writer action"));
     if (!keys_allowed(object, {"action", "entity", "offset", "search", "material", "article_number", "vendor_id", "filament_id",
-                              "entry", "contract", "import_token", "import_name", "spool", "spool_id", "previous_spool_id", "mode", "uid", "generation", "target_checksum", "changes"}))
+                              "entry", "contract", "import_token", "import_name", "spool", "spool_id", "previous_spool_id", "mode", "uid", "generation", "target_checksum", "changes", "expected"}))
       return core::Result<Mutation>::failure(invalid_request("Unsupported writer fields; raw writes are forbidden"));
     if ((action == "update_spool" || action == "update_filament") &&
-        (!keys_allowed(object, {"action", "spool_id", "filament_id", "changes"}) ||
+        (!keys_allowed(object, {"action", "spool_id", "filament_id", "changes", "expected"}) ||
          !object[action == "update_spool" ? "spool_id" : "filament_id"].is<int>() ||
          object[action == "update_spool" ? "spool_id" : "filament_id"].as<int>() <= 0 ||
+         !object["expected"].is<JsonObjectConst>() ||
          !object["changes"].is<JsonObjectConst>() || object["changes"].size() == 0))
       return core::Result<Mutation>::failure(invalid_request("Edit needs an exact record ID and explicit changed fields"));
     if (action == "write" && (!object["uid"].is<const char*>() || !object["generation"].is<const char*>() ||

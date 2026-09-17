@@ -1121,11 +1121,155 @@ void uid_formatted_queries_and_cross_format_conflicts() {
   TEST_ASSERT_FALSE(f.run(R"({"action":"preview","spool_id":12})").ok());
   TEST_ASSERT_EQUAL(0, f.reader.writes);
 }
+void assert_edit_conflict(ServiceFixture &f, const char *request) {
+  const auto calls = f.reader.field_calls;
+  const auto reads = f.reader.reads;
+  const auto result = f.run(request);
+  TEST_ASSERT_FALSE(result.ok());
+  TEST_ASSERT_TRUE(result.error().category == core::ErrorCategory::conflict);
+  TEST_ASSERT_TRUE(f.view["edit_conflict"].as<bool>());
+  TEST_ASSERT_EQUAL_STRING("failed", f.view["phase"].as<const char *>());
+  TEST_ASSERT_EQUAL(0, f.http.patches);
+  TEST_ASSERT_EQUAL(calls, f.reader.field_calls);
+  TEST_ASSERT_EQUAL(reads, f.reader.reads);
+  TEST_ASSERT_EQUAL(0, f.reader.writes);
+}
+void edit_used_weight_expected_matches() {
+  ServiceFixture f;
+  f.http.spool["used_weight"] = 0;
+  TEST_ASSERT_TRUE(
+      f.run(
+           R"({"action":"update_spool","spool_id":12,"expected":{"used_weight":0},"changes":{"used_weight":25}})")
+          .ok());
+  TEST_ASSERT_EQUAL(1, f.http.patches);
+  TEST_ASSERT_EQUAL(25, f.view["spool"]["used_weight"].as<int>());
+}
+void edit_used_weight_conflict_and_explicit_retry() {
+  ServiceFixture f;
+  f.http.spool["used_weight"] = 15;
+  assert_edit_conflict(
+      f,
+      R"({"action":"update_spool","spool_id":12,"expected":{"used_weight":0},"changes":{"used_weight":25}})");
+  TEST_ASSERT_EQUAL(15, f.view["spool"]["used_weight"].as<int>());
+  TEST_ASSERT_TRUE(
+      f.run(
+           R"({"action":"update_spool","spool_id":12,"expected":{"used_weight":15},"changes":{"used_weight":25}})")
+          .ok());
+  TEST_ASSERT_FALSE(f.view["edit_conflict"].as<bool>());
+}
+void edit_unrelated_change_is_preserved() {
+  ServiceFixture f;
+  f.http.spool["location"] = "Changed elsewhere";
+  TEST_ASSERT_TRUE(
+      f.run(
+           R"({"action":"update_spool","spool_id":12,"expected":{"used_weight":100,"location":"Old location"},"changes":{"used_weight":25}})")
+          .ok());
+  TEST_ASSERT_EQUAL(1, f.http.patches);
+  TEST_ASSERT_EQUAL_STRING("Changed elsewhere",
+                           f.view["spool"]["location"].as<const char *>());
+}
+void edit_filament_expected_matches() {
+  ServiceFixture f;
+  f.http.spool["filament"]["weight"] = 777.12;
+  TEST_ASSERT_TRUE(
+      f.run(
+           R"({"action":"update_filament","filament_id":4,"expected":{"weight":777.12},"changes":{"weight":1000}})")
+          .ok());
+  TEST_ASSERT_EQUAL(1, f.http.patches);
+  TEST_ASSERT_EQUAL(1000, f.view["filament"]["weight"].as<int>());
+}
+void edit_filament_expected_conflicts() {
+  ServiceFixture f;
+  assert_edit_conflict(
+      f,
+      R"({"action":"update_filament","filament_id":4,"spool_id":12,"expected":{"weight":777.12},"changes":{"weight":1000}})");
+  TEST_ASSERT_EQUAL(4, f.view["filament"]["id"].as<int>());
+  TEST_ASSERT_EQUAL(1000, f.view["filament"]["weight"].as<int>());
+}
+void edit_multiple_fields_conflict_before_any_patch() {
+  ServiceFixture f;
+  assert_edit_conflict(
+      f,
+      R"({"action":"update_spool","spool_id":12,"expected":{"initial_weight":1000,"used_weight":0},"changes":{"initial_weight":900,"used_weight":25}})");
+  TEST_ASSERT_EQUAL(1000, f.http.spool["initial_weight"].as<int>());
+}
+void edit_missing_expected_rejected() {
+  ServiceFixture f;
+  for (
+      const auto *request :
+      {R"({"action":"update_spool","spool_id":12,"changes":{"used_weight":25}})",
+       R"({"action":"update_spool","spool_id":12,"expected":{},"changes":{"used_weight":25}})",
+       R"({"action":"update_filament","filament_id":4,"expected":{"weight":1000},"changes":{"weight":900,"name":"New"}})"})
+    TEST_ASSERT_FALSE(f.run(request).ok());
+  TEST_ASSERT_EQUAL(0, f.http.events.size());
+  TEST_ASSERT_EQUAL(0, f.reader.field_calls);
+}
+void edit_unknown_expected_rejected() {
+  ServiceFixture f;
+  for (
+      const auto *request :
+      {R"({"action":"update_spool","spool_id":12,"expected":{"used_weight":100,"extra":null},"changes":{"used_weight":25}})",
+       R"({"action":"update_filament","filament_id":4,"expected":{"weight":1000,"vendor_id":null},"changes":{"weight":900}})",
+       R"({"action":"update_spool","spool_id":12,"expected":{"used_weight":100,"initial_weight|used_weight":null},"changes":{"used_weight":25}})"})
+    TEST_ASSERT_FALSE(f.run(request).ok());
+  TEST_ASSERT_EQUAL(0, f.http.events.size());
+}
+void edit_optional_expected_null_and_zero() {
+  for (bool missing : {false, true}) {
+    ServiceFixture f;
+    if (!missing)
+      f.http.spool["price"] = nullptr;
+    TEST_ASSERT_TRUE(
+        f.run(
+             R"({"action":"update_spool","spool_id":12,"expected":{"price":null},"changes":{"price":25}})")
+            .ok());
+    TEST_ASSERT_EQUAL(1, f.http.patches);
+  }
+  ServiceFixture f;
+  f.http.spool["spool_weight"] = 0;
+  assert_edit_conflict(
+      f,
+      R"({"action":"update_spool","spool_id":12,"expected":{"spool_weight":null},"changes":{"spool_weight":130}})");
+  ServiceFixture g;
+  g.http.spool["filament"]["weight"] = nullptr;
+  TEST_ASSERT_TRUE(
+      g.run(
+           R"({"action":"update_filament","filament_id":4,"expected":{"weight":null},"changes":{"weight":1000}})")
+          .ok());
+}
+void edit_invalid_expected_types_rejected() {
+  ServiceFixture f;
+  for (
+      const auto *request :
+      {R"({"action":"update_spool","spool_id":12,"expected":{"used_weight":null},"changes":{"used_weight":25}})",
+       R"({"action":"update_spool","spool_id":12,"expected":{"used_weight":"100"},"changes":{"used_weight":25}})",
+       R"({"action":"update_spool","spool_id":12,"expected":{"used_weight":true},"changes":{"used_weight":25}})",
+       R"({"action":"update_filament","filament_id":4,"expected":{"weight":-1},"changes":{"weight":1000}})"})
+    TEST_ASSERT_FALSE(f.run(request).ok());
+  TEST_ASSERT_EQUAL(0, f.http.events.size());
+}
+void edit_conflict_invalidates_exact_write_preview() {
+  ServiceFixture f;
+  TEST_ASSERT_TRUE(f.run(R"({"action":"preview","spool_id":12})").ok());
+  network::BackendDocument command;
+  command["action"] = "write";
+  for (auto key : {"uid", "generation", "spool_id", "previous_spool_id",
+                   "target_checksum"})
+    command[key] = f.view[key];
+  f.http.spool["used_weight"] = 115;
+  assert_edit_conflict(
+      f,
+      R"({"action":"update_spool","spool_id":12,"expected":{"used_weight":100},"changes":{"used_weight":125}})");
+  const auto calls = f.reader.field_calls;
+  TEST_ASSERT_FALSE(f.service.process(command.as<JsonObjectConst>()).ok());
+  TEST_ASSERT_EQUAL(calls, f.reader.field_calls);
+  TEST_ASSERT_EQUAL(0, f.reader.writes);
+}
 void edit_allowlisted_spool_fields_and_no_nfc() {
   ServiceFixture f;
   TEST_ASSERT_TRUE(
       f.run(
-           R"({"action":"update_spool","spool_id":12,"changes":{"initial_weight":1100,"used_weight":0,"spool_weight":130,"price":25.5,"location":"Shelf","lot_nr":"Batch","comment":"Verified"}})")
+           R"({"action":"update_spool","spool_id":12,"changes":{"initial_weight":1100,"used_weight":0,"spool_weight":130,"price":25.5,"location":"Shelf","lot_nr":"Batch","comment":"Verified"},"expected":{"initial_weight":1000,"used_weight":100,"spool_weight":200,"price":null,"location":null,"lot_nr":null,"comment":null}})")
           .ok());
   TEST_ASSERT_EQUAL(1100, f.view["spool"]["initial_weight"].as<int>());
   TEST_ASSERT_EQUAL(0, f.view["spool"]["used_weight"].as<int>());
@@ -1140,7 +1284,7 @@ void edit_allowlisted_filament_and_selected_spool_readback() {
   f.http.spool["filament"]["weight"] = 777.12;
   TEST_ASSERT_TRUE(
       f.run(
-           R"({"action":"update_filament","filament_id":4,"spool_id":12,"changes":{"name":"Sunlu PLA+ 2.0 Black","material":"PLA+","weight":1000,"density":1.24,"diameter":1.75,"spool_weight":130,"color_hex":"000000","article_number":"SKU","settings_extruder_temp":215,"settings_bed_temp":60}})")
+           R"({"action":"update_filament","filament_id":4,"spool_id":12,"changes":{"name":"Sunlu PLA+ 2.0 Black","material":"PLA+","weight":1000,"density":1.24,"diameter":1.75,"spool_weight":130,"color_hex":"000000","article_number":"SKU","settings_extruder_temp":215,"settings_bed_temp":60},"expected":{"name":"PLA Blue","material":"PLA","weight":777.12,"density":1.24,"diameter":1.75,"spool_weight":null,"color_hex":"123456","article_number":"SKU123","settings_extruder_temp":215,"settings_bed_temp":null}})")
           .ok());
   TEST_ASSERT_EQUAL(1000, f.view["filament"]["weight"].as<int>());
   TEST_ASSERT_EQUAL(1000, f.view["spool"]["filament"]["weight"].as<int>());
@@ -1151,15 +1295,15 @@ void edit_rejects_unknown_spool_field() {
   ServiceFixture f;
   TEST_ASSERT_FALSE(
       f.run(
-           R"({"action":"update_spool","spool_id":12,"changes":{"initial_weight|used_weight":1}})")
+           R"({"action":"update_spool","spool_id":12,"changes":{"initial_weight|used_weight":1},"expected":{"initial_weight|used_weight":null}})")
           .ok());
   TEST_ASSERT_FALSE(
       f.run(
-           R"({"action":"update_spool","spool_id":12,"changes":{"extra":{"nfc_uid":"x"}}})")
+           R"({"action":"update_spool","spool_id":12,"changes":{"extra":{"nfc_uid":"x"}},"expected":{"extra":null}})")
           .ok());
   TEST_ASSERT_FALSE(
       f.run(
-           R"({"action":"update_spool","spool_id":12,"changes":{"filament_id":99}})")
+           R"({"action":"update_spool","spool_id":12,"changes":{"filament_id":99},"expected":{"filament_id":null}})")
           .ok());
   TEST_ASSERT_EQUAL(0, f.http.patches);
 }
@@ -1167,11 +1311,11 @@ void edit_rejects_unknown_filament_field() {
   ServiceFixture f;
   TEST_ASSERT_FALSE(
       f.run(
-           R"({"action":"update_filament","filament_id":4,"changes":{"vendor_id":99}})")
+           R"({"action":"update_filament","filament_id":4,"changes":{"vendor_id":99},"expected":{"vendor_id":null}})")
           .ok());
   TEST_ASSERT_FALSE(
       f.run(
-           R"({"action":"update_filament","filament_id":4,"changes":{"external_id":"x"}})")
+           R"({"action":"update_filament","filament_id":4,"changes":{"external_id":"x"},"expected":{"external_id":null}})")
           .ok());
   TEST_ASSERT_EQUAL(0, f.http.patches);
 }
@@ -1186,6 +1330,7 @@ void edit_rejects_invalid_numbers_types_and_strings() {
     network::BackendDocument change;
     deserializeJson(change, json);
     c["changes"].set(change);
+    c["expected"].to<JsonObject>();
     TEST_ASSERT_FALSE(f.service.process(c.as<JsonObjectConst>()).ok());
   }
   for (auto json :
@@ -1197,6 +1342,7 @@ void edit_rejects_invalid_numbers_types_and_strings() {
     network::BackendDocument change;
     deserializeJson(change, json);
     c["changes"].set(change);
+    c["expected"].to<JsonObject>();
     TEST_ASSERT_FALSE(f.service.process(c.as<JsonObjectConst>()).ok());
   }
   TEST_ASSERT_EQUAL(0, f.http.patches);
@@ -1207,7 +1353,7 @@ void edit_rejects_malformed_canonical_record() {
   f.http.spool["filament"]["density"] = nullptr;
   TEST_ASSERT_FALSE(
       f.run(
-           R"({"action":"update_spool","spool_id":12,"changes":{"used_weight":0}})")
+           R"({"action":"update_spool","spool_id":12,"changes":{"used_weight":0},"expected":{"used_weight":100}})")
           .ok());
   TEST_ASSERT_EQUAL(0, f.http.patches);
 }
@@ -1221,6 +1367,7 @@ void edit_string_bounds_include_embedded_nul() {
     if (embedded)
       value[1] = '\0';
     c["changes"]["location"] = value;
+    c["expected"]["location"] = nullptr;
     TEST_ASSERT_FALSE(f.service.process(c.as<JsonObjectConst>()).ok());
   }
   TEST_ASSERT_EQUAL(0, f.http.patches);
@@ -1229,16 +1376,16 @@ void edit_rejects_wrong_target_and_spool_relationship() {
   ServiceFixture f;
   TEST_ASSERT_FALSE(
       f.run(
-           R"({"action":"update_filament","filament_id":4,"spool_id":9,"changes":{"weight":1000}})")
+           R"({"action":"update_filament","filament_id":4,"spool_id":9,"changes":{"weight":1000},"expected":{"weight":1000}})")
           .ok());
   TEST_ASSERT_FALSE(
       f.run(
-           R"({"action":"update_spool","spool_id":0,"changes":{"used_weight":0}})")
+           R"({"action":"update_spool","spool_id":0,"changes":{"used_weight":0},"expected":{"used_weight":100}})")
           .ok());
   f.http.spool["id"] = 999;
   TEST_ASSERT_FALSE(
       f.run(
-           R"({"action":"update_spool","spool_id":12,"changes":{"used_weight":0}})")
+           R"({"action":"update_spool","spool_id":12,"changes":{"used_weight":0},"expected":{"used_weight":100}})")
           .ok());
   TEST_ASSERT_EQUAL(0, f.http.patches);
 }
@@ -1247,7 +1394,7 @@ void edit_patch_failure_keeps_failure_state() {
   f.http.fail_edit = true;
   TEST_ASSERT_FALSE(
       f.run(
-           R"({"action":"update_spool","spool_id":12,"changes":{"used_weight":0}})")
+           R"({"action":"update_spool","spool_id":12,"changes":{"used_weight":0},"expected":{"used_weight":100}})")
           .ok());
   TEST_ASSERT_EQUAL_STRING("failed", f.view["phase"].as<const char *>());
   TEST_ASSERT_EQUAL(100, f.http.spool["used_weight"].as<int>());
@@ -1258,7 +1405,7 @@ void edit_readback_mismatch_fails() {
   f.http.mismatch_edit = true;
   TEST_ASSERT_FALSE(
       f.run(
-           R"({"action":"update_filament","filament_id":4,"changes":{"weight":777}})")
+           R"({"action":"update_filament","filament_id":4,"changes":{"weight":777},"expected":{"weight":1000}})")
           .ok());
   TEST_ASSERT_EQUAL_STRING("failed", f.view["phase"].as<const char *>());
   TEST_ASSERT_TRUE(f.view["filament"].isNull());
@@ -1267,7 +1414,7 @@ void edit_only_patches_changed_values() {
   ServiceFixture f;
   TEST_ASSERT_TRUE(
       f.run(
-           R"({"action":"update_spool","spool_id":12,"changes":{"used_weight":100}})")
+           R"({"action":"update_spool","spool_id":12,"changes":{"used_weight":100},"expected":{"used_weight":100}})")
           .ok());
   TEST_ASSERT_EQUAL(0, f.http.patches);
   TEST_ASSERT_EQUAL(2, f.http.events.size());
@@ -1283,7 +1430,7 @@ void edit_invalidates_old_preview() {
   const auto calls = f.reader.field_calls;
   TEST_ASSERT_TRUE(
       f.run(
-           R"({"action":"update_spool","spool_id":12,"changes":{"used_weight":0}})")
+           R"({"action":"update_spool","spool_id":12,"changes":{"used_weight":0},"expected":{"used_weight":100}})")
           .ok());
   TEST_ASSERT_FALSE(f.service.process(c.as<JsonObjectConst>()).ok());
   TEST_ASSERT_EQUAL(calls, f.reader.field_calls);
@@ -1297,7 +1444,7 @@ void edit_cannot_bypass_pending_association() {
   f.http.offline = false;
   TEST_ASSERT_FALSE(
       f.run(
-           R"({"action":"update_spool","spool_id":12,"changes":{"used_weight":0}})")
+           R"({"action":"update_spool","spool_id":12,"changes":{"used_weight":0},"expected":{"used_weight":100}})")
           .ok());
   TEST_ASSERT_EQUAL_STRING("association_pending",
                            f.view["phase"].as<const char *>());
@@ -1307,6 +1454,17 @@ void setUp() {}
 void tearDown() {}
 int main() {
   UNITY_BEGIN();
+  RUN_TEST(edit_used_weight_expected_matches);
+  RUN_TEST(edit_used_weight_conflict_and_explicit_retry);
+  RUN_TEST(edit_unrelated_change_is_preserved);
+  RUN_TEST(edit_filament_expected_matches);
+  RUN_TEST(edit_filament_expected_conflicts);
+  RUN_TEST(edit_multiple_fields_conflict_before_any_patch);
+  RUN_TEST(edit_missing_expected_rejected);
+  RUN_TEST(edit_unknown_expected_rejected);
+  RUN_TEST(edit_optional_expected_null_and_zero);
+  RUN_TEST(edit_invalid_expected_types_rejected);
+  RUN_TEST(edit_conflict_invalidates_exact_write_preview);
   RUN_TEST(edit_allowlisted_spool_fields_and_no_nfc);
   RUN_TEST(edit_allowlisted_filament_and_selected_spool_readback);
   RUN_TEST(edit_rejects_unknown_spool_field);

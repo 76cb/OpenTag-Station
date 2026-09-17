@@ -76,13 +76,16 @@ bool uid_cleared(JsonVariantConst value) {
   return decoded.isNull() ||
          (decoded.is<const char *>() && !*decoded.as<const char *>());
 }
-bool edit_field(const std::string &key, JsonVariantConst value, bool filament) {
+bool edit_field(const std::string &key, JsonVariantConst value, bool filament,
+                bool expected = false) {
   const auto contains = [&](const char *keys) {
     return key.find('|') == std::string::npos &&
            std::string(keys).find("|" + key + "|") != std::string::npos;
   };
   if (contains(filament ? "|name|material|article_number|color_hex|"
                         : "|location|lot_nr|comment|")) {
+    if (expected && value.isNull())
+      return true;
     if (!value.is<const char *>() ||
         value.as<JsonString>().size() > (key == "comment" ? 1024U : 64U))
       return false;
@@ -97,6 +100,8 @@ bool edit_field(const std::string &key, JsonVariantConst value, bool filament) {
                            "extruder_temp|settings_bed_temp|"
                          : "|initial_weight|used_weight|spool_weight|price|"))
     return false;
+  if (expected && value.isNull())
+    return key != "used_weight" && key != "density" && key != "diameter";
   if (!value.is<double>())
     return false;
   const double n = value.as<double>();
@@ -506,6 +511,15 @@ Result TagWriterService::edit_record(JsonObjectConst c, bool filament) {
   for (auto field : changes)
     if (!edit_field(field.key().c_str(), field.value(), filament))
       return fail("Unsupported edit field, type or value outside safe bounds");
+  const auto expected = c["expected"].as<JsonObjectConst>();
+  if (expected.isNull() || expected.size() > 11)
+    return fail("Edit requires the reviewed field values in expected");
+  for (auto field : expected)
+    if (!edit_field(field.key().c_str(), field.value(), filament, true))
+      return fail("Unsupported expected field, type or value");
+  for (auto field : changes)
+    if (!expected.containsKey(field.key().c_str()))
+      return fail("Expected must include every changed field");
   if (filament && !c["spool_id"].isNull() &&
       (!c["spool_id"].is<int>() || c["spool_id"].as<int>() <= 0))
     return fail("Invalid selected spool ID");
@@ -520,6 +534,16 @@ Result TagWriterService::edit_record(JsonObjectConst c, bool filament) {
       return Result::failure(before.error());
     if (!canonical_record(before.value().as<JsonVariantConst>(), id, filament))
       return fail("Malformed canonical record; nothing patched");
+    // Compare the entire edit before constructing or sending any PATCH. Missing
+    // optional values and explicit null both mean unknown; zero is a real
+    // value.
+    for (auto field : changes)
+      if (!same(before.value()[field.key()], expected[field.key()])) {
+        view_[filament ? "filament" : "spool"].set(before.value());
+        view_["edit_conflict"] = true;
+        return fail("Spoolman changed since this editor was opened. Refresh "
+                    "and review again.");
+      }
     for (auto field : changes)
       if (!same(before.value()[field.key()], field.value()))
         patch[field.key()] = field.value();

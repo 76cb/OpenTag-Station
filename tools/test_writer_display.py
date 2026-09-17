@@ -25,6 +25,8 @@ const preview={phase:'preview',mode:'rewrite',spool_id:28,previous_spool_id:0,ui
 let result={phase:'idle'};
 const id=n=>document.getElementById(n);
 window.OpenTagWriterHost={byId:id,asObject:v=>v&&typeof v==='object'?v:{},asArray:v=>Array.isArray(v)?v:[],first:(...v)=>v.find(x=>x!==null&&x!==undefined),setText:(n,v)=>id(n).textContent=v,setValue:(n,v)=>id(n).value=v,valueOf:n=>id(n).value,showToast:m=>id('fixture-status').textContent=m,PRIORITY:{CONTROL:0},state:{},api:async()=>structuredClone(result),submitMutation:async(path,{body})=>{
+if(body.action.startsWith('update_')){const entity=body.action.slice(7),current=entity==='spool'?spool:spool.filament;
+if(!body.expected||Object.keys(body.changes).some(k=>!(k in body.expected)||(current[k]??null)!==body.expected[k])){result={phase:'failed',edit_conflict:true,[entity]:structuredClone(current)};throw Error('Spoolman changed since this editor was opened.');}}
 if(body.action==='catalog')result={phase:'catalog',entity:'spool',items:[{...spool,id:27,remaining_weight:0,used_weight:1000},spool],offset:0,next_offset:2,has_more:false};
 if(body.action==='preview')result={...preview,spool:structuredClone(spool)};
 if(body.action==='update_filament'){Object.assign(spool.filament,body.changes);result={phase:'updated',spool:structuredClone(spool),filament:structuredClone(spool.filament),message:'Saved and verified in Spoolman. Generate a new tag preview.'};}
@@ -51,6 +53,15 @@ check(getComputedStyle(id('writer-editor')).display==='none','editor closes afte
 await T.writerCommand({action:'preview',spool_id:28});
 check(id('writer-diff').textContent.includes('1000 g'),'human readable diff');
 check(!id('writer-advanced').open,'advanced collapsed');check(!id('writer-notices').open,'optional notices collapsed');
+T.openEditor('spool');const used=id('writer-editor-fields').querySelector('[name="used_weight"]');used.value='25';
+spool.used_weight=15;await T.saveEditor();
+check(spool.used_weight===15,'conflict sends no PATCH');check(used.value==='25','conflict preserves draft');
+check(id('writer-editor-message').textContent.includes('Used weight (g): 15'),'fresh canonical consumption visible');
+check(getComputedStyle(id('writer-confirm')).display==='none','conflict invalidates write preview');
+check(getComputedStyle(id('writer-editor')).display!=='none','conflict editor stays open');
+await T.saveEditor();check(spool.used_weight===25,'explicit second save uses fresh expectation');
+check(getComputedStyle(id('writer-editor')).display==='none','verified retry closes editor');
+await T.writerCommand({action:'preview',spool_id:28});
 for(const phase of ['idle','failed','preview','import_preview','association_pending','complete']){
 T.renderWriter({...preview,phase});for(const [name,active] of [['confirm','preview'],['import','import_preview'],['retry','association_pending']]){
 const node=id('writer-'+name);node.hidden=false;check((getComputedStyle(node).display!=='none')===(phase===active),'CSS visibility '+name+' '+phase);

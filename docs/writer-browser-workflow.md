@@ -44,8 +44,8 @@ There is no tag-only metadata override.
 The high-level `/api/v1/tag-writer` operations are:
 
 ```json
-{"action":"update_spool","spool_id":28,"changes":{"used_weight":0,"spool_weight":130}}
-{"action":"update_filament","filament_id":22,"spool_id":28,"changes":{"weight":1000}}
+{"action":"update_spool","spool_id":28,"expected":{"used_weight":0,"spool_weight":130},"changes":{"used_weight":25,"spool_weight":140}}
+{"action":"update_filament","filament_id":22,"spool_id":28,"expected":{"weight":777.12},"changes":{"weight":1000}}
 ```
 
 `spool_id` is optional for a standalone filament selection. If supplied, the
@@ -64,19 +64,41 @@ IDs, associations, vendor IDs, `extra`, provenance or arbitrary backend paths.
 | Filament | `color_hex` | Exactly 6 or 8 hexadecimal digits |
 | Filament | `settings_extruder_temp`, `settings_bed_temp` | Integers 0–500 °C and 0–200 °C |
 
-These field names follow the [Spoolman canonical model](https://github.com/Donkie/Spoolman/blob/v0.22.1/spoolman/api/v1/models.py).
+These field names follow the inspected v0.26.1 baseline at `8d9eb7395da9553bdbf14b21231afe4e153f0a79` ([compatibility record](UPSTREAM_COMPATIBILITY.md)), using the [Spoolman canonical model](https://github.com/Donkie/Spoolman/blob/8d9eb7395da9553bdbf14b21231afe4e153f0a79/spoolman/api/v1/models.py).
 This editor uses `used_weight`; remaining weight is displayed from Spoolman.
 Blank numeric inputs preserve existing/unknown values, rather than clearing them.
 Unknown optional values and unchanged fields are omitted from the PATCH.
 
 The backend validates allowlists/types/bounds, GETs the exact existing record,
+compares every changed field with its explicit `expected` value before any PATCH,
 PATCHes only changed values, then GETs and verifies each requested value. A
 filament edit with a selected spool additionally reloads that canonical spool
 and verifies its embedded filament fields. Mismatches or network failures are
 reported as failures, never as a verified save. A failed PATCH/readback can mean
 Spoolman changed while verification failed: the UI keeps the last verified data
-and draft, and asks for a refresh before retry. Concurrent external Spoolman
-edits are not transactional with this sequence.
+and draft, and asks for a refresh before retry.
+
+Every edit includes the field values reviewed when its editor opened. `expected`
+uses the same allowlist and must include every field in `changes`; additional
+allowlisted expected fields are accepted but only changed fields are compared.
+An omitted expected key is rejected. Explicit `null` represents an unknown optional
+value and matches either absent or null canonical data; it never matches zero.
+Required numeric fields (`used_weight`, density and diameter) cannot expect null.
+
+If a changed field differs on the canonical GET, the entire edit is refused before
+PATCH, with a conflict and the fresh canonical record when it fits the response
+workspace. For example, reviewed used weight 0 → concurrent consumption 15 →
+draft 25 conflicts, with no PATCH or NFC calls. Unrelated changes are allowed and
+preserved because only explicitly edited fields are patched. This applies equally
+to spool and shared filament edits, including no-op requests already at their target.
+
+The browser retains the original draft and displays current canonical values for
+the attempted fields in the editor message. It updates expectations only for those
+reviewed conflict fields, never silently turns other stale form values into edits,
+and requires another explicit **Save Changes**. Further concurrent changes conflict
+again. No automatic retry occurs and the old exact-write preview stays invalidated.
+This is a pre-PATCH expected-value check, not an atomic Spoolman compare-and-swap:
+the upstream API does not lock out another client between GET and PATCH.
 
 Opening an editor removes the browser's write confirmation. Every backend edit
 attempt invalidates its old tag plan. Saving or cancelling never restores that
