@@ -120,24 +120,20 @@ const char index_html[] = R"HTML(<!doctype html>
 
     <section id="nfc" class="section product-page tags-page" data-page="tags" aria-labelledby="nfc-title" hidden>
       <div class="section-heading"><div><p class="eyebrow">OPENPRINTTAG</p><h2 id="nfc-title">Tags</h2></div><span id="nfc-badge" class="badge neutral">Checking</span></div>
-      <article class="card intentional-empty">
-        <span class="empty-icon" aria-hidden="true">◇</span>
-        <h3 id="nfc-summary">Checking NFC reader</h3>
-        <p id="nfc-guidance">Reader wiring and ST RFAL are not configured.</p>
+      <article class="card"><div class="tag-header"><span class="empty-icon" aria-hidden="true">◇</span><div><h3 id="nfc-summary">Checking NFC reader</h3><p id="nfc-guidance">Waiting for the reader status.</p></div></div><div class="status-chips"><span id="nfc-detected-chip" class="status-chip">NO TAG</span><span id="nfc-decode-chip" class="status-chip">DECODE PENDING</span><span id="nfc-link-chip" class="status-chip">NOT LINKED</span></div>
         <dl class="facts">
           <div><dt>Reader</dt><dd id="nfc-reader-state">OFF</dd></div>
           <div><dt>Tag</dt><dd id="nfc-tag-state">No tag</dd></div>
-          <div><dt>UID</dt><dd id="nfc-uid">—</dd></div>
+          <div><dt>UID</dt><dd class="copy-value"><span id="nfc-uid">—</span><button id="nfc-copy" class="button quiet" type="button" disabled aria-label="Copy tag UID">Copy</button></dd></div>
           <div><dt>Technology</dt><dd id="nfc-technology">NFC-V / ISO15693</dd></div>
-          <div><dt>Identity</dt><dd id="nfc-identity">—</dd></div>
-          <div><dt>Geometry</dt><dd id="nfc-geometry">—</dd></div>
+          <div><dt>Spoolman</dt><dd id="nfc-association">Not linked</dd></div><div id="nfc-identity-row" hidden><dt>Identity</dt><dd id="nfc-identity">—</dd></div>
         </dl>
         <p id="nfc-read-status" class="setup-status" aria-live="polite">No tag data</p>
         <button id="read-tag" class="button" type="button" disabled hidden>Read tag</button>
-        <button id="writer-open" class="button" type="button">Write / Rewrite</button>
+        <button id="writer-open" class="button primary" type="button">Write / Rewrite</button>
       </article>
       <div id="writer-panel" hidden></div>
-   <dl class="facts">
+   <details class="card"><summary>Tag metadata &amp; advanced details</summary><dl class="facts"><div><dt>Geometry</dt><dd id="nfc-geometry">—</dd></div>
         <div><dt>Material</dt><dd id="nfc-material">—</dd></div>
         <div><dt>Type</dt><dd id="nfc-type">—</dd></div>
         <div><dt>Brand</dt><dd id="nfc-brand">—</dd></div>
@@ -148,7 +144,7 @@ const char index_html[] = R"HTML(<!doctype html>
         <div><dt>Remaining (g)</dt><dd id="nfc-remaining">—</dd></div>
         <div><dt>Measured (g)</dt><dd id="nfc-measured">—</dd></div>
         <div><dt>Image checksum</dt><dd id="nfc-checksum">—</dd></div>
-      </dl>
+      </dl></details>
     </section>
 
     <section id="spool" class="section product-page home-support" data-page="home" aria-labelledby="spool-title">
@@ -242,7 +238,7 @@ const char index_html[] = R"HTML(<!doctype html>
     <section id="diagnostics" class="section product-page settings-detail" data-page="settings" aria-labelledby="diagnostics-title" hidden>
       <div class="section-heading"><div><p class="eyebrow">SUPPORT</p><h2 id="diagnostics-title">Diagnostics and logs</h2></div><button id="refresh-diagnostics" class="button quiet" type="button">Refresh diagnostics</button></div>
       <div class="card-grid two-column">
-        <article class="card"><h3>System snapshot</h3><pre id="diagnostics-json" class="json-view tall" tabindex="0">Loading…</pre></article>
+        <article class="card"><h3>System snapshot</h3><details><summary>Advanced details · diagnostic snapshot</summary><pre id="diagnostics-json" class="json-view tall" tabindex="0">Loading…</pre></details></article>
         <article class="card"><div class="card-title-row"><h3>Recent logs</h3><button id="refresh-logs" class="button tiny" type="button">Refresh</button></div><ol id="log-list" class="log-list"><li>No logs available.</li></ol></article>
       </div>
       <article class="card self-test-card"><div class="card-title-row"><h3>Local interface transport self-test</h3><button id="run-self-test" class="button" type="button">Run Local Interface Self-Test</button></div><p id="self-test-status" class="hint" aria-live="polite">Read-only checks use the existing connection and never display response bodies or credentials.</p><div class="table-scroll"><table class="self-test-table"><thead><tr><th>Check</th><th>Result</th><th>HTTP</th><th>Latency</th><th>Detail</th></tr></thead><tbody id="self-test-results"><tr><td colspan="5">Not run.</td></tr></tbody></table></div></article>
@@ -271,337 +267,7 @@ const char index_html[] = R"HTML(<!doctype html>
 
 const std::size_t index_html_size = sizeof(index_html) - 1U;
 
-const char application_css[] = R"CSS(:root {
-  color-scheme: dark;
-  --bg: #0b0f14;
-  --surface: #121923;
-  --surface-2: #182230;
-  --line: #2a394c;
-  --text: #edf5fb;
-  --muted: #9eafbe;
-  --accent: #59d2c6;
-  --accent-ink: #052925;
-  --good: #6ee7a2;
-  --warn: #ffc857;
-  --bad: #ff7585;
-  --focus: #8abfff;
-  --radius: 14px;
-  --shadow: 0 14px 36px rgba(0, 0, 0, .24);
-  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  font-synthesis: none;
-}
-
-* { box-sizing: border-box; }
-html { scroll-behavior: smooth; }
-body { margin: 0; min-width: 300px; background: radial-gradient(circle at 80% -10%, #183242 0, transparent 36rem), var(--bg); color: var(--text); line-height: 1.5; }
-button, input, select { font: inherit; }
-button, a, input, select { -webkit-tap-highlight-color: transparent; }
-a { color: var(--accent); }
-:focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; }
-.skip-link { position: fixed; z-index: 100; left: 1rem; top: -5rem; padding: .7rem 1rem; background: var(--text); color: var(--bg); border-radius: 8px; }
-.skip-link:focus { top: 1rem; }
-
-.site-header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 1.2rem clamp(1rem, 4vw, 3rem); border-bottom: 1px solid var(--line); background: rgba(11, 15, 20, .9); backdrop-filter: blur(12px); }
-.brand-block, .connection-strip, .action-row, .card-title-row { display: flex; align-items: center; gap: .75rem; }
-.brand-mark { display: grid; place-items: center; width: 3rem; height: 3rem; border-radius: 12px; background: var(--accent); color: var(--accent-ink); font-weight: 900; letter-spacing: -.05em; }
-h1, h2, h3, p { margin-top: 0; }
-h1 { margin-bottom: 0; font-size: clamp(1.25rem, 2vw, 1.65rem); letter-spacing: -.03em; }
-h2 { margin-bottom: 0; font-size: clamp(1.45rem, 3vw, 2rem); letter-spacing: -.03em; }
-h3 { margin-bottom: .75rem; font-size: 1.05rem; }
-.eyebrow { margin-bottom: .15rem; color: var(--accent); font: 700 .7rem/1.2 ui-monospace, monospace; letter-spacing: .16em; }
-.connection-strip { color: var(--muted); font-size: .9rem; }
-.status-dot { width: .65rem; height: .65rem; flex: none; border-radius: 999px; background: var(--muted); box-shadow: 0 0 0 4px rgba(158, 175, 190, .12); }
-.status-dot.online { background: var(--good); box-shadow: 0 0 0 4px rgba(110, 231, 162, .12); }
-.status-dot.offline { background: var(--bad); box-shadow: 0 0 0 4px rgba(255, 117, 133, .12); }
-.status-dot.pending { animation: pulse 1.4s infinite; }
-@keyframes pulse { 50% { opacity: .35; } }
-
-.section-nav { position: sticky; top: 0; z-index: 20; display: flex; gap: .35rem; overflow-x: auto; padding: .65rem clamp(1rem, 4vw, 3rem); border-bottom: 1px solid var(--line); background: rgba(11, 15, 20, .94); scrollbar-width: thin; }
-.section-nav a { flex: none; padding: .45rem .7rem; border-radius: 8px; color: var(--muted); text-decoration: none; font-size: .88rem; }
-.section-nav a:hover { background: var(--surface-2); color: var(--text); }
-main { width: min(1180px, 100%); margin: 0 auto; padding: 0 clamp(1rem, 4vw, 2rem) 4rem; }
-.section { scroll-margin-top: 4.5rem; padding-top: 3rem; }
-.section-heading { display: flex; align-items: end; justify-content: space-between; gap: 1rem; margin-bottom: 1rem; }
-.card-grid, .backend-grid, .config-form { display: grid; gap: 1rem; }
-.overview-grid { grid-template-columns: 1.1fr 1fr 1fr; }
-.two-column, .backend-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-.card { min-width: 0; padding: 1.15rem; border: 1px solid var(--line); border-radius: var(--radius); background: linear-gradient(145deg, rgba(24, 34, 48, .92), rgba(18, 25, 35, .94)); box-shadow: var(--shadow); }
-.hero-card { display: flex; flex-direction: column; justify-content: center; background: linear-gradient(145deg, rgba(21, 75, 78, .82), rgba(18, 36, 47, .96)); }
-.metric-label { margin-bottom: .3rem; color: var(--muted); text-transform: uppercase; font-size: .72rem; font-weight: 750; letter-spacing: .12em; }
-.hero-value { margin-bottom: .3rem; font-size: clamp(1.6rem, 4vw, 2.5rem); font-weight: 780; letter-spacing: -.04em; }
-.weight-value { font: 750 clamp(3.2rem, 11vw, 6rem)/.95 ui-monospace, monospace; letter-spacing: -.08em; }
-.unit { color: var(--muted); font: 700 1.25rem ui-monospace, monospace; }
-.quality { color: var(--accent); font-weight: 700; }
-.facts { margin: 0; }
-.facts div { display: grid; grid-template-columns: minmax(7rem, .8fr) minmax(0, 1.4fr); gap: .75rem; padding: .55rem 0; border-bottom: 1px solid rgba(74, 94, 116, .35); }
-.facts div:last-child { border-bottom: 0; }
-.facts dt { color: var(--muted); }
-.facts dd { margin: 0; text-align: right; overflow-wrap: anywhere; }
-.facts.compact { margin-top: 1rem; }
-.badge { display: inline-flex; align-items: center; min-height: 1.8rem; padding: .25rem .65rem; border: 1px solid currentColor; border-radius: 999px; font-size: .78rem; font-weight: 750; }
-.badge.good { color: var(--good); background: rgba(110, 231, 162, .08); }
-.badge.warning { color: var(--warn); background: rgba(255, 200, 87, .08); }
-.badge.bad { color: var(--bad); background: rgba(255, 117, 133, .08); }
-.badge.neutral { color: var(--muted); }
-.muted, .hint { color: var(--muted); }
-.hint { font-size: .86rem; }
-.mono { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
-.small { font-size: .78rem; overflow-wrap: anywhere; }
-.large-state { margin-bottom: .25rem; font-size: 1.4rem; font-weight: 750; }
-
-.button { display: inline-flex; align-items: center; justify-content: center; min-height: 2.65rem; padding: .55rem .9rem; border: 1px solid var(--line); border-radius: 9px; background: var(--surface-2); color: var(--text); cursor: pointer; font-weight: 720; }
-.button:hover:not(:disabled) { border-color: var(--accent); transform: translateY(-1px); }
-.button.primary { border-color: var(--accent); background: var(--accent); color: var(--accent-ink); }
-.button.quiet { min-height: 2.2rem; padding: .4rem .7rem; background: transparent; }
-.button.tiny { min-height: 1.9rem; padding: .25rem .55rem; font-size: .78rem; }
-.button.warning { border-color: var(--warn); color: var(--warn); background: rgba(255, 200, 87, .08); }
-.button.danger { border-color: var(--bad); color: #fff; background: #a9273c; }
-.button:disabled { opacity: .42; cursor: not-allowed; }
-.file-button { width: fit-content; }
-.action-row { flex-wrap: wrap; margin-top: 1rem; }
-.update-card progress { width: 100%; height: 1rem; accent-color: var(--accent); }
-.update-stages { padding-left: 1.4rem; color: var(--muted); font-size: .86rem; }
-.update-stages .complete { color: var(--good); }
-.update-stages .active { color: var(--warn); font-weight: 700; }
-
-.stacked-form, fieldset { display: grid; gap: .65rem; }
-label, legend { font-weight: 680; }
-legend { padding: 0 .35rem; }
-input, select { width: 100%; min-height: 2.65rem; padding: .55rem .65rem; border: 1px solid var(--line); border-radius: 8px; background: #0d141d; color: var(--text); }
-input:invalid { border-color: var(--bad); }
-.check { display: flex; align-items: start; gap: .55rem; color: var(--muted); font-size: .88rem; font-weight: 500; }
-.check input { width: 1.1rem; min-height: 1.1rem; margin-top: .12rem; }
-.config-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-.wide-card, .form-actions { grid-column: 1 / -1; }
-.form-actions { display: flex; gap: .75rem; }
-.transfer-card { margin-top: 1rem; }
-.profile-list { display: grid; gap: .75rem; }
-.profile-row { display: grid; grid-template-columns: 4rem 1.2fr .7fr 1fr .7fr auto; gap: .65rem; align-items: end; padding: .75rem; border: 1px solid rgba(74, 94, 116, .45); border-radius: 10px; }
-.profile-row label { font-size: .76rem; color: var(--muted); }
-.profile-row input, .profile-row select { margin-top: .25rem; }
-.profile-enabled { align-self: center; }
-
-.printer-list { display: grid; gap: 1rem; margin-top: 1rem; }
-.printer-heading { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
-.toolhead-grid { display: grid; grid-template-columns: repeat(5, minmax(8.5rem, 1fr)); gap: .7rem; margin-top: 1rem; overflow-x: auto; padding-bottom: .25rem; }
-.toolhead { display: flex; flex-direction: column; min-height: 9.5rem; padding: .8rem; border: 1px solid var(--line); border-radius: 10px; background: rgba(10, 15, 21, .45); }
-.toolhead-name { font-size: 1.2rem; font-weight: 800; }
-.toolhead-spool { flex: 1; margin: .35rem 0 .75rem; color: var(--muted); overflow-wrap: anywhere; }
-.toolhead-actions { display: grid; gap: .4rem; }
-.empty-state { color: var(--muted); text-align: center; }
-.danger-card { border-color: rgba(255, 117, 133, .5); }
-.json-view { max-height: 18rem; margin: 0; padding: .8rem; overflow: auto; border-radius: 8px; background: #070b10; color: #c7e9e5; white-space: pre-wrap; overflow-wrap: anywhere; font: .78rem/1.55 ui-monospace, monospace; }
-.json-view.tall { max-height: 32rem; }
-.log-list { max-height: 32rem; margin: 0; padding-left: 1.8rem; overflow: auto; }
-.log-list li { padding: .45rem .25rem; border-bottom: 1px solid rgba(74, 94, 116, .35); font: .78rem/1.5 ui-monospace, monospace; overflow-wrap: anywhere; }
-.log-error { color: var(--bad); }
-.log-warning { color: var(--warn); }
-footer { display: flex; justify-content: space-between; gap: 1rem; padding: 1.2rem clamp(1rem, 4vw, 3rem); border-top: 1px solid var(--line); color: var(--muted); font-size: .82rem; }
-.toast { position: fixed; z-index: 80; right: 1rem; bottom: 1rem; max-width: min(28rem, calc(100vw - 2rem)); padding: .85rem 1rem; border: 1px solid var(--accent); border-radius: 10px; background: #12282a; box-shadow: var(--shadow); }
-.toast.error { border-color: var(--bad); background: #38141c; }
-.visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
-.setup-portal { padding: 1.4rem; margin-top: 1.5rem; border: 2px solid var(--accent); border-radius: var(--radius); background: rgba(16, 54, 58, .45); }
-.setup-portal[hidden] { display: none; }
-.setup-status { min-height: 3rem; margin: 1rem 0 0; padding: .7rem; border-left: 4px solid var(--accent); background: rgba(0, 0, 0, .2); }
-.config-status-row { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 1rem; }
-.config-status-row .setup-status { flex: 1; min-height: auto; margin: 0; }
-.self-test-card { margin-top: 1rem; }
-.table-scroll { overflow-x: auto; }
-.self-test-table { width: 100%; border-collapse: collapse; font-size: .82rem; }
-.self-test-table th, .self-test-table td { padding: .55rem; border-bottom: 1px solid var(--line); text-align: left; white-space: nowrap; }
-.self-test-table td:last-child { white-space: normal; overflow-wrap: anywhere; }
-.self-test-pass { color: var(--good); font-weight: 700; }
-.self-test-fail { color: var(--bad); font-weight: 700; }
-
-/* Product UI layer: fixed navigation, appliance pages, and vector scale. */
-:root {
-  --bg: #071018;
-  --surface: #111c29;
-  --surface-2: #182637;
-  --raised: #1b293b;
-  --line: #26384a;
-  --text: #f8fafc;
-  --muted: #94a3b8;
-  --accent: #16d9c2;
-  --accent-ink: #031b19;
-  --good: #22c55e;
-  --warn: #f59e0b;
-  --bad: #ef4444;
-  --focus: #67e8f9;
-  --radius: 18px;
-  --rail: 224px;
-}
-body { min-height: 100vh; background: radial-gradient(circle at 58% 32%, rgba(13, 148, 136, .13), transparent 32rem), linear-gradient(145deg, #050b12, var(--bg)); }
-.product-rail { position: fixed; inset: 0 auto 0 0; z-index: 40; display: flex; width: var(--rail); flex-direction: column; padding: 1.3rem 1rem; border-right: 1px solid #1c2d3d; background: linear-gradient(180deg, rgba(5, 13, 21, .98), rgba(7, 16, 24, .96)); }
-.brand-block { display: flex; align-items: center; gap: .8rem; min-height: 4.2rem; padding: .45rem .35rem 1.25rem; color: var(--text); text-decoration: none; }
-.brand-mark { position: relative; width: 2.75rem; height: 2.75rem; flex: none; border: 3px solid var(--accent); border-radius: 50%; background: transparent; box-shadow: 0 0 24px rgba(22, 217, 194, .2); }
-.brand-mark::before, .brand-mark::after, .brand-mark span { position: absolute; content: ""; border-radius: 50%; }
-.brand-mark::before { inset: 7px; border: 2px solid var(--accent); }
-.brand-mark::after { inset: 13px; background: var(--accent); }
-.brand-mark span { inset: -3px 9px; border-top: 3px solid var(--bg); border-bottom: 3px solid var(--bg); border-radius: 0; }
-.brand-name { font-size: 1.15rem; font-weight: 800; letter-spacing: -.03em; }
-.brand-name small { display: block; color: var(--muted); font-size: .95rem; font-weight: 500; }
-.section-nav { position: static; display: grid; gap: .72rem; overflow: visible; padding: 0; border: 0; background: transparent; }
-.section-nav a { display: grid; min-height: 4.6rem; grid-template-columns: 2.6rem 1fr; align-items: center; gap: .7rem; padding: .7rem .85rem; border: 1px solid #1d3041; border-radius: 13px; background: rgba(17, 28, 41, .58); color: #bdc8d5; font-size: .96rem; font-weight: 700; text-decoration: none; }
-.section-nav a:hover, .section-nav a:focus-visible { border-color: #3a6b70; background: var(--surface); color: var(--text); transform: translateY(-1px); }
-.section-nav a.active { border-color: var(--accent); background: linear-gradient(115deg, rgba(10, 100, 95, .42), rgba(17, 35, 47, .88)); color: var(--accent); box-shadow: inset 3px 0 var(--accent), 0 0 24px rgba(22, 217, 194, .12); }
-.nav-icon { display: grid; width: 2.45rem; height: 2.45rem; place-items: center; color: currentColor; font-size: 1.8rem; font-weight: 400; }
-.rail-live { display: flex; align-items: center; gap: .6rem; margin-top: auto; padding: .9rem .55rem .25rem; color: var(--muted); font-size: .74rem; }
-.app-frame { min-height: 100vh; margin-left: var(--rail); }
-.site-header { position: sticky; top: 0; z-index: 30; min-height: 5rem; padding: 1rem clamp(1.2rem, 3vw, 2.5rem); border-bottom: 1px solid rgba(38, 56, 74, .75); background: rgba(7, 16, 24, .9); backdrop-filter: blur(14px); }
-.site-header h1 { font-size: 1.65rem; }
-.connection-strip { justify-content: flex-end; }
-main { width: min(1280px, 100%); min-height: calc(100vh - 9.6rem); padding: 0 clamp(1.2rem, 3vw, 2.5rem) 3rem; }
-.product-page[hidden] { display: none !important; }
-.section { padding-top: 2rem; }
-.section-heading { align-items: center; margin-bottom: 1.35rem; }
-.card { border-color: var(--line); background: linear-gradient(145deg, rgba(24, 38, 55, .9), rgba(13, 24, 35, .96)); box-shadow: 0 18px 50px rgba(0, 0, 0, .2); }
-.home-hero { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(18rem, .85fr); gap: 1.5rem; align-items: stretch; min-height: 19rem; }
-.home-copy { display: flex; flex-direction: column; justify-content: center; padding: clamp(2.25rem, 5vw, 4.5rem); border: 1px solid var(--line); border-radius: 24px; background: radial-gradient(circle at 80% 20%, rgba(22, 217, 194, .18), transparent 18rem), linear-gradient(145deg, #10202e, #09131d); }
-.home-copy h2 { margin-bottom: .7rem; font-size: clamp(2.1rem, 5vw, 4rem); }
-.home-prompt { margin-bottom: .45rem; color: var(--text); font-size: clamp(1.45rem, 3vw, 2.2rem); font-weight: 750; }
-.home-action { display: grid; grid-template-columns: 4rem 1fr auto; align-items: center; gap: 1rem; min-height: 12rem; padding: 1.5rem; border: 1px solid var(--accent); border-radius: 24px; background: linear-gradient(135deg, #087c74, #0dafa1); color: white; cursor: pointer; text-align: left; box-shadow: 0 18px 55px rgba(13, 148, 136, .2); }
-.home-action:hover:not(:disabled) { transform: translateY(-2px); filter: brightness(1.08); }
-.home-action:disabled { opacity: .48; cursor: not-allowed; }
-.home-action strong, .home-action small { display: block; }
-.home-action strong { font-size: 1.25rem; letter-spacing: .03em; }
-.home-action small { margin-top: .35rem; color: #d5fffa; }
-.home-action-icon { display: grid; width: 4rem; height: 4rem; place-items: center; border: 2px solid rgba(255,255,255,.72); border-radius: 50%; font-size: 2.5rem; }
-.home-state { display: inline-flex; width: fit-content; margin: 1rem .25rem 0; padding: .45rem .75rem; border: 1px solid rgba(74, 94, 116, .45); border-radius: 999px; background: rgba(13, 24, 35, .65); color: var(--muted); }
-.home-support { padding-top: 1.75rem; }
-.home-support .card-grid { align-items: stretch; }
-.scale-page { padding-top: 1.25rem; }
-.scale-state-row { display: flex; min-height: 2rem; align-items: center; justify-content: flex-end; margin-bottom: .65rem; }
-.scale-stage { display: grid; grid-template-columns: minmax(32rem, 1.2fr) minmax(18rem, 20rem); gap: clamp(1.25rem, 2.5vw, 2rem); align-items: stretch; }
-.spool-panel { display: grid; min-height: 35rem; grid-template-rows: minmax(0, 1fr) auto; place-items: center; overflow: hidden; padding: 1.25rem; border: 1px solid #1a3343; border-radius: 24px; background: radial-gradient(circle at 50% 48%, rgba(7, 115, 108, .2), transparent 43%), linear-gradient(145deg, #07121c, #050a10); box-shadow: inset 0 0 80px rgba(0,0,0,.28); }
-.spool-visual { --state: #506a77; position: relative; width: min(32rem, 92%); aspect-ratio: 1; border-radius: 50%; filter: drop-shadow(0 24px 24px rgba(0,0,0,.45)); }
-.spool-visual[data-state="measuring"] { --state: var(--accent); }
-.spool-visual[data-state="settling"] { --state: var(--warn); }
-.spool-visual[data-state="stable"], .spool-visual[data-state="completed"] { --state: var(--good); }
-.spool-visual[data-state="error"], .spool-visual[data-state="timed_out"], .spool-visual[data-state="failed"] { --state: var(--bad); }
-.spool-ticks { position: absolute; inset: 0; border-radius: 50%; background: repeating-conic-gradient(from -1deg, var(--state) 0 1deg, transparent 1deg 4deg); -webkit-mask: radial-gradient(circle, transparent 0 84%, #000 84.5% 88%, transparent 88.5%); mask: radial-gradient(circle, transparent 0 84%, #000 84.5% 88%, transparent 88.5%); opacity: .5; }
-.spool-ticks::before { position: absolute; inset: 2%; border: 1px solid color-mix(in srgb, var(--state) 46%, transparent); border-radius: 50%; content: ""; }
-.spool-ticks::after { position: absolute; top: .2%; left: 50%; width: 4px; height: 2.3rem; border-radius: 999px; background: var(--state); box-shadow: 0 0 14px var(--state); content: ""; opacity: .55; transform: translateX(-50%); }
-.spool-visual:not([data-state="idle"]) .spool-ticks { opacity: .88; }
-.spool-visual:not([data-state="idle"]) .spool-ticks::after { opacity: 1; }
-.spool-rim { position: absolute; inset: 8%; overflow: hidden; border: 10px solid #2c4052; border-radius: 50%; background: repeating-radial-gradient(circle, transparent 0 10px, rgba(105, 128, 146, .13) 11px 12px, transparent 13px 16px), radial-gradient(circle at 42% 34%, #34485a, #152331 62%, #0a131d 100%); box-shadow: inset 0 0 0 2px #617587, inset 0 0 0 16px #101c27, inset 0 0 45px #03070b, 0 0 36px color-mix(in srgb, var(--state) 24%, transparent); }
-.spool-rim i { position: absolute; z-index: 2; display: block; width: 20%; height: 9%; border: 2px solid #4d6172; border-radius: 999px; background: linear-gradient(#050a10, #0a121b); box-shadow: inset 0 3px 8px #020406; }
-.spool-rim i:nth-child(1) { top: 17%; left: 40%; }
-.spool-rim i:nth-child(2) { top: 31%; right: 14%; transform: rotate(58deg); }
-.spool-rim i:nth-child(3) { right: 14%; bottom: 31%; transform: rotate(-58deg); }
-.spool-rim i:nth-child(4) { bottom: 17%; left: 40%; }
-.spool-rim i:nth-child(5) { bottom: 31%; left: 14%; transform: rotate(58deg); }
-.spool-rim i:nth-child(6) { top: 31%; left: 14%; transform: rotate(-58deg); }
-.spool-hub { position: absolute; z-index: 3; inset: 29%; display: flex; flex-direction: column; align-items: center; justify-content: center; border: 7px solid #263b4c; border-radius: 50%; background: radial-gradient(circle at 50% 38%, #172938, #050a10 72%); box-shadow: 0 0 0 2px #657789, 0 0 28px rgba(0,0,0,.8), inset 0 -2px 24px color-mix(in srgb, var(--state) 13%, transparent); text-align: center; }
-.spool-reading { display: flex; align-items: baseline; gap: .45rem; margin: .25rem 0 .55rem; }
-.weight-value { font: 800 clamp(3.2rem, 6vw, 5.8rem)/.84 ui-sans-serif, system-ui, sans-serif; letter-spacing: -.07em; }
-.spool-hub .unit { color: var(--state); font-size: clamp(1.1rem, 2vw, 1.5rem); }
-.spool-hub .quality { margin: 0; color: var(--state); font-size: 1.05rem; }
-.spool-meta { align-self: start; margin: -.2rem 0 .15rem; color: var(--muted); font-size: .82rem; letter-spacing: .02em; }
-.scale-actions { display: grid; align-content: center; gap: .85rem; }
-.action-card { display: grid; width: 100%; min-height: 5.4rem; grid-template-columns: 3.4rem 1fr auto; align-items: center; gap: .8rem; padding: 1rem; border: 1px solid var(--line); border-radius: 15px; background: linear-gradient(130deg, #122231, #0d1824); color: var(--text); cursor: pointer; text-align: left; }
-.action-card:hover:not(:disabled) { border-color: var(--accent); transform: translateX(2px); }
-.action-card:disabled { border-color: #28394a; background: #101a26; color: #9aaabd; opacity: .62; cursor: not-allowed; }
-.action-card strong, .action-card small { display: block; }
-.action-card strong { font-size: 1.12rem; }
-.action-card small { margin-top: .18rem; color: var(--muted); }
-.action-icon { color: var(--accent); font-size: 2.2rem; text-align: center; }
-.weigh-action { min-height: 6.15rem; border-color: var(--accent); background: linear-gradient(135deg, #0b8b81, #07554f); box-shadow: 0 14px 32px rgba(8, 125, 116, .16); }
-.weigh-action .action-icon, .weigh-action small { color: white; }
-.calibration-drawer { min-width: 0; padding: 1rem; border: 1px solid #315564; border-radius: 16px; background: linear-gradient(145deg, #122332, #0b151f); box-shadow: 0 16px 40px rgba(0,0,0,.25); }
-.calibration-drawer[hidden] { display: none; }
-.drawer-heading { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: .85rem; }
-.drawer-heading h3, .drawer-heading .eyebrow { margin: 0; }
-.drawer-close { width: 2.75rem; min-width: 2.75rem; height: 2.75rem; border: 1px solid var(--line); border-radius: 50%; background: #0b151f; color: var(--text); cursor: pointer; font-size: 1.5rem; }
-.drawer-close:hover { border-color: var(--accent); color: var(--accent); }
-.calibration-card { display: grid; gap: .7rem; padding: 0; }
-.calibration-card label { color: var(--muted); font-size: .75rem; letter-spacing: .04em; text-transform: uppercase; }
-.calibration-submit { width: 100%; }
-.scale-guide-status { min-height: 2.8rem; margin: 0; padding: .75rem .9rem; border-left: 3px solid var(--accent); border-radius: 7px; background: rgba(17, 28, 41, .82); color: #afbecd; font-size: .86rem; line-height: 1.4; }
-.calibration-steps { display: flex; flex-wrap: wrap; gap: .45rem; margin: 0; padding: 0; list-style: none; }
-.calibration-steps li { padding: .28rem .5rem; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); font-size: .7rem; }
-.calibration-steps li.active { border-color: var(--warn); color: var(--warn); }
-.calibration-steps li.complete { border-color: var(--good); color: var(--good); }
-.intentional-empty { max-width: 42rem; margin: 5vh auto 0; padding: clamp(2rem, 6vw, 4rem); text-align: center; }
-.intentional-empty .empty-icon { display: grid; width: 5rem; height: 5rem; place-items: center; margin: 0 auto 1.25rem; border: 1px solid var(--accent); border-radius: 50%; color: var(--accent); font-size: 3rem; }
-.intentional-empty p { color: var(--muted); }
-.settings-nav { display: flex; flex-wrap: wrap; gap: .6rem; margin-bottom: 1rem; }
-.settings-nav a { padding: .55rem .85rem; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); text-decoration: none; }
-.settings-nav a:hover { border-color: var(--accent); color: var(--accent); }
-.settings-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
-.settings-detail { padding-top: 2.5rem; }
-.printer-list > .card { padding: 1.5rem; }
-.toolhead { min-height: 10rem; border-radius: 14px; background: rgba(5, 12, 19, .55); }
-.status-strip { position: sticky; bottom: 0; z-index: 25; display: flex; justify-content: space-around; gap: 1rem; margin: 0 1rem 1rem; padding: .75rem 1rem; border: 1px solid var(--line); border-radius: 14px; background: rgba(8, 17, 26, .94); backdrop-filter: blur(12px); }
-.status-strip span { display: flex; align-items: center; gap: .45rem; color: var(--muted); }
-.status-strip .status-dot { display: inline-block; width: .45rem; height: .45rem; }
-.status-strip strong { color: var(--text); font-weight: 650; }
-details summary { cursor: pointer; color: var(--accent); }
-
-@media (max-width: 850px) {
-  .site-header { align-items: start; flex-direction: column; }
-  .overview-grid, .two-column, .backend-grid, .config-form { grid-template-columns: 1fr; }
-  .wide-card, .form-actions { grid-column: auto; }
-  .profile-row { grid-template-columns: 4rem 1fr 1fr; }
-  .toolhead-grid { grid-template-columns: repeat(5, 9.5rem); }
-}
-@media (max-width: 520px) {
-  .section-heading { align-items: start; flex-direction: column; }
-  .connection-strip { width: 100%; flex-wrap: wrap; }
-  .facts div { grid-template-columns: 1fr; gap: .15rem; }
-  .facts dd { text-align: left; }
-  .profile-row { grid-template-columns: 1fr 1fr; }
-  .form-actions, footer { flex-direction: column; }
-}
-@media (max-width: 1080px) {
-  .scale-stage { grid-template-columns: minmax(22rem, 1fr) 19rem; gap: 1rem; }
-  .spool-panel { min-height: 30rem; }
-  .spool-visual { width: min(29rem, 92%); }
-}
-@media (max-width: 900px) {
-  .status-strip { display: none; }
-}
-@media (max-width: 780px) {
-  :root { --rail: 96px; }
-  .product-rail { padding: .8rem .5rem; }
-  .brand-block { justify-content: center; padding: .2rem 0 .8rem; }
-  .brand-name, .rail-live { display: none; }
-  .section-nav { gap: .5rem; }
-  .section-nav a { min-height: 4.55rem; grid-template-columns: 1fr; justify-items: center; gap: .08rem; padding: .4rem .2rem; font-size: .72rem; }
-  .section-nav a.active { box-shadow: inset 4px 0 var(--accent), 0 0 22px rgba(22, 217, 194, .16); }
-  .nav-icon { width: 2.2rem; height: 2.2rem; font-size: 1.65rem; }
-  .site-header { min-height: 4.4rem; padding: .7rem 1rem; }
-  .site-header .eyebrow { display: none; }
-  main { padding: 0 1rem 2rem; }
-  .scale-stage { grid-template-columns: 1fr; }
-  .spool-panel { min-height: 26rem; }
-  .spool-visual { width: min(24rem, 92%); }
-  .scale-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .weigh-action, .scale-guide-status, .calibration-drawer { grid-column: 1 / -1; }
-  .settings-grid, .home-hero { grid-template-columns: 1fr; }
-  .home-copy { padding: 2.2rem; }
-  .status-strip { display: none; }
-}
-@media (max-width: 520px) {
-  .connection-strip #health-badge { display: none; }
-  .section-heading { flex-direction: row; align-items: center; }
-  .spool-panel { min-height: 21rem; padding: .8rem; }
-  .spool-visual { width: min(20rem, 94%); }
-  .weight-value { font-size: clamp(2.5rem, 14vw, 4rem); }
-  .action-card { min-height: 4.7rem; grid-template-columns: 2.6rem 1fr auto; }
-  .action-icon { font-size: 1.7rem; }
-  .scale-actions { grid-template-columns: 1fr; }
-  .scale-actions > * { grid-column: auto; }
-  .calibration-drawer { padding: .85rem; }
-  .calibration-steps { gap: .35rem; }
-  .status-strip { display: none; }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  html { scroll-behavior: auto; }
-  *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
-}
-)CSS";
+const char application_css[] = R"CSS(:root{color-scheme:dark;--shadow:0 14px 36px rgba(0,0,0,.24);font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-synthesis:none}*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;min-width:300px;color:var(--text);line-height:1.5}button,input,select{font:inherit}button,a,input,select{-webkit-tap-highlight-color:transparent}a{color:var(--accent)}:focus-visible{outline:3px solid var(--focus);outline-offset:3px}.skip-link{position:fixed;z-index:100;left:1rem;top:-5rem;padding:.7rem 1rem;background:var(--text);color:var(--bg);border-radius:8px}.skip-link:focus{top:1rem}.site-header{display:flex;align-items:center;justify-content:space-between;gap:1rem}.brand-block,.connection-strip,.action-row,.card-title-row{display:flex;align-items:center;gap:.75rem}.brand-mark{display:grid;place-items:center;color:var(--accent-ink);font-weight:900;letter-spacing:-.05em}h1,h2,h3,p{margin-top:0}h1{margin-bottom:0;font-size:clamp(1.25rem,2vw,1.65rem);letter-spacing:-.03em}h2{margin-bottom:0;font-size:clamp(1.45rem,3vw,2rem);letter-spacing:-.03em}h3{margin-bottom:.75rem;font-size:1.05rem}.eyebrow{margin-bottom:.15rem;color:var(--accent);font:700 .7rem/1.2 ui-monospace,monospace;letter-spacing:.16em}.connection-strip{color:var(--muted);font-size:.9rem}.status-dot{width:.65rem;height:.65rem;flex:none;border-radius:999px;background:var(--muted);box-shadow:0 0 0 4px rgba(158,175,190,.12)}.status-dot.online{background:var(--good);box-shadow:0 0 0 4px rgba(110,231,162,.12)}.status-dot.offline{background:var(--bad);box-shadow:0 0 0 4px rgba(255,117,133,.12)}.status-dot.pending{animation:pulse 1.4s infinite}@keyframes pulse{50%{opacity:.35;}}.section-nav{top:0;z-index:20;overflow-x:auto;border-bottom:1px solid var(--line);scrollbar-width:thin}.section-nav a{flex:none}.section-nav a:hover{background:var(--surface-2);color:var(--text)}main{margin:0 auto}.section{scroll-margin-top:4.5rem}.section-heading{display:flex;flex-wrap:wrap;justify-content:space-between;gap:1rem}.card-grid,.backend-grid,.config-form{display:grid;gap:1rem}.two-column,.backend-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.card{min-width:0;padding:1.15rem;border:1px solid var(--line);border-radius:var(--radius)}.metric-label{margin-bottom:.3rem;color:var(--muted);text-transform:uppercase;font-size:.72rem;font-weight:750;letter-spacing:.12em}.unit{color:var(--muted);font:700 1.25rem ui-monospace,monospace}.quality{color:var(--accent);font-weight:700}.facts{margin:0}.facts div{display:grid;grid-template-columns:minmax(7rem,.8fr) minmax(0,1.4fr);gap:.75rem;padding:.55rem 0;border-bottom:1px solid rgba(74,94,116,.35)}.facts div:last-child{border-bottom:0}.facts dt{color:var(--muted)}.facts dd{margin:0;text-align:right;overflow-wrap:anywhere}.facts.compact{margin-top:1rem}.badge{display:inline-flex;align-items:center;min-height:1.8rem;padding:.25rem .65rem;border:1px solid currentColor;border-radius:999px;font-size:.78rem;font-weight:750}.badge.good{color:var(--good);background:rgba(110,231,162,.08)}.badge.warning{color:var(--warn);background:rgba(255,200,87,.08)}.badge.bad{color:var(--bad);background:rgba(255,117,133,.08)}.badge.neutral{color:var(--muted)}.muted,.hint{color:var(--muted)}.hint{font-size:.86rem}.mono{font-family:ui-monospace,SFMono-Regular,Consolas,monospace}.small{font-size:.78rem;overflow-wrap:anywhere}.large-state{margin-bottom:.25rem;font-size:1.4rem;font-weight:750}.button{display:inline-flex;align-items:center;justify-content:center;min-height:2.65rem;padding:.55rem .9rem;border:1px solid var(--line);border-radius:9px;background:var(--surface-2);color:var(--text);cursor:pointer;font-weight:720}.button:hover:not(:disabled){border-color:var(--accent);transform:translateY(-1px)}.button.primary{border-color:var(--accent);background:var(--accent);color:var(--accent-ink)}.button.quiet{min-height:2.2rem;padding:.4rem .7rem;background:transparent}.button.tiny{min-height:1.9rem;padding:.25rem .55rem;font-size:.78rem}.button.warning{border-color:var(--warn);color:var(--warn);background:rgba(255,200,87,.08)}.button.danger{border-color:var(--bad);color:#fff;background:#a9273c}.button:disabled{opacity:.42;cursor:not-allowed}.file-button{width:fit-content}.action-row{flex-wrap:wrap;margin-top:1rem}.update-card progress{width:100%;height:1rem;accent-color:var(--accent)}.update-stages{padding-left:1.4rem;color:var(--muted);font-size:.86rem}.update-stages .complete{color:var(--good)}.update-stages .active{color:var(--warn);font-weight:700}.stacked-form,fieldset{display:grid;gap:.65rem;align-content:start}label,legend{font-weight:680}legend{padding:0 .35rem}input,select{width:100%;min-height:2.65rem;padding:.55rem .65rem;border:1px solid var(--line);border-radius:8px;background:#0d141d;color:var(--text)}input:invalid{border-color:var(--bad)}.check{display:flex;align-items:start;gap:.55rem;color:var(--muted);font-size:.88rem;font-weight:500}.check input{width:1.1rem;min-height:1.1rem;margin-top:.12rem}.config-form{grid-template-columns:repeat(2,minmax(0,1fr))}.wide-card,.form-actions{grid-column:1 / -1}.form-actions{display:flex;gap:.75rem}.transfer-card{margin-top:1rem}.profile-list{display:grid;gap:.75rem}.profile-row{display:grid;grid-template-columns:4rem 1.2fr .7fr 1fr .7fr auto;gap:.65rem;align-items:end;padding:.75rem;border:1px solid rgba(74,94,116,.45);border-radius:10px}.profile-row label{font-size:.76rem;color:var(--muted)}.profile-row input,.profile-row select{margin-top:.25rem}.profile-enabled{align-self:center}.printer-list{display:grid;gap:1rem;margin-top:1rem}.printer-heading{display:flex;align-items:center;justify-content:space-between;gap:1rem}.toolhead-grid{display:grid;grid-template-columns:repeat(5,minmax(8.5rem,1fr));gap:.7rem;margin-top:1rem;overflow-x:auto;padding-bottom:.25rem}.toolhead{display:flex;flex-direction:column;padding:.8rem;border:1px solid var(--line)}.toolhead-name{font-size:1.2rem;font-weight:800}.toolhead-spool{flex:1;margin:.35rem 0 .75rem;color:var(--muted);overflow-wrap:anywhere}.toolhead-actions{display:grid;gap:.4rem}.danger-card{border-color:rgba(255,117,133,.5)}.json-view{max-height:18rem;margin:0;padding:.8rem;overflow:auto;border-radius:8px;background:#070b10;color:#c7e9e5;white-space:pre-wrap;overflow-wrap:anywhere;font:.78rem/1.55 ui-monospace,monospace}.json-view.tall{max-height:32rem}.log-list{max-height:32rem;margin:0;padding-left:1.8rem;overflow:auto}.log-list li{padding:.45rem .25rem;border-bottom:1px solid rgba(74,94,116,.35);font:.78rem/1.5 ui-monospace,monospace;overflow-wrap:anywhere}.log-error{color:var(--bad)}.log-warning{color:var(--warn)}footer{display:flex;justify-content:space-between;gap:1rem;padding:1.2rem clamp(1rem,4vw,3rem);border-top:1px solid var(--line);color:var(--muted);font-size:.82rem}.toast{position:fixed;z-index:80;right:1rem;bottom:1rem;max-width:min(28rem,calc(100vw - 2rem));padding:.85rem 1rem;border:1px solid var(--accent);border-radius:10px;background:#12282a;box-shadow:var(--shadow)}.toast.error{border-color:var(--bad);background:#38141c}.visually-hidden{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}.setup-portal{padding:1.4rem;margin-top:1.5rem;border:2px solid var(--accent);border-radius:var(--radius);background:rgba(16,54,58,.45)}.setup-portal[hidden]{display:none}.setup-status{min-height:3rem;margin:1rem 0 0;padding:.7rem;border-left:4px solid var(--accent);background:rgba(0,0,0,.2)}.config-status-row{display:flex;align-items:center;justify-content:space-between;gap:1rem;margin-bottom:1rem}.config-status-row .setup-status{flex:1;min-height:auto;margin:0}.self-test-card{margin-top:1rem}.table-scroll{overflow-x:auto}.self-test-table{width:100%;border-collapse:collapse;font-size:.82rem}.self-test-table th,.self-test-table td{padding:.55rem;border-bottom:1px solid var(--line);text-align:left;white-space:nowrap}.self-test-table td:last-child{white-space:normal;overflow-wrap:anywhere}.self-test-pass{color:var(--good);font-weight:700}.self-test-fail{color:var(--bad);font-weight:700}:root{--bg:#071018;--surface:#111c29;--surface-2:#182637;--raised:#1b293b;--line:#26384a;--text:#f8fafc;--muted:#94a3b8;--accent:#16d9c2;--accent-ink:#031b19;--good:#22c55e;--warn:#f59e0b;--bad:#ef4444;--focus:#67e8f9;--radius:18px;--rail:224px}body{min-height:100vh;background:radial-gradient(circle at 58% 32%,rgba(13,148,136,.13),transparent 32rem),linear-gradient(145deg,#050b12,var(--bg))}.product-rail{position:fixed;inset:0 auto 0 0;z-index:40;display:flex;width:var(--rail);flex-direction:column;padding:1.3rem 1rem;border-right:1px solid #1c2d3d;background:linear-gradient(180deg,rgba(5,13,21,.98),rgba(7,16,24,.96))}.brand-block{display:flex;align-items:center;gap:.8rem;min-height:4.2rem;padding:.45rem .35rem 1.25rem;color:var(--text);text-decoration:none}.brand-mark{position:relative;width:2.75rem;height:2.75rem;flex:none;border:3px solid var(--accent);border-radius:50%;background:transparent;box-shadow:0 0 24px rgba(22,217,194,.2)}.brand-mark::before,.brand-mark::after,.brand-mark span{position:absolute;content:"";border-radius:50%}.brand-mark::before{inset:7px;border:2px solid var(--accent)}.brand-mark::after{inset:13px;background:var(--accent)}.brand-mark span{inset:-3px 9px;border-top:3px solid var(--bg);border-bottom:3px solid var(--bg);border-radius:0}.brand-name{font-size:1.15rem;font-weight:800;letter-spacing:-.03em}.brand-name small{display:block;color:var(--muted);font-size:.95rem;font-weight:500}.section-nav{position:static;display:grid;gap:.72rem;overflow:visible;padding:0;border:0;background:transparent}.section-nav a{display:grid;min-height:4.6rem;grid-template-columns:2.6rem 1fr;align-items:center;gap:.7rem;padding:.7rem .85rem;border:1px solid #1d3041;border-radius:13px;background:rgba(17,28,41,.58);color:#bdc8d5;font-size:.96rem;font-weight:700;text-decoration:none}.section-nav a:hover,.section-nav a:focus-visible{border-color:#3a6b70;background:var(--surface);color:var(--text);transform:translateY(-1px)}.section-nav a.active{border-color:var(--accent);background:linear-gradient(115deg,rgba(10,100,95,.42),rgba(17,35,47,.88));color:var(--accent);box-shadow:inset 3px 0 var(--accent),0 0 24px rgba(22,217,194,.12)}.nav-icon{display:grid;width:2.45rem;height:2.45rem;place-items:center;color:currentColor;font-size:1.8rem;font-weight:400}.rail-live{display:flex;align-items:center;gap:.6rem;margin-top:auto;padding:.9rem .55rem .25rem;color:var(--muted);font-size:.74rem}.app-frame{min-height:100vh;margin-left:var(--rail)}.site-header{position:sticky;top:0;z-index:30;min-height:5rem;padding:1rem clamp(1.2rem,3vw,2.5rem);border-bottom:1px solid rgba(38,56,74,.75);background:rgba(7,16,24,.9);backdrop-filter:blur(14px)}.site-header h1{font-size:1.65rem}.connection-strip{justify-content:flex-end}main{width:min(1280px,100%);min-height:calc(100vh - 9.6rem);padding:0 clamp(1.2rem,3vw,2.5rem) 3rem}.product-page[hidden]{display:none !important}.section{padding-top:2rem}.section-heading{align-items:center;margin-bottom:1.35rem}.card{border-color:var(--line);background:linear-gradient(145deg,rgba(24,38,55,.9),rgba(13,24,35,.96));box-shadow:0 18px 50px rgba(0,0,0,.2)}.home-hero{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(18rem,.85fr);gap:1.5rem;align-items:stretch;min-height:19rem}.home-copy{display:flex;flex-direction:column;justify-content:center;padding:clamp(2.25rem,5vw,4.5rem);border:1px solid var(--line);border-radius:24px;background:radial-gradient(circle at 80% 20%,rgba(22,217,194,.18),transparent 18rem),linear-gradient(145deg,#10202e,#09131d)}.home-copy h2{margin-bottom:.7rem;font-size:clamp(2.1rem,5vw,4rem)}.home-prompt{margin-bottom:.45rem;color:var(--text);font-size:clamp(1.45rem,3vw,2.2rem);font-weight:750}.home-action{display:grid;grid-template-columns:4rem 1fr auto;align-items:center;gap:1rem;min-height:12rem;padding:1.5rem;border:1px solid var(--accent);border-radius:24px;background:linear-gradient(135deg,#087c74,#0dafa1);color:white;cursor:pointer;text-align:left;box-shadow:0 18px 55px rgba(13,148,136,.2)}.home-action:hover:not(:disabled){transform:translateY(-2px);filter:brightness(1.08)}.home-action:disabled{opacity:.48;cursor:not-allowed}.home-action strong,.home-action small{display:block}.home-action strong{font-size:1.25rem;letter-spacing:.03em}.home-action small{margin-top:.35rem;color:#d5fffa}.home-action-icon{display:grid;width:4rem;height:4rem;place-items:center;border:2px solid rgba(255,255,255,.72);border-radius:50%;font-size:2.5rem}.home-state{display:inline-flex;width:fit-content;margin:1rem .25rem 0;padding:.45rem .75rem;border:1px solid rgba(74,94,116,.45);border-radius:999px;background:rgba(13,24,35,.65);color:var(--muted)}.home-support{padding-top:1.75rem}.home-support .card-grid{align-items:stretch}.scale-page{padding-top:1.25rem}.scale-state-row{display:flex;min-height:2rem;align-items:center;justify-content:flex-end;margin-bottom:.65rem}.scale-stage{display:grid;grid-template-columns:minmax(32rem,1.2fr) minmax(18rem,20rem);gap:clamp(1.25rem,2.5vw,2rem);align-items:stretch}.spool-panel{display:grid;min-height:35rem;grid-template-rows:minmax(0,1fr) auto;place-items:center;overflow:hidden;padding:1.25rem;border:1px solid #1a3343;border-radius:24px;background:radial-gradient(circle at 50% 48%,rgba(7,115,108,.2),transparent 43%),linear-gradient(145deg,#07121c,#050a10);box-shadow:inset 0 0 80px rgba(0,0,0,.28)}.spool-visual{--state:#506a77;position:relative;width:min(32rem,92%);aspect-ratio:1;border-radius:50%;filter:drop-shadow(0 24px 24px rgba(0,0,0,.45))}.spool-visual[data-state="measuring"]{--state:var(--accent)}.spool-visual[data-state="settling"]{--state:var(--warn)}.spool-visual[data-state="stable"],.spool-visual[data-state="completed"]{--state:var(--good)}.spool-visual[data-state="error"],.spool-visual[data-state="timed_out"],.spool-visual[data-state="failed"]{--state:var(--bad)}.spool-ticks{position:absolute;inset:0;border-radius:50%;background:repeating-conic-gradient(from -1deg,var(--state) 0 1deg,transparent 1deg 4deg);-webkit-mask:radial-gradient(circle,transparent 0 84%,#000 84.5% 88%,transparent 88.5%);mask:radial-gradient(circle,transparent 0 84%,#000 84.5% 88%,transparent 88.5%);opacity:.5}.spool-ticks::before{position:absolute;inset:2%;border:1px solid color-mix(in srgb,var(--state) 46%,transparent);border-radius:50%;content:""}.spool-ticks::after{position:absolute;top:.2%;left:50%;width:4px;height:2.3rem;border-radius:999px;background:var(--state);box-shadow:0 0 14px var(--state);content:"";opacity:.55;transform:translateX(-50%)}.spool-visual:not([data-state="idle"]) .spool-ticks{opacity:.88}.spool-visual:not([data-state="idle"]) .spool-ticks::after{opacity:1}.spool-rim{position:absolute;inset:8%;overflow:hidden;border:10px solid #2c4052;border-radius:50%;background:repeating-radial-gradient(circle,transparent 0 10px,rgba(105,128,146,.13) 11px 12px,transparent 13px 16px),radial-gradient(circle at 42% 34%,#34485a,#152331 62%,#0a131d 100%);box-shadow:inset 0 0 0 2px #617587,inset 0 0 0 16px #101c27,inset 0 0 45px #03070b,0 0 36px color-mix(in srgb,var(--state) 24%,transparent)}.spool-rim i{position:absolute;z-index:2;display:block;width:20%;height:9%;border:2px solid #4d6172;border-radius:999px;background:linear-gradient(#050a10,#0a121b);box-shadow:inset 0 3px 8px #020406}.spool-rim i:nth-child(1){top:17%;left:40%}.spool-rim i:nth-child(2){top:31%;right:14%;transform:rotate(58deg)}.spool-rim i:nth-child(3){right:14%;bottom:31%;transform:rotate(-58deg)}.spool-rim i:nth-child(4){bottom:17%;left:40%}.spool-rim i:nth-child(5){bottom:31%;left:14%;transform:rotate(58deg)}.spool-rim i:nth-child(6){top:31%;left:14%;transform:rotate(-58deg)}.spool-hub{position:absolute;z-index:3;inset:29%;display:flex;flex-direction:column;align-items:center;justify-content:center;border:7px solid #263b4c;border-radius:50%;background:radial-gradient(circle at 50% 38%,#172938,#050a10 72%);box-shadow:0 0 0 2px #657789,0 0 28px rgba(0,0,0,.8),inset 0 -2px 24px color-mix(in srgb,var(--state) 13%,transparent);text-align:center}.spool-reading{display:flex;align-items:baseline;gap:.45rem;margin:.25rem 0 .55rem}.weight-value{font:800 clamp(3.2rem,6vw,5.8rem)/.84 ui-sans-serif,system-ui,sans-serif;letter-spacing:-.07em}.spool-hub .unit{color:var(--state);font-size:clamp(1.1rem,2vw,1.5rem)}.spool-hub .quality{margin:0;color:var(--state);font-size:1.05rem}.spool-meta{align-self:start;margin:-.2rem 0 .15rem;color:var(--muted);font-size:.82rem;letter-spacing:.02em}.scale-actions{display:grid;align-content:center;gap:.85rem}.action-card{display:grid;width:100%;min-height:5.4rem;grid-template-columns:3.4rem 1fr auto;align-items:center;gap:.8rem;padding:1rem;border:1px solid var(--line);border-radius:15px;background:linear-gradient(130deg,#122231,#0d1824);color:var(--text);cursor:pointer;text-align:left}.action-card:hover:not(:disabled){border-color:var(--accent);transform:translateX(2px)}.action-card:disabled{border-color:#28394a;background:#101a26;color:#9aaabd;opacity:.62;cursor:not-allowed}.action-card strong,.action-card small{display:block}.action-card strong{font-size:1.12rem}.action-card small{margin-top:.18rem;color:var(--muted)}.action-icon{color:var(--accent);font-size:2.2rem;text-align:center}.weigh-action{min-height:6.15rem;border-color:var(--accent);background:linear-gradient(135deg,#0b8b81,#07554f);box-shadow:0 14px 32px rgba(8,125,116,.16)}.weigh-action .action-icon,.weigh-action small{color:white}.calibration-drawer{min-width:0;padding:1rem;border:1px solid #315564;border-radius:16px;background:linear-gradient(145deg,#122332,#0b151f);box-shadow:0 16px 40px rgba(0,0,0,.25)}.calibration-drawer[hidden]{display:none}.drawer-heading{display:flex;align-items:center;justify-content:space-between;gap:1rem;margin-bottom:.85rem}.drawer-heading h3,.drawer-heading .eyebrow{margin:0}.drawer-close{width:2.75rem;min-width:2.75rem;height:2.75rem;border:1px solid var(--line);border-radius:50%;background:#0b151f;color:var(--text);cursor:pointer;font-size:1.5rem}.drawer-close:hover{border-color:var(--accent);color:var(--accent)}.calibration-card{display:grid;gap:.7rem;padding:0}.calibration-card label{color:var(--muted);font-size:.75rem;letter-spacing:.04em;text-transform:uppercase}.calibration-submit{width:100%}.scale-guide-status{min-height:2.8rem;margin:0;padding:.75rem .9rem;border-left:3px solid var(--accent);border-radius:7px;background:rgba(17,28,41,.82);color:#afbecd;font-size:.86rem;line-height:1.4}.calibration-steps{display:flex;flex-wrap:wrap;gap:.45rem;margin:0;padding:0;list-style:none}.calibration-steps li{padding:.28rem .5rem;border:1px solid var(--line);border-radius:999px;color:var(--muted);font-size:.7rem}.calibration-steps li.active{border-color:var(--warn);color:var(--warn)}.calibration-steps li.complete{border-color:var(--good);color:var(--good)}.intentional-empty{max-width:42rem;margin:5vh auto 0;padding:clamp(2rem,6vw,4rem);text-align:center}.intentional-empty .empty-icon{display:grid;width:5rem;height:5rem;place-items:center;margin:0 auto 1.25rem;border:1px solid var(--accent);border-radius:50%;color:var(--accent);font-size:3rem}.intentional-empty p{color:var(--muted)}.settings-nav{display:flex;flex-wrap:wrap;gap:.6rem;margin-bottom:1rem}.settings-nav a{padding:.55rem .85rem;border:1px solid var(--line);border-radius:999px;color:var(--muted);text-decoration:none}.settings-nav a:hover{border-color:var(--accent);color:var(--accent)}.settings-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1rem}.settings-detail{padding-top:2.5rem}.printer-list > .card{padding:1.5rem}.toolhead{min-height:10rem;border-radius:14px;background:rgba(5,12,19,.55)}.status-strip{position:sticky;bottom:0;z-index:25;display:flex;justify-content:space-around;gap:1rem;margin:0 1rem 1rem;padding:.75rem 1rem;border:1px solid var(--line);border-radius:14px;background:rgba(8,17,26,.94);backdrop-filter:blur(12px)}.status-strip span{display:flex;align-items:center;gap:.45rem;color:var(--muted)}.status-strip .status-dot{display:inline-block;width:.45rem;height:.45rem}.status-strip strong{color:var(--text);font-weight:650}details summary{cursor:pointer;color:var(--accent)}@media (max-width:850px){.site-header{align-items:start;flex-direction:column;}.overview-grid,.two-column,.backend-grid,.config-form{grid-template-columns:1fr;}.wide-card,.form-actions{grid-column:auto;}.profile-row{grid-template-columns:4rem 1fr 1fr;}.toolhead-grid{grid-template-columns:repeat(5,9.5rem);}}@media (max-width:520px){.section-heading{align-items:start;flex-direction:column;}.connection-strip{width:100%;flex-wrap:wrap;}.facts div{grid-template-columns:1fr;gap:.15rem;}.facts dd{text-align:left;}.profile-row{grid-template-columns:1fr 1fr;}.form-actions,footer{flex-direction:column;}}@media (max-width:1080px){.scale-stage{grid-template-columns:minmax(22rem,1fr) 19rem;gap:1rem;}.spool-panel{min-height:30rem;}.spool-visual{width:min(29rem,92%);}}@media (max-width:900px){.status-strip{display:none;}}@media (max-width:780px){:root{--rail:96px;}.product-rail{padding:.8rem .5rem;}.brand-block{justify-content:center;padding:.2rem 0 .8rem;}.brand-name,.rail-live{display:none;}.section-nav{gap:.5rem;}.section-nav a{min-height:4.55rem;grid-template-columns:1fr;justify-items:center;gap:.08rem;padding:.4rem .2rem;font-size:.72rem;}.section-nav a.active{box-shadow:inset 4px 0 var(--accent),0 0 22px rgba(22,217,194,.16);}.nav-icon{width:2.2rem;height:2.2rem;font-size:1.65rem;}.site-header{min-height:4.4rem;padding:.7rem 1rem;}.site-header .eyebrow{display:none;}main{padding:0 1rem 2rem;}.scale-stage{grid-template-columns:1fr;}.spool-panel{min-height:26rem;}.spool-visual{width:min(24rem,92%);}.scale-actions{grid-template-columns:repeat(2,minmax(0,1fr));}.weigh-action,.scale-guide-status,.calibration-drawer{grid-column:1 / -1;}.settings-grid,.home-hero{grid-template-columns:1fr;}.home-copy{padding:2.2rem;}.status-strip{display:none;}}@media (max-width:520px){.connection-strip #health-badge{display:none;}.section-heading{flex-direction:row;align-items:center;}.spool-panel{min-height:21rem;padding:.8rem;}.spool-visual{width:min(20rem,94%);}.weight-value{font-size:clamp(2.5rem,14vw,4rem);}.action-card{min-height:4.7rem;grid-template-columns:2.6rem 1fr auto;}.action-icon{font-size:1.7rem;}.scale-actions{grid-template-columns:1fr;}.scale-actions > *{grid-column:auto;}.calibration-drawer{padding:.85rem;}.calibration-steps{gap:.35rem;}.status-strip{display:none;}}@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto;}*,*::before,*::after{animation-duration:.01ms !important;animation-iteration-count:1 !important;transition-duration:.01ms !important;}}#writer-content{--w-accent:#74d8bc;--w-line:#44545f;overflow:hidden}.writer-intro{color:var(--muted);max-width:70ch}.writer-steps{display:flex;gap:.5rem;flex-wrap:wrap;padding:0;list-style:none;counter-reset:step}.writer-steps li{padding:.4rem .7rem;border-radius:2rem;font-size:.85rem}.writer-grid{display:grid;gap:1rem}.writer-toolbar,.writer-actions,.writer-pages,.writer-filters{display:flex;gap:.6rem;flex-wrap:wrap;align-items:end}.writer-toolbar label{flex:1 1 130px}.writer-pages{justify-content:space-between;align-items:center;margin:1rem 0}.writer-results{display:grid;gap:.55rem}.writer-pane{border:1px solid var(--w-line);border-radius:.8rem;padding:1rem;min-width:0}.writer-editor-grid{display:grid;grid-template-columns:1fr 1fr;gap:.65rem}.writer-editor-grid label{min-width:0}.writer-editor-grid input,.writer-editor-grid textarea{width:100%;box-sizing:border-box}.writer-preview{margin-top:1.2rem}#writer-editor-message{color:#edb664}.writer-toolbar{margin-bottom:.5rem}@media(max-width:760px){.writer-toolbar label{flex-basis:100%}.writer-grid{grid-template-columns:1fr}.writer-editor-grid{grid-template-columns:1fr}.writer-diff{table-layout:fixed}.writer-toolbar{align-items:stretch}.writer-pages{gap:.4rem}.writer-row{padding:.7rem}}[hidden]{display:none!important}body.modal-open{overflow:hidden;overscroll-behavior:none}.card,fieldset{min-width:0}button,input,select,textarea{font:inherit}button,.button,input,select{min-height:44px}label{display:block;margin:.65rem 0 .25rem}input,select,textarea{max-width:100%}button:disabled,.button:disabled{opacity:.45;cursor:not-allowed}input:user-invalid{border-color:var(--bad)}.primary-action,.button.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}.destructive-action{background:#73301e!important;border:1px solid #ffa578!important;color:#fff5eb!important}.status-chip{display:inline-flex;align-items:center;gap:.4rem;padding:.3rem .65rem;border:1px solid currentColor;border-radius:2rem;font-size:.75rem;font-weight:700}.status-success{color:#87e8b1}.status-warning{color:#ffd384}.status-error{color:#ffabb6}.result-banner{padding:.8rem 1rem;border:1px solid var(--line);border-radius:.6rem;background:var(--surface-2);overflow-wrap:anywhere}.result-banner:empty{display:none}.result-banner.status-error{border-color:var(--bad)}.result-banner.status-success{border-color:var(--good)}.empty-state{padding:1.4rem;border:1px dashed var(--line);border-radius:.75rem;color:var(--muted);text-align:center}.field-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1rem}.value-row{display:flex;justify-content:space-between;gap:1rem}.status-chips{display:flex;gap:.5rem;flex-wrap:wrap;margin:1rem 0}.tag-header{display:flex;gap:1rem;align-items:center;margin-bottom:1rem}.tag-header .empty-icon{font-size:2.4rem;color:var(--accent)}.tag-header h3{margin:0}.tag-header p{margin:.3rem 0 0;color:var(--muted)}.facts .copy-value{display:flex;justify-content:end;gap:.5rem;align-items:center}.facts details{margin-top:1rem}.modal{width:min(1060px,calc(100% - 3rem));max-width:none;height:min(860px,calc(100dvh - 3rem));max-height:none;padding:0;border:1px solid var(--line);border-radius:1rem;background:var(--surface);color:var(--text);box-shadow:0 24px 90px #0008;overflow:hidden}.modal::backdrop{background:#020910bf;backdrop-filter:blur(4px)}.modal[open]{display:flex}.modal article{width:100%;min-height:0;display:flex;flex-direction:column}.modal-header,.modal-footer{display:flex;align-items:center;gap:.75rem;padding:1rem 1.25rem;flex-shrink:0;background:var(--surface)}.modal-header{justify-content:space-between;border-bottom:1px solid var(--line)}.modal-header h2{font-size:1.35rem}.modal-header p{margin:0 0 .25rem}.modal-footer{flex-direction:row;border-top:1px solid var(--line);flex-wrap:wrap}.modal-footer>.writer-actions{margin-left:auto}.modal-body{overflow-y:auto;overscroll-behavior:contain;padding:0 1.25rem 1rem;min-height:0;flex:1}.modal .writer-steps{margin:0;padding:.75rem 1.25rem;justify-content:space-between;gap:.3rem;border-bottom:1px solid var(--line);counter-reset:step}.writer-steps li{counter-increment:step;flex:1;text-align:center;color:var(--muted);border:0}.writer-steps li::before{content:counter(step);display:inline-grid;place-items:center;width:1.5rem;height:1.5rem;border:1px solid var(--line);border-radius:50%;margin-right:.35rem}#writer-selection-pane{border:0;padding:0}.writer-editor-grid{margin-top:1rem}#writer-editor{margin-top:1rem;padding:1rem;border:1px solid var(--line);border-radius:.8rem}.writer-row{min-height:76px}#writer-progress{margin:1rem 0;padding:.75rem 1rem}#writer-activity{text-align:center;padding:1.5rem 0}progress{display:block;width:100%;height:12px;accent-color:var(--accent);margin:1rem 0}details>summary{cursor:pointer;padding:.6rem 0;font-weight:650}.spinner{width:1rem;height:1rem;border:2px solid var(--line);border-top-color:var(--accent);border-radius:50%;animation:spin 1s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}@media(max-width:760px){.modal{inset:0;width:100%;height:100dvh;margin:0;border:0;border-radius:0}.modal-header,.modal-footer{padding:.75rem}.modal-body{padding:0 .85rem 1rem}.modal .writer-steps{padding:.5rem}.writer-steps li{font-size:.7rem;padding:.2rem}.writer-steps li::before{display:grid;margin:0 auto .2rem}.modal-footer .hint{display:none}.modal-footer .writer-actions{gap:.4rem}.modal-footer button{padding:.55rem .65rem}.writer-diff td,.writer-diff th{font-size:.85rem}.field-grid{grid-template-columns:1fr}.facts div{grid-template-columns:minmax(0,1fr) minmax(0,1.3fr)}.facts .copy-value{flex-wrap:wrap}.status-strip{flex-wrap:wrap}}@media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;scroll-behavior:auto!important}})CSS";
 
 const std::size_t application_css_size = sizeof(application_css) - 1U;
 
@@ -711,6 +377,7 @@ const char application_javascript[] = R"JS((function () {
     return numeric.toFixed(0) + ' B';
   };
   const formatGrams = function (value) {
+if (value === null || value === undefined || value === '') return '—';
     const numeric = Number(value);
     return Number.isFinite(numeric) ? numeric.toFixed(numeric < 100 ? 1 : 0) + ' g' : '—';
   };
@@ -1818,6 +1485,14 @@ const char application_javascript[] = R"JS((function () {
     updateScaleControls();
   }
 
+function tagStatus(){const t=state.currentTag||{},w=state.tagWorkflow||{},inv=t.inventory||{},present=first(t.present,inv.present,false),uid=String(first(t.uid,inv.uid,'')),writer=window.OpenTagWriter?.writerState?.snapshot||{};
+const same=uid&&String(w.tag?.uid||'').replace(/:/g,'')===uid.replace(/:/g,''),linked=present&&same&&w.openprinttag_available&&w.spool,owned=present&&uid&&String(writer.uid||'').replace(/:/g,'')===uid.replace(/:/g,'');
+const pending=owned&&writer.phase==='association_pending',complete=owned&&writer.phase==='complete';const id=pending?0:complete?writer.spool_id:linked?(w.spool.id||w.spool.spool_id):0;
+setText('nfc-detected-chip',present?'TAG DETECTED':'NO TAG');setText('nfc-decode-chip',t.decode==='pass'?'DECODE PASS':t.decode==='fail'?'DECODE FAILED':'DECODE PENDING');setText('nfc-link-chip',pending?'ASSOCIATION PENDING':id?'SPOOL LINKED':'NOT LINKED');
+setText('nfc-association',pending?'Association pending — open Write / Rewrite to retry':id?'Linked · Spool #'+id:'Not linked');setText('nfc-identity',id?'Spoolman #'+id:'—');byId('nfc-identity-row').hidden=!id;byId('nfc-copy').disabled=!uid;
+if(uid)setText('nfc-uid',uid.replace(/[^a-f0-9]/gi,'').match(/.{1,2}/g)?.join(':')||uid);
+['detected','decode','link'].forEach((k,i)=>byId('nfc-'+k+'-chip').className='status-chip '+([present,t.decode==='pass',!!id][i]?'status-success':pending?'status-warning':''));
+}
   function renderNfc(payload) {
     const nfc = asObject(first(payload.nfc, payload));
     const available = nfc.available === true;
@@ -1834,7 +1509,7 @@ const char application_javascript[] = R"JS((function () {
       'configuring_irq', 'initializing_rfal', 'enabling_field'].indexOf(bringup) >= 0;
     state.nfcAvailable = ready;
     const stateText = normalizeState(bringup);
-    setText('nfc-reader-state', stateText);
+state.currentTag=nfc;setText('nfc-reader-state',ready?'Ready':stateText);
     setText('nfc-tag-state', tagCount > 1 ? 'Multiple tags' : present ? 'Detected' : 'No tag');
     setText('nfc-uid', uid);
     setText('nfc-technology', first(inventory.technology, 'NFC-V / ISO15693'));
@@ -1894,7 +1569,7 @@ const char application_javascript[] = R"JS((function () {
       }
       renderTag(nfc);
     }
-    const readButton = byId('read-tag');
+tagStatus();const readButton = byId('read-tag');
     if (readButton) {
       readButton.hidden = !ready || nfc.read_only === true;
       readButton.disabled = !ready || state.maintenance || nfc.read_only === true;
@@ -1912,7 +1587,7 @@ const char application_javascript[] = R"JS((function () {
       if (tag.material_abbreviation == null && tag.material_type != null) setText('nfc-type', tag.material_type);
       setText('nfc-color', Array.isArray(tag.color) ? tag.color.join(', ') : 'Unavailable');
       if (Object.prototype.hasOwnProperty.call(tag, 'measured_weight')) setText('nfc-measured', tag.measured_weight);
-      setText('nfc-uid', tag.uid);
+state.currentTag=tag;setText('nfc-uid',tag.uid);tagStatus();
       setText('nfc-read-status', tag.decode === 'pass' ? 'OpenPrintTag decode PASS' : tag.present ? 'OpenPrintTag ' + tag.decode : 'No tag data');
       return;
     }
@@ -1934,7 +1609,7 @@ const char application_javascript[] = R"JS((function () {
     const spool = asObject(first(workflow.spool, payload.spool, {}));
     const reconciliation = asObject(first(workflow.reconciliation, payload.reconciliation, {}));
     const recognizedTag = asObject(workflow.tag);
-    state.spool = Object.keys(spool).length ? spool : null;
+state.tagWorkflow=workflow;state.spool = Object.keys(spool).length ? spool : null;tagStatus();
     state.spoolGeneration = first(workflow.spool_generation, payload.spool_generation, state.spoolGeneration);
     setText('spool-id', first(spool.id, spool.spool_id));
     setText('spool-name', first(spool.display_name, spool.name, recognizedTag.material_name,
@@ -2529,268 +2204,268 @@ const char application_javascript[] = R"JS((function () {
     updateButtons();
   }
 
-  function uploadFirmwareRequest(file, digest, generation, token, idempotencyKey) {
-    return new Promise(function (resolve, reject) {
-      const xhr = new XMLHttpRequest();
-      state.uploadXhr = xhr;
-      xhr.open("POST", API + "/update/upload");
-      xhr.timeout = UPDATE_UPLOAD_TIMEOUT_MS;
-      xhr.setRequestHeader("Accept", "application/json");
-      xhr.setRequestHeader("Content-Type", "application/octet-stream");
-      xhr.setRequestHeader("X-OpenTag-Request", "web");
-      xhr.setRequestHeader("Idempotency-Key", idempotencyKey);
-      if (token) xhr.setRequestHeader("Authorization", "Bearer " + token);
-      xhr.setRequestHeader("X-OpenTag-Image-SHA256", digest);
-      xhr.setRequestHeader("X-OpenTag-Expected-Generation", String(generation));
-      xhr.upload.addEventListener("progress", function (event) {
-        const percent = file.size > 0 ? Math.min(100, event.loaded * 100 / file.size) : 0;
-        byId("update-progress").value = percent;
-        setText("update-progress-detail", formatBytes(event.loaded) + " / " +
-          formatBytes(file.size) + " sent; device validation is still pending.");
-      });
-      xhr.addEventListener("load", function () {
-        const httpOk = xhr.status >= 200 && xhr.status < 300;
-        if (xhr.status === 401) noteAuthenticationRequired();
-        let envelope;
-        try { envelope = JSON.parse(xhr.responseText); }
-        catch (error) {
-          reject(new ApiError("The station returned an invalid upload response.", {
-            kind: "envelope", status: xhr.status, code: "invalid_upload_response",
-            uncertain: httpOk, idempotencyKey: idempotencyKey
-          }));
-          return;
-        }
-        const response = asObject(envelope);
-        const failure = asObject(response.error);
-        if (!httpOk || failure.code || response.ok === false) {
-          reject(new ApiError(String(first(
-            failure.message, response.message, "Upload failed with HTTP " + xhr.status
-          )), {
-            kind: "http", status: xhr.status,
-            code: String(first(failure.code, response.code, "upload_failed")),
-            category: String(first(failure.category, "update")),
-            retryable: failure.retryable === true, uncertain: httpOk,
-            idempotencyKey: idempotencyKey
-          }));
-          return;
-        }
-        if (response.api_version !== "v1" || response.ok !== true ||
-            !Object.prototype.hasOwnProperty.call(response, "data")) {
-          reject(new ApiError("The station returned an invalid upload API envelope.", {
-            kind: "envelope", status: xhr.status, code: "invalid_upload_envelope",
-            uncertain: httpOk, idempotencyKey: idempotencyKey
-          }));
-          return;
-        }
-        const receipt = asObject(response.data);
-        const id = Number(receipt.operation_id);
-        if (!Number.isSafeInteger(id) || id <= 0) {
-          reject(new ApiError("The station did not return a valid upload operation ID.", {
-            kind: "envelope", status: xhr.status, code: "invalid_operation_receipt",
-            uncertain: true, idempotencyKey: idempotencyKey
-          }));
-          return;
-        }
-        resolve(receipt);
-      });
-      xhr.addEventListener("error", function () {
-        reject(new ApiError("The firmware upload connection was interrupted. The station may have received the image; inspect update status before retrying.", {
-          kind: "transport", code: "upload_transport_error", retryable: true,
-          uncertain: true, idempotencyKey: idempotencyKey
-        }));
-      });
-      xhr.addEventListener("timeout", function () {
-        reject(new ApiError("The firmware upload exceeded its bounded deadline. The station may have accepted it; inspect update status before retrying.", {
-          kind: "timeout", code: "upload_timeout", retryable: true,
-          uncertain: true, idempotencyKey: idempotencyKey
-        }));
-      });
-      xhr.addEventListener("abort", function () {
-        reject(new ApiError("The firmware upload was cancelled before its receipt was verified. The station may have accepted the image; inspect update status before retrying.", {
-          kind: "cancelled", code: "upload_cancelled", uncertain: true,
-          idempotencyKey: idempotencyKey
-        }));
-      });
-      xhr.send(file);
-      updateButtons();
-    });
-  }
+function uploadFirmwareRequest(file, digest, generation, token, idempotencyKey) {
+return new Promise(function (resolve, reject) {
+const xhr = new XMLHttpRequest();
+state.uploadXhr = xhr;
+xhr.open("POST", API + "/update/upload");
+xhr.timeout = UPDATE_UPLOAD_TIMEOUT_MS;
+xhr.setRequestHeader("Accept", "application/json");
+xhr.setRequestHeader("Content-Type", "application/octet-stream");
+xhr.setRequestHeader("X-OpenTag-Request", "web");
+xhr.setRequestHeader("Idempotency-Key", idempotencyKey);
+if (token) xhr.setRequestHeader("Authorization", "Bearer " + token);
+xhr.setRequestHeader("X-OpenTag-Image-SHA256", digest);
+xhr.setRequestHeader("X-OpenTag-Expected-Generation", String(generation));
+xhr.upload.addEventListener("progress", function (event) {
+const percent = file.size > 0 ? Math.min(100, event.loaded * 100 / file.size) : 0;
+byId("update-progress").value = percent;
+setText("update-progress-detail", formatBytes(event.loaded) + " / " +
+formatBytes(file.size) + " sent; device validation is still pending.");
+});
+xhr.addEventListener("load", function () {
+const httpOk = xhr.status >= 200 && xhr.status < 300;
+if (xhr.status === 401) noteAuthenticationRequired();
+let envelope;
+try { envelope = JSON.parse(xhr.responseText); }
+catch (error) {
+reject(new ApiError("The station returned an invalid upload response.", {
+kind: "envelope", status: xhr.status, code: "invalid_upload_response",
+uncertain: httpOk, idempotencyKey: idempotencyKey
+}));
+return;
+}
+const response = asObject(envelope);
+const failure = asObject(response.error);
+if (!httpOk || failure.code || response.ok === false) {
+reject(new ApiError(String(first(
+failure.message, response.message, "Upload failed with HTTP " + xhr.status
+)), {
+kind: "http", status: xhr.status,
+code: String(first(failure.code, response.code, "upload_failed")),
+category: String(first(failure.category, "update")),
+retryable: failure.retryable === true, uncertain: httpOk,
+idempotencyKey: idempotencyKey
+}));
+return;
+}
+if (response.api_version !== "v1" || response.ok !== true ||
+!Object.prototype.hasOwnProperty.call(response, "data")) {
+reject(new ApiError("The station returned an invalid upload API envelope.", {
+kind: "envelope", status: xhr.status, code: "invalid_upload_envelope",
+uncertain: httpOk, idempotencyKey: idempotencyKey
+}));
+return;
+}
+const receipt = asObject(response.data);
+const id = Number(receipt.operation_id);
+if (!Number.isSafeInteger(id) || id <= 0) {
+reject(new ApiError("The station did not return a valid upload operation ID.", {
+kind: "envelope", status: xhr.status, code: "invalid_operation_receipt",
+uncertain: true, idempotencyKey: idempotencyKey
+}));
+return;
+}
+resolve(receipt);
+});
+xhr.addEventListener("error", function () {
+reject(new ApiError("The firmware upload connection was interrupted. The station may have received the image; inspect update status before retrying.", {
+kind: "transport", code: "upload_transport_error", retryable: true,
+uncertain: true, idempotencyKey: idempotencyKey
+}));
+});
+xhr.addEventListener("timeout", function () {
+reject(new ApiError("The firmware upload exceeded its bounded deadline. The station may have accepted it; inspect update status before retrying.", {
+kind: "timeout", code: "upload_timeout", retryable: true,
+uncertain: true, idempotencyKey: idempotencyKey
+}));
+});
+xhr.addEventListener("abort", function () {
+reject(new ApiError("The firmware upload was cancelled before its receipt was verified. The station may have accepted the image; inspect update status before retrying.", {
+kind: "cancelled", code: "upload_cancelled", uncertain: true,
+idempotencyKey: idempotencyKey
+}));
+});
+xhr.send(file);
+updateButtons();
+});
+}
 
-  async function uploadSelectedFirmware(button) {
-    const file = state.firmwareFile;
-    const digest = state.firmwareSha256;
-    const generation = Number(asObject(state.update).generation);
-    if (!file || !/^[0-9a-f]{64}$/.test(digest) ||
-        !Number.isSafeInteger(generation) || generation < 0) {
-      showToast('Select and hash an image, then reload update status before uploading.', true);
-      return;
-    }
-    const signature = digest + ':' + file.size + ':' + generation;
-    if (state.firmwareUploadUncertain && state.firmwareUploadUncertain.signature === signature) {
-      showToast('The prior upload may already have been accepted as idempotency key ' +
-        state.firmwareUploadUncertain.key + '. Reload update status before another upload.', true);
-      return;
-    }
-    if (!window.confirm('Upload this image to the inactive slot? Upload completion does not activate or confirm the firmware.')) return;
-    let token;
-    try { token = apiToken(); }
-    catch (error) { showToast(error.message || String(error), true); return; }
-    const key = requestId();
-    button.disabled = true;
-    state.maintenance = true;
-    stopCalibrationRefresh();
-    scheduler.pauseBackground();
-    renderAuthState();
-    setConfigState(state.configState, state.configError);
-    if (state.live) state.live.beginMaintenance();
-    try {
-      try {
-        await uploadFirmwareRequest(file, digest, generation, token, key);
-      } catch (error) {
-        if (!(error instanceof ApiError) || Number(error.status) !== 401) throw error;
-        const retryToken = apiToken();
-        await uploadFirmwareRequest(file, digest, generation, retryToken, key);
-      }
-      state.firmwareUploadUncertain = null;
-      showToast('Upload completed. Reading device validation and inactive-slot status…');
-    } catch (error) {
-      if (error && error.uncertain) {
-        state.firmwareUploadUncertain = { signature: signature, key: key, at: Date.now() };
-      }
-      showToast(error.message || String(error), true);
-    } finally {
-      state.uploadXhr = null;
-      state.maintenance = false;
-      scheduler.resumeBackground();
-      if (state.live) state.live.endMaintenance();
-      syncCalibrationRefresh();
-      updateButtons();
-      if (!state.unloading) {
-        await load('/update', renderUpdate, true, PRIORITY.CORE);
-        await load('/device', renderDevice, true, PRIORITY.CORE);
-        await load('/health', renderHealth, true, PRIORITY.CORE);
-        renderAuthState();
-        setConfigState(state.configState, state.configError);
-      }
-    }
-  }
+async function uploadSelectedFirmware(button) {
+const file = state.firmwareFile;
+const digest = state.firmwareSha256;
+const generation = Number(asObject(state.update).generation);
+if (!file || !/^[0-9a-f]{64}$/.test(digest) ||
+!Number.isSafeInteger(generation) || generation < 0) {
+showToast('Select and hash an image, then reload update status before uploading.', true);
+return;
+}
+const signature = digest + ':' + file.size + ':' + generation;
+if (state.firmwareUploadUncertain && state.firmwareUploadUncertain.signature === signature) {
+showToast('The prior upload may already have been accepted as idempotency key ' +
+state.firmwareUploadUncertain.key + '. Reload update status before another upload.', true);
+return;
+}
+if (!window.confirm('Upload this image to the inactive slot? Upload completion does not activate or confirm the firmware.')) return;
+let token;
+try { token = apiToken(); }
+catch (error) { showToast(error.message || String(error), true); return; }
+const key = requestId();
+button.disabled = true;
+state.maintenance = true;
+stopCalibrationRefresh();
+scheduler.pauseBackground();
+renderAuthState();
+setConfigState(state.configState, state.configError);
+if (state.live) state.live.beginMaintenance();
+try {
+try {
+await uploadFirmwareRequest(file, digest, generation, token, key);
+} catch (error) {
+if (!(error instanceof ApiError) || Number(error.status) !== 401) throw error;
+const retryToken = apiToken();
+await uploadFirmwareRequest(file, digest, generation, retryToken, key);
+}
+state.firmwareUploadUncertain = null;
+showToast('Upload completed. Reading device validation and inactive-slot status…');
+} catch (error) {
+if (error && error.uncertain) {
+state.firmwareUploadUncertain = { signature: signature, key: key, at: Date.now() };
+}
+showToast(error.message || String(error), true);
+} finally {
+state.uploadXhr = null;
+state.maintenance = false;
+scheduler.resumeBackground();
+if (state.live) state.live.endMaintenance();
+syncCalibrationRefresh();
+updateButtons();
+if (!state.unloading) {
+await load('/update', renderUpdate, true, PRIORITY.CORE);
+await load('/device', renderDevice, true, PRIORITY.CORE);
+await load('/health', renderHealth, true, PRIORITY.CORE);
+renderAuthState();
+setConfigState(state.configState, state.configError);
+}
+}
+}
 
-  async function cancelUpdate(button) {
-    if (state.uploadXhr) {
-      if (window.confirm('Stop this upload? The incomplete inactive-slot write will be aborted.')) state.uploadXhr.abort();
-      return;
-    }
-    if (!window.confirm('Cancel the validated candidate and keep the current firmware?')) return;
-    button.disabled = true;
-    try {
-      const body = Object.assign(updatePreconditions(), { confirmation: 'CANCEL UPDATE' });
-      const operation = await submitMutation('/update/cancel', { method: 'POST', body: body });
-      showToast(operationMessage(operation, 'Candidate update cancelled.'));
-      await load('/update', renderUpdate, false);
-    } catch (error) { showToast(error.message || String(error), true); }
-    finally { updateButtons(); }
-  }
+async function cancelUpdate(button) {
+if (state.uploadXhr) {
+if (window.confirm('Stop this upload? The incomplete inactive-slot write will be aborted.')) state.uploadXhr.abort();
+return;
+}
+if (!window.confirm('Cancel the validated candidate and keep the current firmware?')) return;
+button.disabled = true;
+try {
+const body = Object.assign(updatePreconditions(), { confirmation: 'CANCEL UPDATE' });
+const operation = await submitMutation('/update/cancel', { method: 'POST', body: body });
+showToast(operationMessage(operation, 'Candidate update cancelled.'));
+await load('/update', renderUpdate, false);
+} catch (error) { showToast(error.message || String(error), true); }
+finally { updateButtons(); }
+}
 
-  async function rebootIntoUpdate(button) {
-    if (!window.confirm('Activate the validated inactive image and reboot now? The candidate must pass its health window before it is confirmed.')) return;
-    const body = Object.assign(updatePreconditions(), { confirmation: 'REBOOT INTO UPDATE' });
-    if (await submitRestartButton(button, '/update/reboot', body, 'Update reboot')) {
-      setText('update-state', 'Reboot accepted; waiting for candidate');
-    }
-  }
+async function rebootIntoUpdate(button) {
+if (!window.confirm('Activate the validated inactive image and reboot now? The candidate must pass its health window before it is confirmed.')) return;
+const body = Object.assign(updatePreconditions(), { confirmation: 'REBOOT INTO UPDATE' });
+if (await submitRestartButton(button, '/update/reboot', body, 'Update reboot')) {
+setText('update-state', 'Reboot accepted; waiting for candidate');
+}
+}
 
-  async function scanNetworks(button, provisioning) {
-    const prior = button.disabled;
-    button.disabled = true;
-    try {
-      const operation = await submitMutation('/network/scan', {
-        method: 'POST',
-        body: {},
-        provisioning: provisioning,
-        operationTimeoutMs: NETWORK_OPERATION_WAIT_MS
-      });
-      showToast(operationMessage(operation, 'Wi-Fi scan completed.'));
-    } catch (error) {
-      showToast(error.message || String(error), true);
-    } finally {
-      button.disabled = prior || state.maintenance;
-    }
-  }
+async function scanNetworks(button, provisioning) {
+const prior = button.disabled;
+button.disabled = true;
+try {
+const operation = await submitMutation('/network/scan', {
+method: 'POST',
+body: {},
+provisioning: provisioning,
+operationTimeoutMs: NETWORK_OPERATION_WAIT_MS
+});
+showToast(operationMessage(operation, 'Wi-Fi scan completed.'));
+} catch (error) {
+showToast(error.message || String(error), true);
+} finally {
+button.disabled = prior || state.maintenance;
+}
+}
 
-  async function saveAndConnect(button) {
-    const ssid = rawValueOf('setup-ssid');
-    const password = rawValueOf('setup-password');
-    const hostname = valueOf('setup-hostname');
-    const token = rawValueOf('setup-token');
-    if (!ssid) { showToast('Choose or enter a Wi-Fi network.', true); return; }
-    if (!hostname) { showToast('Enter a hostname.', true); return; }
-    if (token && (token.length < 16 || token.length > 128)) {
-      showToast('The local API token must contain 16-128 characters.', true);
-      return;
-    }
-    button.disabled = true;
-    const body = {
-      expected_revision: Number(first(asObject(state.network).config_revision, 0)),
-      ssid: ssid,
-      hostname: hostname
-    };
-    if (password) body.password = password;
-    if (token) body.access_token = token;
-    try {
-      setText('setup-connect-status', 'Saving settings. The setup AP will remain available while the station connects...');
-      const operation = await submitMutation('/network/connect', {
-        method: 'POST',
-        body: body,
-        provisioning: true,
-        refresh: false,
-        operationTimeoutMs: NETWORK_OPERATION_WAIT_MS
-      });
-      setValue('setup-password', '');
-      setValue('setup-token', '');
-      applySubmittedApiToken(token, false);
-      await load('/network', renderNetwork, true, PRIORITY.CORE);
-      await loadConfig(true, true);
-      showToast(operationMessage(
-        operation,
-        'Wi-Fi connected. The setup AP will close after its grace period.'));
-    } catch (error) {
-      const persistedNetworkFailure = error && error.kind === 'operation' &&
-        error.category === 'network';
-      let suffix = ' The setup AP remains available.';
-      if (persistedNetworkFailure) {
-        setValue('setup-password', '');
-        setValue('setup-token', '');
-        const persisted = await reloadPersistedNetworkConfiguration(
-          token, false);
-        suffix += persisted
-          ? ' Persisted settings were reloaded; correct them in Configuration or try Save & Connect again.'
-          : ' Settings were persisted, but their verification reload failed.';
-      }
-      setText('setup-connect-status', (error.message || String(error)) + suffix);
-      showToast((error.message || String(error)) + suffix, true);
-    } finally {
-      button.disabled = state.maintenance;
-    }
-  }
+async function saveAndConnect(button) {
+const ssid = rawValueOf('setup-ssid');
+const password = rawValueOf('setup-password');
+const hostname = valueOf('setup-hostname');
+const token = rawValueOf('setup-token');
+if (!ssid) { showToast('Choose or enter a Wi-Fi network.', true); return; }
+if (!hostname) { showToast('Enter a hostname.', true); return; }
+if (token && (token.length < 16 || token.length > 128)) {
+showToast('The local API token must contain 16-128 characters.', true);
+return;
+}
+button.disabled = true;
+const body = {
+expected_revision: Number(first(asObject(state.network).config_revision, 0)),
+ssid: ssid,
+hostname: hostname
+};
+if (password) body.password = password;
+if (token) body.access_token = token;
+try {
+setText('setup-connect-status', 'Saving settings. The setup AP will remain available while the station connects...');
+const operation = await submitMutation('/network/connect', {
+method: 'POST',
+body: body,
+provisioning: true,
+refresh: false,
+operationTimeoutMs: NETWORK_OPERATION_WAIT_MS
+});
+setValue('setup-password', '');
+setValue('setup-token', '');
+applySubmittedApiToken(token, false);
+await load('/network', renderNetwork, true, PRIORITY.CORE);
+await loadConfig(true, true);
+showToast(operationMessage(
+operation,
+'Wi-Fi connected. The setup AP will close after its grace period.'));
+} catch (error) {
+const persistedNetworkFailure = error && error.kind === 'operation' &&
+error.category === 'network';
+let suffix = ' The setup AP remains available.';
+if (persistedNetworkFailure) {
+setValue('setup-password', '');
+setValue('setup-token', '');
+const persisted = await reloadPersistedNetworkConfiguration(
+token, false);
+suffix += persisted
+? ' Persisted settings were reloaded; correct them in Configuration or try Save & Connect again.'
+: ' Settings were persisted, but their verification reload failed.';
+}
+setText('setup-connect-status', (error.message || String(error)) + suffix);
+showToast((error.message || String(error)) + suffix, true);
+} finally {
+button.disabled = state.maintenance;
+}
+}
 
-  async function refreshSecondary(quiet) {
-    await load('/health', renderHealth, quiet, PRIORITY.CORE);
-    await load('/status', renderStatus, quiet, PRIORITY.SECONDARY);
-    await load('/spool', renderSpool, quiet, PRIORITY.SECONDARY);
-    await refreshPrinters(quiet);
-    await load('/update', renderUpdate, true, PRIORITY.SECONDARY);
-    await load('/nfc', renderNfc, true, PRIORITY.BACKGROUND);
-    if (state.nfcAvailable) await load('/nfc/tag', renderTag, true, PRIORITY.BACKGROUND);
-    await load('/diagnostics', renderDiagnostics, true, PRIORITY.BACKGROUND);
-    await load('/logs', renderLogs, true, PRIORITY.BACKGROUND);
-  }
+async function refreshSecondary(quiet) {
+await load('/health', renderHealth, quiet, PRIORITY.CORE);
+await load('/status', renderStatus, quiet, PRIORITY.SECONDARY);
+await load('/spool', renderSpool, quiet, PRIORITY.SECONDARY);
+await refreshPrinters(quiet);
+await load('/update', renderUpdate, true, PRIORITY.SECONDARY);
+await load('/nfc', renderNfc, true, PRIORITY.BACKGROUND);
+if (state.nfcAvailable) await load('/nfc/tag', renderTag, true, PRIORITY.BACKGROUND);
+await load('/diagnostics', renderDiagnostics, true, PRIORITY.BACKGROUND);
+await load('/logs', renderLogs, true, PRIORITY.BACKGROUND);
+}
 
-  async function refreshCritical(quiet) {
-    await load('/device', renderDevice, quiet, PRIORITY.CORE);
-    await load('/network', renderNetwork, quiet, PRIORITY.CORE);
-    await loadConfig(quiet, false);
-    await load('/scale', renderScale, quiet, PRIORITY.CORE);
-  }
+async function refreshCritical(quiet) {
+await load('/device', renderDevice, quiet, PRIORITY.CORE);
+await load('/network', renderNetwork, quiet, PRIORITY.CORE);
+await loadConfig(quiet, false);
+await load('/scale', renderScale, quiet, PRIORITY.CORE);
+}
 
   function refreshAll(quiet) {
     if (state.manualRefreshPromise) return state.manualRefreshPromise;
@@ -3305,317 +2980,370 @@ const char application_javascript[] = R"JS((function () {
     });
   }
 
-  function wireActions() {
-    byId('refresh-all').addEventListener('click', function () { refreshAll(false); });
-    byId('confirm-spool-form').addEventListener('submit', async function (event) {
-      event.preventDefault();
-      const id = Number(byId('confirm-spool-id').value);
-      const generation = state.spoolGeneration;
-      if (!Number.isInteger(id) || id <= 0 || !generation) return;
-      if (!window.confirm('Confirm that Spoolman spool #' + id + ' is on the station?')) return;
-      try {
-        await submitMutation('/spool/confirm', {body: {spool_id: id, spool_generation: generation, confirmed: true}});
-        await load('/spool', renderSpool, true, PRIORITY.SECONDARY);
-      } catch (error) { showToast(error.message || String(error), true); }
-    });
-    byId('home-weigh').addEventListener('click', startHomeWeigh);
-    byId('weigh-scale').addEventListener('click', function (event) {
-      runScaleMutation(event.currentTarget, '/scale/weigh', {}, 'Weight captured.');
-    });
-    byId('tare-scale').addEventListener('click', function (event) {
-      if (window.confirm('Tare the scale now? The platform must be empty and stable.')) {
-        runScaleMutation(event.currentTarget, '/scale/tare', {}, 'Tare complete.');
-      }
-    });
-    byId('calibrate-scale').addEventListener('click', function () {
-      setCalibrationPanel(true);
-    });
-    byId('close-calibration').addEventListener('click', function () {
-      setCalibrationPanel(false);
-    });
-    byId('reference-grams').addEventListener('input', updateScaleControls);
-    byId('calibrate-form').addEventListener('submit', async function (event) {
-      event.preventDefault();
-      const reference = Number(valueOf('reference-grams'));
-      const maximum = Number(byId('reference-grams').max);
-      if (!Number.isFinite(reference) || reference <= 0 || reference > maximum) {
-        showToast('Enter a reference weight within the selected load-cell capacity.', true);
-        return;
-      }
-      if (!window.confirm('Calibrate using ' + reference + ' g and the saved load-cell profile?')) return;
-      await runScaleMutation(byId('confirm-calibration'), '/scale/calibrate', {
-        reference_grams: reference
-      }, 'Calibration complete.');
-    });
-    byId('read-tag').addEventListener('click', function (event) {
-      mutateButton(event.currentTarget, '/nfc/read', {}, 'NFC read complete.');
-    });
-    byId('test-backends').addEventListener('click', function (event) {
-      mutateButton(event.currentTarget, '/backends/test', {}, 'Backend connection tests complete.', {
-        operationTimeoutMs: BACKEND_OPERATION_WAIT_MS
-      });
-    });
-    byId('retry-config').addEventListener('click', function () {
-      if (state.configDirty && !window.confirm('Discard unsaved configuration edits and retry loading?')) return;
-      state.configDirty = false;
-      loadConfig(false, true);
-    });
-    byId('reload-config').addEventListener('click', function () {
-      if (state.configDirty && !window.confirm('Discard unsaved configuration edits and reload?')) return;
-      state.configDirty = false;
-      loadConfig(false, true);
-    });
-    byId('config-scale-profile').addEventListener('change', updateCapacityHelp);
-    const configForm = byId('config-form');
-    configForm.addEventListener('input', markConfigDirty);
-    configForm.addEventListener('change', markConfigDirty);
-    byId('setup-network-list').addEventListener('change', function (event) {
-      if (event.currentTarget.value) setValue('setup-ssid', event.currentTarget.value);
-    });
-    byId('config-network-list').addEventListener('change', function (event) {
-      if (event.currentTarget.value) {
-        setValue('config-ssid', event.currentTarget.value);
-        markConfigDirty();
-      }
-    });
-    byId('setup-scan').addEventListener('click', function (event) {
-      scanNetworks(event.currentTarget, true);
-    });
-    byId('config-scan').addEventListener('click', function (event) {
-      scanNetworks(event.currentTarget, false);
-    });
-    byId('setup-connect').addEventListener('click', function (event) {
-      saveAndConnect(event.currentTarget);
-    });
-    configForm.addEventListener('submit', async function (event) {
-      event.preventDefault();
-      if (state.configState !== CONFIG_STATE.READY) {
-        showToast('Configuration has not loaded. Retrying now…', true);
-        await ensureConfigReady();
-        return;
-      }
-      const button = byId('config-save');
-      const enteredToken = rawValueOf('config-api-token');
-      const clearToken = checked('clear-api-token');
-      let patch;
-      try {
-        configCredentialsAreSafe();
-        patch = configPatch();
-      } catch (error) {
-        showToast(error.message || String(error), true);
-        return;
-      }
-      button.disabled = true;
-      try {
-        const operation = await submitMutation('/config', {
-          method: 'PATCH', body: patch, scope: 'configuration', refresh: false,
-          operationTimeoutMs: configurationOperationWaitMs(patch)
-        });
-        applySubmittedApiToken(enteredToken, clearToken);
-        state.configDirty = false;
-        const verified = await loadConfig(true, true);
-        if (verified) {
-          showToast(operationMessage(operation,
-            'Configuration updated and verified. Hidden credentials were preserved unless explicitly changed.'));
-          if (patch.spoolman || patch.filabridge) {
-            setText('config-load-status', 'Configuration saved. Testing / refreshing backends…');
-          }
-        } else {
-          showToast('Configuration was saved, but its verification reload failed. Use Retry before making more edits.', true);
-        }
-      } catch (error) {
-        if (error && error.kind === 'operation' && error.category === 'network') {
-          const verified = await reloadPersistedNetworkConfiguration(
-            enteredToken, clearToken);
-          showToast((error.message || String(error)) + (verified
-            ? ' Persisted configuration was reloaded so the failed network settings can be corrected.'
-            : ' Configuration was persisted, but its verification reload failed.'), true);
-        } else {
-          showToast(error.message || String(error), true);
-        }
-      } finally {
-        setConfigState(state.configState, state.configError);
-        renderAuthState();
-      }
-    });
-    byId('export-config').addEventListener('click', async function () {
-      if (state.configState !== CONFIG_STATE.READY) {
-        showToast('Configuration must be ready before export.', true);
-        return;
-      }
-      try {
-        const payload = await api('/config', { priority: PRIORITY.CORE });
-        const blob = new Blob([pretty(payload) + '\n'], { type: 'application/json' });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = 'opentag-station-redacted.json';
-        document.body.appendChild(link);
-        link.click();
-        link.remove();
-        window.setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
-      } catch (error) {
-        showToast(error.message || String(error), true);
-      }
-    });
-    byId('import-config').addEventListener('change', async function (event) {
-      const file = event.currentTarget.files && event.currentTarget.files[0];
-      event.currentTarget.value = '';
-      if (!file) return;
-      if (state.configState !== CONFIG_STATE.READY) {
-        showToast('Configuration must be ready before import.', true);
-        return;
-      }
-      if (file.size <= 0 || file.size > MAX_IMPORT_BYTES) {
-        showToast('Configuration import must be between 1 byte and 16 KiB.', true);
-        return;
-      }
-      let enteredToken = '';
-      let clearToken = false;
-      try {
-        const parsed = JSON.parse(await file.text());
-        if (!window.confirm('Validate and apply this redacted configuration? Existing hidden credentials will be preserved.')) return;
-        const body = Object.assign(stripImportedCredentials(parsed), {
-          expected_revision: Number(state.configRevision)
-        });
-        applyEnteredCredentials(body);
-        configCredentialsAreSafe(first(asObject(body.wifi).ssid, asObject(asObject(state.config).wifi).ssid), body);
-        enteredToken = rawValueOf('config-api-token');
-        clearToken = checked('clear-api-token');
-        const operation = await submitMutation('/config', {
-          method: 'PATCH', body: body, scope: 'configuration', refresh: false,
-          operationTimeoutMs: configurationOperationWaitMs(body)
-        });
-        applySubmittedApiToken(enteredToken, clearToken);
-        state.configDirty = false;
-        const verified = await loadConfig(true, true);
-        showToast(verified ? operationMessage(operation, 'Configuration import completed and verified.')
-          : 'Configuration import completed, but verification reload failed.', !verified);
-      } catch (error) {
-        if (error && error.kind === 'operation' && error.category === 'network') {
-          const verified = await reloadPersistedNetworkConfiguration(
-            enteredToken, clearToken);
-          showToast((error.message || String(error)) + (verified
-            ? ' Persisted configuration was reloaded so the failed network settings can be corrected.'
-            : ' Configuration was persisted, but its verification reload failed.'), true);
-        } else {
-          showToast(error.message || 'The selected file is not valid JSON.', true);
-        }
-      }
-    });
-    byId('refresh-diagnostics').addEventListener('click', function () {
-      load('/diagnostics', renderDiagnostics, false, PRIORITY.BACKGROUND);
-    });
-    byId('refresh-logs').addEventListener('click', function () {
-      load('/logs', renderLogs, false, PRIORITY.BACKGROUND);
-    });
-    byId('run-self-test').addEventListener('click', runSelfTest);
-    byId('firmware-file').addEventListener('change', function (event) {
-      const file = event.currentTarget.files && event.currentTarget.files[0];
-      selectFirmwareFile(file || null);
-    });
-    byId('upload-firmware').addEventListener('click', function (event) {
-      uploadSelectedFirmware(event.currentTarget);
-    });
-    byId('cancel-update').addEventListener('click', function (event) {
-      cancelUpdate(event.currentTarget);
-    });
-    byId('reboot-update').addEventListener('click', function (event) {
-      rebootIntoUpdate(event.currentTarget);
-    });
-    byId('reboot-device').addEventListener('click', function (event) {
-      if (window.confirm('Reboot OpenTag Station now?')) {
-        submitRestartButton(event.currentTarget, '/device/reboot', { confirmation: 'REBOOT' }, 'Reboot');
-      }
-    });
-    byId('start-setup-mode').addEventListener('click', async function (event) {
-      if (!window.confirm('Start the temporary setup access point? Normal Wi-Fi remains active.')) return;
-      await mutateButton(
-        event.currentTarget,
-        '/network/setup-mode',
-        {},
-        'Setup access point is running.',
-        { operationTimeoutMs: NETWORK_OPERATION_WAIT_MS });
-    });
-    byId('factory-confirm').addEventListener('input', function (event) {
-      byId('factory-reset').disabled = state.maintenance ||
-        event.currentTarget.value !== 'FACTORY RESET';
-    });
-    byId('factory-reset').addEventListener('click', async function (event) {
-      if (valueOf('factory-confirm') !== 'FACTORY RESET') return;
-      if (!window.confirm('Factory reset erases local configuration and calibration, then reboots. This cannot be undone. Continue?')) return;
-      await submitRestartButton(event.currentTarget, '/device/factory-reset', {
-        confirmation: 'FACTORY RESET'
-      }, 'Factory reset');
-    });
-  }
+function wireActions() {
+byId('refresh-all').addEventListener('click', function () { refreshAll(false); });
+byId('confirm-spool-form').addEventListener('submit', async function (event) {
+event.preventDefault();
+const id = Number(byId('confirm-spool-id').value);
+const generation = state.spoolGeneration;
+if (!Number.isInteger(id) || id <= 0 || !generation) return;
+if (!window.confirm('Confirm that Spoolman spool #' + id + ' is on the station?')) return;
+try {
+await submitMutation('/spool/confirm', {body: {spool_id: id, spool_generation: generation, confirmed: true}});
+await load('/spool', renderSpool, true, PRIORITY.SECONDARY);
+} catch (error) { showToast(error.message || String(error), true); }
+});
+byId('home-weigh').addEventListener('click', startHomeWeigh);
+byId('weigh-scale').addEventListener('click', function (event) {
+runScaleMutation(event.currentTarget, '/scale/weigh', {}, 'Weight captured.');
+});
+byId('tare-scale').addEventListener('click', function (event) {
+if (window.confirm('Tare the scale now? The platform must be empty and stable.')) {
+runScaleMutation(event.currentTarget, '/scale/tare', {}, 'Tare complete.');
+}
+});
+byId('calibrate-scale').addEventListener('click', function () {
+setCalibrationPanel(true);
+});
+byId('close-calibration').addEventListener('click', function () {
+setCalibrationPanel(false);
+});
+byId('reference-grams').addEventListener('input', updateScaleControls);
+byId('calibrate-form').addEventListener('submit', async function (event) {
+event.preventDefault();
+const reference = Number(valueOf('reference-grams'));
+const maximum = Number(byId('reference-grams').max);
+if (!Number.isFinite(reference) || reference <= 0 || reference > maximum) {
+showToast('Enter a reference weight within the selected load-cell capacity.', true);
+return;
+}
+if (!window.confirm('Calibrate using ' + reference + ' g and the saved load-cell profile?')) return;
+await runScaleMutation(byId('confirm-calibration'), '/scale/calibrate', {
+reference_grams: reference
+}, 'Calibration complete.');
+});
+byId('read-tag').addEventListener('click', function (event) {
+mutateButton(event.currentTarget, '/nfc/read', {}, 'NFC read complete.');
+});
+byId('test-backends').addEventListener('click', function (event) {
+mutateButton(event.currentTarget, '/backends/test', {}, 'Backend connection tests complete.', {
+operationTimeoutMs: BACKEND_OPERATION_WAIT_MS
+});
+});
+byId('retry-config').addEventListener('click', function () {
+if (state.configDirty && !window.confirm('Discard unsaved configuration edits and retry loading?')) return;
+state.configDirty = false;
+loadConfig(false, true);
+});
+byId('reload-config').addEventListener('click', function () {
+if (state.configDirty && !window.confirm('Discard unsaved configuration edits and reload?')) return;
+state.configDirty = false;
+loadConfig(false, true);
+});
+byId('config-scale-profile').addEventListener('change', updateCapacityHelp);
+const configForm = byId('config-form');
+configForm.addEventListener('input', markConfigDirty);
+configForm.addEventListener('change', markConfigDirty);
+byId('setup-network-list').addEventListener('change', function (event) {
+if (event.currentTarget.value) setValue('setup-ssid', event.currentTarget.value);
+});
+byId('config-network-list').addEventListener('change', function (event) {
+if (event.currentTarget.value) {
+setValue('config-ssid', event.currentTarget.value);
+markConfigDirty();
+}
+});
+byId('setup-scan').addEventListener('click', function (event) {
+scanNetworks(event.currentTarget, true);
+});
+byId('config-scan').addEventListener('click', function (event) {
+scanNetworks(event.currentTarget, false);
+});
+byId('setup-connect').addEventListener('click', function (event) {
+saveAndConnect(event.currentTarget);
+});
+configForm.addEventListener('submit', async function (event) {
+event.preventDefault();
+if (state.configState !== CONFIG_STATE.READY) {
+showToast('Configuration has not loaded. Retrying now…', true);
+await ensureConfigReady();
+return;
+}
+const button = byId('config-save');
+const enteredToken = rawValueOf('config-api-token');
+const clearToken = checked('clear-api-token');
+let patch;
+try {
+configCredentialsAreSafe();
+patch = configPatch();
+} catch (error) {
+showToast(error.message || String(error), true);
+return;
+}
+button.disabled = true;
+try {
+const operation = await submitMutation('/config', {
+method: 'PATCH', body: patch, scope: 'configuration', refresh: false,
+operationTimeoutMs: configurationOperationWaitMs(patch)
+});
+applySubmittedApiToken(enteredToken, clearToken);
+state.configDirty = false;
+const verified = await loadConfig(true, true);
+if (verified) {
+showToast(operationMessage(operation,
+'Configuration updated and verified. Hidden credentials were preserved unless explicitly changed.'));
+if (patch.spoolman || patch.filabridge) {
+setText('config-load-status', 'Configuration saved. Testing / refreshing backends…');
+}
+} else {
+showToast('Configuration was saved, but its verification reload failed. Use Retry before making more edits.', true);
+}
+} catch (error) {
+if (error && error.kind === 'operation' && error.category === 'network') {
+const verified = await reloadPersistedNetworkConfiguration(
+enteredToken, clearToken);
+showToast((error.message || String(error)) + (verified
+? ' Persisted configuration was reloaded so the failed network settings can be corrected.'
+: ' Configuration was persisted, but its verification reload failed.'), true);
+} else {
+showToast(error.message || String(error), true);
+}
+} finally {
+setConfigState(state.configState, state.configError);
+renderAuthState();
+}
+});
+byId('export-config').addEventListener('click', async function () {
+if (state.configState !== CONFIG_STATE.READY) {
+showToast('Configuration must be ready before export.', true);
+return;
+}
+try {
+const payload = await api('/config', { priority: PRIORITY.CORE });
+const blob = new Blob([pretty(payload) + '\n'], { type: 'application/json' });
+const url = URL.createObjectURL(blob);
+const link = document.createElement('a');
+link.href = url;
+link.download = 'opentag-station-redacted.json';
+document.body.appendChild(link);
+link.click();
+link.remove();
+window.setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+} catch (error) {
+showToast(error.message || String(error), true);
+}
+});
+byId('import-config').addEventListener('change', async function (event) {
+const file = event.currentTarget.files && event.currentTarget.files[0];
+event.currentTarget.value = '';
+if (!file) return;
+if (state.configState !== CONFIG_STATE.READY) {
+showToast('Configuration must be ready before import.', true);
+return;
+}
+if (file.size <= 0 || file.size > MAX_IMPORT_BYTES) {
+showToast('Configuration import must be between 1 byte and 16 KiB.', true);
+return;
+}
+let enteredToken = '';
+let clearToken = false;
+try {
+const parsed = JSON.parse(await file.text());
+if (!window.confirm('Validate and apply this redacted configuration? Existing hidden credentials will be preserved.')) return;
+const body = Object.assign(stripImportedCredentials(parsed), {
+expected_revision: Number(state.configRevision)
+});
+applyEnteredCredentials(body);
+configCredentialsAreSafe(first(asObject(body.wifi).ssid, asObject(asObject(state.config).wifi).ssid), body);
+enteredToken = rawValueOf('config-api-token');
+clearToken = checked('clear-api-token');
+const operation = await submitMutation('/config', {
+method: 'PATCH', body: body, scope: 'configuration', refresh: false,
+operationTimeoutMs: configurationOperationWaitMs(body)
+});
+applySubmittedApiToken(enteredToken, clearToken);
+state.configDirty = false;
+const verified = await loadConfig(true, true);
+showToast(verified ? operationMessage(operation, 'Configuration import completed and verified.')
+: 'Configuration import completed, but verification reload failed.', !verified);
+} catch (error) {
+if (error && error.kind === 'operation' && error.category === 'network') {
+const verified = await reloadPersistedNetworkConfiguration(
+enteredToken, clearToken);
+showToast((error.message || String(error)) + (verified
+? ' Persisted configuration was reloaded so the failed network settings can be corrected.'
+: ' Configuration was persisted, but its verification reload failed.'), true);
+} else {
+showToast(error.message || 'The selected file is not valid JSON.', true);
+}
+}
+});
+byId('refresh-diagnostics').addEventListener('click', function () {
+load('/diagnostics', renderDiagnostics, false, PRIORITY.BACKGROUND);
+});
+byId('refresh-logs').addEventListener('click', function () {
+load('/logs', renderLogs, false, PRIORITY.BACKGROUND);
+});
+byId('run-self-test').addEventListener('click', runSelfTest);
+byId('firmware-file').addEventListener('change', function (event) {
+const file = event.currentTarget.files && event.currentTarget.files[0];
+selectFirmwareFile(file || null);
+});
+byId('upload-firmware').addEventListener('click', function (event) {
+uploadSelectedFirmware(event.currentTarget);
+});
+byId('cancel-update').addEventListener('click', function (event) {
+cancelUpdate(event.currentTarget);
+});
+byId('reboot-update').addEventListener('click', function (event) {
+rebootIntoUpdate(event.currentTarget);
+});
+byId('reboot-device').addEventListener('click', function (event) {
+if (window.confirm('Reboot OpenTag Station now?')) {
+submitRestartButton(event.currentTarget, '/device/reboot', { confirmation: 'REBOOT' }, 'Reboot');
+}
+});
+byId('start-setup-mode').addEventListener('click', async function (event) {
+if (!window.confirm('Start the temporary setup access point? Normal Wi-Fi remains active.')) return;
+await mutateButton(
+event.currentTarget,
+'/network/setup-mode',
+{},
+'Setup access point is running.',
+{ operationTimeoutMs: NETWORK_OPERATION_WAIT_MS });
+});
+byId('factory-confirm').addEventListener('input', function (event) {
+byId('factory-reset').disabled = state.maintenance ||
+event.currentTarget.value !== 'FACTORY RESET';
+});
+byId('factory-reset').addEventListener('click', async function (event) {
+if (valueOf('factory-confirm') !== 'FACTORY RESET') return;
+if (!window.confirm('Factory reset erases local configuration and calibration, then reboots. This cannot be undone. Continue?')) return;
+await submitRestartButton(event.currentTarget, '/device/factory-reset', {
+confirmation: 'FACTORY RESET'
+}, 'Factory reset');
+});
+}
 
-  async function start() {
-    if (window.OpenTagWriter) window.OpenTagWriter.bind();
-    wireActions();
-    activateProductPage(productPageFromHash(location.hash));
-    renderAuthState();
-    setConfigState(CONFIG_STATE.UNLOADED);
-    updateScaleControls();
-    setText('footer-clock', new Date().toLocaleString());
-    window.setInterval(function () {
-      setText('footer-clock', new Date().toLocaleString());
-    }, 60000);
+async function start() {
+if (window.OpenTagWriter) window.OpenTagWriter.bind();
+wireActions();byId('nfc-copy').addEventListener('click',async()=>{try{await window.OpenTagWriter.copy(byId('nfc-uid').textContent);setText('nfc-read-status','UID copied');}catch(e){setText('nfc-read-status','Copy unavailable. Select the UID to copy it.');}});
+activateProductPage(productPageFromHash(location.hash));
+renderAuthState();
+setConfigState(CONFIG_STATE.UNLOADED);
+updateScaleControls();
+setText('footer-clock', new Date().toLocaleString());
+window.setInterval(function () {
+setText('footer-clock', new Date().toLocaleString());
+}, 60000);
 
-    await load('/device', renderDevice, true, PRIORITY.CORE);
-    await load('/network', renderNetwork, true, PRIORITY.CORE);
-    await loadConfig(true, true);
-    await load('/scale', renderScale, true, PRIORITY.CORE);
+await load('/device', renderDevice, true, PRIORITY.CORE);
+await load('/network', renderNetwork, true, PRIORITY.CORE);
+await loadConfig(true, true);
+await load('/scale', renderScale, true, PRIORITY.CORE);
 
-    state.live = createLiveConnection();
-    state.live.online = navigator.onLine !== false;
-    state.live.suspended = document.hidden === true;
-    state.live.start();
-    refreshSecondary(true).then(function () {
-      // The marker itself uses the same serialized scheduler and is sent only
-      // after all initial snapshot responses have been consumed by the browser.
-      return api('/health', { initialSyncComplete: true, dedupe: false,
-        priority: PRIORITY.BACKGROUND });
-    }).catch(function () { /* reconnect/fallback will recover a failed sync */ });
+state.live = createLiveConnection();
+state.live.online = navigator.onLine !== false;
+state.live.suspended = document.hidden === true;
+state.live.start();
+refreshSecondary(true).then(function () {
+// The marker itself uses the same serialized scheduler and is sent only
+// after all initial snapshot responses have been consumed by the browser.
+return api('/health', { initialSyncComplete: true, dedupe: false,
+priority: PRIORITY.BACKGROUND });
+}).catch(function () { /* reconnect/fallback will recover a failed sync */ });
 
-    window.addEventListener('online', function () {
-      if (state.live) state.live.setOnline(true);
-    });
-    window.addEventListener('offline', function () {
-      if (state.live) state.live.setOnline(false);
-    });
-    document.addEventListener('visibilitychange', function () {
-      if (state.live) {
-        if (document.hidden) state.live.suspend(); else state.live.resume();
-      }
-      syncCalibrationRefresh();
-    });
-    window.addEventListener('hashchange', function () {
-      activateProductPage(productPageFromHash(location.hash));
-    });
-    window.addEventListener('pagehide', function () {
-      state.unloading = true;
-      state.selfTestGeneration += 1;
-      scheduler.cancelGroup('selftest:');
-      scheduler.cancelGroup('fallback:');
-      stopCalibrationRefresh();
-      setFallbackPolling(false);
-      if (state.uploadXhr) state.uploadXhr.abort();
-      if (state.live) state.live.stop();
-    });
-    window.addEventListener('pageshow', function () {
-      state.unloading = false;
-      if (state.live) {
-        state.live.online = navigator.onLine !== false;
-        state.live.suspended = document.hidden === true;
-        state.live.start();
-      }
-      activateProductPage(productPageFromHash(location.hash));
-      syncCalibrationRefresh();
-    });
-  }
+window.addEventListener('online', function () {
+if (state.live) state.live.setOnline(true);
+});
+window.addEventListener('offline', function () {
+if (state.live) state.live.setOnline(false);
+});
+document.addEventListener('visibilitychange', function () {
+if (state.live) {
+if (document.hidden) state.live.suspend(); else state.live.resume();
+}
+syncCalibrationRefresh();
+});
+window.addEventListener('hashchange', function () {
+activateProductPage(productPageFromHash(location.hash));
+});
+window.addEventListener('pagehide', function () {
+state.unloading = true;
+state.selfTestGeneration += 1;
+scheduler.cancelGroup('selftest:');
+scheduler.cancelGroup('fallback:');
+stopCalibrationRefresh();
+setFallbackPolling(false);
+if (state.uploadXhr) state.uploadXhr.abort();
+if (state.live) state.live.stop();
+});
+window.addEventListener('pageshow', function () {
+state.unloading = false;
+if (state.live) {
+state.live.online = navigator.onLine !== false;
+state.live.suspended = document.hidden === true;
+state.live.start();
+}
+activateProductPage(productPageFromHash(location.hash));
+syncCalibrationRefresh();
+});
+}
 
-  window.OpenTagWriterHost = {byId,asObject,asArray,first,setText,setValue,valueOf,showToast,api,load,submitMutation,PRIORITY,state};
+
+function validateCommunity(data) {
+if (!Array.isArray(data) || data.length > 100000) throw new Error('Unsupported Community catalog shape/size');
+const ids = new Set();
+data.forEach(function (item) {
+if (!item || typeof item !== 'object' || ['id','manufacturer','name','material'].some(function (k) { return typeof item[k] !== 'string' || !item[k] || item[k].length > (k === 'id' ? 180 : 128); }) ||
+!Number.isFinite(item.density) || !Number.isFinite(item.diameter) || ids.has(item.id)) throw new Error('Malformed Community catalog or duplicate identity');
+ids.add(item.id);
+});
+return data;
+}
+async function communityCatalog() {
+// Public compiled source used by the upstream UI. Catalog storage lives in
+// the browser, never the station's internal RAM or backend JSON allocator.
+const controller = new AbortController();const timer = window.setTimeout(function () {controller.abort();},30000);
+try {
+const r = await fetch('https://icezaza2543.github.io/SpoolmanDB-Community/filaments.json', {signal:controller.signal,cache:'no-cache'});
+if (!r.ok || !r.body || Number(r.headers.get('Content-Length')) > 67108864) throw new Error('Community catalog unavailable or oversized');
+const reader = r.body.getReader();const chunks=[];let count=0;
+for (;;) {const part=await reader.read();if(part.done)break;count+=part.value.byteLength;if(count>67108864){await reader.cancel();throw new Error('Community catalog exceeds 64 MiB bound');}chunks.push(part.value);}
+const bytes=new Uint8Array(count);let offset=0;chunks.forEach(function (chunk){bytes.set(chunk,offset);offset+=chunk.length;});
+return validateCommunity(JSON.parse(new TextDecoder().decode(bytes)));
+} finally {window.clearTimeout(timer);}
+}
+
+window.OpenTagWriterPreview=function(v,S,{byId,asObject,asArray,setText,visible,values,el,fmt,swatch,uidText}){const active=['preview','association_pending','complete','import_preview'].includes(v.phase)&&!(v.phase==='preview'&&S.invalidated);visible('writer-review',active);if(!active)return;
+const tag=byId('writer-tag');tag.replaceChildren();const diff=byId('writer-diff');diff.replaceChildren();const critical=byId('writer-critical');critical.replaceChildren();const notices=byId('writer-notice-list');notices.replaceChildren();
+setText('writer-review-title',v.phase==='import_preview'?'Review Community import':v.phase==='complete'?'✓ OpenPrintTag written and verified':v.phase==='association_pending'?'Tag verified · association pending':'Review OpenPrintTag changes');
+if(v.phase==='import_preview'){values(tag,[['Source','COMMUNITY — NOT YET IN SPOOLMAN'],['Vendor',v.vendor_name],['Product',asObject(v.proposed_filament).name],['Material',asObject(v.proposed_filament).material],['Nominal weight',asObject(v.proposed_filament).weight,' g'],['Density',asObject(v.proposed_filament).density,' g/cm³'],['Diameter',asObject(v.proposed_filament).diameter,' mm']]);}
+else{values(tag,[['Inventory',S.material?.name],['UID',uidText(v.uid)],['Type',v.tag_type||'NFC-V / ISO15693'],['Mode',v.mode],['Spool','#'+v.spool_id],['Changed blocks',asArray(v.changed_blocks).length],['Preserved','78–79']]);
+const table=el('table',undefined,'writer-diff'),head=el('tr');['Field','Current','Proposed'].forEach(t=>head.append(el('th',t)));const thead=el('thead');thead.append(head);table.append(thead);const tbody=el('tbody');
+window.OpenTagWriterDiffFields.forEach(([key,label,unit])=>{const a=asObject(v.current)[key],b=asObject(v.proposed)[key],row=el('tr',undefined,JSON.stringify(a)!==JSON.stringify(b)?'writer-changed':'');row.append(el('th',label));[a,b].forEach(value=>{const cell=el('td',key==='primary_color'?(Array.isArray(value)?'#'+value.map(n=>Number(n).toString(16).padStart(2,'0')).join(''):'—'):fmt(value,unit||''));if(key==='primary_color')cell.append(swatch(value));row.append(cell);});tbody.append(row);});table.append(tbody);if(v.phase==='preview')diff.append(table);else if(v.phase==='complete')values(diff,[['Tag verification','PASS'],['OpenPrintTag','PASS'],['Spoolman','Spool #'+v.spool_id+' linked'],['Blocks verified',asArray(v.changed_blocks).length+' / '+asArray(v.changed_blocks).length]]);
+}
+const warn=text=>critical.append(el('p',text,'writer-warning'));
+if(v.phase==='association_pending')warn('Tag write verified. Only the Spoolman link is pending. Retry association without rewriting the tag.');if(v.previous_spool_id>0)warn('MOVE this NFC UID from Spool #'+v.previous_spool_id+' to Spool #'+v.spool_id+'. The previous spool UUID is retained.');
+else if(v.repurpose)warn('Repurpose: this write replaces the tag’s current spool identity.');
+if(v.recovering_interrupted_write)warn('Recovery: this is an interrupted write. Confirm an explicit rewrite only after reviewing the recovered tag.');
+const optional=asArray(v.warnings).filter(w=>/^missing recommended /i.test(w));
+const metadata=asArray(v.warnings).filter(w=>!String(w).includes('association will move')&&!/not atomic|Full rewrite/i.test(w));asArray(v.warnings).filter(w=>/not atomic|Full rewrite/i.test(w)).forEach(warn);
+metadata.forEach(w=>notices.append(el('li',String(w))));visible('writer-notices',metadata.length>0);setText('writer-notice-count',optional.length?optional.length+' optional metadata fields are not populated':'Metadata notices');
+}
+;
+window.OpenTagWriterUi=function(byId){
+const fmt=(v,unit='')=>v===null||v===undefined||v===''?'—':String(v)+unit;
+  function el(tag,text,cls){const n=document.createElement(tag);if(text!==undefined)n.textContent=text;if(cls)n.className=cls;return n;}
+  function visible(id,show){const n=byId(id);n.hidden=!show;n.className=n.className.split(/\s+/).filter(x=>x&&x!=='writer-hidden').concat(show?[]:['writer-hidden']).join(' ');}
+  function swatch(v){const color=Array.isArray(v)?v.map(n=>Number(n).toString(16).padStart(2,'0')).join(''):String(v||'');const n=el('span','', 'writer-swatch');if(/^(?:[a-f\d]{6}|[a-f\d]{8})$/i.test(color)){n.style.backgroundColor='#'+color;n.setAttribute('aria-label','Color #'+color);n.title='#'+color;}else n.hidden=true;return n;}
+  function values(target,pairs){const dl=el('dl',undefined,'writer-values');pairs.forEach(p=>{dl.append(el('dt',p[0]),el('dd',fmt(p[1],p[2]||'')));});target.append(dl);}
+return {fmt,el,visible,swatch,values};};
+window.OpenTagWriterForms=function(byId,el){
+function buildFields(id,schema,record,prefix){const d=byId(id);d.replaceChildren();schema.forEach(([key,label,max])=>{const l=el('label',label),input=el(key==='comment'?'textarea':'input');input.id='writer-'+prefix+'-'+key;input.name=key;input.value=record[key]??'';if(key!=='comment')input.type=max?'number':'text';if(max){input.min=['density','diameter','weight'].includes(key)?'0.001':'0';input.max=String(max);input.step=key.startsWith('settings_')?'1':'any';}else input.maxLength=key==='comment'?1024:64;const hint=el('small','','hint');input.addEventListener('invalid',()=>{hint.textContent=input.validationMessage;input.setAttribute('aria-invalid','true');});input.addEventListener('input',()=>{hint.textContent='';input.removeAttribute('aria-invalid');});l.append(input,hint);if(key==='color_hex'){const paint=()=>{hint.replaceChildren(window.OpenTagWriterUi(byId).swatch(input.value));};input.addEventListener('input',paint);paint();}d.append(l);});}
+function formValues(id,schema,original){const out={};schema.forEach(([key,,max])=>{const input=byId(id).querySelector('[name="'+key+'"]');const raw=String(input.value).trim();if(raw===''&&(max||original[key]==null))return;let v=max?Number(raw):raw;if(v===original[key])return;if(key==='color_hex')v=v.toUpperCase();if(max&&(!Number.isFinite(v)||v<Number(input.min)||v>max||(key.startsWith('settings_')&&!Number.isInteger(v))))throw new Error('Check '+key+' value');if(!max&&new TextEncoder().encode(v).length>(key==='comment'?1024:64))throw new Error(key+' exceeds the Spoolman text limit');if(key==='color_hex'&&!/^(?:[a-f\d]{6}|[a-f\d]{8})$/i.test(v))throw new Error('Color must be 6 or 8 hex digits');if(v!==original[key]&&!(v===''&&original[key]==null))out[key]=v;});return out;}
+return {buildFields,formValues};};
+window.OpenTagWriterHost = {byId,asObject,asArray,first,setText,setValue,valueOf,showToast,api,load,submitMutation,PRIORITY,state,validateCommunity,communityCatalog,tagStatus};
   if (window.__OPENTAG_TEST__) {
     window.__OpenTagTest = {
       ApiError: ApiError,
@@ -3653,6 +3381,7 @@ const char application_javascript[] = R"JS((function () {
       renderSpool: renderSpool,
       renderNfc: renderNfc,
       renderTag: renderTag,
+renderDevice,renderNetwork,renderConfig,renderDiagnostics,renderLogs,
       productPageFromHash: productPageFromHash,
       activateProductPage: activateProductPage,
       navigateProductPage: navigateProductPage,

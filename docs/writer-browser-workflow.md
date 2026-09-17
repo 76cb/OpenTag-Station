@@ -1,15 +1,22 @@
 # Browser inventory and editor workflow
 
-Open **Tags → Write / Rewrite**. The browser workflow is Select → Review & edit
-→ Preview tag → Confirm & verify. The touchscreen keeps its existing compact
-spool/preview/confirmation workflow.
+Open **Tags → Write / Rewrite**. A native modal guides Select → Review → Preview
+→ Write → Verified. Its footer keeps the next action visible while the body
+scrolls. Desktop width is capped at 1060 px; screens up to 760 px use a full-screen
+dialog. The background is inert and cannot scroll. Focus moves inside, Escape
+closes only while idle, and closing returns focus to Write / Rewrite. Active
+operations disable Close, Escape and Back. A resumed active operation offers
+**Check status**, without submitting another write.
+
+The touchscreen keeps its compact spool/preview/confirmation workflow, with
+44 px action buttons, clearer progress and explicit verified/pending results.
 
 ## Pick inventory
 
 Choose **My Spoolman** or **SpoolmanDB Community**. My Spoolman supports spool,
 filament and vendor browsing. Each result is a keyboard-operable toggle button
 with a checkmark, contrasting selected border/background, and `aria-pressed`.
-The selected spool ID and product appear in the adjacent details card. Selection
+The selected spool ID and product appear on Review after **Continue**. Selection
 survives paging, refresh, and a failed tag preview. Changing source clears it.
 
 Spool rows show vendor, product, material, color, remaining and initial weight,
@@ -39,6 +46,8 @@ Spoolman spool using it. Neither editor saves until **Save Changes to Spoolman**
 For the Sunlu example, select spool #28, open filament #22's editor, change
 **Nominal filament weight (g)** from `777.12` to `1000`, and save. The verified
 canonical filament and selected spool details replace the previous display.
+The modal stays on Review and displays **Saved to Spoolman**. Conflict feedback
+shows fresh values beside the retained draft and requires another explicit save.
 There is no tag-only metadata override.
 
 The high-level `/api/v1/tag-writer` operations are:
@@ -107,22 +116,34 @@ association must be retried before editing or starting another workflow.
 
 ## Review the tag
 
-The primary preview shows UID, spool, mode, UUID, checksums, changed-block count,
+The primary preview shows UID, spool, mode, tag type, changed-block count,
 and preserved blocks 78–79. A Current/Proposed table shows brand, product,
 material, weights, tare, density, diameter, consumption and color. Destructive
 warnings (non-atomic write, UID move, recovery and full metadata replacement)
 remain prominent. Optional metadata notices are collapsed with a count.
 
 **Advanced details**, collapsed initially, retains the complete backend snapshot:
-generation, geometry, block list, preserved range, raw current/proposed values,
-recovery and repurpose state. Confirm import, Confirm exact write and Retry
+generation, UUID, checksums, geometry, block list, preserved range, raw
+current/proposed values, recovery and repurpose state. Confirm import, Write this
+tag and Retry
 association are mutually exclusive by phase. Inactive actions have
 `display:none !important`, independently of the HTML `hidden` attribute.
+
+Writing shows block progress and tag/power guidance. A pending association says
+the tag is already verified and offers only an association retry. Verified shows
+the product, UID, linked spool and PASS results; **Done** returns to Tags. Printer
+assignment remains on the existing Printer page.
+
+The Tags page distinguishes detection, decoding and canonical Spoolman resolution.
+A linked identity requires the current UID to match the resolved workflow or
+verified writer result; a removed/different tag cannot inherit that result.
+Unknown identity is hidden, UID has a Copy action, and geometry is under Advanced.
 
 ## Embedded constraints and verification
 
 The existing writer URL serves one precompressed asset. Behavior remains in
-`writer_assets.cpp`; static markup, styles and field schemas are concatenated
+`writer_assets.cpp`, with shared pure browser rendering/form helpers in the core
+asset; static markup, styles and field schemas are concatenated
 from `writer_layout.inc` at compile time. No route, MCU runtime layout buffer,
 framework, task or internal-RAM allocation is added for presentation. Core
 HTML/CSS/JavaScript limits are unchanged. After extracting layout/schema data,
@@ -135,8 +156,12 @@ constructable stylesheet support. It does not loosen CSP to allow inline styles.
 
 `node --test tools/test_web_transport.mjs` covers state, selection, paging,
 filters, editors, readback and failure behavior. `python tools/test_writer_display.py`
-uses installed Chromium (`CHROME_BIN` may override its path) at 1280 and 390 pixels.
+uses installed Chromium (`CHROME_BIN` may override its path) at 1440, 1280, 1024,
+768 and 390 pixels, and checks the actual reported viewport width.
 It runs the production CSS/JS under the station's CSP and asserts computed
-display, selection contrast, swatches, editing, responsive columns and overflow.
+display, selection contrast, swatches, editing, conflict drafts, modal focus and
+scroll behavior, locked navigation, association-only retry, success and overflow
+on every product page. Keyboard Tab/Escape and full-page screenshots are also
+reviewed interactively. See [GUI review notes](gui-polish.md).
 `--output .pio/writer-review.html` creates an interactive browser-only fixture;
 its host never connects to a station, Spoolman or an NFC reader.
