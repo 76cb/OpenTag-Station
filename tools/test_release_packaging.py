@@ -10,6 +10,8 @@ from web_flasher import validate_pages_bundle, assemble_pages_bundle, FlasherErr
 
 class ReleasePackagingTests(unittest.TestCase):
     def test_only_production_firmware_is_distributed(self):
+        import check_production_nfc_stack_usage
+        import check_production_http_stack_usage
         root = Path(__file__).resolve().parents[1]
         import re
         environments = re.findall(r'^\[env:([^\]]+)\]', (root / 'platformio.ini').read_text(), re.M)

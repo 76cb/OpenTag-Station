@@ -8,7 +8,7 @@ bench high-water readings remain required. Missing critical frames fail closed.
 import pathlib
 import re
 import argparse
-from check_diagnostic_stack_usage import frame_entries, require_frame
+from stack_frames import frame_entries, require_frame
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 
