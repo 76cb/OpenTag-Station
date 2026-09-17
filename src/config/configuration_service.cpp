@@ -1091,4 +1091,85 @@ core::Result<void> ConfigurationService::clear_spool_identity_mapping(
   mappings.erase(end,mappings.end());
   return persist_locked(updated);
 }
+
+namespace detail {
+bool same_identity(const std::optional<std::string>& value,
+                   const std::string& expected) {
+  return value && !expected.empty() && value->size() == expected.size() &&
+      std::equal(value->begin(), value->end(), expected.begin(), [](char a, char b) {
+        return std::tolower(static_cast<unsigned char>(a)) ==
+            std::tolower(static_cast<unsigned char>(b));
+      });
+}
+
+// Choose a physical UID first. A UUID on another physical tag is never ours.
+core::Result<std::size_t> verified_cache_entry(
+    const std::vector<domain::ConfirmedSpoolMapping>& mappings,
+    const std::string& uid, const std::string& uuid) {
+  const auto missing = mappings.size();
+  auto uid_index = missing, uuid_index = missing;
+  for (std::size_t i = 0; i < mappings.size(); ++i) {
+    const auto& mapping = mappings[i];
+    if (same_identity(mapping.nfc_uid, uid)) {
+      if (uid_index != missing)
+        return core::Result<std::size_t>::failure(
+            configuration_error("Duplicate local NFC UID mappings; cleanup refused"));
+      uid_index = i;
+    }
+    if (same_identity(mapping.instance_uuid, uuid)) {
+      if ((mapping.nfc_uid && !mapping.nfc_uid->empty() &&
+           !same_identity(mapping.nfc_uid, uid)) || uuid_index != missing)
+        return core::Result<std::size_t>::failure(
+            configuration_error("Local instance UUID conflicts with another tag; cleanup refused"));
+      uuid_index = i;
+    }
+  }
+  return core::Result<std::size_t>::success(
+      uid_index != missing ? uid_index : uuid_index);
+}
+
+bool valid_physical_uid(const std::string& uid) {
+  return uid.size() == 16 && std::all_of(uid.begin(), uid.end(), [](char c) {
+    return std::isxdigit(static_cast<unsigned char>(c)) != 0;
+  });
+}
+}  // namespace detail
+
+core::Result<void> ConfigurationService::clear_verified_spool_identity_mapping(
+    const std::string& uid, const std::string& uuid, std::int32_t owner) {
+  const std::lock_guard<std::mutex> lock(mutex_);
+  if (!status_.initialized || !detail::valid_physical_uid(uid) || owner < 0)
+    return core::Result<void>::failure(configuration_error("Invalid verified unlink identity"));
+  auto updated = configuration_;
+  auto& mappings = updated.spool_identity_mappings;
+  const auto selected = detail::verified_cache_entry(mappings, uid, uuid);
+  if (!selected.ok()) return core::Result<void>::failure(selected.error());
+  if (selected.value() == mappings.size()) return core::Result<void>::success();
+  // The permanent UID is authoritative only in this verified writer context.
+  mappings.erase(mappings.begin() + selected.value());
+  return persist_locked(updated);
+}
+
+core::Result<void> ConfigurationService::sync_verified_spool_identity_mapping(
+    const domain::ConfirmedSpoolMapping& mapping) {
+  const std::lock_guard<std::mutex> lock(mutex_);
+  if (!status_.initialized || mapping.spool_id <= 0 || !mapping.nfc_uid ||
+      !detail::valid_physical_uid(*mapping.nfc_uid) || !mapping.instance_uuid ||
+      mapping.instance_uuid->empty())
+    return core::Result<void>::failure(configuration_error("Invalid verified association identity"));
+  auto updated = configuration_;
+  auto& mappings = updated.spool_identity_mappings;
+  const auto selected = detail::verified_cache_entry(mappings, *mapping.nfc_uid,
+                                             *mapping.instance_uuid);
+  if (!selected.ok()) return core::Result<void>::failure(selected.error());
+  auto normalized = mapping;
+  std::transform(normalized.nfc_uid->begin(), normalized.nfc_uid->end(),
+                 normalized.nfc_uid->begin(), [](unsigned char c) { return std::toupper(c); });
+  std::transform(normalized.instance_uuid->begin(), normalized.instance_uuid->end(),
+                 normalized.instance_uuid->begin(), [](unsigned char c) { return std::tolower(c); });
+  if (selected.value() == mappings.size()) mappings.push_back(normalized);
+  else mappings[selected.value()] = normalized;
+  // Validation and transactional persistence retain all unrelated mappings.
+  return persist_locked(updated);
+}
 }  // namespace opentag::config

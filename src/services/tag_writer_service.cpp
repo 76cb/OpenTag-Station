@@ -877,6 +877,7 @@ TagWriterService::commit_clear(JsonObjectConst c) {
   return unlink();
 }
 __attribute__((noinline)) Result TagWriterService::unlink() {
+  view_["cleanup_stage"] = "spoolman";
   if (!plan_ || !plan_->verified || !unlink_pending_)
     return fail("No verified blank tag awaiting cleanup");
   if (settings_url_ != spoolman_.settings_.url ||
@@ -884,10 +885,12 @@ __attribute__((noinline)) Result TagWriterService::unlink() {
       uid_key_ != spoolman_.settings_.nfc_uid_field)
     return fail(
         "Spoolman settings changed; restore settings before retrying unlink");
+  view_["cleanup_stage"] = "checkpoint";
   // Persist physical success BEFORE the first ownership lookup or PATCH.
   auto saved = persist_clear();
   if (!saved.ok())
     return saved;
+  view_["cleanup_stage"] = "spoolman";
   publish("unlinking", "Tag blank and verified; checking exact Spoolman owner");
   auto owner = uid_owner();
   if (!owner.ok())
@@ -984,11 +987,13 @@ __attribute__((noinline)) Result TagWriterService::unlink() {
       return fail(
           "Instance UUID acquired an owner during unlink; review required");
   }
+  view_["cleanup_stage"] = "local_identity";
   if (!clear_mapping_)
     return fail("Local identity cleanup is unavailable");
   auto local = clear_mapping_(plan_->uid.hex(), uuid_, spool_id_);
   if (!local.ok())
     return local;
+  view_["cleanup_stage"] = "journal";
   if (!journal_->clear())
     return fail(
         "Tag and unlink verified; recovery journal cleanup is still pending");
@@ -1216,6 +1221,14 @@ Result TagWriterService::associate() {
     return Result::failure(owner.error());
   if (owner.value() != spool_id_)
     return fail("Final NFC UID ownership is not uniquely the target spool");
+  if (!sync_mapping_)
+    return fail("Verified local association storage is unavailable");
+  domain::ConfirmedSpoolMapping mapping;
+  mapping.spool_id = spool_id_;
+  mapping.nfc_uid = plan_->uid.hex();
+  mapping.instance_uuid = uuid_;
+  auto local = sync_mapping_(mapping);
+  if (!local.ok()) return local;
   if (journal_ && !journal_->clear())
     return fail(
         "Association verified; recovery journal cleanup is still pending");
@@ -1313,7 +1326,7 @@ Result TagWriterService::process(JsonObjectConst c) {
   if (!result.ok()) {
     if (unlink_pending_) {
       const auto message =
-          "Tag is blank and verified. Spoolman unlink is still pending. " +
+          "Tag is blank and verified. Cleanup is still pending. " +
           result.error().message;
       publish("unlink_pending", message.c_str(), plan_->completed,
               plan_->count);

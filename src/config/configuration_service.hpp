@@ -14,6 +14,14 @@
 
 namespace opentag::config {
 
+namespace detail {
+// Pure selection guard shared by verified cache mutations; no remote authority
+// is implied by selecting an entry. Exposed for corrupt-cache regression tests.
+[[nodiscard]] core::Result<std::size_t> verified_cache_entry(
+    const std::vector<domain::ConfirmedSpoolMapping>& mappings,
+    const std::string& uid, const std::string& uuid);
+}
+
 struct DeviceSettings {
   std::string hostname{"opentag-station"};
   std::uint8_t brightness_percent{80U};
@@ -183,6 +191,15 @@ class ConfigurationService final : public services::IScaleCalibrationStore,
       const domain::ConfirmedSpoolMapping& mapping) override;
   [[nodiscard]] core::Result<void> clear_spool_identity_mapping(
       const std::string& uid, const std::string& uuid, std::int32_t owner) override;
+
+  // Writer-only: blank tag verified, exact remote owner unlinked/read back,
+  // and both UID and UUID queries verified to have no owner.
+  [[nodiscard]] core::Result<void> clear_verified_spool_identity_mapping(
+      const std::string& uid, const std::string& uuid, std::int32_t owner);
+  // Writer-only: physical verification, canonical association/readback and
+  // unique remote ownership of both UID and UUID have all passed.
+  [[nodiscard]] core::Result<void> sync_verified_spool_identity_mapping(
+      const domain::ConfirmedSpoolMapping& mapping);
 
  private:
   struct Impl;

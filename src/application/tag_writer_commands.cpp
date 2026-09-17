@@ -72,7 +72,10 @@ __attribute__((noinline)) bool BackendWorker::ensure_writer() {
           &platform::storage::writer_journal(),
           [this](const std::string &uid, const std::string &uuid,
                  std::int32_t owner) {
-            return resolver_.forget(uid, uuid, owner);
+            return configuration_.clear_verified_spool_identity_mapping(uid, uuid, owner);
+          },
+          [this](const domain::ConfirmedSpoolMapping &mapping) {
+            return configuration_.sync_verified_spool_identity_mapping(mapping);
           });
     });
   if (writer_)
