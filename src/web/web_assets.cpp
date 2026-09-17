@@ -3227,7 +3227,7 @@ confirmation: 'FACTORY RESET'
 
 async function start() {
 if (window.OpenTagWriter) window.OpenTagWriter.bind();
-wireActions();byId('nfc-copy').addEventListener('click',async()=>{try{await navigator.clipboard.writeText(byId('nfc-uid').textContent);setText('nfc-read-status','UID copied');}catch(e){setText('nfc-read-status','Copy unavailable. Select the UID to copy it.');}});
+wireActions();byId('nfc-copy').addEventListener('click',async()=>{try{await window.OpenTagWriter.copy(byId('nfc-uid').textContent);setText('nfc-read-status','UID copied');}catch(e){setText('nfc-read-status','Copy unavailable. Select the UID to copy it.');}});
 activateProductPage(productPageFromHash(location.hash));
 renderAuthState();
 setConfigState(CONFIG_STATE.UNLOADED);

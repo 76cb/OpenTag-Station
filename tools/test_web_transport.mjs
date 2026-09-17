@@ -2565,6 +2565,18 @@ function writerApp(options={}) {const app=loadApplication(options);app.T.bindWri
 function writerCatalog(app,items=[SUNLU],offset=0,has_more=false) {app.T.renderWriter({phase:'catalog',entity:'spool',items,offset,next_offset:offset+items.length,has_more});}
 function writerChoose(app) {writerCatalog(app);app.document.getElementById('writer-results').children[0].click();}
 
+test('UID Copy uses the modern clipboard when available',async()=>{
+  let copied;const a=writerApp({navigator:{clipboard:{writeText:async value=>{copied=value;}}}});
+  await a.context.window.OpenTagWriter.copy('E0:04:01:08:66:27:D8:D4');assert.equal(copied,'E0:04:01:08:66:27:D8:D4');
+});
+for(const success of [true,false])test('UID Copy HTTP fallback restores focus and cleans up on '+(success?'success':'failure'),async()=>{
+  const a=writerApp();const opener=a.document.getElementById('nfc-copy');opener.focus();let selected;
+  const create=a.document.createElement.bind(a.document);a.document.createElement=tag=>{const n=create(tag);n.select=()=>{selected=n.value;};return n;};
+  const before=a.document.body.children.length;a.document.execCommand=command=>{assert.equal(command,'copy');return success;};
+  const work=a.context.window.OpenTagWriter.copy('E0:04:01:08:66:27:D8:D4');if(success)await work;else await assert.rejects(work,/Copy unavailable/);
+  assert.equal(selected,'E0:04:01:08:66:27:D8:D4');assert.equal(a.document.body.children.length,before);assert.equal(a.document.activeElement,opener);
+});
+
 test('modal requires a physical spool and keeps Review actions in the footer',()=>{
   const a=writerApp();assert.equal(a.document.getElementById('writer-continue').disabled,true);
   writerChoose(a);a.document.getElementById('writer-continue').click();

@@ -1,7 +1,7 @@
 #include "web/web_assets.hpp"
 namespace opentag::web::assets {
 const char writer_javascript[] = R"WRITER((function(){
-window.OpenTagWriter={bind:function(){const {byId,asObject,asArray,first,setText,setValue,valueOf,showToast,api,submitMutation,PRIORITY,validateCommunity,communityCatalog,tagStatus}=window.OpenTagWriterHost;
+window.OpenTagWriter={copy:async function(text){if(navigator.clipboard){try{await navigator.clipboard.writeText(text);return;}catch(e){}}const focus=document.activeElement,input=document.createElement('textarea');input.value=text;input.className='visually-hidden';document.body.append(input);try{input.focus();input.select();if(!document.execCommand('copy'))throw Error('Copy unavailable');}finally{input.remove();focus?.focus();}},bind:function(){const {byId,asObject,asArray,first,setText,setValue,valueOf,showToast,api,submitMutation,PRIORITY,validateCommunity,communityCatalog,tagStatus}=window.OpenTagWriterHost;
   const writerState={snapshot:{},busy:false,spool:0,filament:0,vendor:0,filterFilament:0,offset:0,start:0,hasMore:false,community:null,matches:[],items:[],entity:'spool',selected:null,material:null,editor:null,invalidated:false,step:1};
   const S=writerState, fields=window.OpenTagWriterFields;
   const {fmt,el,visible,swatch,values}=window.OpenTagWriterUi(byId);
