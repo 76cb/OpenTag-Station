@@ -133,7 +133,7 @@ class UiService {
   services::StationWorkflow& workflow_;
   application::NfcWorker& nfc_;
   lv_obj_t* nfc_detail_{nullptr};
-  lv_obj_t* writer_spool_{nullptr};
+  lv_obj_t* writer_preview_{nullptr};
   lv_obj_t* writer_confirm_{nullptr};
   lv_obj_t* clear_preview_{nullptr};
   lv_obj_t* weight_update_{nullptr};
