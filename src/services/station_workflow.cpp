@@ -6,12 +6,14 @@
 #include <memory>
 
 namespace opentag::services {
-void StationWorkflow::apply_weight_readback(std::uint64_t generation,const domain::Spool& spool,std::optional<float> gross) {
+void StationWorkflow::apply_weight_readback(
+    std::uint64_t generation, const domain::Spool& spool,
+    std::optional<float> gross, ReconciliationTolerances tolerances) {
   std::lock_guard<std::mutex> lock(mutex_);
   if(state_.spool_generation!=generation||!state_.spool||state_.spool->id!=spool.id)return;
   state_.spool=spool;state_.weight_snapshot.spoolman_remaining_grams=spool.remaining_grams;
   if(gross){state_.physical_weight={*gross,true};state_.weight_snapshot.physical=state_.physical_weight;}
-  state_.reconciliation=WeightReconciler::compare(state_.weight_snapshot,ReconciliationTolerances{});
+  state_.reconciliation=WeightReconciler::compare(state_.weight_snapshot,tolerances);
 }
 
 namespace {

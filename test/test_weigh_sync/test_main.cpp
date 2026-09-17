@@ -62,10 +62,13 @@ struct Fixture {
   services::WeighSync sync;
   Inventory inventory;
   bool same = true;
+  std::uint64_t settings_revision = 7;
+  int presence_checks = 0;
   services::WeighSyncSnapshot initial() {
     services::WeighSyncSnapshot s;
     s.measurement_id = 1;
     s.generation = 3;
+    s.settings_revision = settings_revision;
     s.spool_id = 28;
     s.expected_used = 100;
     s.canonical_remaining = 900;
@@ -79,7 +82,11 @@ struct Fixture {
     sync.capture(1, {842, true});
   }
   core::Result<void> update(std::uint64_t id = 1) {
-    return sync.update(id, inventory, [&](const auto &) { return same; });
+    return sync.update(id, inventory, [&](const auto &captured) {
+      if (captured.settings_revision != settings_revision) return false;
+      ++presence_checks;
+      return same;
+    });
   }
 };
 void default_off_and_explicit_capture_no_mutation() {
@@ -97,6 +104,41 @@ void manual_update_verified() {
   TEST_ASSERT_TRUE(f.update().ok());
   TEST_ASSERT_EQUAL(1, f.inventory.patches);
   TEST_ASSERT_EQUAL_FLOAT(712, *f.sync.snapshot().canonical_remaining);
+  TEST_ASSERT_EQUAL_FLOAT(5, f.sync.snapshot().tolerances.normal_grams);
+  TEST_ASSERT_EQUAL_FLOAT(20, f.sync.snapshot().tolerances.warning_grams);
+}
+void custom_tolerances_survive_success_without_extra_operations() {
+  Fixture f;
+  auto captured = f.initial();
+  captured.tolerances = {2, 10};
+  TEST_ASSERT_TRUE(f.sync.begin(captured));
+  f.sync.capture(1, {1027, true}); // 897 g: outside 2 g, inside default 5 g.
+  TEST_ASSERT_TRUE(f.update().ok());
+  const auto readback = f.sync.snapshot();
+  TEST_ASSERT_EQUAL_FLOAT(897, *readback.canonical_remaining);
+  TEST_ASSERT_EQUAL_FLOAT(2, readback.tolerances.normal_grams);
+  TEST_ASSERT_EQUAL_FLOAT(10, readback.tolerances.warning_grams);
+  TEST_ASSERT_EQUAL(1, f.inventory.patches);
+  TEST_ASSERT_EQUAL(2, f.presence_checks); // Existing preflight + pre-PATCH fence.
+  TEST_ASSERT_FALSE(f.update().ok());
+  TEST_ASSERT_EQUAL(1, f.inventory.patches);
+  TEST_ASSERT_EQUAL(2, f.presence_checks);
+}
+void settings_change_invalidates_captured_measurement() {
+  for (bool during_get : {false, true}) {
+    Fixture f;
+    f.capture(true);
+    if (during_get)
+      f.inventory.after_get = [&] { ++f.settings_revision; };
+    else
+      ++f.settings_revision;
+    TEST_ASSERT_FALSE(f.update().ok());
+    TEST_ASSERT_EQUAL(0, f.inventory.patches);
+    TEST_ASSERT_EQUAL(during_get ? 1 : 0, f.presence_checks);
+    TEST_ASSERT_FALSE(f.update().ok());
+    TEST_ASSERT_EQUAL(0, f.inventory.patches);
+    TEST_ASSERT_EQUAL(during_get ? 1 : 0, f.presence_checks);
+  }
 }
 void automatic_update_once() {
   Fixture f;
@@ -208,6 +250,8 @@ void setUp() {}
 void tearDown() {}
 int main() {
   UNITY_BEGIN();
+  RUN_TEST(custom_tolerances_survive_success_without_extra_operations);
+  RUN_TEST(settings_change_invalidates_captured_measurement);
   RUN_TEST(default_off_and_explicit_capture_no_mutation);
   RUN_TEST(manual_update_verified);
   RUN_TEST(automatic_update_once);

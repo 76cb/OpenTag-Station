@@ -7,7 +7,8 @@ void BackendWorker::begin_weigh(std::uint64_t id) {
   captured.measurement_id = id;
   configuration_.visit([&](const auto &config, auto revision) {
     captured.automatic = config.reconciliation.auto_update_after_weigh;
-    captured.tolerance = config.reconciliation.normal_tolerance_grams;
+    captured.tolerances = {config.reconciliation.normal_tolerance_grams,
+                           config.reconciliation.warning_tolerance_grams};
     captured.settings_revision = revision;
   });
   workflow_.visit([&](const auto &state) {
@@ -94,7 +95,7 @@ BackendWorker::process_weight_update(std::uint64_t id,
     auto fresh = spoolman_.get_spool(captured.spool_id);
     if (fresh.ok())
       workflow_.apply_weight_readback(captured.generation, fresh.value(),
-                                      captured.gross);
+                                      captured.gross, captured.tolerances);
   }
   if (operation) {
     if (result.ok())

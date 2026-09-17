@@ -561,8 +561,51 @@ void test_explicit_spool_confirmation_is_generation_fenced() {
   (void)workflow.accept_identified_spool(material(), Uid{}, {900, true}, {}, {}, generation, &selected);
   TEST_ASSERT_FALSE(workflow.snapshot().spool.has_value());
 }
+void assert_readback_tolerances(opentag::services::ReconciliationTolerances tolerances) {
+  FakeResolver resolver;
+  resolver.next = Result<SpoolResolution>::success({
+      SpoolResolutionStatus::matched, SpoolMatchSource::configured_identity_field, {spool()}});
+  FakePrinterBackend printers;
+  StationWorkflow workflow(resolver, printers);
+  const auto original = workflow.accept_identified_spool(
+      material(), Uid{}, {900, true}, {}, tolerances);
+  TEST_ASSERT_TRUE(original.spool.has_value());
+  const std::pair<float, ReconciliationDecision> boundaries[] = {
+      {tolerances.normal_grams, ReconciliationDecision::within_tolerance},
+      {tolerances.normal_grams + 1, ReconciliationDecision::warning},
+      {tolerances.warning_grams, ReconciliationDecision::warning},
+      {tolerances.warning_grams + 1, ReconciliationDecision::confirmation_required}};
+  for (const auto& boundary : boundaries) {
+    // Successful Spoolman readback agrees with the captured physical weight.
+    // The unchanged tag is still 700 g; its difference exposes both thresholds.
+    auto verified = spool();
+    verified.remaining_grams = 700 + boundary.first;
+    verified.used_grams = 1000 - *verified.remaining_grams;
+    workflow.apply_weight_readback(original.spool_generation, verified,
+                                   900 + boundary.first, tolerances);
+    const auto state = workflow.snapshot();
+    TEST_ASSERT_EQUAL_FLOAT(*verified.remaining_grams, *state.spool->remaining_grams);
+    TEST_ASSERT_EQUAL_FLOAT(0, *state.reconciliation.spoolman_difference_grams);
+    TEST_ASSERT_EQUAL_FLOAT(boundary.first, *state.reconciliation.tag_difference_grams);
+    TEST_ASSERT_EQUAL(static_cast<int>(boundary.second), static_cast<int>(state.reconciliation.decision));
+  }
+  // Reconciliation is local: no repeated resolution or backend assignment.
+  TEST_ASSERT_EQUAL(1, resolver.calls);
+  TEST_ASSERT_EQUAL(0, printers.assignment_calls);
+}
+void test_readback_preserves_custom_two_and_ten_gram_tolerances() {
+  assert_readback_tolerances({2, 10});
+}
+void test_readback_preserves_default_five_and_twenty_gram_tolerances() {
+  const opentag::services::ReconciliationTolerances defaults;
+  TEST_ASSERT_EQUAL_FLOAT(5, defaults.normal_grams);
+  TEST_ASSERT_EQUAL_FLOAT(20, defaults.warning_grams);
+  assert_readback_tolerances(defaults);
+}
 int main(int, char**) {
   UNITY_BEGIN();
+  RUN_TEST(test_readback_preserves_custom_two_and_ten_gram_tolerances);
+  RUN_TEST(test_readback_preserves_default_five_and_twenty_gram_tolerances);
   RUN_TEST(test_removal_preserves_discovery_and_reinsertion_can_assign);
   RUN_TEST(test_explicit_spool_confirmation_is_generation_fenced);
   RUN_TEST(test_complete_decoded_tag_to_verified_t3_assignment_slice);

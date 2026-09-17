@@ -2,6 +2,7 @@
 #include "domain/weight.hpp"
 #include "integrations/inventory.hpp"
 #include "nfc/protocols/nfcv/tag.hpp"
+#include "services/weight_reconciler.hpp"
 #include <functional>
 #include <mutex>
 
@@ -13,7 +14,8 @@ struct WeighSyncSnapshot {
   std::string name, phase{"idle"},
       message{"Press Weigh to capture a measurement"};
   bool automatic{false}, consumed{false};
-  float expected_used{0}, tolerance{5};
+  float expected_used{0};
+  ReconciliationTolerances tolerances;
   std::optional<float> gross, tare, measured, canonical_remaining, difference;
 };
 // Explicit measurement sessions only. The backend owns HTTP; scale callbacks

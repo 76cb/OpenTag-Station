@@ -27,7 +27,7 @@ void WeighSync::capture(std::uint64_t id, domain::WeightReading reading) {
   if (!reading.stable || !valid(reading.gross_grams) || state_.spool_id <= 0 ||
       !state_.tare || !valid(*state_.tare) || !valid(state_.expected_used) ||
       !state_.canonical_remaining || !valid(*state_.canonical_remaining) ||
-      reading.gross_grams < *state_.tare || !valid(state_.tolerance)) {
+      reading.gross_grams < *state_.tare || !valid(state_.tolerances.normal_grams)) {
     state_.phase = "unavailable";
     state_.message =
         "Resolve one online Spoolman spool with a known tare, then Weigh again";
@@ -76,7 +76,7 @@ WeighSync::update(std::uint64_t id, integrations::ISpoolInventory &inventory,
     return refused("Spool or backend changed");
   }
   // The existing normal reconciliation tolerance is the no-write deadband.
-  if (std::fabs(*captured.difference) <= captured.tolerance) {
+  if (std::fabs(*captured.difference) <= captured.tolerances.normal_grams) {
     finish("unchanged", "No update needed. Difference is within tolerance");
     return core::Result<void>::success();
   }

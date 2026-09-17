@@ -78,7 +78,10 @@ Automatic measurements used by NFC identification explicitly opt out. Tare,
 calibration, unstable samples, timeouts, repeated stable readings, and refreshes
 cannot enqueue a weight mutation. A new explicit measurement captures its own
 operation ID, spool generation/UID, settings revision, canonical used/remaining
-weights, resolved tare, and policy. Unresolved/ambiguous/offline spools or unknown
+weights, resolved tare, and policy, including both configured reconciliation
+tolerances. Canonical readback recomputes workflow/UI reconciliation with those
+same captured normal/warning thresholds, behind the settings-revision fence.
+Unresolved/ambiguous/offline spools or unknown
 tare are ineligible; net weight must be finite and nonnegative.
 
 With auto off, the browser/touchscreen offer Update Spoolman for that measurement

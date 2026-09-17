@@ -262,10 +262,30 @@ void test_only_explicit_weigh_notifies_sync_and_timeout_finishes_it() {
   TEST_ASSERT_TRUE(queue.find("active_->explicit_request && weigh_finished") != std::string::npos);
 }
 
+void test_weigh_readback_uses_captured_policy_behind_revision_fence() {
+  const auto source = read_source("src/application/weigh_commands.cpp");
+  const auto capture = method(source, "void BackendWorker::begin_weigh",
+                              "void BackendWorker::complete_weigh");
+  for (const char* token : {"config.reconciliation.normal_tolerance_grams",
+                            "config.reconciliation.warning_tolerance_grams",
+                            "captured.settings_revision = revision"})
+    TEST_ASSERT_TRUE_MESSAGE(capture.find(token) != std::string::npos, token);
+  const auto fence = method(source, "BackendWorker::weight_fence",
+                            "BackendWorker::process_weight_update");
+  TEST_ASSERT_LESS_THAN(fence.find("reader_.field_on()"),
+                        fence.find("captured.settings_revision != configuration_.revision()"));
+  const auto readback = method(source, "BackendWorker::process_weight_update",
+                               "void BackendWorker::auto_weight_update");
+  TEST_ASSERT_TRUE(readback.find("captured.gross, captured.tolerances") != std::string::npos);
+  TEST_ASSERT_LESS_THAN(readback.find("workflow_.apply_weight_readback"),
+                        readback.find("captured.settings_revision == configuration_.revision()"));
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
   UNITY_BEGIN();
+  RUN_TEST(test_weigh_readback_uses_captured_policy_behind_revision_fence);
   RUN_TEST(test_clear_has_two_steps_and_large_touch_targets);
   RUN_TEST(test_only_explicit_weigh_notifies_sync_and_timeout_finishes_it);
   RUN_TEST(test_touchscreen_has_five_product_destinations_in_order);
