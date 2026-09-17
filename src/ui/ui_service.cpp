@@ -236,6 +236,7 @@ void UiService::build_current_screen() {
   workflow_identity_label_ = nullptr;
   workflow_status_label_ = nullptr;
   nfc_detail_ = nullptr;
+  writer_spool_ = nullptr; writer_confirm_ = nullptr; writer_confirmation_.clear();
   scale_keyboard_ = nullptr;
   display_test_touch_marker_ = nullptr;
   display_test_touch_label_ = nullptr;
@@ -741,9 +742,10 @@ void UiService::build_tags_page() {
   lv_obj_align(icon, LV_ALIGN_TOP_MID, 0, 12);
 
   auto* heading = lv_label_create(card);
-  lv_label_set_text(heading, "NFC READER");
+  lv_label_set_text(heading, "OPENPRINTTAG WRITER");
   lv_obj_set_style_text_font(heading, &lv_font_montserrat_20, 0);
-  lv_obj_align(heading, LV_ALIGN_TOP_MID, 0, 70);
+  lv_obj_align(heading, LV_ALIGN_TOP_MID, 0, 0);
+  lv_obj_add_flag(icon, LV_OBJ_FLAG_HIDDEN);
 
   auto* detail = lv_label_create(card);
   nfc_detail_ = detail;
@@ -753,7 +755,42 @@ void UiService::build_tags_page() {
   lv_obj_set_width(detail, 310);
   lv_obj_set_style_text_align(detail, LV_TEXT_ALIGN_CENTER, 0);
   lv_obj_set_style_text_color(detail, lv_color_hex(0x9AB8BC), 0);
-  lv_obj_align(detail, LV_ALIGN_TOP_MID, 0, 112);
+  lv_obj_align(detail, LV_ALIGN_TOP_MID, 0, 32);
+  lv_obj_set_height(detail, 96);
+  writer_spool_ = lv_textarea_create(card);
+  lv_textarea_set_one_line(writer_spool_, true);
+  lv_textarea_set_accepted_chars(writer_spool_, "0123456789");
+  lv_textarea_set_max_length(writer_spool_, 9);
+  lv_textarea_set_placeholder_text(writer_spool_, "Spoolman spool ID");
+  lv_obj_set_size(writer_spool_, 155, 38);lv_obj_set_pos(writer_spool_, 0, 134);
+  lv_obj_add_event_cb(writer_spool_, scale_textarea_callback, LV_EVENT_FOCUSED, this);
+  auto* preview = lv_btn_create(card);lv_obj_set_size(preview, 145, 38);lv_obj_set_pos(preview, 165, 134);
+  auto* preview_label=lv_label_create(preview);lv_label_set_text(preview_label,"Write / Rewrite");lv_obj_center(preview_label);
+  lv_obj_add_event_cb(preview,writer_preview_callback,LV_EVENT_CLICKED,this);
+  writer_confirm_=lv_btn_create(card);lv_obj_set_size(writer_confirm_,310,36);lv_obj_set_pos(writer_confirm_,0,178);
+  auto* confirm_label=lv_label_create(writer_confirm_);lv_label_set_text(confirm_label,"Confirm displayed tag / Retry association");lv_obj_center(confirm_label);
+  lv_obj_add_state(writer_confirm_,LV_STATE_DISABLED);
+  lv_obj_add_event_cb(writer_confirm_,writer_confirm_callback,LV_EVENT_CLICKED,this);
+  scale_keyboard_=lv_keyboard_create(screen);
+  lv_keyboard_set_mode(scale_keyboard_,LV_KEYBOARD_MODE_NUMBER);
+  lv_obj_set_size(scale_keyboard_,354,150);lv_obj_set_pos(scale_keyboard_,112,170);
+  lv_obj_add_event_cb(scale_keyboard_,scale_keyboard_callback,LV_EVENT_ALL,this);
+  lv_obj_add_flag(scale_keyboard_,LV_OBJ_FLAG_HIDDEN);
+}
+
+void UiService::writer_preview_callback(lv_event_t* event) {
+  auto* self=static_cast<UiService*>(lv_event_get_user_data(event));
+  if(!self->writer_spool_)return;
+  const auto id=std::strtol(lv_textarea_get_text(self->writer_spool_),nullptr,10);
+  if(id<=0)return;
+  const auto receipt=self->backend_worker_.submit_writer("{\"action\":\"preview\",\"mode\":\"rewrite\",\"spool_id\":"+std::to_string(id)+"}");
+  if(!receipt.accepted)lv_label_set_text(self->nfc_detail_,"Writer queue unavailable; retry");
+}
+void UiService::writer_confirm_callback(lv_event_t* event) {
+  auto* self=static_cast<UiService*>(lv_event_get_user_data(event));
+  if(self->writer_confirmation_.empty())return;
+  const auto receipt=self->backend_worker_.submit_writer(self->writer_confirmation_);
+  if(receipt.accepted){self->writer_confirmation_.clear();lv_obj_add_state(self->writer_confirm_,LV_STATE_DISABLED);}
 }
 
 void UiService::build_settings_page() {
@@ -1635,6 +1672,23 @@ void UiService::refresh_workflow() {
     const auto text = nfc::describe(nfc_.snapshot(), scale.scale_last_completed_available
         ? std::optional<float>(scale.scale_last_completed_milligrams / 1000.0F) : std::nullopt);
     lv_label_set_text(nfc_detail_, text.c_str());
+    auto writer=backend_worker_.writer_snapshot();
+    network::BackendJsonAllocator allocator;
+    JsonDocument view(&allocator);
+    if(!deserializeJson(view,writer.data(),writer.size()) && view["phase"].as<std::string>()!="idle") {
+      const std::string phase=view["phase"]|"";
+      std::string status=phase+": "+std::string(view["message"]|"");
+      if(view["spool_id"].as<int>()>0)status+="\nSpool #"+std::to_string(view["spool_id"].as<int>())+" "+std::string(view["spool"]["filament"]["name"]|"");
+      if(phase=="preview")status="Preview #"+std::to_string(view["spool_id"].as<int>())+" "+std::string(view["spool"]["filament"]["name"]|"").substr(0,24)+"\nUID "+std::string(view["uid"]|"")+"\nTarget "+std::string(view["target_checksum"]|"")+" / "+std::to_string(view["total_blocks"].as<int>())+" blocks\n"+(view["previous_spool_id"].as<int>()>0?"MOVE UID from spool #"+std::to_string(view["previous_spool_id"].as<int>()):"Confirm below after checking tag");
+      if(phase=="writing")status+="\n"+std::to_string(view["completed_blocks"].as<int>())+" / "+std::to_string(view["total_blocks"].as<int>());
+      lv_label_set_text(nfc_detail_,status.c_str());writer_confirmation_.clear();
+      if(phase=="preview") {
+        JsonDocument confirmation(&allocator);confirmation["action"]="write";
+        for(const auto* key:{"uid","generation","spool_id","previous_spool_id","target_checksum"})confirmation[key]=view[key];
+        serializeJson(confirmation,writer_confirmation_);
+      } else if(phase=="association_pending")writer_confirmation_="{\"action\":\"retry_association\"}";
+      if(writer_confirm_) { if(writer_confirmation_.empty())lv_obj_add_state(writer_confirm_,LV_STATE_DISABLED);else lv_obj_clear_state(writer_confirm_,LV_STATE_DISABLED); }
+    }
     return;
   }
 

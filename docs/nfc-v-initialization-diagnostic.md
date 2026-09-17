@@ -1,6 +1,6 @@
 # NFC-V OpenPrintTag read-only diagnostic
 
-This is an opt-in diagnostic alongside the enabled production read-only NFC path. It
+This is an opt-in diagnostic alongside the production NFC path with its separate guarded writer. It
 does not initialize a tag at boot, and does not expose a force,
 reinitialization, or other NFC write action. The one-time blank-tag
 initialization test has passed physical acceptance. Its UI control is removed,

@@ -6,9 +6,10 @@
 
 #include "boards/wt32_sc01_plus_rev_a.hpp"
 #include "nfc/read_only_service.hpp"
+#include "nfc/openprinttag_writer.hpp"
 
 namespace opentag::hardware::nfc::st25r3916b {
-class I2cReader final : public opentag::nfc::IReadOnlyReader {
+class I2cReader final : public opentag::nfc::IWriterReader {
  public:
   I2cReader()
       : reader_(&Wire1, boards::Wt32Sc01PlusRevA::nfc_interrupt),
@@ -27,8 +28,13 @@ class I2cReader final : public opentag::nfc::IReadOnlyReader {
   std::uint32_t bus_errors() const override { return errors_; }
   void stack_checkpoint(const char*) const override;
   void yield_between_chunks() const override;
+  core::Result<opentag::nfc::WriterSystemInformation> writer_system_information(const opentag::nfc::nfcv::Uid&) override;
+  core::Result<void> security_read(const opentag::nfc::nfcv::Uid&, std::size_t,
+      std::uint8_t*, std::uint8_t&) override;
 
  private:
+  core::Result<void> commit_openprinttag_block(const opentag::nfc::nfcv::Uid&,
+      std::size_t, const std::uint8_t*) override;
   core::Error error(const char* stage, ReturnCode code);
   RfalRfST25R3916Class reader_;
   RfalNfcClass nfc_;

@@ -375,7 +375,7 @@ esp_err_t LocalWebServer::start() {
   configuration.stack_size = http_task_stack_bytes;
   configuration.max_open_sockets =
       static_cast<std::uint16_t>(maximum_open_sockets);
-  configuration.max_uri_handlers = 13U;
+  configuration.max_uri_handlers = 14U;
   configuration.max_resp_headers = 10U;
   // One browser uses at most one scheduled REST request beside its WebSocket.
   // Five slots retain room for the two static-asset transfers during cold load,
@@ -401,7 +401,8 @@ esp_err_t LocalWebServer::start() {
     return result;
   }
 
-  const std::array<httpd_uri_t, 13U> handlers = {{
+  const std::array<httpd_uri_t, 14U> handlers = {{
+      make_uri("/assets/writer.js", HTTP_GET, &LocalWebServer::static_asset_handler, this),
       make_uri("/", HTTP_GET, &LocalWebServer::static_asset_handler, this),
       make_uri(
           "/assets/app.css",
@@ -647,6 +648,13 @@ esp_err_t LocalWebServer::handle_static_asset(httpd_req_t* request) {
     content_type = "text/css; charset=utf-8";
     cache_control = immutable_asset_cache_control;
     etag = compressed ? stylesheet_gzip_etag : stylesheet_identity_etag;
+    content_varies_by_encoding = true;
+  } else if (path == "/assets/writer.js") {
+    compressed = request_accepts_gzip(request);
+    body = compressed ? reinterpret_cast<const char*>(assets::writer_javascript_gzip) : assets::writer_javascript;
+    size = compressed ? assets::writer_javascript_gzip_size : assets::writer_javascript_size;
+    content_type = "application/javascript; charset=utf-8";
+    cache_control = "no-cache";
     content_varies_by_encoding = true;
   } else if (path == "/assets/app.js") {
     compressed = request_accepts_gzip(request);

@@ -149,6 +149,8 @@ class Codec {
   static core::Result<std::vector<std::uint8_t>> update_consumed_weight(
       core::ByteView tag_image,
       double consumed_grams);
+  static core::Result<std::vector<std::uint8_t>> update_consumed_weight(
+      core::ByteView tag_image, double consumed_grams, DecodedTag& workspace);
 };
 
 }  // namespace opentag::nfc::openprinttag

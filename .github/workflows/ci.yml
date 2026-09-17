@@ -36,6 +36,11 @@ jobs:
       - run: node --test tools/test_web_transport.mjs
       - run: python tools/web_flasher.py validate-source --page web-flasher/index.html --manifest web-flasher/manifest.json --diagnostic-manifest web-flasher/i2c-test-manifest.json
       - run: pio test --environment native
+      - run: pio test --environment native-writer-sanitized
+        env:
+          ASAN_OPTIONS: detect_leaks=1:halt_on_error=1
+          UBSAN_OPTIONS: halt_on_error=1
+      - run: python tools/verify_openprinttag_writer_reference.py --spec-root .reference/openprinttag-specification
       - run: python tools/check_production_nfc.py
       - run: pio run --environment wt32-sc01-plus
       - run: python tools/check_production_nfc.py --elf

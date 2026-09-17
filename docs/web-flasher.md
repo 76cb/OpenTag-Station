@@ -33,7 +33,7 @@ guarded blank-tag initialization has passed physical acceptance, so its browser
 control is removed and its POST route and loop processing are compiled behind a
 false developer gate. The shipped diagnostic exposes no NFC write action,
 reinitialize path, or force path. The normal factory bundle now includes
-production read-only NFC; see [production NFC](production-nfc.md).
+production NFC and its guarded OpenPrintTag writer; see [production NFC](production-nfc.md).
 
 The RF field is scoped to every RF operation. The display is the primary result
 view; touchscreen input is disabled to reserve I2C controller 1 for NFC. For
@@ -122,6 +122,6 @@ never commits generated data to `main`.
 ## MVP candidate installation
 
 Use the normal **Install OpenTag Station** bundle for the complete workflow.
-Production NFC is already physically validated and remains read-only. The
+Production NFC recognition is physically validated; the guarded writer has a consolidated physical acceptance procedure. The
 separate diagnostic bundle is for recovery/inspection, not a required setup
 phase. Follow the single [MVP acceptance procedure](release-validation.md).

@@ -580,3 +580,7 @@ The legacy NVS calibration mirror and authoritative LittleFS configuration write
 are safety-ordered but not one power-atomic transaction. ESP-IDF header receipt
 uses bounded socket waits rather than a separate whole-header wall-clock
 deadline.
+
+## Production OpenPrintTag writer
+
+See [writer workflow and contract](openprinttag-writer.md). GET /api/v1/tag-writer returns its bounded snapshot; authenticated POST enqueues only approved high-level catalog/import/spool/preview/write/association operations. Periodic reads never write.

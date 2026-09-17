@@ -606,7 +606,8 @@ void BackendWorker::run() {
     poll_nfc();  // Check removal before executing even a continuously busy queue.
     if (received && command != nullptr) {
       transport_.begin_operation(millis());
-      process(*command);
+      if (command->type == CommandType::writer) process_writer(*command);
+      else process(*command);
       transport_.end_operation();
       delete command;
       pending_.fetch_sub(1U, std::memory_order_relaxed);
