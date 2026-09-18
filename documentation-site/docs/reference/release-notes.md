@@ -2,6 +2,13 @@
 
 # Changelog
 
+## 1.0.0-rc.5
+
+Fix Community catalog commands rejected by the production API router. Status,
+search, selection, and catalog update requests now use strict action-specific
+validation before the accepted command reaches the shared tag-writer service.
+Raw NFC and write fields remain forbidden.
+
 ## 1.0.0-rc.4
 
 Community search now uses a versioned, block-compressed local catalog shared by

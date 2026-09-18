@@ -55,8 +55,13 @@ class TagFlow {
   }
   std::string browse() {
     JsonDocument command(&allocator);
-    command["action"]=entity=="community"?"community_search":"catalog";
-    command["entity"]=entity;command["search"]=query;command["offset"]=offset;
+    if(entity=="community")
+      command["action"]="community_search";
+    else {
+      command["action"]="catalog";
+      command["entity"]=entity;
+    }
+    command["search"]=query;command["offset"]=offset;
     return encode(command);
   }
   void fail(std::string reason) {waiting=false;message=std::move(reason);page=TagPage::error;}

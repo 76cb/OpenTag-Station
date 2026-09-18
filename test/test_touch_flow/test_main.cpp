@@ -67,6 +67,8 @@ void filament_and_community_create() {
   c=command(f.act(TagAction::community));TEST_ASSERT_EQUAL_STRING("community_status",c["action"]);
   receive(f,R"({"phase":"community_catalog","catalog_state":"ready","catalog_version":"2026-09-18"})");
   f.query="SUNLU PLA";c=command(f.browse());TEST_ASSERT_EQUAL_STRING("community_search",c["action"]);
+  TEST_ASSERT_EQUAL_STRING("SUNLU PLA",c["search"]);TEST_ASSERT_EQUAL(0,c["offset"].as<unsigned>());
+  TEST_ASSERT_FALSE(c.containsKey("entity"));
   receive(f,R"({"phase":"community","items":[{"id":"public-filament","name":"PLA"}]})");f.act(TagAction::row0);c=command(f.act(TagAction::use));TEST_ASSERT_EQUAL_STRING("community_select",c["action"]);
   receive(f,R"({"phase":"import_preview","import_token":"TOKEN"})");c=command(f.act(TagAction::import));TEST_ASSERT_EQUAL_STRING("TOKEN",c["import_token"]);
   receive(f,R"({"phase":"imported","filament":{"id":42,"weight":1000}})");c=command(f.act(TagAction::create));TEST_ASSERT_EQUAL(42,c["spool"]["filament_id"].as<int>());
