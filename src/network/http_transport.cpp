@@ -235,7 +235,10 @@ core::Result<HttpResponse> HttpTransport::perform(const HttpRequest& request) {
       reinterpret_cast<std::uint8_t*>(const_cast<char*>(request.body.data())),
       request.body.size());
   if (status_code <= 0) {
-    if (budget.expired(millis())) { http.end(); return deadline_error(); }
+    if (budget.expired(millis()) || (request.community_search &&
+        (status_code == HTTPC_ERROR_READ_TIMEOUT || bounded.connection_errno() == ETIMEDOUT))) {
+      http.end(); return deadline_error();
+    }
     if (const auto* reason = connection_failure_message(bounded.connection_errno())) {
       http.end();
       return core::Result<HttpResponse>::failure(network_error(reason));
@@ -262,7 +265,8 @@ core::Result<HttpResponse> HttpTransport::perform(const HttpRequest& request) {
     return core::Result<HttpResponse>::failure({core::ErrorCategory::backend_unavailable,
         "Backend response PSRAM allocation failed; retry later", true});
   }
-  if (budget.expired(millis())) {
+  if (budget.expired(millis()) ||
+      (request.community_search && copied == HTTPC_ERROR_READ_TIMEOUT)) {
     http.end();
     return deadline_error();
   }
