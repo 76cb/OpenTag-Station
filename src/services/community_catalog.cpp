@@ -7,7 +7,6 @@
 #include <cstdlib>
 #include <cstring>
 #include <limits>
-#include <new>
 #ifdef ARDUINO
 #include <Arduino.h>
 #include <esp_heap_caps.h>
@@ -16,8 +15,9 @@
 
 namespace opentag::services { namespace {
 constexpr std::size_t header_size=120,directory_size=32,block_limit=65536;
-constexpr std::size_t canary_size=16;
+constexpr std::size_t canary_size=16,inflater_canary_size=64;
 constexpr std::uint8_t leading_canary=0xa5,trailing_canary=0x5a;
+constexpr std::uint8_t inflater_leading_canary=0xc3,inflater_trailing_canary=0x3c;
 constexpr std::uint8_t magic[]{'O','T','C','P','A','C','K',0};
 struct Header {std::uint16_t format{},bytes{};std::uint32_t records{},indexes{},details{},directory{},data{},size{},crc{},block{};std::array<std::uint8_t,32> source{};std::string version,revision;};
 struct Directory {std::uint8_t kind{};std::uint32_t first{},count{},offset{},compressed{},expanded{},crc{},reserved{};};
@@ -115,23 +115,43 @@ class GuardedBuffer {
 };
 class InternalInflater {
  public:
-  explicit InternalInflater(ICommunityCatalogMemory& memory):memory_(&memory){
-    raw_=memory.allocate(CommunityCatalogMemoryClass::internal,sizeof(tinfl_decompressor));
-    if(raw_)value_=new(raw_) tinfl_decompressor{};
+  explicit InternalInflater(ICommunityCatalogMemory& memory):memory_(&memory),c_size_(opentag_tinfl_state_size()),cpp_size_(sizeof(tinfl_decompressor)){
+    if(!c_size_||c_size_>16384)return;
+    raw_=static_cast<std::uint8_t*>(memory.allocate(CommunityCatalogMemoryClass::internal,c_size_+2*inflater_canary_size));
+    if(!raw_)return;
+    std::memset(raw_,inflater_leading_canary,inflater_canary_size);
+    std::memset(raw_+inflater_canary_size+c_size_,inflater_trailing_canary,inflater_canary_size);
+    state_=raw_+inflater_canary_size;
+    opentag_tinfl_state_init(state_);
   }
   InternalInflater(const InternalInflater&)=delete;InternalInflater& operator=(const InternalInflater&)=delete;
-  ~InternalInflater(){if(value_){value_->~tinfl_decompressor();memory_->release(raw_);}}
-  tinfl_decompressor* get() const{return value_;}
- private:ICommunityCatalogMemory* memory_;void* raw_{nullptr};tinfl_decompressor* value_{nullptr};
+  ~InternalInflater(){if(raw_)memory_->release(raw_);}
+  explicit operator bool() const{return state_;}
+  void* get() const{return state_;}
+  std::size_t c_size() const{return c_size_;}
+  std::size_t cpp_size() const{return cpp_size_;}
+  bool canaries_valid() const{
+    if(!raw_)return false;
+    for(std::size_t n=0;n<inflater_canary_size;++n)
+      if(raw_[n]!=inflater_leading_canary||raw_[inflater_canary_size+c_size_+n]!=inflater_trailing_canary)return false;
+    return true;
+  }
+ private:
+  ICommunityCatalogMemory* memory_;
+  std::uint8_t* raw_{nullptr};
+  void* state_{nullptr};
+  std::size_t c_size_{0},cpp_size_{0};
 };
 void log_inflate_begin(ICommunityCatalogMemory& memory,const Directory& d,std::size_t block_index,
-    const void* input,const void* output,const void* inflater){
+    const void* input,const void* output,const InternalInflater* inflater){
 #ifdef ARDUINO
   const auto heap=memory.snapshot();
-  Serial.printf("COMMUNITY_INFLATE phase=begin kind=%s block_index=%u ordinal=%u compressed=%u expanded=%u input=%s output=%s inflater=%s stack_free=%u internal_free=%u internal_largest=%u psram_free=%u psram_largest=%u\n",
+  Serial.printf("COMMUNITY_INFLATE phase=begin kind=%s block_index=%u ordinal=%u compressed=%u expanded=%u input=%s output=%s inflater=%s c_state_size=%u cpp_state_size=%u inflater_canaries=%s stack_free=%u internal_free=%u internal_largest=%u psram_free=%u psram_largest=%u\n",
       block_kind_name(d.kind),static_cast<unsigned>(block_index),static_cast<unsigned>(d.first),
       static_cast<unsigned>(d.compressed),static_cast<unsigned>(d.expanded),memory_class_name(memory.classify(input)),
-      memory_class_name(memory.classify(output)),memory_class_name(memory.classify(inflater)),
+      memory_class_name(memory.classify(output)),memory_class_name(memory.classify(inflater?inflater->get():nullptr)),
+      static_cast<unsigned>(inflater?inflater->c_size():0),static_cast<unsigned>(inflater?inflater->cpp_size():0),
+      (!inflater||inflater->canaries_valid())?"ok":"failed",
       static_cast<unsigned>(heap.stack_free_bytes),static_cast<unsigned>(heap.internal_free_bytes),
       static_cast<unsigned>(heap.internal_largest_bytes),static_cast<unsigned>(heap.external_free_bytes),
       static_cast<unsigned>(heap.external_largest_bytes));
@@ -140,14 +160,17 @@ void log_inflate_begin(ICommunityCatalogMemory& memory,const Directory& d,std::s
 #endif
 }
 void log_inflate_complete(ICommunityCatalogMemory& memory,const Directory& d,std::size_t block_index,
-    const char* status,int tinfl_status,std::size_t consumed,std::size_t produced,bool crc_ok,bool guards_ok,std::uint32_t started){
+    const char* status,int tinfl_status,std::size_t consumed,std::size_t produced,bool crc_ok,
+    bool buffer_guards_ok,bool inflater_guards_ok,std::uint32_t started){
 #ifdef ARDUINO
-  Serial.printf("COMMUNITY_INFLATE phase=complete kind=%s block_index=%u ordinal=%u status=%s tinfl_status=%d input_consumed=%u output_produced=%u crc=%s canaries=%s heap_scan=skipped duration_ms=%lu\n",
+  Serial.printf("COMMUNITY_INFLATE phase=complete kind=%s block_index=%u ordinal=%u status=%s tinfl_status=%d input_consumed=%u output_produced=%u crc=%s buffer_canaries=%s inflater_canaries=%s heap_scan=skipped duration_ms=%lu\n",
       block_kind_name(d.kind),static_cast<unsigned>(block_index),static_cast<unsigned>(d.first),status,tinfl_status,
-      static_cast<unsigned>(consumed),static_cast<unsigned>(produced),crc_ok?"ok":"failed",guards_ok?"ok":"failed",
+      static_cast<unsigned>(consumed),static_cast<unsigned>(produced),crc_ok?"ok":"failed",
+      buffer_guards_ok?"ok":"failed",inflater_guards_ok?"ok":"failed",
       static_cast<unsigned long>(memory.milliseconds()-started));
 #else
-  (void)memory;(void)d;(void)block_index;(void)status;(void)tinfl_status;(void)consumed;(void)produced;(void)crc_ok;(void)guards_ok;(void)started;
+  (void)memory;(void)d;(void)block_index;(void)status;(void)tinfl_status;(void)consumed;(void)produced;
+  (void)crc_ok;(void)buffer_guards_ok;(void)inflater_guards_ok;(void)started;
 #endif
 }
 bool read_header(ICommunityCatalogFile& file,Header& h) {
@@ -170,28 +193,38 @@ core::Result<GuardedBuffer> inflate(ICommunityCatalogFile& file,const Directory&
   using Result=core::Result<GuardedBuffer>;const auto started=memory.milliseconds();
   const bool metadata_ok=d.compressed&&d.expanded&&d.compressed<=block_limit&&d.expanded<=block_limit&&
       d.offset<=file.size()&&d.compressed<=file.size()-d.offset;
-  if(!metadata_ok){log_inflate_begin(memory,d,block_index,nullptr,nullptr,nullptr);log_inflate_complete(memory,d,block_index,"metadata_invalid",0,0,0,false,true,started);return Result::failure(invalid("Community catalog block metadata invalid"));}
+  if(!metadata_ok){log_inflate_begin(memory,d,block_index,nullptr,nullptr,nullptr);log_inflate_complete(memory,d,block_index,"metadata_invalid",0,0,0,false,true,true,started);return Result::failure(invalid("Community catalog block metadata invalid"));}
   GuardedBuffer input(memory,d.compressed),output(memory,d.expanded);InternalInflater inflater(memory);
-  log_inflate_begin(memory,d,block_index,input.data(),output.data(),inflater.get());
-  if(!input||!output){log_inflate_complete(memory,d,block_index,"buffer_allocation_failed",0,0,0,false,true,started);return Result::failure({core::ErrorCategory::backend_unavailable,"Community catalog block memory unavailable",true});}
-  if(!inflater.get()){log_inflate_complete(memory,d,block_index,"inflater_allocation_failed",0,0,0,false,true,started);return Result::failure({core::ErrorCategory::backend_unavailable,"Community catalog inflater memory unavailable",true});}
+  log_inflate_begin(memory,d,block_index,input.data(),output.data(),&inflater);
+  if(!input||!output){log_inflate_complete(memory,d,block_index,"buffer_allocation_failed",0,0,0,false,true,inflater.canaries_valid(),started);return Result::failure({core::ErrorCategory::backend_unavailable,"Community catalog block memory unavailable",true});}
+  if(!inflater){log_inflate_complete(memory,d,block_index,"inflater_allocation_failed",0,0,0,false,true,false,started);return Result::failure({core::ErrorCategory::backend_unavailable,"Community catalog inflater memory unavailable",true});}
   const bool classes_ok=!memory.requires_strict_classes()||
       (memory.classify(input.data())==CommunityCatalogMemoryClass::external&&
        memory.classify(output.data())==CommunityCatalogMemoryClass::external&&
        memory.classify(inflater.get())==CommunityCatalogMemoryClass::internal);
-  const bool guards_before=input.canaries_valid()&&output.canaries_valid();
-  // Do not call ESP-IDF heap integrity walkers from this hot path. Physical rc.6
-  // testing showed heap_caps_check_integrity_addr() itself can panic while
-  // inspecting PSRAM-backed allocations before miniz is entered.
-  if(!classes_ok||!guards_before){log_inflate_complete(memory,d,block_index,"memory_capability_failed",0,0,0,false,guards_before,started);return Result::failure({core::ErrorCategory::backend_unavailable,"Community catalog memory capability check failed",false});}
-  if(!file.read(d.offset,input.data(),d.compressed)){const bool guards=input.canaries_valid()&&output.canaries_valid();log_inflate_complete(memory,d,block_index,"truncated",0,0,0,false,guards,started);return Result::failure(invalid("Community catalog block truncated"));}
-  tinfl_init(inflater.get());std::size_t input_size=d.compressed,output_size=d.expanded;
-  const auto status=tinfl_decompress(inflater.get(),input.data(),&input_size,output.data(),output.data(),&output_size,TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF);
-  const bool guards_after=input.canaries_valid()&&output.canaries_valid();
+  const bool buffer_guards_before=input.canaries_valid()&&output.canaries_valid();
+  const bool inflater_guards_before=inflater.canaries_valid();
+  if(!classes_ok||!buffer_guards_before||!inflater_guards_before){
+    log_inflate_complete(memory,d,block_index,"memory_capability_failed",0,0,0,false,buffer_guards_before,inflater_guards_before,started);
+    return Result::failure({core::ErrorCategory::backend_unavailable,"Community catalog memory capability check failed",false});
+  }
+  if(!file.read(d.offset,input.data(),d.compressed)){
+    const bool buffer_guards=input.canaries_valid()&&output.canaries_valid();
+    log_inflate_complete(memory,d,block_index,"truncated",0,0,0,false,buffer_guards,inflater.canaries_valid(),started);
+    return Result::failure(invalid("Community catalog block truncated"));
+  }
+  std::size_t input_size=d.compressed,output_size=d.expanded;
+  const auto status=opentag_tinfl_decompress(inflater.get(),input.data(),&input_size,output.data(),output.data(),&output_size,TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF);
+  const bool buffer_guards_after=input.canaries_valid()&&output.canaries_valid();
+  const bool inflater_guards_after=inflater.canaries_valid();
   const bool crc_ok=status==TINFL_STATUS_DONE&&output_size==d.expanded&&crc32(output.data(),d.expanded)==d.crc;
-  const bool valid=status==TINFL_STATUS_DONE&&input_size==d.compressed&&output_size==d.expanded&&crc_ok&&guards_after;
-  log_inflate_complete(memory,d,block_index,valid?"ok":"damaged",static_cast<int>(status),input_size,output_size,crc_ok,guards_after,started);
-  if(!valid)return Result::failure(invalid(guards_after?"Community catalog block damaged":"Community catalog inflate memory damaged"));
+  const bool valid=status==TINFL_STATUS_DONE&&input_size==d.compressed&&output_size==d.expanded&&crc_ok&&buffer_guards_after&&inflater_guards_after;
+  log_inflate_complete(memory,d,block_index,valid?"ok":inflater_guards_after?"damaged":"inflater_overrun",
+      static_cast<int>(status),input_size,output_size,crc_ok,buffer_guards_after,inflater_guards_after,started);
+  if(!valid){
+    if(!inflater_guards_after)return Result::failure(invalid("Community catalog inflater state overrun"));
+    return Result::failure(invalid(buffer_guards_after?"Community catalog block damaged":"Community catalog inflate memory damaged"));
+  }
   return Result::success(std::move(output));
 }
 bool take_string(const std::uint8_t*& p,const std::uint8_t* end,std::string& out){if(end-p<2)return false;const auto n=u16(p);p+=2;if(std::size_t(end-p)<n)return false;out.assign(reinterpret_cast<const char*>(p),n);p+=n;return true;}

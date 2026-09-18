@@ -101,6 +101,15 @@ typedef enum {
 /* This is a universal API, i.e. it can be used as a building block to build any desired higher level decompression API. In the limit case, it can be called once per every byte input or output. */
 MINIZ_EXPORT tinfl_status tinfl_decompress(tinfl_decompressor *r, const mz_uint8 *pIn_buf_next, size_t *pIn_buf_size, mz_uint8 *pOut_buf_start, mz_uint8 *pOut_buf_next, size_t *pOut_buf_size, const mz_uint32 decomp_flags);
 
+/* OpenTag opaque-state bridge.
+ * The C translation unit owns the authoritative tinfl_decompressor layout so
+ * firmware callers never size, initialize, or dereference the state object. */
+MINIZ_EXPORT size_t opentag_tinfl_state_size(void);
+MINIZ_EXPORT void opentag_tinfl_state_init(void *state);
+MINIZ_EXPORT tinfl_status opentag_tinfl_decompress(void *state, const mz_uint8 *pIn_buf_next, size_t *pIn_buf_size,
+                                                   mz_uint8 *pOut_buf_start, mz_uint8 *pOut_buf_next,
+                                                   size_t *pOut_buf_size, const mz_uint32 decomp_flags);
+
 /* Internal/private bits follow. */
 enum
 {

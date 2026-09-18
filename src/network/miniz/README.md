@@ -1,2 +1,2 @@
 Inflate-only sources from richgel999/miniz tag 3.0.2. See LICENSE. Used for independently compressed local Community catalog blocks; no archive/filesystem APIs.
-Local adaptation: miniz_tinfl.c includes miniz_tinfl.h directly, omitting unused compressor/archive headers. miniz_export.h defines a static-build export macro.
+Local adaptation: miniz_tinfl.c includes miniz_tinfl.h directly, omitting unused compressor/archive headers. miniz_export.h defines a static-build export macro. OpenTag also exposes an opaque C bridge for inflater-state sizing, initialization, and decompression so C++ firmware code never owns the tinfl_decompressor layout.
