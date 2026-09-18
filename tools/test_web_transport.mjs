@@ -2727,3 +2727,16 @@ test('clear pending offers unlink retry and locks Escape during physical work',(
 test('Community streamed oversize cancels before retaining payload',async()=>{let cancelled=0;const a=writerApp({fetch:async()=>({ok:true,headers:{get:()=>null},body:{getReader:()=>({read:async()=>({done:false,value:{byteLength:67108865}}),cancel:async()=>{cancelled++;}})}})});a.document.getElementById('writer-source').value='community';await a.T.writerSearch(false);assert.equal(cancelled,1);assert.match(a.document.getElementById('writer-progress').textContent,/64 MiB/);assert.equal(a.T.writerState.community,null);});
 test('Community import transitions to verified canonical filament and creation choices',()=>{const a=writerApp();a.document.getElementById('writer-source').value='community';a.T.renderWriter({phase:'imported',filament:SUNLU.filament});assert.equal(a.document.getElementById('writer-source').value,'spoolman');assert.equal(a.T.writerState.filament,22);assert.equal(a.T.writerState.spool,0);assert.equal(displayed(a,'writer-create'),true);assert.match(a.document.getElementById('writer-progress').textContent,/Imported to Spoolman/);a.T.renderWriter({phase:'catalog',entity:'spool',items:[],offset:0});assert.match(a.document.getElementById('writer-progress').textContent,/Imported to Spoolman/);});
 test('manual weight update submits only the explicit measurement ID',async()=>{let updates=0;const a=loadApplication({fetch:async(url,init)=>{if(init.method==='POST'){assert.equal(url,'/api/v1/scale/update');assert.deepEqual(JSON.parse(init.body),{measurement_id:55});updates++;return jsonResponse(202,{operation_id:41});}if(String(url).includes('/operations/'))return jsonResponse(200,{id:41,state:'succeeded'});return jsonResponse(200,{weigh_sync:{measurement_id:55,phase:'updated',canonical_remaining:712,can_update:false,message:'Spoolman updated'}});}});a.T.renderWeighSync({measurement_id:55,phase:'ready',can_update:true});await drivePromise(a.T.updateWeighedSpool(),a.clock);assert.equal(updates,1);await a.T.updateWeighedSpool();assert.equal(updates,1);assert.equal(a.document.getElementById('weigh-update').disabled,true);});
+
+
+test('clear pending preserves backend reasons and distinguishes cleanup stages',()=>{
+  const a=loadApplication();
+  for(const [stage,summary] of [['spoolman','Spoolman cleanup is still pending'],['local_identity','Local station identity cleanup'],['journal','Recovery record cleanup'],[undefined,'Spoolman or local cleanup']]){
+    const reason='Confirmed local identity changed; unlink refused <test>';
+    a.T.renderClear({phase:'unlink_pending',cleanup_stage:stage,message:reason});
+    const message=a.document.getElementById('clear-message').textContent;
+    assert.ok(message.includes(summary));
+    assert.ok(message.includes(reason));
+    assert.equal(a.document.getElementById('clear-retry').hidden,false);
+  }
+});

@@ -1,6 +1,7 @@
 #pragma once
 #include "integrations/spoolman/spoolman_adapter.hpp"
 #include "network/backend_json.hpp"
+#include "domain/spool_identity.hpp"
 #include "nfc/formats/openprinttag/spoolman_mapping.hpp"
 #include "nfc/writer_journal.hpp"
 namespace opentag::services {
@@ -8,16 +9,21 @@ class TagWriterService {
 public:
   using Publish = std::function<void(const network::ResponseBody &)>;
   using Random = std::function<void(std::uint8_t *, std::size_t)>;
-  using ClearMapping = std::function<core::Result<void>(
+  // Invoked only after physical and canonical remote verification.
+  using VerifiedClearMapping = std::function<core::Result<void>(
       const std::string &, const std::string &, std::int32_t)>;
+  using VerifiedAssociation = std::function<core::Result<void>(
+      const domain::ConfirmedSpoolMapping &)>;
   TagWriterService(integrations::spoolman::SpoolmanAdapter &spoolman,
                    nfc::IWriterReader &reader,
                    std::function<std::uint64_t()> generation, Random random,
                    Publish publish, nfc::WriterJournal *journal = nullptr,
-                   ClearMapping clear_mapping = {})
+                   VerifiedClearMapping clear_mapping = {},
+                   VerifiedAssociation sync_mapping = {})
       : spoolman_(spoolman), writer_(reader, std::move(generation)),
         random_(std::move(random)), publish_(std::move(publish)),
-        journal_(journal), clear_mapping_(std::move(clear_mapping)) {}
+        journal_(journal), clear_mapping_(std::move(clear_mapping)),
+        sync_mapping_(std::move(sync_mapping)) {}
   core::Result<void> process(JsonObjectConst command);
   core::Result<void> restore_cleanup();
   bool physical_pass() const { return plan_ && plan_->verified; }
@@ -57,7 +63,8 @@ private:
   std::uint64_t preview_serial_{0};
   bool association_pending_{false};
   nfc::WriterJournal *journal_{nullptr};
-  ClearMapping clear_mapping_;
+  VerifiedClearMapping clear_mapping_;
+  VerifiedAssociation sync_mapping_;
   bool unlink_pending_{false};
   bool clear_recovery_required_{false};
 };

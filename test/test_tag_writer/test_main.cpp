@@ -1,6 +1,7 @@
 #include "nfc/formats/openprinttag/initializer.hpp"
 #include "nfc/writer_journal_codec.hpp"
 #include "services/tag_writer_service.hpp"
+#include "config/configuration_service.hpp"
 #include <cstring>
 #include <fstream>
 #include <functional>
@@ -374,7 +375,7 @@ struct Http : network::IHttpTransport {
       deserializeJson(
           result,
           R"([{"key":"opentag_instance_uuid","name":"UUID","field_type":"text"},{"key":"nfc_uid","name":"UID","field_type":"text"}])");
-    else if (path == "/spool/12") {
+    else if (path == "/spool/" + std::to_string(spool["id"].as<int>())) {
       if (request.method == "PATCH") {
         if (fail_target)
           return core::Result<network::HttpResponse>::failure(
@@ -429,7 +430,7 @@ struct Http : network::IHttpTransport {
       if (!previous["extra"]["nfc_uid"].isNull())
         a.add<JsonObject>()["id"] = 9;
       if (!spool["extra"]["nfc_uid"].isNull())
-        a.add<JsonObject>()["id"] = 12;
+        a.add<JsonObject>()["id"] = spool["id"].as<int>();
       if (multiple_uid || (final_uid_conflict && patches))
         a.add<JsonObject>()["id"] = 99;
     } else if (path.find("extra.opentag_instance_uuid") != std::string::npos) {
@@ -437,7 +438,7 @@ struct Http : network::IHttpTransport {
       if (duplicate)
         a.add<JsonObject>()["id"] = 99;
       else if (!spool["extra"]["opentag_instance_uuid"].isNull())
-        a.add<JsonObject>()["id"] = 12;
+        a.add<JsonObject>()["id"] = spool["id"].as<int>();
     } else if (bad_page)
       result["unexpected"] = true;
     else {
@@ -458,16 +459,63 @@ struct Http : network::IHttpTransport {
         {custom_status, std::move(body), "application/json"});
   }
 };
+struct CacheDocuments : config::IConfigurationDocumentStore {
+  std::optional<std::string> document;
+  bool fail_save = false;
+  core::Result<std::optional<std::string>> load_configuration_document() override {
+    return core::Result<std::optional<std::string>>::success(document);
+  }
+  core::Result<std::optional<std::string>> load_configuration_backup_document() override {
+    return core::Result<std::optional<std::string>>::success(std::nullopt);
+  }
+  R save_configuration_document(std::string_view value) override {
+    if (fail_save) return failure();
+    document = std::string(value);
+    return R::success();
+  }
+};
+struct CacheLegacy : services::IScaleCalibrationStore {
+  core::Result<std::optional<services::ScaleCalibration>> load_scale_calibration() override {
+    return core::Result<std::optional<services::ScaleCalibration>>::success(std::nullopt);
+  }
+  R save_scale_calibration(const services::ScaleCalibration&) override { return R::success(); }
+  R clear_scale_calibration() override { return R::success(); }
+};
+struct Cache {
+  CacheDocuments documents;
+  CacheLegacy legacy;
+  config::ConfigurationService configuration{documents, legacy};
+  Cache() { TEST_ASSERT_TRUE(configuration.initialize().ok()); }
+  void stale(const std::string& uid) {
+    domain::ConfirmedSpoolMapping mapping;
+    mapping.spool_id = 17; mapping.nfc_uid = uid;
+    mapping.instance_uuid = "00112233-4455-6677-8899-aabbccddeeff";
+    TEST_ASSERT_TRUE(configuration.confirm_spool_identity_mapping(mapping).ok());
+    mapping.spool_id = 18; mapping.nfc_uid = "E004000000000099";
+    mapping.instance_uuid = "00112233-4455-6677-8899-aabbccddee00";
+    TEST_ASSERT_TRUE(configuration.confirm_spool_identity_mapping(mapping).ok());
+  }
+};
+R accept_verified_association(const domain::ConfirmedSpoolMapping&) { return R::success(); }
 struct ServiceFixture {
   Reader reader;
   Http http;
   integrations::spoolman::SpoolmanAdapter adapter{http,
                                                   {"http://spoolman.test"}};
   network::BackendDocument view;
+  Cache cache;
+  int sync_calls = 0;
   services::TagWriterService service{
       adapter, reader, [this] { return reader.generation; },
       [](std::uint8_t *p, std::size_t n) { std::memset(p, 0x44, n); },
-      [this](const auto &b) { deserializeJson(view, b.data(), b.size()); }};
+      [this](const auto &b) { deserializeJson(view, b.data(), b.size()); }, nullptr, {},
+      [this](const domain::ConfirmedSpoolMapping& mapping) {
+        ++sync_calls;
+        TEST_ASSERT_TRUE(service.physical_pass());
+        TEST_ASSERT_GREATER_THAN(0, http.patches);
+        TEST_ASSERT_TRUE(http.urls.back().find("extra.nfc_uid") != std::string::npos);
+        return cache.configuration.sync_verified_spool_identity_mapping(mapping);
+      }};
   R run(const char *command) {
     network::BackendDocument d;
     deserializeJson(d, command);
@@ -668,7 +716,7 @@ void repeated_catalog_releases_parser() {
 }
 struct Journal : nfc::WriterJournal {
   nfc::WriterPlan saved;
-  bool present = false, permit = true;
+  bool present = false, permit = true, fail_clear = false;
   int spool = 0;
   std::uint32_t backend = 0;
   bool load(nfc::WriterPlan &p, std::int32_t &id, std::uint32_t &b) override {
@@ -692,7 +740,7 @@ struct Journal : nfc::WriterJournal {
     return true;
   }
   bool clear() override {
-    if (!permit)
+    if (!permit || fail_clear)
       return false;
     present = false;
     return true;
@@ -715,7 +763,7 @@ void recovery_case(bool replacement, bool move = false) {
   };
   {
     services::TagWriterService service(adapter, reader, generation, random,
-                                       publish, &journal);
+                                       publish, &journal, {}, accept_verified_association);
     network::BackendDocument c;
     c["action"] = "preview";
     c["spool_id"] = 12;
@@ -743,7 +791,7 @@ void recovery_case(bool replacement, bool move = false) {
     reader.uid.bytes[7] ^= 1;
   {
     services::TagWriterService service(adapter, reader, generation, random,
-                                       publish, &journal);
+                                       publish, &journal, {}, accept_verified_association);
     network::BackendDocument c;
     c["action"] = "preview";
     c["spool_id"] = 12;
@@ -1471,6 +1519,7 @@ struct ClearFixture {
   network::BackendDocument view;
   int mappings = 0;
   bool mapping_ok = true;
+  Cache cache;
   std::unique_ptr<services::TagWriterService> service;
   ClearFixture() {
     Fixture source;
@@ -1496,9 +1545,12 @@ struct ClearFixture {
           TEST_ASSERT_EQUAL_STRING(
               nfc::openprinttag::instance_uuid_text(uuid).c_str(),
               instance.c_str());
-          TEST_ASSERT_EQUAL(12, owner);
+          TEST_ASSERT_EQUAL(http.spool["id"].as<int>(), owner);
           ++mappings;
-          return mapping_ok ? R::success() : failure();
+          TEST_ASSERT_TRUE(http.spool["extra"]["nfc_uid"].isNull());
+          TEST_ASSERT_TRUE(http.spool["extra"]["opentag_instance_uuid"].isNull());
+          TEST_ASSERT_TRUE(http.urls.back().find("extra.opentag_instance_uuid") != std::string::npos);
+          return mapping_ok ? cache.configuration.clear_verified_spool_identity_mapping(uid, instance, owner) : failure();
         });
   }
   R run(const char *action) {
@@ -1772,11 +1824,126 @@ void journal_v3_roundtrip_and_legacy() {
                                                spool, backend));
 }
 
+void verified_association_repairs_stale_cache_after_remote_checks() {
+  ServiceFixture f;
+  f.cache.stale(f.reader.uid.hex());
+  TEST_ASSERT_TRUE(f.run(R"({"action":"preview","spool_id":12})").ok());
+  TEST_ASSERT_EQUAL(0, f.sync_calls);
+  f.cache.documents.fail_save = true;
+  TEST_ASSERT_FALSE(f.confirm().ok());
+  TEST_ASSERT_EQUAL_STRING("association_pending", f.view["phase"].as<const char*>());
+  TEST_ASSERT_EQUAL(17, f.cache.configuration.snapshot().spool_identity_mappings[0].spool_id);
+  const auto writes = f.reader.writes, reads = f.reader.reads;
+  f.cache.documents.fail_save = false;
+  TEST_ASSERT_TRUE(f.run(R"({"action":"retry_association"})").ok());
+  TEST_ASSERT_EQUAL(writes, f.reader.writes);
+  TEST_ASSERT_EQUAL(reads, f.reader.reads);
+  config::ConfigurationService restored(f.cache.documents, f.cache.legacy);
+  TEST_ASSERT_TRUE(restored.initialize().ok());
+  const auto mappings = restored.snapshot().spool_identity_mappings;
+  TEST_ASSERT_EQUAL(2, mappings.size());
+  TEST_ASSERT_EQUAL(12, mappings[0].spool_id);
+  TEST_ASSERT_EQUAL_STRING(f.reader.uid.hex().c_str(), mappings[0].nfc_uid->c_str());
+  TEST_ASSERT_EQUAL_STRING(f.view["instance_uuid"].as<const char*>(), mappings[0].instance_uuid->c_str());
+  TEST_ASSERT_EQUAL(18, mappings[1].spool_id);
+}
+void failed_remote_association_never_updates_cache() {
+  ServiceFixture f;
+  f.cache.stale(f.reader.uid.hex());
+  TEST_ASSERT_TRUE(f.run(R"({"action":"preview","spool_id":12})").ok());
+  f.http.final_uid_conflict = true;
+  TEST_ASSERT_FALSE(f.confirm().ok());
+  TEST_ASSERT_EQUAL(0, f.sync_calls);
+  TEST_ASSERT_EQUAL(17, f.cache.configuration.snapshot().spool_identity_mappings[0].spool_id);
+}
+void clear_stale_cache_persistence_failure_recovers_without_nfc() {
+  ClearFixture f;
+  f.http.spool["id"] = 28;
+  f.cache.stale(f.reader.uid.hex());
+  f.cache.documents.fail_save = true;
+  f.preview();
+  TEST_ASSERT_FALSE(f.confirm().ok());
+  TEST_ASSERT_EQUAL_STRING("unlink_pending", f.view["phase"].as<const char*>());
+  TEST_ASSERT_EQUAL_STRING("local_identity", f.view["cleanup_stage"].as<const char*>());
+  TEST_ASSERT_TRUE(f.journal.present);
+  TEST_ASSERT_EQUAL(17, f.cache.configuration.snapshot().spool_identity_mappings[0].spool_id);
+  const auto writes = f.reader.writes, reads = f.reader.reads;
+  f.restart();
+  f.reader.count = 0;
+  f.cache.documents.fail_save = false;
+  TEST_ASSERT_TRUE(f.run("retry_unlink").ok());
+  TEST_ASSERT_EQUAL(writes, f.reader.writes);
+  TEST_ASSERT_EQUAL(reads, f.reader.reads);
+  TEST_ASSERT_FALSE(f.journal.present);
+  TEST_ASSERT_EQUAL_STRING("cleared", f.view["phase"].as<const char*>());
+  config::ConfigurationService restored(f.cache.documents, f.cache.legacy);
+  TEST_ASSERT_TRUE(restored.initialize().ok());
+  TEST_ASSERT_EQUAL(1, restored.snapshot().spool_identity_mappings.size());
+  TEST_ASSERT_EQUAL(18, restored.snapshot().spool_identity_mappings[0].spool_id);
+}
+void journal_cleanup_failure_is_distinct_and_retryable() {
+  ClearFixture f;
+  f.preview();
+  f.journal.fail_clear = true;
+  TEST_ASSERT_FALSE(f.confirm().ok());
+  TEST_ASSERT_EQUAL_STRING("journal", f.view["cleanup_stage"].as<const char*>());
+  TEST_ASSERT_EQUAL_STRING("unlink_pending", f.view["phase"].as<const char*>());
+  TEST_ASSERT_TRUE(f.journal.present);
+  const auto writes = f.reader.writes, reads = f.reader.reads;
+  f.journal.fail_clear = false;
+  TEST_ASSERT_TRUE(f.run("retry_unlink").ok());
+  TEST_ASSERT_EQUAL(writes, f.reader.writes);
+  TEST_ASSERT_EQUAL(reads, f.reader.reads);
+}
+
+void restart_v3_verified_clear_repairs_stale_cache_without_nfc() {
+  ClearFixture f;
+  f.cache.stale(f.reader.uid.hex());
+  f.preview();
+  f.mapping_ok = false;
+  TEST_ASSERT_FALSE(f.confirm().ok());
+  // Reproduce the reported UID, blank-target checksum and 34 changed blocks
+  // in a V3 cleanup-pending record. No physical tag is needed after restart.
+  f.http.spool["id"] = f.journal.spool = 28;
+  f.journal.saved.original.fill(0);
+  f.journal.saved.target.fill(0);
+  for (std::size_t block = 0; block < 34; ++block)
+    f.journal.saved.original[block * 4] = 1;
+  TEST_ASSERT_EQUAL_STRING("E00401086627D8D4", f.journal.saved.uid.hex().c_str());
+  TEST_ASSERT_EQUAL_HEX32(0x97B79EC5, nfc::nfcv::diagnostic_checksum(
+      f.journal.saved.target.data(), f.journal.saved.target.size()));
+  // Exercise the real V3 byte codec, not merely an in-memory WriterPlan copy.
+  nfc::WriterJournalRecord bytes;
+  nfc::encode_writer_journal(bytes, f.journal.saved, f.journal.spool, f.journal.backend);
+  TEST_ASSERT_TRUE(nfc::decode_writer_journal({bytes.data(),bytes.size()},
+      f.journal.saved, f.journal.spool, f.journal.backend));
+  TEST_ASSERT_TRUE(f.journal.saved.cleanup_pending);
+  TEST_ASSERT_TRUE(f.journal.saved.cleanup_owner_bound);
+  f.restart();
+  f.reader.count = 0;
+  f.reader.writes = f.reader.reads = f.reader.field_calls = 0;
+  f.mapping_ok = true;
+  TEST_ASSERT_TRUE(f.service->restore_cleanup().ok());
+  TEST_ASSERT_EQUAL_STRING("unlink_pending", f.view["phase"].as<const char*>());
+  TEST_ASSERT_TRUE(f.run("retry_unlink").ok());
+  TEST_ASSERT_EQUAL(0, f.reader.writes);
+  TEST_ASSERT_EQUAL(0, f.reader.reads);
+  TEST_ASSERT_EQUAL(0, f.reader.field_calls);
+  TEST_ASSERT_FALSE(f.journal.present);
+  TEST_ASSERT_EQUAL_STRING("cleared", f.view["phase"].as<const char*>());
+  TEST_ASSERT_EQUAL_STRING("Tag cleared and verified. Ready to reuse.", f.view["message"].as<const char*>());
+}
+
 } // namespace
 void setUp() {}
 void tearDown() {}
 int main() {
   UNITY_BEGIN();
+  RUN_TEST(verified_association_repairs_stale_cache_after_remote_checks);
+  RUN_TEST(failed_remote_association_never_updates_cache);
+  RUN_TEST(clear_stale_cache_persistence_failure_recovers_without_nfc);
+  RUN_TEST(restart_v3_verified_clear_repairs_stale_cache_without_nfc);
+  RUN_TEST(journal_cleanup_failure_is_distinct_and_retryable);
   RUN_TEST(clear_recovery_refuses_different_tag_without_losing_journal);
   RUN_TEST(clear_valid_and_unlink_only_owned_fields);
   RUN_TEST(clear_empty_envelope);
