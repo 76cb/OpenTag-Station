@@ -1,6 +1,8 @@
 #pragma once
 #include <array>
+#include <algorithm>
 #include <functional>
+#include "network/stream_disposition.hpp"
 #include "network/miniz/miniz_tinfl.h"
 
 namespace opentag::network {
@@ -8,38 +10,45 @@ namespace opentag::network {
 // ISIZE. Allocate the entire decoder in PSRAM. Never buffer the response.
 class GzipStream {
  public:
-  using Sink=std::function<bool(const std::uint8_t*,std::size_t)>;
+  using Sink=StreamConsumer;
   GzipStream(Sink sink,std::size_t maximum):sink_(std::move(sink)),maximum_(maximum){tinfl_init(&inflater_);}
-  bool feed(const std::uint8_t* data,std::size_t size) {
+  StreamDisposition feed(const std::uint8_t* data,std::size_t size) {
+    if(disposition_!=StreamDisposition::next)return disposition_;
     while(size) {
       if(state_==State::header) {
-        if(header_size_==header_.size())return false;
+        if(header_size_==header_.size())return disposition_=StreamDisposition::error;
         header_[header_size_++]=*data++;--size;
         if(header_size_<10)continue;
-        if(header_[0]!=31||header_[1]!=139||header_[2]!=8||(header_[3]&0xe2))return false;
+        if(header_[0]!=31||header_[1]!=139||header_[2]!=8||(header_[3]&0xe2))return disposition_=StreamDisposition::error;
         std::size_t end=10;
-        if(header_[3]&4){if(header_size_<12)continue;end=12+header_[10]+256U*header_[11];if(end>header_.size())return false;if(header_size_<end)continue;}
+        if(header_[3]&4){if(header_size_<12)continue;end=12+header_[10]+256U*header_[11];if(end>header_.size())return disposition_=StreamDisposition::error;if(header_size_<end)continue;}
         if(header_[3]&8){while(end<header_size_&&header_[end])++end;if(end==header_size_)continue;++end;}
         if(header_[3]&16){while(end<header_size_&&header_[end])++end;if(end==header_size_)continue;++end;}
         if(header_size_==end)state_=State::deflate;
       } else if(state_==State::deflate) {
         std::size_t input=size,output=dictionary_.size()-cursor_;
         const auto status=tinfl_decompress(&inflater_,data,&input,dictionary_.data(),dictionary_.data()+cursor_,&output,TINFL_FLAG_HAS_MORE_INPUT);
-        if(status<0||(!input&&!output))return false;
-        if(output>maximum_-expanded_)return false;
+        if(!input&&!output)return disposition_=StreamDisposition::error;
+        if(output>maximum_-expanded_)return disposition_=StreamDisposition::error;
         for(std::size_t i=0;i<output;++i)crc_=crc_byte(crc_,dictionary_[cursor_+i]);
         expanded_+=output;
-        if(output&&!sink_(dictionary_.data()+cursor_,output))return false;
+        // Deliver valid output before inspecting a later deflate error: the
+        // caller may already have everything it requested in this prefix.
+        if(output) {
+          disposition_=sink_(dictionary_.data()+cursor_,output);
+          if(disposition_!=StreamDisposition::next)return disposition_;
+        }
+        if(status<0)return disposition_=StreamDisposition::error;
         cursor_=(cursor_+output)%dictionary_.size();data+=input;size-=input;
         if(status==TINFL_STATUS_DONE)state_=State::trailer;
       } else if(state_==State::trailer) {
         trailer_[trailer_size_++]=*data++;--size;
         if(trailer_size_==8)state_=State::done;
-      } else return false; // Reject concatenated members/trailing bytes.
+      } else return disposition_=StreamDisposition::error; // Reject concatenated members/trailing bytes.
     }
-    return true;
+    return StreamDisposition::next;
   }
-  bool finish() const {return state_==State::done&&read32(trailer_.data())==(crc_^0xffffffffU)&&read32(trailer_.data()+4)==expanded_;}
+  bool finish() const {return disposition_==StreamDisposition::complete || (disposition_!=StreamDisposition::error && state_==State::done&&read32(trailer_.data())==(crc_^0xffffffffU)&&read32(trailer_.data()+4)==expanded_);}
  private:
   static std::uint32_t crc_byte(std::uint32_t crc,std::uint8_t b) {
     // Nibble table avoids 8 branches per expanded byte and stays tiny.
@@ -48,6 +57,7 @@ class GzipStream {
   }
   static std::uint32_t read32(const std::uint8_t* p){return std::uint32_t(p[0])|(std::uint32_t(p[1])<<8)|(std::uint32_t(p[2])<<16)|(std::uint32_t(p[3])<<24);}
   enum class State {header,deflate,trailer,done} state_{State::header};
+  StreamDisposition disposition_{StreamDisposition::next};
   Sink sink_;std::size_t maximum_,cursor_{0},expanded_{0},header_size_{0},trailer_size_{0};
   std::uint32_t crc_{0xffffffffU};
   tinfl_decompressor inflater_{};

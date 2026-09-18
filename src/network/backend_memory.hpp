@@ -149,6 +149,8 @@ class ResponseBody {
     data_[size_] = '\0';
     return true;
   }
+  // Reuse a bounded workspace without reallocating or logging each record.
+  void clear() { size_ = 0; if (data_) data_[0] = '\0'; }
   void release() {
     if (data_) {
       free_(data_);

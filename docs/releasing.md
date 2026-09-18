@@ -1,6 +1,6 @@
 # Releasing OpenTag Station
 
-The candidate is `1.0.0-rc.2`. `VERSION` is authoritative; generated manifests and
+The candidate is `1.0.0-rc.3`. `VERSION` is authoritative; generated manifests and
 documentation metadata must be refreshed from it. A successful build is not
 physical acceptance. Keep PR #32 open and unmerged until external signoff.
 
