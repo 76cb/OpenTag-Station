@@ -1,7 +1,6 @@
 #include <unity.h>
 #include "ui/tag_flow.hpp"
 #include "ui/touch_input.hpp"
-#include "services/community_catalog.hpp"
 #include "fixtures.hpp"
 #include "network/gzip_stream.hpp"
 #include "network/bounded_response_body.hpp"
@@ -65,7 +64,9 @@ void filament_and_community_create() {
   TagFlow f;f.act(TagAction::filaments);receive(f,R"({"phase":"catalog","items":[{"id":12,"weight":1000,"spool_weight":130,"name":"PLA"}]})");f.act(TagAction::row0);f.act(TagAction::use);
   TEST_ASSERT_TRUE(f.page==TagPage::create);TEST_ASSERT_EQUAL_FLOAT(130,f.tare);
   auto c=command(f.act(TagAction::create));TEST_ASSERT_EQUAL(12,c["spool"]["filament_id"].as<int>());
-  f.act(TagAction::community);f.query="SUNLU PLA";c=command(f.browse());TEST_ASSERT_EQUAL_STRING("community_search",c["action"]);
+  c=command(f.act(TagAction::community));TEST_ASSERT_EQUAL_STRING("community_status",c["action"]);
+  receive(f,R"({"phase":"community_catalog","catalog_state":"ready","catalog_version":"2026-09-18"})");
+  f.query="SUNLU PLA";c=command(f.browse());TEST_ASSERT_EQUAL_STRING("community_search",c["action"]);
   receive(f,R"({"phase":"community","items":[{"id":"public-filament","name":"PLA"}]})");f.act(TagAction::row0);c=command(f.act(TagAction::use));TEST_ASSERT_EQUAL_STRING("community_select",c["action"]);
   receive(f,R"({"phase":"import_preview","import_token":"TOKEN"})");c=command(f.act(TagAction::import));TEST_ASSERT_EQUAL_STRING("TOKEN",c["import_token"]);
   receive(f,R"({"phase":"imported","filament":{"id":42,"weight":1000}})");c=command(f.act(TagAction::create));TEST_ASSERT_EQUAL(42,c["spool"]["filament_id"].as<int>());
@@ -89,18 +90,6 @@ void keyboard_value_and_validation() {
   in.value="Grün";in.press("DEL");in.press("DEL");TEST_ASSERT_EQUAL_STRING("Gr",in.value.c_str());
   s.mode=InputMode::numeric;s.initial="130";s.maximum_length=9;s.maximum=100000;in.open(s);TEST_ASSERT_TRUE(in.valid());in.value="nan";TEST_ASSERT_FALSE(in.valid());in.value="100001";TEST_ASSERT_FALSE(in.valid());in.value="1.5";in.spec.decimal=false;TEST_ASSERT_FALSE(in.valid());
 }
-void community_streaming_bound_and_chunks() {
-  services::CommunityPage stream("sunlu pla",0);
-  std::string data="[";
-  for(int i=0;i<200;++i){if(i)data+=",";data+=R"({"id":")"+std::to_string(i)+R"(","manufacturer":"SUNLU","name":"PLA \"quoted\"","material":"PLA","density":1.24,"diameter":1.75})";}
-  data+="]";
-  for(auto c:data) {auto result=stream.feed(reinterpret_cast<const std::uint8_t*>(&c),1);TEST_ASSERT_TRUE(result!=StreamDisposition::error);if(result==StreamDisposition::complete)break;}
-  TEST_ASSERT_TRUE(stream.finish());TEST_ASSERT_EQUAL(8,stream.page["items"].size());TEST_ASSERT_TRUE(stream.page["has_more"]);
-  TEST_ASSERT_LESS_THAN(32768,network::backend_json_allocator.used());
-}
-void community_malformed_fails() {
-  for(auto json:{"[{}]","[{", "[] trailing", "[{},]"}) {services::CommunityPage stream("pla",0);const bool fed=stream.feed(reinterpret_cast<const std::uint8_t*>(json),std::strlen(json))!=StreamDisposition::error;TEST_ASSERT_FALSE(fed&&stream.finish());}
-}
 void gzip_chunked_integrity_and_limits() {
   for(unsigned chunk:{1U,7U,256U,1024U}) {
     std::size_t received=0;
@@ -114,38 +103,6 @@ void gzip_chunked_integrity_and_limits() {
   auto stream=network::make_external<network::GzipStream>([]{return network::GzipStream([](const std::uint8_t*,std::size_t){return StreamDisposition::next;},gzip_expanded);});
   TEST_ASSERT_TRUE(stream->feed(corrupt.data(),corrupt.size())==StreamDisposition::next);TEST_ASSERT_FALSE(stream->finish());
 }
-std::string catalog(unsigned count) {
-  std::string data="[";
-  for(unsigned i=0;i<count;++i) {
-    if(i)data+=",";
-    data+=R"({"id":")"+std::to_string(i)+R"(","manufacturer":"SUNLU","name":"PLA \"quoted\"","material":"PLA","density":1.24,"diameter":1.75})";
-  }
-  return data+"]";
-}
-void community_early_stop() {
-  for(unsigned offset:{0U,8U}) {
-    auto data=catalog(offset+9);data.pop_back();data+=",GARBAGE THAT MUST NEVER BE PARSED";
-    services::CommunityPage page("pla",offset);
-    TEST_ASSERT_TRUE(page.feed(reinterpret_cast<const std::uint8_t*>(data.data()),data.size())==StreamDisposition::complete);
-    TEST_ASSERT_TRUE(page.page_complete());TEST_ASSERT_TRUE(page.finish());
-    TEST_ASSERT_EQUAL(offset+9,page.records_processed());
-    TEST_ASSERT_EQUAL(8,page.page["items"].size());TEST_ASSERT_TRUE(page.page["has_more"]);
-    TEST_ASSERT_EQUAL(offset+8,page.page["next_offset"].as<unsigned>());
-    TEST_ASSERT_EQUAL_STRING(std::to_string(offset).c_str(),page.page["items"][0]["id"]);
-  }
-}
-void community_eof_and_cooperation() {
-  for(unsigned count:{0U,3U,8U,2000U})for(unsigned chunk:{1U,7U,4096U,32768U}) {
-    auto data=catalog(count);unsigned yields=0;
-    services::CommunityPage page(count>8?"no-match":"pla",0,[&]{++yields;});
-    for(std::size_t i=0;i<data.size();i+=chunk)
-      TEST_ASSERT_TRUE(page.feed(reinterpret_cast<const std::uint8_t*>(data.data()+i),std::min<std::size_t>(chunk,data.size()-i))==StreamDisposition::next);
-    TEST_ASSERT_TRUE(page.finish());TEST_ASSERT_FALSE(page.page_complete());
-    TEST_ASSERT_FALSE(page.page["has_more"]);TEST_ASSERT_EQUAL(count>8?0:count,page.page["items"].size());
-    TEST_ASSERT_EQUAL(data.size()/services::CommunityPage::cooperation_bytes,yields);
-    TEST_ASSERT_EQUAL(count,page.records_processed());
-  }
-}
 void gzip_explicit_completion_and_error() {
   for(auto result:{StreamDisposition::complete,StreamDisposition::error}) {
     unsigned calls=0;
@@ -155,62 +112,19 @@ void gzip_explicit_completion_and_error() {
     TEST_ASSERT_EQUAL(1,calls);TEST_ASSERT_EQUAL(result==StreamDisposition::complete,stream->finish());
   }
 }
-void community_budget_and_retry() {
-  network::OperationBudget normal,community;normal.begin(100);community.begin_community(100);
-  TEST_ASSERT_TRUE(normal.expired(20100));TEST_ASSERT_FALSE(community.expired(20100));
-  TEST_ASSERT_TRUE(community.expired(60100));community.begin(100);TEST_ASSERT_TRUE(community.expired(20100));
-  TagFlow f;f.entity="community";f.query="SUNLU PLA+";f.browse();f.phase="searching";f.page=TagPage::progress;
-  TEST_ASSERT_EQUAL_STRING("Searching Community…",f.screen().title.c_str());
-  TEST_ASSERT_NOT_EQUAL(std::string::npos,f.screen().body.find(f.query));
-  receive(f,R"({"phase":"failed","message":"Community search timed out. Check Wi-Fi and try again."})");
-  TEST_ASSERT_TRUE(has(f.screen(),TagAction::retry));TEST_ASSERT_TRUE(has(f.screen(),TagAction::back));
-  auto c=command(f.act(TagAction::retry));TEST_ASSERT_EQUAL_STRING("community_search",c["action"]);
-}
-
-void community_gzip_parser_and_yields() {
-  for(bool early:{false,true})for(unsigned chunk:{1U,7U,1024U}) {
-    unsigned yields=0;services::CommunityPage page(early?"pla":"no-match",0,[&]{++yields;});
-    auto stream=network::make_external<network::GzipStream>([&]{return network::GzipStream([&](const std::uint8_t* p,std::size_t n){return page.feed(p,n);},community_expanded);});
-    auto result=StreamDisposition::next;std::size_t consumed=0;
-    while(consumed<sizeof(community_gzip)&&result==StreamDisposition::next) {
-      auto n=std::min<std::size_t>(chunk,sizeof(community_gzip)-consumed);
-      result=stream->feed(community_gzip+consumed,n);consumed+=n;
-    }
-    TEST_ASSERT_TRUE(stream->finish());TEST_ASSERT_TRUE(page.finish());
-    TEST_ASSERT_EQUAL(early?9:1000,page.records_processed());
-    if(early) {TEST_ASSERT_TRUE(result==StreamDisposition::complete);TEST_ASSERT_LESS_THAN(sizeof(community_gzip),consumed);}
-    else {TEST_ASSERT_EQUAL(community_expanded/4096,yields);TEST_ASSERT_EQUAL(sizeof(community_gzip),consumed);}
-  }
-}
-void community_transport_stops_fetching() {
-  class Transport final:public network::IHttpTransport {
-   public:
-    std::string data;std::size_t downloaded{0};
-    core::Result<network::HttpResponse> perform(const network::HttpRequest& request) override {
-      TEST_ASSERT_TRUE(request.community_search);
-      for(auto c:data) {
-        ++downloaded;
-        auto result=request.response_consumer(reinterpret_cast<const std::uint8_t*>(&c),1);
-        if(result==StreamDisposition::error)return core::Result<network::HttpResponse>::failure({core::ErrorCategory::invalid_response,"Parser error",false});
-        if(result==StreamDisposition::complete)break;
-      }
-      network::HttpResponse response;response.status_code=200;response.content_type="application/json";
-      return core::Result<network::HttpResponse>::success(std::move(response));
-    }
-  } transport;
-  transport.data=catalog(9);transport.data.pop_back();const auto expected=transport.data.size();
-  transport.data+=",GARBAGE";
-  auto result=services::search_community(transport,"pla",0);
-  TEST_ASSERT_TRUE(result.ok());TEST_ASSERT_EQUAL(expected,transport.downloaded);
-  transport.data="[{BROKEN]";transport.downloaded=0;
-  TEST_ASSERT_FALSE(services::search_community(transport,"pla",0).ok());
-}
-void community_escape_across_yield() {
-  auto data=catalog(1);data.resize(data.size()-2);data+=",\"extra\":\"";
-  data.append(4095-data.size(),'x');data+="\\\"tail\"}]";
-  unsigned yields=0;services::CommunityPage page("no-match",0,[&]{++yields;});
-  for(auto c:data)TEST_ASSERT_TRUE(page.feed(reinterpret_cast<const std::uint8_t*>(&c),1)==StreamDisposition::next);
-  TEST_ASSERT_TRUE(page.finish());TEST_ASSERT_EQUAL(1,yields);TEST_ASSERT_EQUAL(1,page.records_processed());
+void community_catalog_status_download_and_retry() {
+  network::OperationBudget normal,catalog;normal.begin(100);catalog.begin_catalog_update(100);
+  TEST_ASSERT_TRUE(normal.expired(20100));TEST_ASSERT_FALSE(catalog.expired(20100));
+  TEST_ASSERT_TRUE(catalog.expired(120100));
+  TagFlow f;auto c=command(f.act(TagAction::community));TEST_ASSERT_EQUAL_STRING("community_status",c["action"]);
+  receive(f,R"({"phase":"community_catalog","catalog_state":"not_installed"})");
+  TEST_ASSERT_NOT_EQUAL(std::string::npos,f.screen().body.find("Not installed"));
+  c=command(f.act(TagAction::community_update));TEST_ASSERT_EQUAL_STRING("community_update",c["action"]);
+  receive(f,R"({"phase":"catalog_downloading","completed_blocks":42})");
+  TEST_ASSERT_NOT_EQUAL(std::string::npos,f.screen().body.find("42%"));
+  receive(f,R"({"phase":"failed","message":"Community catalog update failed. Your existing catalog is still available."})");
+  TEST_ASSERT_TRUE(has(f.screen(),TagAction::retry));
+  c=command(f.act(TagAction::retry));TEST_ASSERT_EQUAL_STRING("community_update",c["action"]);
 }
 
 void production_sink_closes_on_disposition() {
@@ -241,4 +155,4 @@ void production_sink_full_gzip_integrity() {
 
 }
 void setUp() {} void tearDown() {}
-int main() {UNITY_BEGIN();RUN_TEST(lifecycle);RUN_TEST(sensible_actions);RUN_TEST(bounded_paging_and_selection);RUN_TEST(reassign_review);RUN_TEST(exact_confirmation);RUN_TEST(clear_retry_to_immediate_assign);RUN_TEST(filament_and_community_create);RUN_TEST(stale_operation_rejected);RUN_TEST(keyboard_geometry);RUN_TEST(keyboard_value_and_validation);RUN_TEST(community_streaming_bound_and_chunks);RUN_TEST(community_malformed_fails);RUN_TEST(gzip_chunked_integrity_and_limits);RUN_TEST(community_early_stop);RUN_TEST(community_eof_and_cooperation);RUN_TEST(gzip_explicit_completion_and_error);RUN_TEST(community_budget_and_retry);RUN_TEST(community_gzip_parser_and_yields);RUN_TEST(community_transport_stops_fetching);RUN_TEST(community_escape_across_yield);RUN_TEST(production_sink_closes_on_disposition);RUN_TEST(production_sink_full_gzip_integrity);export_touch_fixtures();return UNITY_END();}
+int main() {UNITY_BEGIN();RUN_TEST(lifecycle);RUN_TEST(sensible_actions);RUN_TEST(bounded_paging_and_selection);RUN_TEST(reassign_review);RUN_TEST(exact_confirmation);RUN_TEST(clear_retry_to_immediate_assign);RUN_TEST(filament_and_community_create);RUN_TEST(stale_operation_rejected);RUN_TEST(keyboard_geometry);RUN_TEST(keyboard_value_and_validation);RUN_TEST(gzip_chunked_integrity_and_limits);RUN_TEST(gzip_explicit_completion_and_error);RUN_TEST(community_catalog_status_download_and_retry);RUN_TEST(production_sink_closes_on_disposition);RUN_TEST(production_sink_full_gzip_integrity);export_touch_fixtures();return UNITY_END();}

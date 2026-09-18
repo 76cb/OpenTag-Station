@@ -37,13 +37,14 @@ Previous/Next retain the backend's eight-item page size. Page number and range
 use the current page start, not the next offset. Previous is disabled on page 1;
 Next follows `has_more`. A full final page can lead to an empty next page because
 the bounded Spoolman query does not request an inventory-wide count. Community
-shows the known filtered total. Refresh keeps the current offset when the search
+uses the same eight-result backend page and `has_more` contract. Refresh keeps the current offset when the search
 is unchanged; a changed search starts from the first page.
 
 Community results explicitly say **COMMUNITY — NOT YET IN SPOOLMAN**. Select one
 to review/import it. Only canonical import readback becomes a normal filament
 selection. Create or select its physical spool before previewing a tag. The
-existing Community contract and bounded browser cache/download remain unchanged.
+existing Community import contract remains unchanged; lookup comes from the
+station's validated local catalog and needs no Community network request.
 
 ## Edit canonical data
 

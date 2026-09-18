@@ -55,7 +55,7 @@ FreeRTOS tasks own slow or blocking work:
 | NFC logical worker on backend | RFAL/Wire1, presence, reads/decode and guarded OpenPrintTag writing | Separate RTOS task, arbitrary writes |
 | Scale | ADC sampling, filtering, stability | inventory writes |
 | Network | Wi-Fi, scan, mDNS, local web-server lifecycle | Backend HTTP, RFAL or decode |
-| Backend | NFC logical worker, backend HTTP/JSON, adapters, resolution and verified assignment | LVGL calls |
+| Backend | NFC logical worker, backend HTTP/JSON, local Community catalog search/update, adapters, resolution and verified assignment | LVGL calls |
 | Update | inactive-slot writes, digest/image validation, activation, candidate health | web sockets, UI, backend availability policy |
 
 Tasks exchange bounded events/commands. Payload ownership is explicit and

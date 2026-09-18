@@ -152,6 +152,7 @@ const char index_html[] = R"HTML(<!doctype html>
 <article class="card"><h3>Connectivity</h3><dl class="facts compact"><div><dt>Wi-Fi</dt><dd id="wifi-state">—</dd></div><div><dt>LAN address</dt><dd id="device-address">—</dd></div><div><dt>RSSI</dt><dd id="settings-rssi">—</dd></div></dl><a class="button quiet" href="#configuration">Change Wi-Fi</a></article>
 <article class="card"><div class="card-title-row"><h3>Integrations</h3><button id="test-backends" class="button tiny" type="button">Test</button></div><dl class="facts compact"><div><dt>Spoolman</dt><dd id="spoolman-state">Unknown</dd></div><div><dt>FilaBridge</dt><dd id="filabridge-state">Unknown</dd></div><div><dt>Printer</dt><dd id="settings-selected-printer">Not selected</dd></div></dl><span id="spoolman-version" class="visually-hidden">Version —</span><span id="spoolman-capabilities" class="visually-hidden">Capabilities —</span><span id="filabridge-version" class="visually-hidden">Version —</span><span id="filabridge-capabilities" class="visually-hidden">Capabilities —</span></article>
 <article class="card"><h3>Hardware</h3><dl class="facts compact"><div><dt>Scale</dt><dd id="scale-calibration">Checking</dd></div><div><dt>Profile</dt><dd id="scale-profile">—</dd></div><div><dt>Capacity</dt><dd id="scale-capacity">—</dd></div><div><dt>NFC</dt><dd>OpenPrintTag read / write</dd></div><div><dt>Display</dt><dd>WT32-SC01 Plus</dd></div></dl><details><summary>Scale diagnostics</summary><dl class="facts compact"><div><dt>Raw</dt><dd id="scale-raw">—</dd></div><div><dt>Filtered</dt><dd id="scale-filtered">—</dd></div><div><dt>Zero</dt><dd id="scale-zero">—</dd></div><div><dt>Factor</dt><dd id="scale-factor">—</dd></div><div><dt>Reference</dt><dd id="scale-reference">—</dd></div></dl></details></article>
+<article class="card"><div class="card-title-row"><h3>Community Catalog</h3><button id="community-catalog-update" class="button tiny" type="button">Check for update</button></div><dl class="facts compact"><div><dt>Status</dt><dd id="community-catalog-state">Checking</dd></div><div><dt>Version</dt><dd id="community-catalog-version">—</dd></div><div><dt>Records</dt><dd id="community-catalog-records">—</dd></div><div><dt>Size</dt><dd id="community-catalog-size">—</dd></div><div><dt>Updated</dt><dd id="community-catalog-updated">—</dd></div></dl></article>
 <article class="card"><h3>Device</h3><dl class="facts compact"><div><dt>Firmware</dt><dd id="firmware-version">—</dd></div><div><dt>Git SHA</dt><dd id="git-sha" class="mono">—</dd></div><div><dt>Build</dt><dd id="build-date">—</dd></div><div><dt>Hardware</dt><dd id="hardware-id">—</dd></div><div><dt>Uptime</dt><dd id="uptime">—</dd></div><div><dt>Free heap</dt><dd id="heap-free">—</dd></div><div><dt>Free PSRAM</dt><dd id="psram-free">—</dd></div></dl></article>
 </div>
 </section>
@@ -444,7 +445,7 @@ setText('page-title', PRODUCT_TITLES[selected]);
 setText('page-eyebrow', PRODUCT_EYEBROWS[selected]);
 if (selected !== 'scale' && state.calibrationOpen) setCalibrationPanel(false);
 else syncCalibrationRefresh();
-if (selected === 'settings') ensureConfigReady();
+if (selected === 'settings') {ensureConfigReady();if(window.OpenTagWriter?.writerCommand&&!state.communityStatusLoading){state.communityStatusLoading=true;window.OpenTagWriter.writerCommand({action:'community_status'}).finally(()=>state.communityStatusLoading=false);}}
 if (selected === 'inventory') mountInventory();
 return selected;
 }
@@ -3605,30 +3606,6 @@ syncCalibrationRefresh();
 }
 
 
-function validateCommunity(data) {
-if (!Array.isArray(data) || data.length > 100000) throw new Error('Unsupported Community catalog shape/size');
-const ids = new Set();
-data.forEach(function (item) {
-if (!item || typeof item !== 'object' || ['id','manufacturer','name','material'].some(function (k) { return typeof item[k] !== 'string' || !item[k] || item[k].length > (k === 'id' ? 180 : 128); }) ||
-!Number.isFinite(item.density) || !Number.isFinite(item.diameter) || ids.has(item.id)) throw new Error('Malformed Community catalog or duplicate identity');
-ids.add(item.id);
-});
-return data;
-}
-async function communityCatalog() {
-// Public compiled source used by the upstream UI. Catalog storage lives in
-// the browser, never the station's internal RAM or backend JSON allocator.
-const controller = new AbortController();const timer = window.setTimeout(function () {controller.abort();},30000);
-try {
-const r = await fetch('https://icezaza2543.github.io/SpoolmanDB-Community/filaments.json', {signal:controller.signal,cache:'no-cache'});
-if (!r.ok || !r.body || Number(r.headers.get('Content-Length')) > 67108864) throw new Error('Community catalog unavailable or oversized');
-const reader = r.body.getReader();const chunks=[];let count=0;
-for (;;) {const part=await reader.read();if(part.done)break;count+=part.value.byteLength;if(count>67108864){await reader.cancel();throw new Error('Community catalog exceeds 64 MiB bound');}chunks.push(part.value);}
-const bytes=new Uint8Array(count);let offset=0;chunks.forEach(function (chunk){bytes.set(chunk,offset);offset+=chunk.length;});
-return validateCommunity(JSON.parse(new TextDecoder().decode(bytes)));
-} catch(error) {if(controller.signal.aborted)throw new Error('Community request timed out after 30 seconds. Retry when connected.');throw error;} finally {window.clearTimeout(timer);}
-}
-
 window.OpenTagWriterSummary=function(S,{byId,setText,asObject,fmt,el,swatch,values,visible,buildFields,fields}){
 const s=S.selected,f=S.material,d=byId('writer-selected-detail'),bs=byId('writer-edit-spool'),bf=byId('writer-edit-filament');d.replaceChildren(bs,bf);
 setText('writer-selection',s?'SELECTED · SPOOL #'+s.id:f?'SELECTED · FILAMENT #'+f.id:'YOUR SELECTION');
@@ -3668,7 +3645,7 @@ window.OpenTagWriterForms=function(byId,el){
 function buildFields(id,schema,record,prefix){const d=byId(id);d.replaceChildren();schema.forEach(([key,label,max])=>{const l=el('label',label),input=el(key==='comment'?'textarea':'input');input.id='writer-'+prefix+'-'+key;input.name=key;input.value=record[key]??'';if(key!=='comment')input.type=max?'number':'text';if(max){input.min=['density','diameter','weight'].includes(key)?'0.001':'0';input.max=String(max);input.step=key.startsWith('settings_')?'1':'any';}else input.maxLength=key==='comment'?1024:64;const hint=el('small','','hint');input.addEventListener('invalid',()=>{hint.textContent=input.validationMessage;input.setAttribute('aria-invalid','true');});input.addEventListener('input',()=>{hint.textContent='';input.removeAttribute('aria-invalid');});l.append(input,hint);if(key==='color_hex'){const paint=()=>{hint.replaceChildren(window.OpenTagWriterUi(byId).swatch(input.value));};input.addEventListener('input',paint);paint();}d.append(l);});}
 function formValues(id,schema,original){const out={};schema.forEach(([key,,max])=>{const input=byId(id).querySelector('[name="'+key+'"]');const raw=String(input.value).trim();if(raw===''&&(max||original[key]==null))return;let v=max?Number(raw):raw;if(v===original[key])return;if(key==='color_hex')v=v.toUpperCase();if(max&&(!Number.isFinite(v)||v<Number(input.min)||v>max||(key.startsWith('settings_')&&!Number.isInteger(v))))throw new Error('Check '+key+' value');if(!max&&new TextEncoder().encode(v).length>(key==='comment'?1024:64))throw new Error(key+' exceeds the Spoolman text limit');if(key==='color_hex'&&!/^(?:[a-f\d]{6}|[a-f\d]{8})$/i.test(v))throw new Error('Color must be 6 or 8 hex digits');if(v!==original[key]&&!(v===''&&original[key]==null))out[key]=v;});return out;}
 return {buildFields,formValues};};
-window.OpenTagWriterHost = {mountInventory,openProductDialog,presentWriter,closeProductDialog,byId,asObject,asArray,first,setText,setValue,valueOf,showToast,api,load,submitMutation,PRIORITY,state,validateCommunity,communityCatalog,tagStatus,openClear};
+window.OpenTagWriterHost = {mountInventory,openProductDialog,presentWriter,closeProductDialog,byId,asObject,asArray,first,setText,setValue,valueOf,showToast,api,load,submitMutation,PRIORITY,state,tagStatus,openClear};
 if (window.__OPENTAG_TEST__) {
 window.__OpenTagTest = {bindProduct,renderCurrentSpool,openProductDialog,openAssignment,selectSettings,
 renderWeighSync,updateWeighedSpool,renderClear,openClear,closeClear,clearCommand,bindWeighAndClear,clearLocked,

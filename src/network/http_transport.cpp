@@ -149,11 +149,13 @@ core::Result<HttpResponse> HttpTransport::perform(const HttpRequest& request) {
   BackendPhaseGuard released{"http_released", started};
   backend_memory_phase("before_http", 0, 0, started);
   // Request-local budget: never extends the backend owner's normal budget.
-  OperationBudget community_budget;
-  if(request.community_search)community_budget.begin_community(started);
-  const auto& budget=request.community_search?community_budget:budget_;
+  OperationBudget catalog_budget;
+  if(request.catalog_update)catalog_budget.begin_catalog_update(started);
+  const auto& budget=request.catalog_update?catalog_budget:budget_;
   const auto deadline_error = [&]() {
-    return core::Result<HttpResponse>::failure(network_error(request.community_search?"Community search timed out. Check Wi-Fi and try again.":"Backend operation deadline exceeded"));
+    return core::Result<HttpResponse>::failure(network_error(request.catalog_update?
+        "Community catalog update timed out; existing catalog retained":
+        "Backend operation deadline exceeded"));
   };
   if (budget.expired(millis())) return deadline_error();
   const auto parsed = parse_http_url(request.url);
@@ -167,7 +169,7 @@ core::Result<HttpResponse> HttpTransport::perform(const HttpRequest& request) {
       request.read_timeout_ms > 60000U || request.maximum_response_bytes == 0U ||
       request.maximum_response_bytes > 65536U || request.body.size() > 65536U ||
       request.headers.size() > 32U ||
-      (request.community_search && !request.response_consumer) ||
+      (request.catalog_update && !request.response_consumer) ||
       (request.response_consumer && (request.maximum_stream_bytes == 0 ||
        request.maximum_stream_bytes > 64U*1024U*1024U || request.method != "GET"))) {
     return core::Result<HttpResponse>::failure(
@@ -235,7 +237,7 @@ core::Result<HttpResponse> HttpTransport::perform(const HttpRequest& request) {
       reinterpret_cast<std::uint8_t*>(const_cast<char*>(request.body.data())),
       request.body.size());
   if (status_code <= 0) {
-    if (budget.expired(millis()) || (request.community_search &&
+    if (budget.expired(millis()) || (request.catalog_update &&
         (status_code == HTTPC_ERROR_READ_TIMEOUT || bounded.connection_errno() == ETIMEDOUT))) {
       http.end(); return deadline_error();
     }
@@ -266,7 +268,7 @@ core::Result<HttpResponse> HttpTransport::perform(const HttpRequest& request) {
         "Backend response PSRAM allocation failed; retry later", true});
   }
   if (budget.expired(millis()) ||
-      (request.community_search && copied == HTTPC_ERROR_READ_TIMEOUT)) {
+      (request.catalog_update && copied == HTTPC_ERROR_READ_TIMEOUT)) {
     http.end();
     return deadline_error();
   }

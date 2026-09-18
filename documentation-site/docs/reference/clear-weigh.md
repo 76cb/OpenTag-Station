@@ -5,22 +5,16 @@ below are historical checkpoints, not the current candidate’s acceptance recor
 See the release checklist for outstanding physical checks.
 
 
-This pass follows merged PR #30. Spoolman stays canonical. Community storage
-remains in the browser; the station never downloads or proxies the full catalog.
+Spoolman stays canonical. Community search and selection use the station's local,
+block-compressed catalog; the browser and WT32 share that backend service.
 
 ## Community
 
-Production `connect-src` adds exactly `https://icezaza2543.github.io`, alongside
-the existing same-origin and WebSocket sources. There is no wildcard or broad
-HTTPS allowance. The fetch path remains `/SpoolmanDB-Community/filaments.json`;
-the existing import contract stays `spoolmandb-community/0a39c9b5`.
-
-Loading replaces results with a spinner and hides range/pagination. Failures,
-including the 30-second AbortController timeout, remain in the dialog with Retry.
-The 64 MiB streaming bound and schema validation apply before caching. Concurrent
-searches share one download, and a query generation prevents an old success or
-failure from replacing a newer source/search. Community hides Browse, changes
-the search hint, and returns to a canonical Spoolman filament after import.
+Normal browser Community traffic is same-origin. Catalog updates use the pinned
+OpenTag manifest and pack URLs on the backend task with TLS verification. Size,
+SHA-256, format, block, and record coverage checks complete before atomic install.
+The existing import contract stays `spoolmandb-community/0a39c9b5`. Community hides
+Browse, changes the search hint, and returns to a canonical Spoolman filament after import.
 
 ## Clear / Reuse Tag
 
@@ -111,10 +105,10 @@ OpenPrintTag as a consequence of a weight update.
 Native tests cover clear source/fence/readback failures, several interruption
 points, journal migration, cleanup failures/restart/owner conflicts, local mapping
 persistence, explicit measurement policy, once-only updates, concurrency, deadband
-and replacement. Browser tests mock catalog/network failures and all mutations.
+and replacement. Browser tests mock catalog status/update failures and all mutations.
 Chromium runs the real production HTML/CSS/JS/CSP at exact 1440/1280/1024/768/390
-pixel widths. Unrelated HTTPS fetches are actually blocked; the allowed Community
-fetch is tested with DNS mapped to localhost so CI never needs internet access.
+pixel widths. The CSP prevents direct browser Community traffic to the upstream
+origin; catalog updates are owned by the station backend.
 
 All previous task sizes, stack reserves, codec depth and web asset caps remain.
 The stack audit includes clear decode/transport/HTTP/storage, restart recovery,

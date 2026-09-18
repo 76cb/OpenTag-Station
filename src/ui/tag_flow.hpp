@@ -11,7 +11,7 @@ namespace opentag::ui {
 enum class TagPage { tag, sources, catalog, selected, create, created, move,
                      review, progress, import_review, ready, reuse, error };
 enum class TagAction { none, home, back, sources, spools, filaments, community,
-  row0,row1,row2,previous,next,search,use,write,update,clear,retry,import,
+  row0,row1,row2,previous,next,search,use,write,update,clear,retry,import,community_update,
   create,initial,remaining,tare,weigh,printer,name };
 struct TagButton { layout::Box box{}; std::string text; TagAction action{TagAction::none}; bool enabled{true}; };
 struct TagScreen {
@@ -38,13 +38,13 @@ class TagFlow {
   TagPage page{TagPage::tag};
   TagPage review_return{TagPage::tag},move_return{TagPage::selected};
   services::TagLifecycle lifecycle{services::TagLifecycle::no_tag};
-  std::string uid,material,query,entity{"spool"},message,phase;
+  std::string uid,material,query,entity{"spool"},message,phase,catalog_state,catalog_version;
   int current_spool{0},from_spool{0};
   std::string from_name;
   std::string import_name;
   unsigned offset{0},row{0};
   double initial{1000},remaining{1000},tare{0};
-  bool waiting{false},rewrite{false},community_request{false};
+  bool waiting{false},rewrite{false},community_request{false},catalog_update_request{false};
   std::uint64_t operation{0};
   network::BackendJsonAllocator allocator;
   JsonDocument view{&allocator},selected{&allocator},catalog_page{&allocator};
@@ -74,6 +74,8 @@ class TagFlow {
     if(phase=="catalog"||phase=="community") {
       if(!view["items"].is<JsonArray>()||view["items"].size()>8){fail("Inventory page exceeds limit");return false;}
       catalog_page.set(view);row=0;page=TagPage::catalog;
+    } else if(phase=="community_catalog") {
+      catalog_state=view["catalog_state"]|"not_installed";catalog_version=view["catalog_version"]|"";page=TagPage::catalog;
     } else if(phase=="preview"||phase=="clear_preview")page=TagPage::review;
     else if(phase=="import_preview")page=TagPage::import_review;
     else if(phase=="imported") {selected.set(view["filament"]);weights();page=TagPage::create;}
@@ -95,7 +97,7 @@ class TagFlow {
       case TagAction::spools: case TagAction::filaments: case TagAction::community:
         entity=action==TagAction::spools?"spool":action==TagAction::filaments?"filament":"community";
         offset=row=0;query.clear();page=TagPage::catalog;
-        if(entity=="community"){catalog_page.clear();return {};}
+        if(entity=="community"){catalog_page.clear();return request("community_status");}
         return browse();
       case TagAction::previous:
         if(row>=3){row-=3;return {};}
@@ -131,10 +133,12 @@ class TagFlow {
         break;
       case TagAction::clear:review_return=TagPage::tag;command["action"]="clear_preview";break;
       case TagAction::retry:
+        if(page==TagPage::error&&catalog_update_request)return request("community_update");
         if(page==TagPage::error&&community_request)return browse();
         if(phase=="write_recovery"){command["action"]="preview";command["mode"]="rewrite";command["spool_id"]=view["spool_id"];break;}
         command["action"]=phase=="association_pending"?"retry_association":phase=="clear_recovery"?"clear_preview":"retry_unlink";break;
       case TagAction::import:command["action"]="import";command["import_token"]=view["import_token"];break;
+      case TagAction::community_update:return request("community_update");
       case TagAction::create:
         if(initial<=0||remaining<0||remaining>initial||tare<0||initial>100000||tare>100000){fail("Check spool weights before creating");return {};}
         command["action"]="create_spool";command["spool"]["filament_id"]=selected["id"];
@@ -157,6 +161,7 @@ class TagFlow {
   std::string encode(JsonDocument& command) {
     if(command.overflowed()||measureJson(command)>4096){fail("Command exceeds station limits");return {};}
     community_request=std::string_view(command["action"]|"")=="community_search";
+    catalog_update_request=std::string_view(command["action"]|"")=="community_update";
     std::string result;serializeJson(command,result);return result;
   }
 };
@@ -190,8 +195,9 @@ inline TagScreen TagFlow::screen() const {
       action(0,"MY SPOOLS",TagAction::spools);action(1,"MY FILAMENTS",TagAction::filaments);action(2,"COMMUNITY",TagAction::community);back();break;
     case TagPage::catalog:
       s.title=entity=="spool"?"My Spools":entity=="filament"?"My Filaments":"Community";
+      if(entity=="community"&&catalog_state!="ready") {s.title="Community Catalog";s.body=catalog_state=="damaged"?"Catalog damaged\nRedownload to restore local search.":"Not installed\nDownload once for offline search.";action(1,catalog_state=="damaged"?"REDOWNLOAD CATALOG":"DOWNLOAD CATALOG",TagAction::community_update);back();break;}
       s.button({326,4,146,44},"SEARCH",TagAction::search);
-      if(catalog_page["items"].size()==0)s.body=query.empty()?"Search for a filament":"No matches. Try another search.";
+      if(catalog_page["items"].size()==0)s.body=query.empty()?(entity=="community"?"Community Catalog\n"+catalog_version+"\nReady\nSearch for a filament":"Search for a filament"):"No matches. Try another search.";
       for(unsigned i=0;i<3&&row+i<catalog_page["items"].size();++i) {
         auto item=catalog_page["items"][row+i];std::string text=filament_name(item);
         if(entity=="spool")text="#"+std::to_string(item["id"].as<int>())+" "+text+"\n"+std::to_string(static_cast<int>(item["remaining_weight"]|0.))+" g remaining";
@@ -230,6 +236,7 @@ inline TagScreen TagFlow::screen() const {
       s.body=phase=="clear_preview"?"Remove old filament information and links.\nThe permanent NFC identifier stays unchanged.":filament_name(view["spool"])+"\nSpool #"+std::to_string(view["spool_id"].as<int>())+"\nKeep the tag on the reader.";
       back();primary(phase=="clear_preview"?"CONFIRM CLEAR":"WRITE TAG",TagAction::write);break;
     case TagPage::progress:
+      if(phase=="catalog_downloading") {s.title="Downloading Community catalog";s.body=std::to_string(view["completed_blocks"]|0)+"%\nThe station remains available.";break;}
       if(community_request&&(phase=="searching"||phase=="queued")) {s.title="Searching Community…";s.body=query+"\nSearching catalog. Please wait…";break;}
       s.title=phase=="writing"?"Writing tag":phase=="verifying"?"Verifying tag":phase=="associating"?"Linking Spoolman":"Please wait";
       s.body=message+"\n"+std::to_string(view["completed_blocks"]|0)+" / "+std::to_string(view["total_blocks"]|0)+" blocks";break;
@@ -247,7 +254,7 @@ inline TagScreen TagFlow::screen() const {
       s.button({8,266,464,46},"DONE",TagAction::home);break;
     case TagPage::error:
       s.title="Needs attention";s.body=message;back();
-      if(community_request)primary("RETRY",TagAction::retry);break;
+      if(community_request||catalog_update_request)primary("RETRY",TagAction::retry);break;
   }
   if(waiting&&page!=TagPage::progress) {s.title="Please wait";s.body="Working on your request…";s.count=0;}
   return s;

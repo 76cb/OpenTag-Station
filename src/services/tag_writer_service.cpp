@@ -168,12 +168,22 @@ void TagWriterService::publish(const char *phase, const char *message,
     publish_(out);
 }
 Result TagWriterService::community(JsonObjectConst c) {
-  if (c["action"].as<std::string>() == "community_select") {
+  const auto action=c["action"].as<std::string>();
+  if(action=="community_status") {
+    if(!community_status_)return fail("Community catalog status unavailable");const auto status=community_status_();view_.clear();view_["catalog_state"]=status.state==CommunityCatalogStatus::State::ready?"ready":status.state==CommunityCatalogStatus::State::damaged?"damaged":"not_installed";view_["catalog_version"]=status.version;view_["catalog_records"]=status.records;view_["catalog_size"]=status.size;publish("community_catalog",status.state==CommunityCatalogStatus::State::ready?"Community catalog ready":status.state==CommunityCatalogStatus::State::damaged?"Community catalog is damaged. Redownload it.":"Community catalog is not installed.");return Result::success();
+  }
+  if(action=="community_update") {
+    if(!community_update_)return fail("Community catalog update unavailable");view_.clear();publish("catalog_downloading","Downloading Community catalog",0,100);auto result=community_update_([&](std::size_t done,std::size_t total){publish("catalog_downloading","Downloading Community catalog",total?done*100/total:0,100);});if(!result.ok())return Result::failure(result.error());const auto status=result.value();view_.clear();view_["catalog_state"]="ready";view_["catalog_version"]=status.version;view_["catalog_records"]=status.records;view_["catalog_size"]=status.size;publish("community_catalog","Community catalog ready");return Result::success();
+  }
+  if (action == "community_select") {
     if (view_["phase"].as<std::string>() != "community" || !c["id"].is<const char*>())
       return fail("Search Community again before selecting a result");
+    if(!community_detail_)return fail("Community catalog detail lookup is unavailable");
+    auto detail=community_detail_(c["id"].as<std::string>());
+    if(!detail.ok())return Result::failure(detail.error());
     network::BackendDocument selected;
     for (auto item : view_["items"].as<JsonArrayConst>())
-      if(item["id"] == c["id"])selected["entry"].set(item);
+      if(item["id"] == c["id"])selected["entry"].set(detail.value());
     if(selected["entry"].isNull())return fail("Community selection changed; search again");
     selected["contract"]="spoolmandb-community/0a39c9b5";
     const std::string name=selected["entry"]["name"]|"";
@@ -345,7 +355,7 @@ Result TagWriterService::import_preview(JsonObjectConst c) {
   target["comment"] = provenance;
   if (import_.overflowed())
     return fail(
-        "Community import workspace unavailable; no remote records created");
+        "Community import workspace unavailable; no Spoolman records created");
   auto vendors =
       api("GET", "/vendor?name=" +
                      encode(quote(source["manufacturer"].as<std::string>())) +
@@ -1341,7 +1351,8 @@ Result TagWriterService::process(JsonObjectConst c) {
     result = commit_clear(c);
   else if (action == "retry_unlink")
     result = unlink();
-  else if (action == "community_search" || action == "community_select")
+  else if (action == "community_search" || action == "community_select" ||
+           action == "community_status" || action == "community_update")
     result = community(c);
   else if (action == "catalog")
     result = catalog(c);

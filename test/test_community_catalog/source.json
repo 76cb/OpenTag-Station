@@ -1,0 +1,21 @@
+[
+  {"id":"sunlu-0","manufacturer":"SUNLU","name":"PLA 0","material":"PLA+","density":1.24,"diameter":1.75,"weight":1000,"spool_weight":130,"color_hex":"000000"},
+  {"id":"sunlu-1","manufacturer":"SUNLU","name":"PLA 1","material":"PLA+","density":1.24,"diameter":1.75,"weight":1000,"spool_weight":130,"color_hex":"000001"},
+  {"id":"sunlu-2","manufacturer":"SUNLU","name":"PLA 2","material":"PLA+","density":1.24,"diameter":1.75,"weight":1000,"spool_weight":130,"color_hex":"000002"},
+  {"id":"sunlu-3","manufacturer":"SUNLU","name":"PLA 3","material":"PLA+","density":1.24,"diameter":1.75,"weight":1000,"spool_weight":130,"color_hex":"000003"},
+  {"id":"sunlu-4","manufacturer":"SUNLU","name":"PLA 4","material":"PLA+","density":1.24,"diameter":1.75,"weight":1000,"spool_weight":130,"color_hex":"000004"},
+  {"id":"sunlu-5","manufacturer":"SUNLU","name":"PLA 5","material":"PLA+","density":1.24,"diameter":1.75,"weight":1000,"spool_weight":130,"color_hex":"000005"},
+  {"id":"sunlu-6","manufacturer":"SUNLU","name":"PLA 6","material":"PLA+","density":1.24,"diameter":1.75,"weight":1000,"spool_weight":130,"color_hex":"000006"},
+  {"id":"sunlu-7","manufacturer":"SUNLU","name":"PLA 7","material":"PLA+","density":1.24,"diameter":1.75,"weight":1000,"spool_weight":130,"color_hex":"000007"},
+  {"id":"sunlu-8","manufacturer":"SUNLU","name":"PLA 8","material":"PLA+","density":1.24,"diameter":1.75,"weight":1000,"spool_weight":130,"color_hex":"000008"},
+  {"id":"sunlu-9","manufacturer":"SUNLU","name":"PLA 9","material":"PLA+","density":1.24,"diameter":1.75,"weight":1000,"spool_weight":130,"color_hex":"000009"},
+  {"id":"sunlu-10","manufacturer":"SUNLU","name":"PLA 10","material":"PLA+","density":1.24,"diameter":1.75,"weight":1000,"spool_weight":130,"color_hex":"00000a"},
+  {"id":"sunlu-11","manufacturer":"SUNLU","name":"PLA 11","material":"PLA+","density":1.24,"diameter":1.75,"weight":1000,"spool_weight":130,"color_hex":"00000b"},
+  {"id":"sunlu-12","manufacturer":"SUNLU","name":"PLA 12","material":"PLA+","density":1.24,"diameter":1.75,"weight":1000,"spool_weight":130,"color_hex":"00000c"},
+  {"id":"sunlu-13","manufacturer":"SUNLU","name":"PLA 13","material":"PLA+","density":1.24,"diameter":1.75,"weight":1000,"spool_weight":130,"color_hex":"00000d"},
+  {"id":"sunlu-14","manufacturer":"SUNLU","name":"PLA 14","material":"PLA+","density":1.24,"diameter":1.75,"weight":1000,"spool_weight":130,"color_hex":"00000e"},
+  {"id":"sunlu-15","manufacturer":"SUNLU","name":"PLA 15","material":"PLA+","density":1.24,"diameter":1.75,"weight":1000,"spool_weight":130,"color_hex":"00000f"},
+  {"id":"sunlu-16","manufacturer":"SUNLU","name":"PLA 16","material":"PLA+","density":1.24,"diameter":1.75,"weight":1000,"spool_weight":130,"color_hex":"000010"},
+  {"id":"sunlu-17","manufacturer":"SUNLU","name":"PLA 17","material":"PLA+","density":1.24,"diameter":1.75,"weight":1000,"spool_weight":130,"color_hex":"000011"},
+  {"id":"acme-petg","manufacturer":"Acme","name":"Clear PETG","material":"PETG","density":1.27,"diameter":1.75,"is_refill":true,"codes":["PETG-1"]}
+]

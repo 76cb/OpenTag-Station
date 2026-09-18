@@ -46,7 +46,9 @@ struct HttpRequest {
   StreamConsumer response_consumer;
   std::size_t maximum_stream_bytes{0};
   bool accept_gzip{false}; // Streaming GET only; expanded bound is unchanged.
-  bool community_search{false}; // Only the bounded Community catalog scan gets 60 s.
+  // Catalog downloads are bounded independently because the backend command's
+  // normal 20 second budget is too short for a multi-megabyte verified transfer.
+  bool catalog_update{false};
 };
 
 struct HttpResponse {

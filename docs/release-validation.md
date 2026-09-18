@@ -29,9 +29,10 @@ receipt is not evidence of a successful physical write.
 5. **Existing Spoolman catalog.** Browse vendors, filaments and spools. Exercise
    search, material filter, more than one page and Search / Refresh. Compare IDs
    with live Spoolman. Opening/browsing must perform no tag writes.
-6. **Community search.** Select SpoolmanDB Community. Search vendor/product, material
-   and SKU or another source property. Confirm results are usable after the initial
-   bounded browser download. Repeated searches reuse the tab cache.
+6. **Community search.** Confirm the catalog reports Ready, disconnect internet
+   while retaining LAN/Spoolman access, then search vendor/product and material.
+   Confirm paging and selection remain local and interactive. Separately test an
+   explicit catalog update and verify failure retains the installed catalog.
 7. **Import one missing filament.** Select a genuinely absent product; inspect
    source versus proposed vendor/filament and unknown values. Confirm import and
    verify canonical Spoolman GET/readback IDs. Preview/import the same source again:

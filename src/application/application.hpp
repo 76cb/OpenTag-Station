@@ -28,6 +28,9 @@
 #include "platform/ota/esp32_ota_platform.hpp"
 #include "platform/ota/update_record_store.hpp"
 #include "platform/storage/storage_service.hpp"
+#include "platform/storage/community_catalog_store.hpp"
+#include "services/community_catalog.hpp"
+#include "services/community_catalog_updater.hpp"
 #include "services/first_run_setup.hpp"
 #include "services/scale_service.hpp"
 #include "services/spool_identity_resolver.hpp"
@@ -58,10 +61,13 @@ class Application {
 
   hardware::display::Wt32Display display_;
   platform::storage::StorageService storage_;
+  platform::storage::CommunityCatalogStore community_catalog_store_;
+  services::CommunityCatalog community_catalog_{community_catalog_store_};
   OperationRegistry operations_;
   DeviceLifecycleGate lifecycle_;
   platform::ota::Esp32OtaPlatform ota_platform_;
   platform::ota::MbedTlsSha256 ota_sha256_;
+  platform::ota::MbedTlsSha256 community_sha256_;
   platform::ota::Esp32UpdateRecordStore ota_records_;
   opentag::ota::UpdateManager ota_manager_{
       ota_platform_, ota_sha256_, ota_records_};
@@ -77,6 +83,9 @@ class Application {
   services::FirstRunSetup first_run_setup_{configuration_};
   network::WifiService network_{operations_};
   network::HttpTransport http_transport_;
+  services::CommunityCatalogUpdater community_updater_{
+      community_catalog_store_,community_catalog_,http_transport_,community_sha256_,
+      [this]{return !lifecycle_.snapshot().busy()&&!scale_.measurement_active();}};
   integrations::spoolman::SpoolmanAdapter spoolman_{http_transport_, {}};
   integrations::filabridge::FilaBridgeAdapter filabridge_{http_transport_, {}};
   services::SpoolIdentityResolver spool_resolver_{
@@ -85,7 +94,7 @@ class Application {
   ConfigurationWorker configuration_worker_{
       configuration_, network_, operations_};
   BackendWorker backend_worker_{
-      configuration_, spoolman_, filabridge_, spool_resolver_, workflow_, operations_, http_transport_};
+      configuration_, spoolman_, filabridge_, spool_resolver_, workflow_, operations_, http_transport_, community_catalog_, community_updater_};
   ScaleCommandQueue scale_commands_{configuration_, scale_, operations_};
   NfcWorker nfc_worker_{diagnostics_, scale_commands_, workflow_, backend_worker_};
   DeviceControlWorker device_control_{storage_, operations_, lifecycle_};

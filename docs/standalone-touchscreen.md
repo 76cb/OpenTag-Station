@@ -1,4 +1,4 @@
-# Standalone touchscreen workflow (1.0.0-rc.3)
+# Standalone touchscreen workflow (1.0.0-rc.4)
 
 The WT32 operates the normal workflow without a browser. A compatible blank
 SLIX2 tag offers **Assign tag** on Home and Tag. A linked OpenPrintTag offers
@@ -12,7 +12,8 @@ opens the exact writer preview. Reassignment includes a From/To review, preserve
 the former spool in inventory, and uses the existing rewrite path.
 
 My Filaments opens a physical-spool form with initial, remaining, and empty-spool
-weights. Community search runs on the backend task over authenticated TLS, imports
+weights. Community search runs on the backend task from the bounded local catalog,
+without an internet request. Catalog updates alone use authenticated TLS. Selection imports
 or reuses a matching canonical filament using the existing import contract, then
 opens the same spool form. Long Community source names remain intact; Edit Display
 Name explicitly chooses a shorter Spoolman name before import. The keyboard never
@@ -41,30 +42,27 @@ The UI JSON allocator is separate from the backend allocator and bounded at 192 
 
 ## Community working set
 
-The station requests gzip from the fixed public Community origin. Inflating retains
-one 32 KiB dictionary, one inflater state and a bounded 1 KiB gzip header in PSRAM.
-CRC and expanded-size checks reject corruption; compressed and expanded responses
-remain limited to 64 MiB and the existing 20-second backend operation deadline.
-Each source object is limited to 8 KiB, each retained import record to 2 KiB,
-eight retained results, 100,000 scanned records, and JSON nesting depth 12.
-The aggregate backend JSON allocator remains capped at 192 KiB; failure returns an
-actionable error without mutations. No complete catalog is retained in RAM.
-The search payload workspace is bounded by 192 KiB JSON + 8 KiB source object +
-48 KiB inflater/dictionary (compile-time checked), plus the existing 24 KiB writer
-snapshot: at most 272 KiB of PSRAM payload capacity. Small control objects and TLS
-allocations are additional. UI JSON uses its separate 192 KiB ceiling, not internal
-RAM. These are allocation ceilings, not claims of measured hardware heap peaks.
+The installed `community.pack` is 2,430,373 bytes for 53,424 records. Its fixed
+header and directory describe independently compressed index and detail blocks.
+Compressed and expanded buffers are each capped at 64 KiB and allocated in PSRAM.
+Search walks one bounded index block at a time; detail selection seeks to and
+inflates one detail block. No complete catalog or expanded source JSON is retained
+in RAM. The pack and every block carry checksums, and record coverage and offsets
+are verified before an update is installed.
 
-The September 17 upstream sample was 53,424 records / 44,222,456 expanded bytes,
-1,202,746 gzip bytes, with a largest serialized record of 1,247 bytes. These are
-observations, not unbounded input assumptions. Search latency on physical Wi-Fi
-still requires acceptance testing; exceeding the existing deadline fails safely.
+Normal search has no HTTP/TLS working set or network deadline. Explicit catalog
+updates stream at most the manifest-declared 2.5 MiB through the backend owner into
+`/community.new`, then verify SHA-256 and the internal format before atomic install.
+UI JSON retains its separate 192 KiB PSRAM ceiling. These are allocation ceilings,
+not claims of measured hardware heap peaks; local search latency and heap/PSRAM
+minimums still require physical acceptance measurement.
 
 ## Validation and physical acceptance
 
 Native tests exercise the production screen and keyboard models, paging, exact
 writer confirmations, stale-operation rejection, import/spool transitions, cleanup
-reuse, gzip integrity and expansion limits. Sanitizers include these models.
+reuse, local catalog paging, block integrity and updater failure retention.
+Sanitizers include the shared writer/touch models.
 `render_touch_review.py` consumes fixtures exported by those models; screenshots
 are approximate fonts/layouts, **not LVGL framebuffers or hardware captures**.
 Static stack guards cover new Community and UI paths with explicit allowances.
@@ -73,5 +71,5 @@ Physical acceptance remains required: type `SUNLU PLA+ 2.0`, weights, and a URL;
 test long-press deletion and edge keys; then perform clear → assign → write,
 Community → import → create → write, reassign, weigh, and printer assignment with
 the phone/computer disconnected. Record actual UI/backend stack high-water marks,
-LVGL free pool, Wi-Fi search duration, and recovery across power loss. Rendering
+LVGL free pool, local search duration, and recovery across power loss. Rendering
 alone does not establish comfortable finger operation.

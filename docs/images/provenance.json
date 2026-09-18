@@ -1,27 +1,27 @@
 {
   "privacy_checked_before_capture": true,
   "browser_captures": 80,
-  "touch_layout_fixtures": 37,
+  "touch_layout_fixtures": 38,
   "sources": {
-    "VERSION": "d458c8db8288a8a159c5b25dbea651430713bd1417c213dd83048058fe5fe228",
+    "VERSION": "88ea7d36adb579694883db250b37e012ebf9dfcb5938032d92cc5b843a548a11",
     "tools/product_review.py": "376adaa8e3c6255ad7bf4e73cc35e53e7f9ccb6acdc8610ee77ccf39a3a6cffd",
-    "tools/test_writer_display.py": "a11a3563200778ba6b5ee419d92d441687610daddb94a2f54da08ec9e323e5b6",
+    "tools/test_writer_display.py": "929940a2a68f81458649b7e8c9e6939bd486a4a733a0b69fbba5aed53373c5ac",
     "tools/capture_product_review.cjs": "23d6c11b616ac2c271e980410b162d71cf69b72575a452926794bf4838fe22d0",
     "tools/render_touch_review.py": "8343198d91ed9f6eb7cfda54ceed53e4dfda05fb44615069e117205ec2e2cff3",
     "tools/check_public_privacy.py": "b5b3fc8482b8e9692e1524002b911cbcace8c213fd180454469f7c4963ebacd9",
-    "src/web/web_assets.cpp": "ff7f11116721d3276615a2a00c5fa895317d42392279eb59248a3c3809e7a873",
-    "src/web/writer_assets.cpp": "9c342947757bc6f634525b73b0bc30ff5cf50ffef9dffccce6624c21459a06c4",
+    "src/web/web_assets.cpp": "ecc768d430b09f3b8cbc97c495d233448db4378d1e076ae1b811978575b67297",
+    "src/web/writer_assets.cpp": "cb83df5c5c89d2b511977e1a8e23bf240d0fee3737b8a45ceb5733a2dfc641ec",
     "src/web/writer_layout.inc": "c618f609bab9103ae3ca78470c341f6761f4d62b8265f73c5a7d3cbdc148bcab",
     "src/ui/product_layout.hpp": "b2c3e2fe6afbcfb084c66f98bd08c29eb8e97892cefed7991005c5ebd74ad739",
-    "src/ui/tag_flow.hpp": "d73860e1b4e134a185ad32c7cb72bc50c075d09004b6ba87aaf9236fee8167b4",
+    "src/ui/tag_flow.hpp": "78b0f8d29aeaaca8cc3f71c456026e7045367fe1e1d7b8e4ecfafcf1eaf2497d",
     "src/ui/touch_input.hpp": "80fa15c718726adbbd3c35173479826f2c1bc0b8ff9a63133e737b17b3998eed",
-    "test/test_touch_flow/fixtures.hpp": "011702caf421c8cae8a051f33edac121feca5de572e60740179b40123e5e5ddc"
+    "test/test_touch_flow/fixtures.hpp": "196fe9a0c8eeee7d700b8332ef7786229643ca7f8100568e6b41d26f187c0d03"
   },
   "images": {
-    "docs/images/dashboard.png": "d6df2214bc7957abf2cb85353efe77946c91efa68958bb11b65983b13b639a17",
-    "docs/images/weigh.png": "9ec8eb184fd772db6daa247b1884137dd999a28af28c4530b95891a8e35c4870",
-    "docs/images/assignment.png": "7decab24517849ea9975f0a85b65f5bdaec1050a4540606b5313adcc078d18fb",
-    "docs/images/tag-management.png": "95ce882d7bb52105b3594ce0de487ad0e7fcead7f86e5046c72d1753fe0b9a51",
-    "docs/images/wt32-home.png": "24e85fa20f7d3f357f29336e347725ea9c4af7eece0f92828fb0f4480b1ff247"
+    "docs/images/dashboard.png": "5a991b753b3e0bff3f62f01a94f4682edeacf1e7352618ed1f1654e6b6b3f1bf",
+    "docs/images/weigh.png": "ec3a17ca0c682775fb4739cffbe410172c917b1a4b595c0d6c4cdf55dc6bc5fd",
+    "docs/images/assignment.png": "da1274d0c1c5ad1692c333a7f8d276d8c4dc3884c460ee78c90b7913ca6d5aa9",
+    "docs/images/tag-management.png": "74af62cc86914f1cbaef161acf84dad99e26373b6a975c237ebe6ee7c3fbccf9",
+    "docs/images/wt32-home.png": "96398d9dd4dabdd91b8296b282438a12c487fe45801ff104033da33836e219e0"
   }
 }

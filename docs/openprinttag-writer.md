@@ -23,25 +23,21 @@ inventory size. Live inventory edits can move records between offset pages;
 refresh to restart a consistent search. Browsing is user-driven, never part of
 the cheap 30-second health probe.
 
-Community source: the public compiled JSON array at
-<https://icezaza2543.github.io/SpoolmanDB-Community/filaments.json>, also used by
-the upstream public application. Its contract was inspected at repository commit
+The catalog compiler consumes the public compiled JSON array from
+SpoolmanDB-Community. Its contract was inspected at repository commit
 `0a39c9b580048800c78850a3f0a4260b989448ea`:
 
 - [compiled schema](https://github.com/icezaza2543/SpoolmanDB-Community/blob/0a39c9b580048800c78850a3f0a4260b989448ea/filaments.compiled.schema.json)
 - [upstream application](https://github.com/icezaza2543/SpoolmanDB-Community/blob/0a39c9b580048800c78850a3f0a4260b989448ea/public/app.js)
 
-The data remains live; the accepted contract is pinned as
-`spoolmandb-community/0a39c9b5`. Unknown entry keys fail import rather than
-silently interpreting a changed format. On inspection the feed contained
-53,417 entries and 44,217,072 bytes. A bounded streaming download, 64 MiB maximum,
-100,000-entry maximum, and 30-second cancellation deadline run in the **browser**.
-Concurrent searches share one download. This catalog never occupies station
-internal RAM or its JSON parser. A tab caches
-the catalog for subsequent searches; reload the tab to refresh Community data.
-Search includes manufacturer, name, material, color, codes, diameter, density,
-weights, temperatures, and other source metadata. Results display eight at a
-time. Internet/CORS errors are explicit; existing Spoolman browsing remains local.
+The accepted import contract is pinned as `spoolmandb-community/0a39c9b5`.
+Unknown source keys fail the compiler rather than silently changing meaning. The
+rc.4 snapshot has 53,424 records from 44,222,456 source bytes and compiles to a
+2,430,373-byte `community.pack`. Browser and WT32 search the same LittleFS pack;
+all query terms match case-insensitively against manufacturer, name, and material.
+Results display eight at a time. Detail selection inflates one independently
+compressed block. Internet is needed only for an explicit catalog update, whose
+failure retains the prior valid pack.
 
 The server validates each selected entry before import. Required Spoolman density
 and diameter must be positive; missing/null optional values stay absent. Source
