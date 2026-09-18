@@ -15,11 +15,26 @@ def requires_version(paths):
     return any(p.startswith(PRODUCTION) for p in paths)
 
 
+def precedence(version):
+    """Return SemVer precedence for a validated version, ignoring build metadata."""
+    release, separator, prerelease = version.split('+', 1)[0].partition('-')
+    core = tuple(int(part) for part in release.split('.'))
+    # Numeric identifiers precede nonnumeric identifiers; tuple ordering also
+    # makes a shorter matching identifier sequence precede a longer one.
+    identifiers = tuple((0, int(part)) if part.isdigit() else (1, part)
+                        for part in prerelease.split('.')) if separator else ()
+    return core, not separator, identifiers
+
+
 def validate(paths, before, after):
     if not SEMVER.fullmatch(after):
         raise ValueError('Invalid VERSION')
-    if requires_version(paths) and before == after:
-        raise ValueError('Production behavior changed: explicitly advance VERSION and synchronize manifests/docs')
+    if requires_version(paths):
+        if not SEMVER.fullmatch(before):
+            raise ValueError('Invalid base VERSION')
+        if precedence(after) <= precedence(before):
+            raise ValueError('Production behavior changed: VERSION must be semantically greater '
+                             'than base VERSION; explicitly advance VERSION and synchronize manifests/docs')
 
 
 def main():
