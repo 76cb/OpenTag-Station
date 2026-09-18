@@ -747,6 +747,29 @@ int tinfl_decompress_mem_to_callback(const void *pIn_buf, size_t *pIn_buf_size, 
     return result;
 }
 
+size_t opentag_tinfl_state_size(void)
+{
+    return sizeof(tinfl_decompressor);
+}
+
+void opentag_tinfl_state_init(void *state)
+{
+    if (!state)
+        return;
+    memset(state, 0, sizeof(tinfl_decompressor));
+    tinfl_init((tinfl_decompressor *)state);
+}
+
+tinfl_status opentag_tinfl_decompress(void *state, const mz_uint8 *pIn_buf_next, size_t *pIn_buf_size,
+                                     mz_uint8 *pOut_buf_start, mz_uint8 *pOut_buf_next,
+                                     size_t *pOut_buf_size, const mz_uint32 decomp_flags)
+{
+    if (!state)
+        return TINFL_STATUS_BAD_PARAM;
+    return tinfl_decompress((tinfl_decompressor *)state, pIn_buf_next, pIn_buf_size,
+                            pOut_buf_start, pOut_buf_next, pOut_buf_size, decomp_flags);
+}
+
 #ifndef MINIZ_NO_MALLOC
 tinfl_decompressor *tinfl_decompressor_alloc(void)
 {
