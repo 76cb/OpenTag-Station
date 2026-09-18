@@ -3,7 +3,7 @@
   "browser_captures": 80,
   "touch_layout_fixtures": 38,
   "sources": {
-    "VERSION": "eb02b17e4863a705ed6ee8e24b1d62f8539b66c710ccbdddd54e859e8f6d5e35",
+    "VERSION": "8b92dbc6d78206209c0630ba31531c05619c68c8fe70b051597d97134577df57",
     "tools/product_review.py": "376adaa8e3c6255ad7bf4e73cc35e53e7f9ccb6acdc8610ee77ccf39a3a6cffd",
     "tools/test_writer_display.py": "929940a2a68f81458649b7e8c9e6939bd486a4a733a0b69fbba5aed53373c5ac",
     "tools/capture_product_review.cjs": "23d6c11b616ac2c271e980410b162d71cf69b72575a452926794bf4838fe22d0",
