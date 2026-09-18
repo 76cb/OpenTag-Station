@@ -115,14 +115,16 @@ jobs:
       - run: python tools/check_touch_stack_usage.py
       - run: pio run --environment wt32-sc01-plus --target web-flasher
       - run: python tools/web_flasher.py validate-bundle --bundle-dir .pio/build/wt32-sc01-plus/web-flasher --maximum-size 16777216
-      - name: Upload PR production NFC bundle
+      - name: Upload PR production debug artifacts
         if: github.event_name == 'pull_request'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: opentag-production-nfc-pr
-          path: .pio/build/wt32-sc01-plus/web-flasher
+          name: opentag-production-debug-pr
+          path: |
+            .pio/build/wt32-sc01-plus/firmware.elf
+            .pio/build/wt32-sc01-plus/firmware.map
+            .pio/build/wt32-sc01-plus/build-metadata.json
           if-no-files-found: error
-          include-hidden-files: true
       - run: python tools/web_flasher.py assemble-pages --factory-bundle .pio/build/wt32-sc01-plus/web-flasher --output-dir .pio/build/web-flasher-pages --maximum-size 16777216
       - run: python tools/web_flasher.py validate-pages --bundle-dir .pio/build/web-flasher-pages --maximum-size 16777216
       - run: python tools/prepare_release.py

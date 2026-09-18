@@ -2,6 +2,16 @@
 
 # Changelog
 
+## 1.0.0-rc.6
+
+Fix Community local-search crashes on the ESP32-S3 by keeping miniz inflater
+state in internal RAM while compressed and expanded blocks remain in PSRAM.
+Inflation now checks memory placement, block bounds, canaries, and bounded heap
+integrity before parsing, with per-block diagnostics for physical acceptance.
+Native tests cover corrupt, truncated, allocation-failure, placement, and
+repeated-search/detail release paths; native hosts cannot reproduce ESP32-S3
+PSRAM and cache behavior, so WT32 hardware acceptance remains pending.
+
 ## 1.0.0-rc.5
 
 Fix Community catalog commands rejected by the production API router. Status,
