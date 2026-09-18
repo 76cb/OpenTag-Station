@@ -3,6 +3,7 @@
 
 #include "nfc/protocols/nfcv/read_protocol.hpp"
 #include "nfc/read_only_service.hpp"
+#include "services/tag_lifecycle.hpp"
 
 namespace opentag::web {
 template <class T>
@@ -44,7 +45,8 @@ inline void write_nfc(JsonObject out, const nfc::ReadSnapshot& status,
   else
     out["checksum"] = nullptr;
   out["blank_compatible"]=status.blank_compatible;
-  out["decode"] = status.tag                                    ? "pass"
+  out["lifecycle"]=services::to_string(services::tag_lifecycle({status.present,status.blank_compatible,bool(status.tag),false,status.state==nfc::ReadState::unsupported,{},false}));
+  out["decode"] = status.blank_compatible ? "blank" : status.tag                                    ? "pass"
                   : status.state == nfc::ReadState::unsupported ? "fail"
                                                                 : "pending";
   if (status.error)

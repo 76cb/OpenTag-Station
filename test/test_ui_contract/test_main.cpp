@@ -223,31 +223,25 @@ void test_touchscreen_uses_signed_integer_rounded_grams() {
 
 void test_tags_page_exposes_guarded_writer_and_reader_state() {
   const auto source = read_source("src/ui/ui_service.cpp");
-  const auto build = method(
-      source,
-      "void UiService::build_tags_page()",
-      "void UiService::build_settings_page()");
-  TEST_ASSERT_TRUE(build.find("Manage tag") != std::string::npos);
-  TEST_ASSERT_TRUE(build.find("nfc_detail_") != std::string::npos);
-  TEST_ASSERT_TRUE(build.find("Place a tagged spool") != std::string::npos);
-  TEST_ASSERT_TRUE(build.find("writer_preview_callback") != std::string::npos);
-  TEST_ASSERT_TRUE(build.find("writer_confirm_callback") != std::string::npos);
-  TEST_ASSERT_TRUE(build.find("LV_STATE_DISABLED") != std::string::npos);
-  TEST_ASSERT_TRUE(build.find("current.spool?current.spool->id:0") != std::string::npos);
-  TEST_ASSERT_TRUE(build.find("FORMAT") == std::string::npos);
+  const auto build = method(source, "void UiService::build_tags_page()", "void UiService::build_settings_page()");
+  TEST_ASSERT_TRUE(build.find("backend_worker_.submit_writer(command)") != std::string::npos);
+  TEST_ASSERT_TRUE(build.find("flow.consume(body)") != std::string::npos);
+  TEST_ASSERT_TRUE(build.find("operation_id") != std::string::npos);
+  TEST_ASSERT_TRUE(build.find("HTTPClient") == std::string::npos);
+  TEST_ASSERT_TRUE(build.find("transport_.perform") == std::string::npos);
+  TEST_ASSERT_TRUE(build.find("write_block") == std::string::npos);
+  TEST_ASSERT_TRUE(build.find("use the browser") == std::string::npos);
 }
 
 void test_clear_has_two_steps_and_large_touch_targets() {
-  const auto source = read_source("src/ui/ui_service.cpp");
-  const auto preview = method(source, "void UiService::clear_preview_callback",
-                              "void UiService::weight_update_callback");
-  TEST_ASSERT_TRUE(preview.find("clear_preview") != std::string::npos);
-  TEST_ASSERT_TRUE(preview.find("writer_confirmation_.clear()") != std::string::npos);
-  TEST_ASSERT_TRUE(preview.find("LV_STATE_DISABLED") != std::string::npos);
-  for (const char* token : {"CONFIRM CLEAR", "Retry unlink", "current_checksum",
-                            "layout::tag_clear",
-                            "layout::tag_confirm"})
-    TEST_ASSERT_TRUE_MESSAGE(source.find(token) != std::string::npos, token);
+  const auto source = read_source("src/ui/tag_flow.hpp");
+  for(const char* token:{"clear_preview", "CONFIRM CLEAR", "retry_unlink", "current_checksum", "target_checksum", "generation", "previous_spool_id"})
+    TEST_ASSERT_TRUE_MESSAGE(source.find(token)!=std::string::npos,token);
+  const auto keyboard=read_source("src/ui/touch_input_screen.cpp");
+  TEST_ASSERT_TRUE(keyboard.find("lv_scr_load(root_)")!=std::string::npos);
+  TEST_ASSERT_TRUE(keyboard.find("lv_scr_load(previous_)")!=std::string::npos);
+  TEST_ASSERT_TRUE(keyboard.find("backend_worker_")==std::string::npos);
+  TEST_ASSERT_TRUE(keyboard.find("lv_keyboard_create")==std::string::npos);
 }
 
 void test_only_explicit_weigh_notifies_sync_and_timeout_finishes_it() {

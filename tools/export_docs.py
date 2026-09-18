@@ -15,7 +15,7 @@ def main():
     args = parser.parse_args()
     source = ROOT / 'documentation-site'
     metadata = {'version': version(), 'source_repository': '76cb/OpenTag-Station',
-                'source_ref': 'codex/current-spool-experience', 'acceptance': 'pending'}
+                'source_ref': 'main', 'acceptance': 'pending'}
     snapshot = source / 'firmware.json'
     if args.refresh:
         snapshot.write_text(json.dumps(metadata, indent=2) + '\n', encoding='utf-8')
@@ -33,7 +33,7 @@ def main():
         (destination / 'firmware.json').write_text(json.dumps(metadata, indent=2) + '\n', encoding='utf-8')
         for page in (destination / 'docs').rglob('*.md'):
             content = page.read_text(encoding='utf-8').replace(
-                'https://github.com/76cb/OpenTag-Station/blob/codex/current-spool-experience/',
+                'https://github.com/76cb/OpenTag-Station/blob/main/',
                 'https://github.com/76cb/OpenTag-Station/blob/' + metadata['source_commit'] + '/')
             page.write_text(content, encoding='utf-8')
         print(f'Exported {len(list((destination / "docs").rglob("*.md")))} pages to {destination}')

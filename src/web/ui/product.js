@@ -15,11 +15,13 @@ function closeProductDialog(id) {
   productDialogs.get(id)?.focus();
 }
 function spoolIdentity() {
-  const t=state.currentTag||{}, w=state.tagWorkflow||{}, inv=t.inventory||{};
+  const original=state.currentTag||{}, w=state.tagWorkflow||{}, inv=original.inventory||{};
+  const clear=state.clearSnapshot||{},cleared=String(clear.uid||'').replace(/:/g,'')===String(original.uid||inv.uid||'').replace(/:/g,'')&&['cleared','unlink_pending','unlinking'].includes(clear.phase);
+  const t=cleared?{...original,blank_compatible:true,decode:'blank',material_name:'',brand_name:'',brand:''}:original;
   const uid=String(first(t.uid,inv.uid,'')).replace(/:/g,'');
   const present=first(t.present,inv.present,false)===true;
   const same=present&&uid&&uid===String(w.tag?.uid||'').replace(/:/g,'');
-  return {t,w,present,spool:same&&w.openprinttag_available?w.spool:null};
+  return {t,w,present,spool:same&&!cleared&&w.openprinttag_available?w.spool:null};
 }
 function renderSpoolChoices(workflow) {
   const form=byId('confirm-spool-form');
@@ -39,6 +41,16 @@ function renderSpoolChoices(workflow) {
 function renderCurrentSpool() {
   if (!byId('current-spool')) return;
   const {t,w,present,spool}=spoolIdentity(), s=spool||{};
+  const lifecycle=present&&String(w.tag?.uid||'')===String(t.uid||t.inventory?.uid||'')?w.tag_lifecycle:t.lifecycle;
+  const blank=present&&(t.blank_compatible||lifecycle==='BLANK_COMPATIBLE'||(lifecycle==='READY'&&state.clearSnapshot?.phase==='cleared'));
+  const linked=present&&!blank&&!!s.id, valid=present&&!blank&&(t.decode==='pass'||linked||lifecycle==='OPENPRINTTAG_UNLINKED');
+  const cleanup=lifecycle==='CLEANUP_PENDING'||state.clearSnapshot?.phase==='unlink_pending';
+  const writePending=lifecycle==='WRITE_PENDING';
+  byId('tag-update').hidden=!linked||cleanup||writePending;
+  byId('writer-open').hidden=(!blank&&!valid&&!writePending)||cleanup;
+  byId('clear-open').hidden=(!valid&&!cleanup)||writePending;
+  setText('writer-open',writePending?'Resume tag workflow':blank?'Assign tag to a spool':linked?'Reassign':'Link to a spool');
+  setText('clear-open',cleanup?'Retry cleanup':'Clear / Reuse');
   byId('spool-empty').hidden=present;
   byId('current-spool').hidden=!present;
   if (!present) return;
@@ -48,7 +60,7 @@ function renderCurrentSpool() {
   setText('current-name',name);setText('manage-material',name);
   setText('current-vendor',first(s.vendor,t.brand_name,t.brand,''));
   setText('current-material',first(s.material,t.material_abbreviation,''));
-  setText('current-number',s.id?'Spool #'+s.id:'Not yet linked');
+  setText('current-number',blank?'Ready to assign':s.id?'Spool #'+s.id:'Not yet linked');
   setText('current-remaining',remaining===null?'—':Math.round(Number(remaining)));
   const percentage=remaining!==null&&Number(initial)>0?Math.max(0,Math.min(100,Math.round(Number(remaining)/Number(initial)*100))):null;
   byId('remaining-summary').hidden=percentage===null;
@@ -66,7 +78,8 @@ function renderCurrentSpool() {
   setText('dashboard-printer',assignments.length?assignments.join(', '):'Choose a toolhead to assign this spool.');
   const v=state.weighSync||{}, sameWeight=s.id&&Number(v.spool_id)===Number(s.id);
   setText('dashboard-weight',sameWeight&&v.measured!=null?formatGrams(v.measured)+' measured · '+formatGrams(v.canonical_remaining)+' in Spoolman':'Weigh this spool to compare it with your inventory.');
-  setText('home-action-label',state.scale?.measurement?.active?'Weighing…':'Weigh');
+  setText('home-action-label',blank?'Assign tag':state.scale?.measurement?.active?'Weighing…':'Weigh');
+  if(blank)byId('home-weigh').disabled=!!state.maintenance;
   byId('spool-edit').disabled=!s.id;byId('tag-update').disabled=!s.id;
   byId('spool-assign').disabled=!s.id||state.maintenance;
 }

@@ -94,6 +94,7 @@ class BackendWorker final {
   services::WeighSyncSnapshot weigh_snapshot() const { return weigh_sync_.snapshot(); }
   [[nodiscard]] CommandReceipt submit_writer(std::string_view payload);
   [[nodiscard]] network::ResponseBody writer_snapshot() const;
+  std::optional<OperationRecord> writer_operation(std::uint64_t id) const { return operations_.get(id); }
   [[nodiscard]] BackendWorkerSnapshot snapshot() const;
   [[nodiscard]] std::uint64_t revision() const {
     std::lock_guard<std::mutex> lock(status_mutex_);

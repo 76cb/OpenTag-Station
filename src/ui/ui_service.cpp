@@ -256,7 +256,7 @@ void UiService::build_current_screen() {
   scale_calibration_panel_open_ = false;
   workflow_identity_label_ = nullptr;
   workflow_status_label_ = nullptr;
-  nfc_detail_ = nullptr;
+  nfc_detail_ = nullptr;tag_title_=nullptr;tag_buttons_.fill(nullptr);
   writer_preview_ = nullptr; writer_confirm_ = nullptr; clear_preview_=nullptr;weight_update_=nullptr;weight_policy_=nullptr; writer_confirmation_.clear();
   scale_keyboard_ = nullptr;
   display_test_touch_marker_ = nullptr;
@@ -538,12 +538,7 @@ void UiService::build_scale_page() {
   lv_obj_set_style_text_font(
       workflow_status_label_, &lv_font_montserrat_14, 0);
 
-  scale_keyboard_ = lv_keyboard_create(screen);
-  lv_obj_set_size(scale_keyboard_, 370, 150);
-  lv_obj_align(scale_keyboard_, LV_ALIGN_BOTTOM_RIGHT, 0, 0);
-  lv_obj_add_event_cb(
-      scale_keyboard_, scale_keyboard_callback, LV_EVENT_ALL, this);
-  lv_obj_add_flag(scale_keyboard_, LV_OBJ_FLAG_HIDDEN);
+
 }
 
 void UiService::build_printer_page() {
@@ -604,28 +599,111 @@ void UiService::build_printer_page() {
 }
 
 void UiService::build_tags_page() {
+  if(!tag_flow_)tag_flow_=network::make_external<TagFlow>([]{return TagFlow{};});
   auto* screen=lv_scr_act();
-  product_label(screen,layout::heading,"Manage tag",&lv_font_montserrat_20);
-  nfc_detail_=product_label(screen,layout::tag_detail,"Place a tagged spool on the station");
-  writer_preview_=product_button(screen,layout::tag_update,"UPDATE TAG",writer_preview_callback,this,true);
-  clear_preview_=product_button(screen,layout::tag_clear,"CLEAR / REUSE",clear_preview_callback,this);
-  writer_confirm_=product_button(screen,layout::tag_confirm,"Review before writing",writer_confirm_callback,this);
-  lv_obj_add_state(writer_confirm_,LV_STATE_DISABLED);
+  tag_title_=product_label(screen,{16,8,448,32},"Manage tag",&lv_font_montserrat_20);
+  tag_details_=lv_obj_create(screen);place(tag_details_,{16,48,448,208});
+  lv_obj_set_style_bg_opa(tag_details_,LV_OPA_TRANSP,0);
+  lv_obj_set_style_border_width(tag_details_,0,0);lv_obj_set_style_pad_all(tag_details_,0,0);
+  lv_obj_set_scroll_dir(tag_details_,LV_DIR_VER);
+  nfc_detail_=product_label(tag_details_,{0,0,440,160},"Loading tag…");
+  lv_label_set_long_mode(nfc_detail_,LV_LABEL_LONG_WRAP);
+  lv_obj_set_height(nfc_detail_,LV_SIZE_CONTENT);
+  for(auto& button:tag_buttons_)button=product_button(screen,{16,212,448,44},"",tag_action_callback,this);
+  if(!tag_flow_){lv_label_set_text(nfc_detail_,"Tag workspace unavailable. Please restart.");build_product_rail();return;}
+  refresh_tags();
+}
+void UiService::open_input(InputSpec spec,std::function<void(const std::string&)> accepted) {
+  if(!input_screen_)input_screen_=network::make_external<TouchInputScreen>([]{return TouchInputScreen{};});
+  if(input_screen_)input_screen_->open(std::move(spec),std::move(accepted));
+}
+void UiService::tag_command(std::string command) {
+  if(command.empty()||!tag_flow_)return;
+  const auto receipt=backend_worker_.submit_writer(command);
+  if(!receipt.accepted)tag_flow_->fail("Station is busy. Please try again.");
+  else {tag_flow_->waiting=true;tag_flow_->operation=receipt.operation_id;tag_flow_->page=TagPage::progress;tag_flow_->phase="queued";tag_flow_->message="Please wait…";}
+  draw_tags();
+}
+void UiService::tag_action_callback(lv_event_t* event) {
+  auto* self=static_cast<UiService*>(lv_event_get_user_data(event));
+  const auto target=lv_event_get_target(event);
+  for(std::size_t i=0;i<self->tag_screen_.count;++i)if(self->tag_buttons_[i]==target) {
+    self->tag_action(self->tag_screen_.buttons[i].action);return;
+  }
+}
+void UiService::tag_action(TagAction action) {
+  if(!tag_flow_||tag_flow_->waiting)return;
+  if(action==TagAction::home||action==TagAction::weigh||action==TagAction::printer) {
+    tag_flow_->page=TagPage::tag;tag_flow_->phase.clear();
+    active_page_=action==TagAction::weigh?ProductPage::scale:action==TagAction::printer?ProductPage::printer:ProductPage::home;
+    build_current_screen();return;
+  }
+  if(action==TagAction::search) {
+    InputSpec spec;spec.title="Search "+(tag_flow_->entity=="community"?std::string("Community"):tag_flow_->entity=="spool"?"My Spools":"My Filaments");
+    spec.initial=tag_flow_->query;spec.action="SEARCH";spec.required=tag_flow_->entity=="community";
+    open_input(spec,[this](const std::string& text){tag_flow_->query=text;tag_flow_->offset=tag_flow_->row=0;tag_command(tag_flow_->browse());});return;
+  }
+  if(action==TagAction::name) {
+    InputSpec spec;spec.title="Spoolman display name";spec.required=true;
+    spec.initial=tag_flow_->import_name.empty()?std::string(tag_flow_->selected["name"]|""):tag_flow_->import_name;
+    // Keep an overlong source visible/editable; Done stays disabled until it
+    // meets the Spoolman limit. Never silently truncate the source identity.
+    open_input(spec,[this](const std::string& text){tag_flow_->import_name=text;draw_tags();});return;
+  }
+  if(action==TagAction::initial||action==TagAction::remaining||action==TagAction::tare) {
+    InputSpec spec;spec.mode=InputMode::numeric;spec.unit="g";spec.maximum_length=9;spec.required=true;
+    spec.title=action==TagAction::initial?"Initial filament":action==TagAction::remaining?"Remaining filament":"Empty spool weight";
+    spec.initial=weight_text(action==TagAction::initial?tag_flow_->initial:action==TagAction::remaining?tag_flow_->remaining:tag_flow_->tare);
+    open_input(spec,[this,action](const std::string& text){const auto n=std::strtod(text.c_str(),nullptr);if(action==TagAction::initial)tag_flow_->initial=n;else if(action==TagAction::remaining)tag_flow_->remaining=n;else tag_flow_->tare=n;draw_tags();});return;
+  }
+  tag_command(tag_flow_->act(action));draw_tags();
+}
+void UiService::draw_tags() {
+  if(!tag_flow_||!tag_title_)return;
+  tag_screen_=tag_flow_->screen();
+  lv_label_set_text(tag_title_,tag_screen_.title.c_str());
+  lv_obj_set_width(tag_title_,tag_flow_->page==TagPage::catalog?300:448);
+  lv_label_set_text(nfc_detail_,tag_screen_.body.c_str());
+  place(tag_details_,tag_body_box(tag_screen_));
+  for(std::size_t i=0;i<tag_buttons_.size();++i) {
+    auto* b=tag_buttons_[i];
+    if(i>=tag_screen_.count){lv_obj_add_flag(b,LV_OBJ_FLAG_HIDDEN);continue;}
+    const auto& item=tag_screen_.buttons[i];lv_obj_clear_flag(b,LV_OBJ_FLAG_HIDDEN);place(b,item.box);
+    auto* label=lv_obj_get_child(b,0);lv_label_set_text(label,item.text.c_str());
+    lv_obj_set_width(label,item.box.w-12);
+    lv_obj_set_height(label,item.text.find('\n')==std::string::npos?20:40);
+    lv_label_set_long_mode(label,LV_LABEL_LONG_DOT);lv_obj_center(label);
+    if(item.enabled)lv_obj_clear_state(b,LV_STATE_DISABLED);else lv_obj_add_state(b,LV_STATE_DISABLED);
+  }
+}
+void UiService::refresh_tags() {
+  if(!tag_flow_||!nfc_detail_)return;
+  auto& flow=*tag_flow_;
+  const auto tag=nfc_.snapshot();
+  const std::string incoming_uid=tag.uid?tag.uid->hex():"";
+  if(!flow.waiting&&!incoming_uid.empty()&&!flow.uid.empty()&&incoming_uid!=flow.uid&&
+     flow.phase!="unlink_pending"&&flow.phase!="association_pending"&&flow.phase!="write_recovery"&&flow.phase!="clear_recovery") {
+    flow.page=TagPage::tag;flow.phase.clear();flow.selected.clear();flow.from_spool=0;
+  }
+  flow.uid=incoming_uid;
+  workflow_.visit([&](const services::WorkflowSnapshot& current) {
+    flow.current_spool=tag.tag&&tag.uid&&current.openprinttag_available&&current.uid==*tag.uid&&current.spool?current.spool->id:0;
+  });
+  flow.material=tag.tag?tag.tag->decoded.material.material_name.value_or("Filament spool"):"";
+  flow.lifecycle=services::tag_lifecycle({tag.present,tag.blank_compatible,bool(tag.tag),flow.current_spool>0,tag.state==nfc::ReadState::unsupported,flow.phase,false});
+  if(tag.error&&flow.page==TagPage::tag)flow.message=tag.error->message;
+  auto body=backend_worker_.writer_snapshot();
+  const auto checksum=nfc::nfcv::diagnostic_checksum(reinterpret_cast<const std::uint8_t*>(body.data()),body.size());
+  if(checksum!=writer_view_checksum_) {
+    if(flow.consume(body))writer_view_checksum_=checksum;
+  }
+  if(flow.operation) {
+    const auto op=backend_worker_.writer_operation(flow.operation);
+    if(op&&op->state==application::OperationState::failed) {flow.operation=0;flow.fail(op->error?op->error->message:op->message);}
+  }
+  draw_tags();
 }
 
-void UiService::writer_preview_callback(lv_event_t* event) {
-  auto* self=static_cast<UiService*>(lv_event_get_user_data(event));
-  const auto current=self->workflow_.snapshot();
-  const auto id=current.spool?current.spool->id:0;
-  if(id<=0){lv_label_set_text(self->nfc_detail_,"Create a new tag in the browser.\nChoose a spool from your inventory.");return;}
-  const auto receipt=self->backend_worker_.submit_writer("{\"action\":\"preview\",\"mode\":\"rewrite\",\"spool_id\":"+std::to_string(id)+"}");
-  if(!receipt.accepted)lv_label_set_text(self->nfc_detail_,"Writer queue unavailable; retry");
-}
-void UiService::clear_preview_callback(lv_event_t* event) {
-  auto* self=static_cast<UiService*>(lv_event_get_user_data(event));
-  const auto receipt=self->backend_worker_.submit_writer("{\"action\":\"clear_preview\"}");
-  if(receipt.accepted){self->writer_confirmation_.clear();lv_obj_add_state(self->writer_confirm_,LV_STATE_DISABLED);lv_label_set_text(self->nfc_detail_,"Reading tag before clear confirmation");}
-}
 void UiService::weight_update_callback(lv_event_t* event) {
   auto* self=static_cast<UiService*>(lv_event_get_user_data(event));const auto measured=self->backend_worker_.weigh_snapshot();
   if(measured.phase=="ready"&&!measured.consumed)(void)self->backend_worker_.submit_weight_update(measured.measurement_id);
@@ -635,13 +713,6 @@ void UiService::weight_policy_callback(lv_event_t* event) {
   auto current=self->configuration_.versioned_snapshot();current.configuration.reconciliation.auto_update_after_weigh=!current.configuration.reconciliation.auto_update_after_weigh;
   (void)self->configuration_worker_.submit_replace(std::move(current.configuration),current.revision,millis());
 }
-void UiService::writer_confirm_callback(lv_event_t* event) {
-  auto* self=static_cast<UiService*>(lv_event_get_user_data(event));
-  if(self->writer_confirmation_.empty())return;
-  const auto receipt=self->backend_worker_.submit_writer(self->writer_confirmation_);
-  if(receipt.accepted){self->writer_confirmation_.clear();lv_obj_add_state(self->writer_confirm_,LV_STATE_DISABLED);}
-}
-
 void UiService::build_settings_page() {
   auto* screen=lv_scr_act();
   product_label(screen,layout::heading,"Display brightness",&lv_font_montserrat_20);
@@ -660,7 +731,7 @@ void UiService::build_workflow_screen() {
   auto* screen = lv_scr_act();
   style_screen(screen);
   lv_obj_set_style_bg_color(screen, lv_color_hex(0x101416), 0);
-  build_product_rail();
+  if(active_page_!=ProductPage::tags)build_product_rail();
   switch (active_page_) {
     case ProductPage::home: build_home_page(); break;
     case ProductPage::scale: build_scale_page(); break;
@@ -761,7 +832,7 @@ lv_obj_t* UiService::create_setup_textarea(
   lv_textarea_set_max_length(input, maximum_length);
   lv_textarea_set_password_mode(input, password);
   lv_textarea_set_text(input, value.c_str());
-  lv_obj_add_event_cb(input, setup_textarea_callback, LV_EVENT_FOCUSED, this);
+  lv_obj_add_event_cb(input, setup_textarea_callback, LV_EVENT_CLICKED, this);
   return input;
 }
 
@@ -892,11 +963,7 @@ void UiService::build_setup_screen() {
     lv_obj_center(scan_label);
   }
 
-  setup_keyboard_ = lv_keyboard_create(screen);
-  lv_obj_set_size(setup_keyboard_, 480, 180);
-  lv_obj_align(setup_keyboard_, LV_ALIGN_BOTTOM_MID, 0, 0);
-  lv_obj_add_flag(setup_keyboard_, LV_OBJ_FLAG_HIDDEN);
-  lv_obj_add_event_cb(setup_keyboard_, setup_keyboard_callback, LV_EVENT_ALL, this);
+
 }
 
 void UiService::setup_back_callback(lv_event_t* event) {
@@ -969,6 +1036,7 @@ void UiService::navigation_callback(lv_event_t* event) {
 
 void UiService::weigh_callback(lv_event_t* event) {
   auto* self = static_cast<UiService*>(lv_event_get_user_data(event));
+  if(self->active_page_==ProductPage::home&&self->nfc_.snapshot().blank_compatible){self->active_page_=ProductPage::tags;self->build_current_screen();self->tag_action(TagAction::sources);return;}
   if (self->active_page_ == ProductPage::home &&
       !self->diagnostics_.scale_snapshot().scale_calibrated) {
     self->active_page_ = ProductPage::scale;
@@ -1085,26 +1153,12 @@ void UiService::scale_calibration_close_callback(lv_event_t* event) {
 }
 
 void UiService::scale_textarea_callback(lv_event_t* event) {
-  auto* self = static_cast<UiService*>(lv_event_get_user_data(event));
-  const auto code = lv_event_get_code(event);
-  if (code == LV_EVENT_FOCUSED && self->scale_keyboard_ != nullptr) {
-    lv_keyboard_set_textarea(
-        self->scale_keyboard_,
-        static_cast<lv_obj_t*>(lv_event_get_target(event)));
-    lv_obj_clear_flag(self->scale_keyboard_, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_move_foreground(self->scale_keyboard_);
-  } else if (code == LV_EVENT_VALUE_CHANGED) {
-    self->refresh_workflow();
-  }
-}
-
-void UiService::scale_keyboard_callback(lv_event_t* event) {
-  const auto code = lv_event_get_code(event);
-  if (code != LV_EVENT_READY && code != LV_EVENT_CANCEL) return;
-  auto* self = static_cast<UiService*>(lv_event_get_user_data(event));
-  lv_keyboard_set_textarea(self->scale_keyboard_, nullptr);
-  lv_obj_add_flag(self->scale_keyboard_, LV_OBJ_FLAG_HIDDEN);
-  self->refresh_workflow();
+  auto* self=static_cast<UiService*>(lv_event_get_user_data(event));
+  if(lv_event_get_code(event)!=LV_EVENT_CLICKED)return;
+  auto* target=static_cast<lv_obj_t*>(lv_event_get_target(event));
+  InputSpec spec;spec.mode=InputMode::numeric;spec.title="Calibration weight";spec.unit="g";spec.maximum_length=9;spec.required=true;spec.minimum=1;
+  spec.initial=lv_textarea_get_text(target);
+  self->open_input(spec,[self,target](const std::string& value){lv_textarea_set_text(target,value.c_str());self->refresh_workflow();});
 }
 
 void UiService::diagnostics_toggle_callback(lv_event_t* event) {
@@ -1293,20 +1347,14 @@ void UiService::setup_network_callback(lv_event_t* event) {
 }
 
 void UiService::setup_textarea_callback(lv_event_t* event) {
-  auto* self = static_cast<UiService*>(lv_event_get_user_data(event));
-  if (self->setup_keyboard_ == nullptr) return;
-  lv_keyboard_set_textarea(
-      self->setup_keyboard_, static_cast<lv_obj_t*>(lv_event_get_target(event)));
-  lv_obj_clear_flag(self->setup_keyboard_, LV_OBJ_FLAG_HIDDEN);
-  lv_obj_move_foreground(self->setup_keyboard_);
-}
-
-void UiService::setup_keyboard_callback(lv_event_t* event) {
-  const auto code = lv_event_get_code(event);
-  if (code != LV_EVENT_READY && code != LV_EVENT_CANCEL) return;
-  auto* self = static_cast<UiService*>(lv_event_get_user_data(event));
-  lv_keyboard_set_textarea(self->setup_keyboard_, nullptr);
-  lv_obj_add_flag(self->setup_keyboard_, LV_OBJ_FLAG_HIDDEN);
+  auto* self=static_cast<UiService*>(lv_event_get_user_data(event));
+  auto* target=static_cast<lv_obj_t*>(lv_event_get_target(event));
+  const auto step=self->first_run_setup_.current();
+  InputSpec spec;spec.initial=lv_textarea_get_text(target);spec.maximum_length=lv_textarea_get_max_length(target);
+  spec.mode=lv_textarea_get_password_mode(target)?InputMode::password:
+      target==self->setup_input_one_&&(step==services::SetupStep::spoolman||step==services::SetupStep::filabridge)?InputMode::url:InputMode::text;
+  spec.title=spec.mode==InputMode::url?"Server URL":spec.mode==InputMode::password?"Password / token":"Configuration";
+  self->open_input(spec,[target](const std::string& value){lv_textarea_set_text(target,value.c_str());});
 }
 
 void UiService::refresh_setup() {
@@ -1429,6 +1477,7 @@ void UiService::refresh_setup() {
 }
 
 void UiService::refresh_current(std::uint32_t now_ms) {
+  if(input_screen_&&input_screen_->active())return;
   if (showing_display_self_test_) {
     return;
   }
@@ -1436,6 +1485,8 @@ void UiService::refresh_current(std::uint32_t now_ms) {
     refresh_setup();
   } else if (showing_diagnostics_) {
     refresh_diagnostics(now_ms);
+  } else if(active_page_==ProductPage::tags) {
+    refresh_tags();
   } else {
     refresh_workflow();
   }
@@ -1444,59 +1495,6 @@ void UiService::refresh_current(std::uint32_t now_ms) {
 void UiService::refresh_workflow() {
   if (showing_setup_ || showing_diagnostics_ ||
       product_nav_buttons_[0] == nullptr) {
-    return;
-  }
-
-  if (active_page_ == ProductPage::tags && nfc_detail_ != nullptr) {
-    {
-      const auto tag = nfc_.snapshot();
-      std::string text = tag.blank_compatible ? "Blank tag - ready to write" : tag.tag ? "OpenPrintTag recognized" : tag.present ? "Reading tag..." : "Place a tag on the reader";
-      if (tag.tag) text += "\n" + tag.tag->decoded.material.material_name.value_or("Unnamed material").substr(0, 32);
-      const auto current=workflow_.snapshot();
-      if(current.spool)text+="\nLinked to Spoolman #"+std::to_string(current.spool->id);
-      if (tag.error) text += "\n" + tag.error->message;
-      lv_label_set_text(nfc_detail_, text.c_str());
-      lv_obj_set_style_text_color(nfc_detail_, lv_color_hex(tag.error ? 0xFFABB6 : 0xCBD5E1), 0);
-    }
-    auto writer=backend_worker_.writer_snapshot();
-    network::BackendJsonAllocator allocator;
-    JsonDocument view(&allocator);
-    if(!deserializeJson(view,writer.data(),writer.size()) && view["phase"].as<std::string>()!="idle") {
-      const std::string phase=view["phase"]|"";
-      std::string status=view["message"]|"";
-      if(view["spool_id"].as<int>()>0)status+="\nSpool #"+std::to_string(view["spool_id"].as<int>())+" "+std::string(view["spool"]["filament"]["name"]|"");
-      if(phase=="preview")status="Ready to write\n"+std::string(view["spool"]["filament"]["name"]|"").substr(0,36)+"\n"+(view["previous_spool_id"].as<int>()>0?"Replace tag link from spool #"+std::to_string(view["previous_spool_id"].as<int>()):"Keep spool on the station.");
-      if(phase=="clear_preview")status="Reuse this NFC tag?\nRemove filament data and Spoolman link.\nPermanent NFC identifier stays unchanged.";
-      if(phase=="clearing")status="Clearing tag - keep tag and power in place\n"+std::to_string(view["completed_blocks"].as<int>())+" / "+std::to_string(view["total_blocks"].as<int>())+" verified";
-      if(phase=="unlink_pending")status="Tag is blank and verified.\nSpoolman unlink is still pending.\nRetry below: no NFC rewrite.";
-      if(phase=="cleared")status=LV_SYMBOL_OK " Tag cleared and verified\nReady to reuse";
-      if(phase=="writing")status="Writing OpenPrintTag\nKeep tag and power in place";
-      if(phase=="writing")status+="\n"+std::to_string(view["completed_blocks"].as<int>())+" / "+std::to_string(view["total_blocks"].as<int>());
-      if(phase=="complete")status=LV_SYMBOL_OK " Written and verified\nSpool #"+std::to_string(view["spool_id"].as<int>())+" linked\nTag + OpenPrintTag: PASS";
-      if(phase=="association_pending")status="Tag verified\nSpoolman link pending\nRetry association below. No tag rewrite.";
-      if(phase=="failed")status="Unable to complete\n"+std::string(view["message"]|"");
-      lv_obj_set_style_text_color(nfc_detail_,lv_color_hex(phase=="complete"?0x88F0CF:phase=="failed"?0xFFABB6:phase=="association_pending"?0xFFD384:0xCBD5E1),0);
-      if(writer_confirm_) {
-        lv_label_set_text(lv_obj_get_child(writer_confirm_,0),phase=="clear_preview"?"CONFIRM CLEAR":phase=="unlink_pending"?"Retry unlink":phase=="association_pending"?"Retry link":phase=="preview"?"CONFIRM WRITE":"Preview first");
-        lv_obj_set_style_bg_color(writer_confirm_,lv_color_hex(phase=="preview"?0x73301E:0x147D73),0);
-      }
-      lv_label_set_text(nfc_detail_,status.c_str());writer_confirmation_.clear();
-      if(phase=="clear_preview") {
-        JsonDocument confirmation(&allocator);confirmation["action"]="clear";
-        for(const auto* key:{"uid","generation","current_checksum","target_checksum"})confirmation[key]=view[key];
-        serializeJson(confirmation,writer_confirmation_);
-      } else if(phase=="unlink_pending")writer_confirmation_="{\"action\":\"retry_unlink\"}";
-      else if(phase=="preview" && !(view["semantic_no_change"]|false)) {
-        JsonDocument confirmation(&allocator);confirmation["action"]="write";
-        for(const auto* key:{"uid","generation","spool_id","previous_spool_id","target_checksum"})confirmation[key]=view[key];
-        serializeJson(confirmation,writer_confirmation_);
-      } else if(phase=="association_pending")writer_confirmation_="{\"action\":\"retry_association\"}";
-      const bool working=phase=="reading"||phase=="loading_spool"||phase=="validating"||phase=="clearing"||phase=="writing"||phase=="verifying"||phase=="decoding"||phase=="unlinking"||phase=="associating";
-      const bool pending=phase=="association_pending"||phase=="unlink_pending"||phase=="clear_recovery";
-      for(auto* button:{writer_preview_,clear_preview_})if(button){if(working||pending)lv_obj_add_state(button,LV_STATE_DISABLED);else lv_obj_clear_state(button,LV_STATE_DISABLED);}
-      for(auto* button:product_nav_buttons_)if(button){if(working)lv_obj_add_state(button,LV_STATE_DISABLED);else lv_obj_clear_state(button,LV_STATE_DISABLED);}
-      if(writer_confirm_) { if(writer_confirmation_.empty())lv_obj_add_state(writer_confirm_,LV_STATE_DISABLED);else lv_obj_clear_state(writer_confirm_,LV_STATE_DISABLED); }
-    }
     return;
   }
 
@@ -1569,6 +1567,8 @@ void UiService::refresh_workflow() {
 
   if (active_page_ == ProductPage::home) {
     const auto workflow=workflow_.snapshot();
+    const auto tag=nfc_.snapshot();
+    const bool blank=tag.present&&tag.blank_compatible;
     const bool present=workflow.openprinttag_available;
     place(workflow_scale_indicator_,present?layout::home_art:layout::empty_art);
     const auto color=workflow.material.primary_color;
@@ -1585,8 +1585,10 @@ void UiService::refresh_workflow() {
     const auto remaining=workflow.spool?workflow.spool->remaining_grams:std::optional<float>{};
     if(remaining)lv_label_set_text_fmt(workflow_weight_label_,"%ld g remaining",static_cast<long>(std::lround(*remaining)));
     else lv_label_set_text(workflow_weight_label_,present?"Weight not known":"");
-    set_enabled(workflow_weigh_button_,scale.scale_adc_ready&&!busy);
+    if(blank){lv_label_set_text(workflow_home_state_label_,"COMPATIBLE BLANK TAG");lv_label_set_text(workflow_material_label_,"Ready to assign");lv_label_set_text(workflow_identity_label_,"Open Manage tag to choose a spool");}
+    set_enabled(workflow_weigh_button_,blank||(scale.scale_adc_ready&&!busy));
     lv_label_set_text(lv_obj_get_child(workflow_weigh_button_,0),busy?"WEIGHING...":scale.scale_calibrated?"WEIGH":"CALIBRATE");
+    if(blank)lv_label_set_text(lv_obj_get_child(workflow_weigh_button_,0),"ASSIGN TAG");
     return;
   }
 

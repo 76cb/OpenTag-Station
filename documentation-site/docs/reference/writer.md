@@ -17,7 +17,7 @@ The touchscreen keeps its compact spool/preview/confirmation workflow, with
 44 px action buttons, clearer progress and explicit verified/pending results.
 
 For Clear / Reuse, Community loading and explicit-Weigh inventory updating, see
-[Clear, weigh, and reuse](https://github.com/76cb/OpenTag-Station/blob/codex/current-spool-experience/docs/clear-weigh-workflows.md).
+[Clear, weigh, and reuse](https://github.com/76cb/OpenTag-Station/blob/main/docs/clear-weigh-workflows.md).
 
 ## Pick inventory
 
@@ -81,7 +81,7 @@ IDs, associations, vendor IDs, `extra`, provenance or arbitrary backend paths.
 | Filament | `color_hex` | Exactly 6 or 8 hexadecimal digits |
 | Filament | `settings_extruder_temp`, `settings_bed_temp` | Integers 0–500 °C and 0–200 °C |
 
-These field names follow the inspected v0.26.1 baseline at `8d9eb7395da9553bdbf14b21231afe4e153f0a79` ([compatibility record](https://github.com/76cb/OpenTag-Station/blob/codex/current-spool-experience/docs/UPSTREAM_COMPATIBILITY.md)), using the [Spoolman canonical model](https://github.com/Donkie/Spoolman/blob/8d9eb7395da9553bdbf14b21231afe4e153f0a79/spoolman/api/v1/models.py).
+These field names follow the inspected v0.26.1 baseline at `8d9eb7395da9553bdbf14b21231afe4e153f0a79` ([compatibility record](https://github.com/76cb/OpenTag-Station/blob/main/docs/UPSTREAM_COMPATIBILITY.md)), using the [Spoolman canonical model](https://github.com/Donkie/Spoolman/blob/8d9eb7395da9553bdbf14b21231afe4e153f0a79/spoolman/api/v1/models.py).
 This editor uses `used_weight`; remaining weight is displayed from Spoolman.
 Blank numeric inputs preserve existing/unknown values, rather than clearing them.
 Unknown optional values and unchanged fields are omitted from the PATCH.
@@ -170,6 +170,6 @@ It runs the production CSS/JS under the station's CSP and asserts computed
 display, selection contrast, swatches, editing, conflict drafts, modal focus and
 scroll behavior, locked navigation, association-only retry, success and overflow
 on every product page. Keyboard Tab/Escape and full-page screenshots are also
-reviewed interactively. See [GUI review notes](https://github.com/76cb/OpenTag-Station/blob/codex/current-spool-experience/docs/gui-polish.md).
+reviewed interactively. See [GUI review notes](https://github.com/76cb/OpenTag-Station/blob/main/docs/gui-polish.md).
 `--output .pio/writer-review.html` creates an interactive browser-only fixture;
 its host never connects to a station, Spoolman or an NFC reader.

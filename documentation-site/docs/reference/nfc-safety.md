@@ -8,7 +8,7 @@ See the release checklist for outstanding physical checks.
 The normal firmware supports automatic read-only recognition and explicitly
 confirmed OpenPrintTag initialize/rewrite/mutable updates. The complete boundary,
 mapping, Community contract and recovery policy are in
-[production writer](https://github.com/76cb/OpenTag-Station/blob/codex/current-spool-experience/docs/openprinttag-writer.md).
+[production writer](https://github.com/76cb/OpenTag-Station/blob/main/docs/openprinttag-writer.md).
 
 The sole NFC/RFAL owner is the shared 16,384-byte opentag-backend task. Scale
 remains on Wire (GPIO10/11); NFC uses the validated ELECHOUSE Wire1 binding
@@ -36,4 +36,4 @@ Recognition, removal/reinsertion, and stationary read soak previously passed;
 PR #27 physically restored settled internal heap to about 89–94 KiB, minimum
 73.5 KiB, with zero NFC bus errors and functioning backends/browser/scale.
 Those are the baseline. Writing requires the single consolidated
-[physical acceptance procedure](https://github.com/76cb/OpenTag-Station/blob/codex/current-spool-experience/docs/release-validation.md).
+[physical acceptance procedure](https://github.com/76cb/OpenTag-Station/blob/main/docs/release-validation.md).

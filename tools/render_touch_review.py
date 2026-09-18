@@ -61,11 +61,50 @@ def render(scene,out):
         button('policy','Auto-update OFF');button('calibration','Calibrate scale');button('about','About / Advanced');label('wifi','Wi-Fi connected\n192.0.2.42',16,MUTED)
     im.save(out/f'wt32-{scene}.png')
 
+def model_scene(name,scene,out):
+    im=Image.new('RGB',(480,320),BG);d=ImageDraw.Draw(im)
+    keyboard='input' in scene
+    def text(box,value,size=16):
+        assert_public_text(value)
+        x,y,w,h=box;f=font(size);lines=[]
+        for paragraph in value.split('\n'):
+            line=''
+            for word in paragraph.split(' '):
+                candidate=(line+' '+word).strip()
+                if d.textbbox((0,0),candidate,font=f)[2]>w and line:lines.append(line);line=word
+                else:line=candidate
+            lines.append(line)
+        capacity=max(1,h//(size+3))
+        for i,line in enumerate(lines[:capacity]):
+            while len(line)>1 and d.textbbox((0,0),line,font=f)[2]>w:line=line[:-2]+'…'
+            d.text((x,y+i*(size+3)),line,font=f,fill=TEXT)
+        if len(lines)>capacity:d.text((x+w-14,y+h-20),'↕',font=font(16),fill=MINT)
+    title_width=266 if keyboard and not scene.get('numeric') else 300 if any(b['box'][1]==4 for b in scene['buttons']) else 448
+    text((8 if keyboard else 16,4 if scene.get('numeric') else 8,title_width,28),scene['title'],20)
+    if keyboard:
+        y,h=(30,32) if scene.get('numeric') else (52,44)
+        d.rounded_rectangle((8,y,472,y+h),4,fill=SURFACE)
+        text((14,y+3,452,h-3),scene['input'],20)
+    else:text(scene['body_box'],scene['body'])
+    boxes=[]
+    for b in scene['buttons']:
+        x,y,w,h=b['box'];assert 4<=x<x+w<=476 and 4<=y<y+h<=316 and w>=44 and h>=44,(name,b)
+        for bx,by,bw,bh in boxes:assert x+w<=bx or bx+bw<=x or y+h<=by or by+bh<=y,(name,b)
+        boxes.append((x,y,w,h));primary=b['text'] in ['SEARCH','DONE','WRITE TAG','CREATE SPOOL','REVIEW TAG WRITE']
+        d.rounded_rectangle((x,y,x+w-1,y+h-1),6,fill='#147d73' if primary else SURFACE,outline='#52645f')
+        value=b['text'];size=20 if keyboard and len(value)==1 else 16
+        text((x+6,y+max(3,(h-(size+3)*min(2,value.count('\n')+1))//2),w-12,h-6),value,size)
+    im.save(out/f'wt32-{name}.png')
+
 def main():
     p=argparse.ArgumentParser();p.add_argument('--output',type=Path,required=True);args=p.parse_args();args.output.mkdir(parents=True,exist_ok=True)
-    for scene in ['empty','home','weigh','assign','tag','settings']:render(scene,args.output)
-    images={f'wt32-{scene}.png':hashlib.sha256((args.output/f'wt32-{scene}.png').read_bytes()).hexdigest() for scene in ['empty','home','weigh','assign','tag','settings']}
+    scenes=['empty','home','weigh','assign','settings']
+    for scene in scenes:render(scene,args.output)
+    models=json.loads((ROOT/'.pio/touch-flow-fixtures.json').read_text(encoding='utf-8'))
+    for name,scene in models.items():model_scene(name,scene,args.output)
+    scenes+=list(models)
+    images={f'wt32-{scene}.png':hashlib.sha256((args.output/f'wt32-{scene}.png').read_bytes()).hexdigest() for scene in scenes}
     (args.output/'touch-provenance.json').write_text(json.dumps({'privacy_checked_before_capture':True,'images':images},indent=2)+'\n',encoding='utf-8')
     (args.output/'WT32-READ-ME.txt').write_text(__doc__+'\nShared production layout: src/ui/product_layout.hpp\n',encoding='utf-8')
-    print('6 WT32 fixtures: bounds, text fit, and 44 px action checks passed')
+    print(f'{len(images)} WT32 fixtures: production model bounds and 44 px action checks passed')
 if __name__=='__main__':main()

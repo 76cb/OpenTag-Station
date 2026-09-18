@@ -198,7 +198,8 @@ void invalid_format() {
   nfc::ReadOnlyService s(f);
   tick(f, s, 3);
   TEST_ASSERT_TRUE(s.snapshot().present);
-  TEST_ASSERT_EQUAL_INT(static_cast<int>(nfc::ReadState::unsupported),
+  TEST_ASSERT_TRUE(s.snapshot().blank_compatible);
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(nfc::ReadState::blank),
                         static_cast<int>(s.snapshot().state));
   const auto reads = f.reads;
   tick(f, s, 10);

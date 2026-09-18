@@ -10,7 +10,7 @@ See the release checklist for outstanding physical checks.
 Fresh/current/legacy, malformed/truncated, missing/unknown field, secret
 preservation, CAS, profile, backup, and interrupted-write behavior are part of
 the release audit. The durable ordering and power-cut expectations are recorded
-in [release-validation.md](https://github.com/76cb/OpenTag-Station/blob/codex/current-spool-experience/docs/release-validation.md).
+in [release-validation.md](https://github.com/76cb/OpenTag-Station/blob/main/docs/release-validation.md).
 
 ## Storage boundary
 

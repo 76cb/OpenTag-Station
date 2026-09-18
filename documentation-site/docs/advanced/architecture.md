@@ -9,7 +9,7 @@ Phase 11 audited every runtime owner, queue, lifecycle lease, persistent writer,
 and project-created task. With the shared production NFC owner, the configured
 dynamic stack total is 100,352 bytes (plus the separate 16,384-byte Arduino loop).
 NFC is a logical owner on the existing backend task, whose stack is now 16 KiB;
-there is no separate NFC task or stack. See [shared owner](https://github.com/76cb/OpenTag-Station/blob/codex/current-spool-experience/docs/backend-nfc-owner.md).
+there is no separate NFC task or stack. See [shared owner](https://github.com/76cb/OpenTag-Station/blob/main/docs/backend-nfc-owner.md).
 The ownership and dynamic task-stack inventory are below; changes to task creation or
 ownership must update that inventory.
 
@@ -198,7 +198,7 @@ required for protected mutations. The image is not cryptographically signed and
 the local HTTP transport is not TLS-protected; deployments must use a trusted
 isolated LAN.
 
-Production NFC uses the pinned ELECHOUSE Wire1 implementation on the backend task. Legacy SPI abstractions remain unbound in production. See [production NFC](https://github.com/76cb/OpenTag-Station/blob/codex/current-spool-experience/docs/production-nfc.md) for the validated hardware and approved writer boundary.
+Production NFC uses the pinned ELECHOUSE Wire1 implementation on the backend task. Legacy SPI abstractions remain unbound in production. See [production NFC](https://github.com/76cb/OpenTag-Station/blob/main/docs/production-nfc.md) for the validated hardware and approved writer boundary.
 
 ## Application states
 
@@ -304,7 +304,7 @@ architecture theatre is avoided, but new code must land in the boundary above.
 
 ## Memory policy
 
-See [backend memory](https://github.com/76cb/OpenTag-Station/blob/codex/current-spool-experience/docs/backend-memory.md) for PSRAM lifetimes, allocation bounds,
+See [backend memory](https://github.com/76cb/OpenTag-Station/blob/main/docs/backend-memory.md) for PSRAM lifetimes, allocation bounds,
 health/discovery scheduling, error handling and compiler regression guards.
 
 | Runtime task | Stack bytes |

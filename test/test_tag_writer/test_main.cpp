@@ -515,6 +515,11 @@ struct ServiceFixture {
         TEST_ASSERT_GREATER_THAN(0, http.patches);
         TEST_ASSERT_TRUE(http.urls.back().find("extra.nfc_uid") != std::string::npos);
         return cache.configuration.sync_verified_spool_identity_mapping(mapping);
+      }, [](const std::string& query,unsigned offset) {
+        TEST_ASSERT_EQUAL_STRING("Acme",query.c_str());TEST_ASSERT_EQUAL(0,offset);
+        network::BackendDocument page;
+        deserializeJson(page,R"({"items":[{"id":"acme_blue","manufacturer":"Acme","name":"Blue","material":"PLA","density":1.24,"diameter":1.75}],"has_more":false})");
+        return core::Result<network::BackendDocument>::success(std::move(page));
       }};
   R run(const char *command) {
     network::BackendDocument d;
@@ -666,6 +671,21 @@ void community_success_and_canonical_readback() {
   community_import_case(0, false);
 }
 void community_duplicate_import_reuses() { community_import_case(0, true); }
+void station_community_selection_uses_import_review() {
+  ServiceFixture f;
+  f.http.custom=[](const network::HttpRequest& r)->std::string {
+    return r.url.find("/vendor?")!=std::string::npos||r.url.find("/filament?")!=std::string::npos?"[]":"";
+  };
+  TEST_ASSERT_TRUE(f.run(R"({"action":"community_search","search":"Acme","offset":0,"_operation_id":42})").ok());
+  TEST_ASSERT_EQUAL_STRING("community",f.view["phase"]);
+  TEST_ASSERT_EQUAL(42,f.view["operation_id"].as<int>());
+  TEST_ASSERT_TRUE(f.run(R"({"action":"community_select","id":"acme_blue","import_name":"My blue PLA"})").ok());
+  TEST_ASSERT_EQUAL_STRING("import_preview",f.view["phase"]);
+  TEST_ASSERT_EQUAL_STRING("My blue PLA",f.view["proposed_filament"]["name"]);
+  TEST_ASSERT_EQUAL_STRING("Blue",f.view["source"]["name"]);
+  TEST_ASSERT_FALSE(f.run(R"({"action":"community_select","id":"other"})").ok());
+  TEST_ASSERT_EQUAL(0,f.reader.reads);TEST_ASSERT_EQUAL(0,f.reader.writes);TEST_ASSERT_EQUAL(0,f.http.patches);
+}
 void community_vendor_failure() { community_import_case(1, false); }
 void community_filament_failure() { community_import_case(2, false); }
 void community_canonical_failure() { community_import_case(3, false); }
@@ -2023,6 +2043,7 @@ int main() {
   RUN_TEST(community_missing_required_rejected);
   RUN_TEST(community_success_and_canonical_readback);
   RUN_TEST(community_duplicate_import_reuses);
+  RUN_TEST(station_community_selection_uses_import_review);
   RUN_TEST(community_vendor_failure);
   RUN_TEST(community_filament_failure);
   RUN_TEST(community_canonical_failure);

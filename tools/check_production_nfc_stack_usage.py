@@ -103,7 +103,12 @@ def main():
     weigh_owner = backend_owner + frame("application/weigh_commands", "BackendWorker::auto_weight_update(") + frame("application/weigh_commands", "BackendWorker::process_weight_update(") + frame("services/weigh_sync", "WeighSync::update(")
     weigh_http = weigh_owner + frame(spoolman, "SpoolmanAdapter::set_remaining_weight(") + frame(spoolman, "SpoolmanAdapter::get_spool(") + frame(spoolman, "SpoolmanAdapter::request(") + frame("network/http_transport", "HttpTransport::perform(") + 2048
     weigh_inventory = weigh_owner + frame(spoolman, "SpoolmanAdapter::set_remaining_weight(") + frame("application/weigh_commands", "BackendWorker::weight_fence(") + largest("hardware/nfc/st25r3916b/i2c_reader") + 2048
-    worst = max(decoded, transport, backend, persistence, writer_decode, writer_transport, writer_http, writer_storage, clear_decode, clear_transport, clear_http, clear_storage, association_storage, restore_storage, weigh_http, weigh_inventory)
+    # Community HTTP -> bounded gzip sink -> record parser. The dictionary and
+    # inflater are PSRAM objects; only the coroutine's 320-byte frame nests.
+    # Keep 2 KiB for HTTP/TLS and another 2 KiB for bounded JSON recursion.
+    community = writer_controller + frame(service, "TagWriterService::community(") + frame("application/tag_writer_commands", "search_community(") + frame("network/http_transport", "HttpTransport::perform(") + frame("network/http_transport", "GzipStream::feed(") + frame("application/tag_writer_commands", "CommunityPage::feed(") + frame("application/tag_writer_commands", "CommunityPage::record(") + 4096 + 512
+    worst = max(decoded, transport, backend, persistence, writer_decode, writer_transport, writer_http, writer_storage, clear_decode, clear_transport, clear_http, clear_storage, association_storage, restore_storage, weigh_http, weigh_inventory, community)
+    print(f"Bounded Community gzip/JSON path={community}; reserve={stack-community}")
     print(f"Clear decode={clear_decode}; transport={clear_transport}; HTTP={clear_http}; persistence={clear_storage}; association persistence={association_storage}; restart={restore_storage}; weigh HTTP={weigh_http}; inventory={weigh_inventory}")
     print(f"Approved writer decode={writer_decode}; transport={writer_transport}; HTTP={writer_http}")
     print(f"Shared backend stack={stack}; nested NFC decode={decoded}; NFC transport={transport}; backend HTTP={backend}; confirmation persistence={persistence}; remaining={stack-worst}; required={safety}")

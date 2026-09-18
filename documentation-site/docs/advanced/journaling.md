@@ -10,7 +10,7 @@ initialize/rewrite preview, explicit physical confirmation, consumed-weight
 updates, and retryable identity association. Nothing writes in response to a
 presence event, scale change, periodic health probe, or ordinary read.
 
-The [browser inventory/editor guide](https://github.com/76cb/OpenTag-Station/blob/codex/current-spool-experience/docs/writer-browser-workflow.md) describes
+The [browser inventory/editor guide](https://github.com/76cb/OpenTag-Station/blob/main/docs/writer-browser-workflow.md) describes
 selection, paging, canonical Spoolman editing and the human-readable preview.
 
 ## Source of truth and catalog contract
@@ -230,5 +230,5 @@ The browser harness exercises concurrent download sharing and repeated bounded
 Community searches. These host checks cannot measure ESP32 internal heap or
 certify physical LittleFS durability; the combined device soak remains required.
 Physical writing and end-to-end acceptance of this feature still require the
-single [release procedure](https://github.com/76cb/OpenTag-Station/blob/codex/current-spool-experience/docs/release-validation.md); prior PR #27 memory results are
+single [release procedure](https://github.com/76cb/OpenTag-Station/blob/main/docs/release-validation.md); prior PR #27 memory results are
 the baseline, not a reason to repeat bring-up.

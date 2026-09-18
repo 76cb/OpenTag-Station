@@ -6,6 +6,7 @@
 #include <utility>
 #include <vector>
 #include <cerrno>
+#include <functional>
 
 #include "core/result.hpp"
 #include "network/operation_budget.hpp"
@@ -38,6 +39,11 @@ struct HttpRequest {
   std::uint32_t connect_timeout_ms{5000U};
   std::uint32_t read_timeout_ms{5000U};
   std::size_t maximum_response_bytes{16384U};
+  // Optional backend-owned streaming sink. The transport retains no payload;
+  // total bytes and the existing operation deadline remain bounded.
+  std::function<bool(const std::uint8_t*, std::size_t)> response_consumer;
+  std::size_t maximum_stream_bytes{0};
+  bool accept_gzip{false}; // Streaming GET only; expanded bound is unchanged.
 };
 
 struct HttpResponse {

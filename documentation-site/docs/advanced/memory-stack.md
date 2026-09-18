@@ -6,7 +6,7 @@ See the release checklist for outstanding physical checks.
 
 
 The PR #26 physical follow-up found admission starvation before successful
-backend HTTP. See [browser memory repair](https://github.com/76cb/OpenTag-Station/blob/codex/current-spool-experience/docs/browser-memory.md) for the allocation
+backend HTTP. See [browser memory repair](https://github.com/76cb/OpenTag-Station/blob/main/docs/browser-memory.md) for the allocation
 audit, 65 KiB static-RAM recovery, response lifetimes and focused physical test.
 
 The configured station previously held large HTTP strings and ArduinoJson
@@ -77,4 +77,4 @@ CI enforces `check_production_nfc_stack_usage.py` and the new
 `check_production_http_stack_usage.py`; the latter requires 4 KiB headroom on
 ordinary routes after a 2 KiB framework allowance and retains the existing OTA
 upload allowance/reserve. Compiler estimates do not certify physical high-water
-marks. Use the single [physical acceptance procedure](https://github.com/76cb/OpenTag-Station/blob/codex/current-spool-experience/docs/release-validation.md).
+marks. Use the single [physical acceptance procedure](https://github.com/76cb/OpenTag-Station/blob/main/docs/release-validation.md).
