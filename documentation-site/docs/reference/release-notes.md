@@ -2,6 +2,15 @@
 
 # Changelog
 
+## 1.0.0-rc.3
+
+Fix WT32 Community searches that exhausted the backend deadline or starved
+CPU0's idle task. Pages stop after eight results plus one lookahead match;
+sparse/final scans cooperate every 4 KiB and have a Community-only 60-second
+budget. Full gzip responses retain CRC validation; intentional page completion
+closes the stream without requiring an unread trailer. Search errors provide
+Community-specific timeout guidance and Retry. Hardware acceptance is pending.
+
 ## 1.0.0-rc.2
 
 - Standalone WT32 selection from My Spools, My Filaments, or Community; physical

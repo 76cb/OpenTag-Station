@@ -1,4 +1,4 @@
-# Standalone touchscreen workflow (1.0.0-rc.2)
+# Standalone touchscreen workflow (1.0.0-rc.3)
 
 The WT32 operates the normal workflow without a browser. A compatible blank
 SLIX2 tag offers **Assign tag** on Home and Tag. A linked OpenPrintTag offers

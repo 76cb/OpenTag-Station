@@ -1,6 +1,6 @@
 #include "network/http_transport.hpp"
 #include "network/deadline_client.hpp"
-#include "network/gzip_stream.hpp"
+#include "network/bounded_response_body.hpp"
 
 #ifdef ARDUINO
 #include <Arduino.h>
@@ -47,44 +47,15 @@ class BackendWiFiClient final : public WiFiClient {
   IPAddress resolved_;
 };
 
-class BoundedResponseStream final : public Stream {
+class BoundedResponseStream final : public Stream, public BoundedResponseBody {
  public:
-  explicit BoundedResponseStream(const HttpRequest& request, bool gzip)
-      : data_(request.maximum_response_bytes), request_(request) {
-    if(gzip)gzip_=make_external<GzipStream>([&]{return GzipStream(request.response_consumer,request.maximum_stream_bytes);});
-    stream_failed_=gzip&&!gzip_;
-  }
-
-  std::size_t write(std::uint8_t value) override {
-    return write(&value, 1U);
-  }
-
-  std::size_t write(const std::uint8_t* data, std::size_t size) override {
-    if(stream_failed_)return 0;
-    if (request_.response_consumer) {
-      if (size > request_.maximum_stream_bytes - received_ ||
-          !(gzip_?gzip_->feed(data,size):request_.response_consumer(data,size))) { stream_failed_=true; return 0; }
-      received_ += size; return size;
-    }
-    return data_.append(reinterpret_cast<const char*>(data), size) ? size : 0U;
-  }
-
-  int available() override { return 0; }
-  int read() override { return -1; }
-  int peek() override { return -1; }
+  using BoundedResponseBody::BoundedResponseBody;
+  std::size_t write(std::uint8_t byte) override {return BoundedResponseBody::write(byte);}
+  std::size_t write(const std::uint8_t* data,std::size_t size) override {return BoundedResponseBody::write(data,size);}
+  int available() override {return 0;}
+  int read() override {return -1;}
+  int peek() override {return -1;}
   void flush() override {}
-
-  [[nodiscard]] bool overflowed() const { return data_.overflowed() || stream_failed_; }
-  [[nodiscard]] bool failed() const { return data_.failed(); }
-  [[nodiscard]] bool complete() const {return !gzip_||gzip_->finish();}
-  [[nodiscard]] ResponseBody take() { return std::move(data_); }
-
- private:
-  ResponseBody data_;
-  const HttpRequest& request_;
-  std::size_t received_{0};
-  bool stream_failed_{false};
-  std::unique_ptr<GzipStream,ExternalDelete<GzipStream>> gzip_;
 };
 
 bool valid_method(const std::string& method) {
@@ -177,10 +148,14 @@ core::Result<HttpResponse> HttpTransport::perform(const HttpRequest& request) {
   const auto started = millis();
   BackendPhaseGuard released{"http_released", started};
   backend_memory_phase("before_http", 0, 0, started);
-  const auto deadline_error = []() {
-    return core::Result<HttpResponse>::failure(network_error("Backend operation deadline exceeded"));
+  // Request-local budget: never extends the backend owner's normal budget.
+  OperationBudget community_budget;
+  if(request.community_search)community_budget.begin_community(started);
+  const auto& budget=request.community_search?community_budget:budget_;
+  const auto deadline_error = [&]() {
+    return core::Result<HttpResponse>::failure(network_error(request.community_search?"Community search timed out. Check Wi-Fi and try again.":"Backend operation deadline exceeded"));
   };
-  if (budget_.expired(millis())) return deadline_error();
+  if (budget.expired(millis())) return deadline_error();
   const auto parsed = parse_http_url(request.url);
   if (!parsed.ok()) return core::Result<HttpResponse>::failure(parsed.error());
   if (!backend_admitted(backend_heap(), parsed.value().secure)) {
@@ -192,6 +167,7 @@ core::Result<HttpResponse> HttpTransport::perform(const HttpRequest& request) {
       request.read_timeout_ms > 60000U || request.maximum_response_bytes == 0U ||
       request.maximum_response_bytes > 65536U || request.body.size() > 65536U ||
       request.headers.size() > 32U ||
+      (request.community_search && !request.response_consumer) ||
       (request.response_consumer && (request.maximum_stream_bytes == 0 ||
        request.maximum_stream_bytes > 64U*1024U*1024U || request.method != "GET"))) {
     return core::Result<HttpResponse>::failure(
@@ -207,12 +183,12 @@ core::Result<HttpResponse> HttpTransport::perform(const HttpRequest& request) {
   }
 
   IPAddress resolved;
-  if (!resolve_backend_host(parsed.value().host.c_str(), resolved, budget_)) {
-    if (budget_.expired(millis())) return deadline_error();
+  if (!resolve_backend_host(parsed.value().host.c_str(), resolved, budget)) {
+    if (budget.expired(millis())) return deadline_error();
     return core::Result<HttpResponse>::failure(
         network_error("DNS resolution failed or is still pending for " + parsed.value().host));
   }
-  if (budget_.expired(millis())) return deadline_error();
+  if (budget.expired(millis())) return deadline_error();
 
   std::unique_ptr<WiFiClient> client;
   if (parsed.value().secure) {
@@ -228,7 +204,7 @@ core::Result<HttpResponse> HttpTransport::perform(const HttpRequest& request) {
   if (!client) return core::Result<HttpResponse>::failure(network_error("HTTP client allocation failed"));
 
   const auto clock = []() { return static_cast<std::uint32_t>(millis()); };
-  DeadlineClient<WiFiClient, IPAddress, decltype(clock)> bounded(*client, budget_, clock);
+  DeadlineClient<WiFiClient, IPAddress, decltype(clock)> bounded(*client, budget, clock);
   HTTPClient http;
   if (!http.begin(bounded, request.url.c_str())) {
     return core::Result<HttpResponse>::failure(
@@ -259,7 +235,10 @@ core::Result<HttpResponse> HttpTransport::perform(const HttpRequest& request) {
       reinterpret_cast<std::uint8_t*>(const_cast<char*>(request.body.data())),
       request.body.size());
   if (status_code <= 0) {
-    if (budget_.expired(millis())) { http.end(); return deadline_error(); }
+    if (budget.expired(millis()) || (request.community_search &&
+        (status_code == HTTPC_ERROR_READ_TIMEOUT || bounded.connection_errno() == ETIMEDOUT))) {
+      http.end(); return deadline_error();
+    }
     if (const auto* reason = connection_failure_message(bounded.connection_errno())) {
       http.end();
       return core::Result<HttpResponse>::failure(network_error(reason));
@@ -279,18 +258,19 @@ core::Result<HttpResponse> HttpTransport::perform(const HttpRequest& request) {
   if(!encoding.empty()&&encoding!="identity"&&!(encoding=="gzip"&&request.accept_gzip&&request.response_consumer)) {
     http.end();return core::Result<HttpResponse>::failure(network_error("Unsupported HTTP content encoding",false));
   }
-  BoundedResponseStream response_stream(request,encoding=="gzip");
+  BoundedResponseStream response_stream(request,encoding=="gzip",[&]{bounded.stop();});
   const auto copied = http.writeToStream(&response_stream);
   if (response_stream.failed()) {
     http.end();
     return core::Result<HttpResponse>::failure({core::ErrorCategory::backend_unavailable,
         "Backend response PSRAM allocation failed; retry later", true});
   }
-  if (budget_.expired(millis())) {
+  if (budget.expired(millis()) ||
+      (request.community_search && copied == HTTPC_ERROR_READ_TIMEOUT)) {
     http.end();
     return deadline_error();
   }
-  if (copied < 0 || response_stream.overflowed() || !response_stream.complete()) {
+  if ((copied < 0 && !response_stream.early_complete()) || response_stream.overflowed() || !response_stream.complete()) {
     http.end();
     return core::Result<HttpResponse>::failure(
         network_error("HTTP response read failed or exceeded its limit"));

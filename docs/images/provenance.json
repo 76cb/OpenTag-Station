@@ -1,9 +1,9 @@
 {
   "privacy_checked_before_capture": true,
   "browser_captures": 80,
-  "touch_layout_fixtures": 35,
+  "touch_layout_fixtures": 37,
   "sources": {
-    "VERSION": "0c654c00f94741d78169de333d4d9e866be0667b41f9c54cafe3c6b700b15a43",
+    "VERSION": "d458c8db8288a8a159c5b25dbea651430713bd1417c213dd83048058fe5fe228",
     "tools/product_review.py": "376adaa8e3c6255ad7bf4e73cc35e53e7f9ccb6acdc8610ee77ccf39a3a6cffd",
     "tools/test_writer_display.py": "a11a3563200778ba6b5ee419d92d441687610daddb94a2f54da08ec9e323e5b6",
     "tools/capture_product_review.cjs": "23d6c11b616ac2c271e980410b162d71cf69b72575a452926794bf4838fe22d0",
@@ -13,15 +13,15 @@
     "src/web/writer_assets.cpp": "9c342947757bc6f634525b73b0bc30ff5cf50ffef9dffccce6624c21459a06c4",
     "src/web/writer_layout.inc": "c618f609bab9103ae3ca78470c341f6761f4d62b8265f73c5a7d3cbdc148bcab",
     "src/ui/product_layout.hpp": "b2c3e2fe6afbcfb084c66f98bd08c29eb8e97892cefed7991005c5ebd74ad739",
-    "src/ui/tag_flow.hpp": "a70517683d70b0ad15476771eb774f4fa7e530c31af8ece5b42b849368ed7f5f",
+    "src/ui/tag_flow.hpp": "d73860e1b4e134a185ad32c7cb72bc50c075d09004b6ba87aaf9236fee8167b4",
     "src/ui/touch_input.hpp": "80fa15c718726adbbd3c35173479826f2c1bc0b8ff9a63133e737b17b3998eed",
-    "test/test_touch_flow/fixtures.hpp": "422334748ea079da782f6ba34fcf88d9cde969324a8e5e36430a74e42d659a34"
+    "test/test_touch_flow/fixtures.hpp": "011702caf421c8cae8a051f33edac121feca5de572e60740179b40123e5e5ddc"
   },
   "images": {
-    "docs/images/dashboard.png": "cc2529ce336cb34c737995c6509474f1599e1a79aaa92ef71db93e9efa4eb680",
-    "docs/images/weigh.png": "a2ec782fc6209dda44c0e48f8acf8c447a1454369d39d7c943ebf4eb5b23d1b1",
-    "docs/images/assignment.png": "285fbe9c388b812c2e2ddf2738818a6a79d278099711a2f80bff74b3b4813245",
-    "docs/images/tag-management.png": "3af064070fafc22c688e09ebe0458bb96481511d463953f7364f6c0f40109753",
+    "docs/images/dashboard.png": "d6df2214bc7957abf2cb85353efe77946c91efa68958bb11b65983b13b639a17",
+    "docs/images/weigh.png": "9ec8eb184fd772db6daa247b1884137dd999a28af28c4530b95891a8e35c4870",
+    "docs/images/assignment.png": "7decab24517849ea9975f0a85b65f5bdaec1050a4540606b5313adcc078d18fb",
+    "docs/images/tag-management.png": "95ce882d7bb52105b3594ce0de487ad0e7fcead7f86e5046c72d1753fe0b9a51",
     "docs/images/wt32-home.png": "24e85fa20f7d3f357f29336e347725ea9c4af7eece0f92828fb0f4480b1ff247"
   }
 }
