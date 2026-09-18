@@ -2,6 +2,16 @@
 
 # Changelog
 
+## 1.0.0-rc.8
+
+Harden Community decompression after WT32 rc.7 hardware testing showed the
+first catalog block decompressed successfully but corrupted the allocator tail
+of the miniz state object. The authoritative inflater-state size and
+initialization now come from the C translation unit through an opaque bridge.
+Firmware allocates that C-reported state in internal RAM with 64-byte canaries
+on both sides, while compressed and expanded blocks remain in PSRAM. Diagnostics
+report C and C++ state sizes and distinguish buffer from inflater canary failures.
+
 ## 1.0.0-rc.7
 
 Remove the ESP-IDF heap integrity walker from the Community decompression hot
