@@ -15,6 +15,25 @@ struct CommunityCatalogStatus {
   std::uint32_t records{0};
   std::uint32_t size{0};
 };
+enum class CommunityCatalogMemoryClass { unknown, internal, external, host };
+struct CommunityCatalogMemorySnapshot {
+  std::size_t stack_free_bytes{0};
+  std::size_t internal_free_bytes{0};
+  std::size_t internal_largest_bytes{0};
+  std::size_t external_free_bytes{0};
+  std::size_t external_largest_bytes{0};
+};
+class ICommunityCatalogMemory {
+ public:
+  virtual ~ICommunityCatalogMemory()=default;
+  virtual void* allocate(CommunityCatalogMemoryClass memory_class,std::size_t bytes)=0;
+  virtual void release(void* memory)=0;
+  virtual CommunityCatalogMemoryClass classify(const void* memory) const=0;
+  virtual bool requires_strict_classes() const=0;
+  virtual bool check_heap(const void* memory) const=0;
+  virtual CommunityCatalogMemorySnapshot snapshot() const=0;
+  virtual std::uint32_t milliseconds() const=0;
+};
 class ICommunityCatalogFile {
  public:
   virtual ~ICommunityCatalogFile()=default;
@@ -33,12 +52,13 @@ class ICommunityCatalogStore {
 };
 class CommunityCatalog {
  public:
-  explicit CommunityCatalog(ICommunityCatalogStore& store):store_(store){}
+  explicit CommunityCatalog(ICommunityCatalogStore& store,ICommunityCatalogMemory* memory=nullptr):store_(store),memory_(memory){}
   CommunityCatalogStatus status();
   core::Result<CommunityCatalogStatus> verify(ICommunityCatalogFile& file);
   core::Result<network::BackendDocument> search(const std::string& query,unsigned offset);
   core::Result<network::BackendDocument> detail(const std::string& id);
  private:
   ICommunityCatalogStore& store_;
+  ICommunityCatalogMemory* memory_;
 };
 } // namespace opentag::services

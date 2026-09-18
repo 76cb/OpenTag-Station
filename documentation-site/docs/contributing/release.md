@@ -5,7 +5,7 @@ below are historical checkpoints, not the current candidate’s acceptance recor
 See the release checklist for outstanding physical checks.
 
 
-The candidate is `1.0.0-rc.5`. `VERSION` is authoritative; generated manifests and
+The candidate is `1.0.0-rc.6`. `VERSION` is authoritative; generated manifests and
 documentation metadata must be refreshed from it. A successful build is not
 physical acceptance. Keep the release PR open and unmerged until external signoff.
 
