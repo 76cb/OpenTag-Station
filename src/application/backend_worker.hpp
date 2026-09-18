@@ -22,6 +22,8 @@
 #include "services/station_workflow.hpp"
 #include "services/tag_writer_service.hpp"
 #include "services/weigh_sync.hpp"
+#include "services/community_catalog.hpp"
+#include "services/community_catalog_updater.hpp"
 
 namespace opentag::application {
 
@@ -52,13 +54,16 @@ class BackendWorker final {
       services::SpoolIdentityResolver& resolver,
       services::StationWorkflow& workflow,
       OperationRegistry& operations,
-      network::HttpTransport& transport)
+      network::HttpTransport& transport,
+      services::CommunityCatalog& community_catalog,
+      services::CommunityCatalogUpdater& community_updater)
       : configuration_(configuration),
         spoolman_(spoolman),
         filabridge_(filabridge),
         resolver_(resolver),
         workflow_(workflow),
-        operations_(operations), transport_(transport) {}
+        operations_(operations), transport_(transport), community_catalog_(community_catalog),
+        community_updater_(community_updater) {}
 
   [[nodiscard]] bool start(NfcWorker& nfc);
   static constexpr std::uint32_t stack_bytes = 16384U;
@@ -159,6 +164,8 @@ class BackendWorker final {
   services::StationWorkflow& workflow_;
   OperationRegistry& operations_;
   network::HttpTransport& transport_;
+  services::CommunityCatalog& community_catalog_;
+  services::CommunityCatalogUpdater& community_updater_;
   NfcWorker* nfc_{nullptr};
   QueueHandle_t queue_{nullptr};
   TaskHandle_t task_{nullptr};

@@ -4,6 +4,7 @@
 #include "domain/spool_identity.hpp"
 #include "nfc/formats/openprinttag/spoolman_mapping.hpp"
 #include "nfc/writer_journal.hpp"
+#include "services/community_catalog.hpp"
 namespace opentag::services {
 class TagWriterService {
 public:
@@ -15,16 +16,22 @@ public:
   using VerifiedAssociation = std::function<core::Result<void>(
       const domain::ConfirmedSpoolMapping &)>;
   using CommunitySearch = std::function<core::Result<network::BackendDocument>(const std::string&, unsigned)>;
+  using CommunityDetail = std::function<core::Result<network::BackendDocument>(const std::string&)>;
+  using CommunityStatus = std::function<CommunityCatalogStatus()>;
+  using CommunityUpdate = std::function<core::Result<CommunityCatalogStatus>(std::function<void(std::size_t,std::size_t)>)>;
   TagWriterService(integrations::spoolman::SpoolmanAdapter &spoolman,
                    nfc::IWriterReader &reader,
                    std::function<std::uint64_t()> generation, Random random,
                    Publish publish, nfc::WriterJournal *journal = nullptr,
                    VerifiedClearMapping clear_mapping = {},
-                   VerifiedAssociation sync_mapping = {}, CommunitySearch community_search = {})
+                   VerifiedAssociation sync_mapping = {}, CommunitySearch community_search = {},
+                   CommunityDetail community_detail = {})
       : spoolman_(spoolman), writer_(reader, std::move(generation)),
         random_(std::move(random)), publish_(std::move(publish)),
         journal_(journal), clear_mapping_(std::move(clear_mapping)),
-        sync_mapping_(std::move(sync_mapping)), community_search_(std::move(community_search)) {}
+        sync_mapping_(std::move(sync_mapping)), community_search_(std::move(community_search)),
+        community_detail_(std::move(community_detail)) {}
+  void set_community_management(CommunityStatus status,CommunityUpdate update){community_status_=std::move(status);community_update_=std::move(update);}
   core::Result<void> process(JsonObjectConst command);
   core::Result<void> restore_cleanup();
   bool physical_pass() const { return plan_ && plan_->verified; }
@@ -69,6 +76,9 @@ private:
   VerifiedClearMapping clear_mapping_;
   VerifiedAssociation sync_mapping_;
   CommunitySearch community_search_;
+  CommunityDetail community_detail_;
+  CommunityStatus community_status_;
+  CommunityUpdate community_update_;
   bool unlink_pending_{false};
   bool clear_recovery_required_{false};
 };

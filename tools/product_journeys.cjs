@@ -57,7 +57,10 @@ module.exports=async function productJourneys(page,scene,width){
     assert.equal(requests[0].expected_current_spool_id,27);assert.equal(requests[0].expected_spool_id,28);assert.equal(requests[0].spool_generation,3);assert.equal(requests[0].printer_revision,7);assert.equal(requests[0].replace_occupied_confirmed,true);
   }
   if(scene==='writer'){
-    await page.locator('[data-writer-source="community"]').click();await page.getByRole('button',{name:/Community PLA/}).click();
+    await page.locator('[data-writer-source="community"]').click();
+    await page.waitForFunction(()=>window.OpenTagWriter.writerState.snapshot.phase==='community_catalog'&&!window.OpenTagWriter.writerState.busy);
+    await page.locator('#writer-search').fill('Brand PLA');await page.locator('#writer-search-button').click();
+    await page.getByRole('button',{name:/Community PLA/}).click();
     await page.locator('#writer-import').click();await page.waitForFunction(()=>window.OpenTagWriter.writerState.filament===88&&!window.OpenTagWriter.writerState.busy);
     assert.equal(await page.locator('#writer-source').inputValue(),'spoolman');
     await page.locator('#writer-create-submit').click();await page.waitForFunction(()=>window.OpenTagWriter.writerState.spool===29);

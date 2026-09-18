@@ -16,8 +16,15 @@ class ReleasePackagingTests(unittest.TestCase):
         import re
         environments = re.findall(r'^\[env:([^\]]+)\]', (root / 'platformio.ini').read_text(), re.M)
         self.assertEqual(environments, ['wt32-sc01-plus', 'native', 'native-writer-sanitized'])
+        production = (root / 'platformio.ini').read_text()
+        self.assertIn('board_build.filesystem = littlefs', production)
+        self.assertIn('platformio/tool-mklittlefs@1.203.210628', production)
         self.assertFalse((root / 'src/diagnostics/shared_i2c_firmware.cpp').exists())
         self.assertEqual({p.name for p in (root / 'web-flasher').glob('*.json')}, {'manifest.json'})
+        from community_catalog import inspect_pack
+        catalog = inspect_pack(root / 'community/community.pack')
+        self.assertLessEqual(catalog['size'], 2_621_440)
+        self.assertEqual(catalog['records'], 53424)
         for workflow in (root / '.github/workflows').glob('*.yml'):
             self.assertNotIn('wt32-sc01-plus-i2c-test', workflow.read_text())
             self.assertNotIn('opentag-nfc-v-diagnostic-pr', workflow.read_text())
@@ -55,6 +62,8 @@ class ReleasePackagingTests(unittest.TestCase):
                 (root / name).write_bytes((source / name).read_bytes())
             (root / '.nojekyll').touch()
             (root / 'opentag-station-factory.bin').write_bytes(b'\xe9test')
+            (root / 'community.pack').write_bytes((Path(__file__).resolve().parents[1] / 'community/community.pack').read_bytes())
+            (root / 'community-manifest.json').write_bytes((Path(__file__).resolve().parents[1] / 'community/manifest.json').read_bytes())
             validate_pages_bundle(root, 16777216)
             (root / 'unapproved-test.bin').write_bytes(b'\xe9test')
             with self.assertRaises(FlasherError):

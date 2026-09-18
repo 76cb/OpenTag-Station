@@ -38,7 +38,8 @@ is unchanged; a changed search starts from the first page.
 Community results explicitly say **COMMUNITY — NOT YET IN SPOOLMAN**. Select one
 to review/import it. Only canonical import readback becomes a normal filament
 selection. Create or select its physical spool before previewing a tag. The
-existing Community contract and bounded browser cache/download remain unchanged.
+existing Community import contract remains unchanged; search and detail lookup
+use the station's validated local catalog and require no Community network call.
 
 ## Edit canonical data
 

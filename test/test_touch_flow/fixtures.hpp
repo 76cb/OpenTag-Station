@@ -23,7 +23,8 @@ inline void export_touch_fixtures() {
   f.act(TagAction::row1);emit("spool-confirm",f);f.from_spool=28;f.from_name="SUNLU PLA+ Red";f.act(TagAction::use);emit("reassign",f);
   f.entity="filament";load(R"({"phase":"catalog","items":[{"id":12,"name":"PLA+ 2.0 Black","vendor":{"name":"SUNLU"},"weight":1000,"spool_weight":130,"material":"PLA+","diameter":1.75}]})");emit("filament-picker",f);f.act(TagAction::row0);f.act(TagAction::use);emit("create-spool",f);
   f.entity="community";f.query="SUNLU PLA+";f.browse();f.page=TagPage::progress;f.phase="searching";emit("community-searching",f);
-  load(R"({"phase":"failed","message":"Community search timed out. Check Wi-Fi and try again."})");emit("community-timeout",f);
+  load(R"({"phase":"community_catalog","catalog_state":"not_installed","message":"Community catalog is not installed."})");emit("community-not-installed",f);
+  load(R"({"phase":"community_catalog","catalog_state":"damaged","message":"Community catalog is damaged. Redownload it."})");emit("community-damaged",f);
   f.entity="community";load(R"({"phase":"community","items":[{"id":"sunlu-pla-black","manufacturer":"SUNLU","name":"PLA+ 2.0 Black","material":"PLA+","diameter":1.75,"density":1.24,"weight":1000}]})");emit("community-results",f);f.act(TagAction::row0);emit("community-result",f);
   load(R"({"phase":"import_preview","source":{"manufacturer":"SUNLU","name":"PLA+ 2.0 Black"},"proposed_filament":{"name":"PLA+ 2.0 Black"}})");emit("import-review",f);
   load(R"({"phase":"preview","uid":"E004000000000001","spool_id":31,"spool":{"filament":{"name":"PLA+ 2.0 Black","vendor":{"name":"SUNLU"}}}})");emit("write-review",f);

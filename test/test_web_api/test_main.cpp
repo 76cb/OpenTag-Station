@@ -2,6 +2,7 @@
 
 #include <ArduinoJson.h>
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <cstring>
@@ -202,7 +203,9 @@ std::string read_project_source(std::string_view relative_path) {
     if (!input) return std::string{};
     std::ostringstream contents;
     contents << input.rdbuf();
-    return contents.str();
+    auto source = contents.str();
+    source.erase(std::remove(source.begin(), source.end(), '\r'), source.end());
+    return source;
   };
 
   const auto direct = load(std::string(relative_path));

@@ -1,5 +1,6 @@
 #include <unity.h>
 
+#include <algorithm>
 #include <fstream>
 #include <iterator>
 #include <string>
@@ -10,8 +11,10 @@ namespace {
 
 std::string read_source(const char* path) {
   std::ifstream input(path);
-  return {std::istreambuf_iterator<char>(input),
-          std::istreambuf_iterator<char>()};
+  std::string source{std::istreambuf_iterator<char>(input),
+                     std::istreambuf_iterator<char>()};
+  source.erase(std::remove(source.begin(), source.end(), '\r'), source.end());
+  return source;
 }
 
 std::string method(

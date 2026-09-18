@@ -36,17 +36,14 @@ the upstream public application. Its contract was inspected at repository commit
 - [compiled schema](https://github.com/icezaza2543/SpoolmanDB-Community/blob/0a39c9b580048800c78850a3f0a4260b989448ea/filaments.compiled.schema.json)
 - [upstream application](https://github.com/icezaza2543/SpoolmanDB-Community/blob/0a39c9b580048800c78850a3f0a4260b989448ea/public/app.js)
 
-The data remains live; the accepted contract is pinned as
-`spoolmandb-community/0a39c9b5`. Unknown entry keys fail import rather than
-silently interpreting a changed format. On inspection the feed contained
-53,417 entries and 44,217,072 bytes. A bounded streaming download, 64 MiB maximum,
-100,000-entry maximum, and 30-second cancellation deadline run in the **browser**.
-Concurrent searches share one download. This catalog never occupies station
-internal RAM or its JSON parser. A tab caches
-the catalog for subsequent searches; reload the tab to refresh Community data.
-Search includes manufacturer, name, material, color, codes, diameter, density,
-weights, temperatures, and other source metadata. Results display eight at a
-time. Internet/CORS errors are explicit; existing Spoolman browsing remains local.
+The accepted import contract remains `spoolmandb-community/0a39c9b5`. CI compiles
+the pinned source snapshot into `community.pack`; unknown source keys fail the
+compiler rather than silently changing meaning. The rc.4 snapshot contains 53,424
+records from 44,222,456 bytes of source JSON and compiles below the 2.5 MiB gate.
+WT32 and browser submit the same backend command. Search inflates bounded index
+blocks from LittleFS and matches all query terms against manufacturer, name, and
+material. Detail selection inflates one independently compressed block. Results
+display eight at a time. Network is used only for explicit catalog updates.
 
 The server validates each selected entry before import. Required Spoolman density
 and diameter must be positive; missing/null optional values stay absent. Source

@@ -18,6 +18,9 @@ if any(output.iterdir()):
     raise ValueError('Release staging directory must be empty; stale artifacts cannot be published')
 for source, name in [(build / 'firmware.bin', f'opentag-station-{version()}-application.bin'),
                      (bundle / 'opentag-station-factory.bin', 'opentag-station-factory.bin'),
+                     (build / 'community-littlefs.bin', 'community-littlefs.bin'),
+                     (bundle / 'community.pack', 'community.pack'),
+                     (bundle / 'community-manifest.json', 'community-manifest.json'),
                      (bundle / 'manifest.json', 'manifest.json'),
                      (build / 'build-metadata.json', 'build-metadata.json')]:
     shutil.copy2(source, output / name)

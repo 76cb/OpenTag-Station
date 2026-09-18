@@ -33,7 +33,7 @@
 
 - Identify NFC-V OpenPrintTag spools.
 - Weigh filament and reconcile it against canonical Spoolman inventory.
-- Import Community filament definitions.
+- Search a compact local Community catalog offline and import filament definitions.
 - Write, update and clear tags with verification.
 - Assign spools to Prusa XL T1–T5 through FilaBridge.
 - Use the local browser interface or WT32 touchscreen.
@@ -60,7 +60,8 @@ approximates production layout and fonts; it is not a physical panel capture.
 ### Spool identification
 
 Bring the current spool into focus with OpenPrintTag identification, a searchable
-inventory and Community filament import. See [identifying a spool](https://76cb.github.io/OpenTag-Station-Docs/daily-use/identify/).
+inventory and station-local Community filament import. Catalog updates are explicit;
+normal search works offline. See [identifying a spool](https://76cb.github.io/OpenTag-Station-Docs/daily-use/identify/).
 
 ### Weighing and inventory
 

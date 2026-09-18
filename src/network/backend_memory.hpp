@@ -121,6 +121,11 @@ class ResponseBody {
     data_ = next; capacity_ = count + 1U; data_[size_] = '\0';
     return true;
   }
+  bool resize_uninitialized(std::size_t count) {
+    if (!reserve(count)) return false;
+    size_ = count; data_[size_] = '\0'; return true;
+  }
+  char* mutable_data() { return data_; }
   // ArduinoJson Writer: failed writes are detected by the serializer owner.
   std::size_t write(std::uint8_t byte) { return write(&byte, 1U); }
   std::size_t write(const std::uint8_t* bytes, std::size_t count) {

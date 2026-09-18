@@ -2,7 +2,6 @@
 #include "application/nfc_worker.hpp"
 #include "platform/storage/writer_journal.hpp"
 #include <Arduino.h>
-#include "services/community_catalog.hpp"
 #include <esp_system.h>
 namespace opentag::application {
 CommandReceipt BackendWorker::submit_writer(std::string_view payload) {
@@ -79,9 +78,16 @@ __attribute__((noinline)) bool BackendWorker::ensure_writer() {
             return configuration_.sync_verified_spool_identity_mapping(mapping);
           },
           [this](const std::string& query, unsigned offset) {
-            return services::search_community(transport_,query,offset);
+            return community_catalog_.search(query,offset);
+          },
+          [this](const std::string& id) {
+            return community_catalog_.detail(id);
           });
     });
+  if (writer_)
+    writer_->set_community_management(
+        [this]{return community_catalog_.status();},
+        [this](auto progress){return community_updater_.update(std::move(progress));});
   if (writer_)
     (void)writer_->restore_cleanup();
   return bool(writer_);

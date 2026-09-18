@@ -2,6 +2,15 @@
 
 # Changelog
 
+## 1.0.0-rc.4
+
+Community search now uses a versioned, block-compressed local catalog shared by
+the WT32 and browser. Fresh Web Flasher installs include the catalog in LittleFS;
+upgraded stations can download it from the pinned OpenTag origin. Downloads stage,
+hash, fully validate, and atomically install the replacement while retaining the
+previous catalog on every failure. Search and detail selection work offline and
+do not call the Community network service. Hardware performance acceptance is pending.
+
 ## 1.0.0-rc.3
 
 Fix WT32 Community searches that exhausted the backend deadline or starved

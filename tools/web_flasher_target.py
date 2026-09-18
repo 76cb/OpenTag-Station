@@ -5,6 +5,7 @@ from __future__ import annotations
 import pathlib
 import subprocess
 import sys
+import shutil
 
 Import("env")  # type: ignore[name-defined]  # Provided by PlatformIO/SCons.
 
@@ -54,6 +55,31 @@ def build_web_flasher(source: object, target: object, env: object) -> None:
             path=application,
         )
     )
+    catalog_pack = PROJECT_DIR / "community" / "community.pack"
+    filesystem_root = build_dir / "community-filesystem-root"
+    if filesystem_root.exists():
+        shutil.rmtree(filesystem_root)
+    filesystem_root.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(catalog_pack, filesystem_root / "community.pack")
+    filesystem_image = build_dir / "community-littlefs.bin"
+    filesystem_tool = pathlib.Path(str(build_env.subst("$MKFSTOOL")))
+    if not filesystem_tool.is_absolute():
+        package_dir = build_env.PioPlatform().get_package_dir("tool-mklittlefs")
+        if not package_dir:
+            raise RuntimeError("Pinned LittleFS image tool is unavailable")
+        filesystem_tool = pathlib.Path(package_dir) / filesystem_tool
+    if not filesystem_tool.is_file():
+        raise RuntimeError(f"LittleFS image tool is unavailable: {filesystem_tool}")
+    subprocess.run([str(filesystem_tool), "-c", str(filesystem_root),
+                    "-b", "4096", "-p", "256", "-s", str(0x5D0000),
+                    str(filesystem_image)], check=True)
+    listing = subprocess.check_output(
+        [str(filesystem_tool), "-l", str(filesystem_image)], text=True)
+    expected_catalog = f"{catalog_pack.stat().st_size}\t/community.pack\t"
+    if expected_catalog not in listing:
+        raise RuntimeError("Generated LittleFS image does not contain the exact Community catalog")
+    parts.append(FlashPart(name="community-littlefs", offset=0xA10000,
+                           path=filesystem_image))
 
     command, size = build_bundle(
         python_executable=pathlib.Path(build_env.subst("$PYTHONEXE")),
@@ -74,6 +100,8 @@ def build_web_flasher(source: object, target: object, env: object) -> None:
         image_name=image_name,
         product_name=product_name,
         output_dir=build_dir / "web-flasher",
+        catalog_pack=catalog_pack,
+        catalog_manifest=PROJECT_DIR / "community" / "manifest.json",
     )
     print(f"generated web flasher with {len(command)} merge arguments ({size} bytes)")
 

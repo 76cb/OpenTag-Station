@@ -7,9 +7,9 @@ namespace opentag::network {
 class OperationBudget {
  public:
   static constexpr std::uint32_t duration_ms = 20000U;
-  static constexpr std::uint32_t community_duration_ms = 60000U;
+  static constexpr std::uint32_t catalog_update_duration_ms = 120000U;
   void begin(std::uint32_t now) { started_ = now; active_ = true; limit_ = duration_ms; }
-  void begin_community(std::uint32_t now) { begin(now); limit_ = community_duration_ms; }
+  void begin_catalog_update(std::uint32_t now) { begin(now); limit_ = catalog_update_duration_ms; }
   void end() { active_ = false; }
   bool expired(std::uint32_t now) const {
     return active_ && static_cast<std::uint32_t>(now - started_) >= limit_;

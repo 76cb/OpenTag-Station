@@ -1,0 +1,24 @@
+#include "services/community_catalog_updater.hpp"
+#include "network/community_ca.hpp"
+#include <algorithm>
+namespace opentag::services { namespace {
+using Digest=ota::Sha256Digest;
+bool hex_digest(const std::string& text,Digest& digest){if(text.size()!=64)return false;for(std::size_t n=0;n<digest.size();++n){const auto digit=[](char c)->int{if(c>='0'&&c<='9')return c-'0';if(c>='a'&&c<='f')return c-'a'+10;if(c>='A'&&c<='F')return c-'A'+10;return -1;};const int high=digit(text[n*2]),low=digit(text[n*2+1]);if(high<0||low<0)return false;digest[n]=std::uint8_t(high*16+low);}return true;}
+bool equal(const Digest& a,const Digest& b){std::uint8_t difference=0;for(std::size_t n=0;n<a.size();++n)difference|=a[n]^b[n];return difference==0;}
+core::Error invalid(const char* message){return {core::ErrorCategory::invalid_response,message,false};}
+}
+core::Result<CommunityCatalogStatus> CommunityCatalogUpdater::update(Progress progress){
+  using Result=core::Result<CommunityCatalogStatus>;if(permitted_&&!permitted_())return Result::failure({core::ErrorCategory::conflict,"Catalog update waits until station operations are idle",true});
+  network::HttpRequest manifest_request;manifest_request.url=manifest_url;manifest_request.ca_certificate_pem=network::community_ca;manifest_request.maximum_response_bytes=4096;
+  auto manifest_response=transport_.perform(manifest_request);if(!manifest_response.ok())return Result::failure(manifest_response.error());if(manifest_response.value().status_code!=200)return Result::failure({core::ErrorCategory::network,"Community catalog update manifest unavailable",true});
+  auto parsed=network::parse_backend_json(manifest_response.value().body,"Community catalog manifest");if(!parsed.ok())return Result::failure(parsed.error());const auto manifest=parsed.value().as<JsonObjectConst>();
+  if(manifest.size()!=8||!manifest["schema"].is<unsigned>()||manifest["schema"].as<unsigned>()!=1||manifest["url"].as<std::string>()!=pack_url||!manifest["size"].is<unsigned>()||!manifest["records"].is<unsigned>()||!manifest["version"].is<const char*>()||!manifest["source_revision"].is<const char*>()||!manifest["source_sha256"].is<const char*>()||!manifest["sha256"].is<const char*>())return Result::failure(invalid("Community catalog manifest incompatible"));
+  const auto size=manifest["size"].as<std::size_t>();if(!size||size>2621440)return Result::failure(invalid("Community catalog exceeds filesystem size gate"));Digest expected{};if(!hex_digest(manifest["sha256"].as<std::string>(),expected))return Result::failure(invalid("Community catalog manifest hash invalid"));if(!store_.begin_staging(size))return Result::failure({core::ErrorCategory::backend_unavailable,"Community catalog staging space unavailable",true});
+  if(!sha256_.begin().ok()){store_.discard_staging();return Result::failure({core::ErrorCategory::backend_unavailable,"Community catalog verification unavailable",true});}
+  std::size_t downloaded=0;bool sink_failed=false;network::HttpRequest request;request.url=pack_url;request.ca_certificate_pem=network::community_ca;request.maximum_stream_bytes=size;request.catalog_update=true;request.response_consumer=[&](const std::uint8_t* data,std::size_t count){if(count>size-downloaded||!store_.append_staging(data,count)||!sha256_.update({data,count}).ok()){sink_failed=true;return network::StreamDisposition::error;}downloaded+=count;if(progress)progress(downloaded,size);return network::StreamDisposition::next;};
+  const auto response=transport_.perform(request);if(!response.ok()||sink_failed||response.value().status_code!=200||downloaded!=size){sha256_.abort();store_.discard_staging();return Result::failure(response.ok()?core::Error{core::ErrorCategory::network,"Community catalog download incomplete; existing catalog retained",true}:response.error());}
+  const auto digest=sha256_.finish();if(!digest.ok()||!equal(digest.value(),expected)){store_.discard_staging();return Result::failure(invalid("Community catalog download hash mismatch; existing catalog retained"));}
+  auto staging=store_.open_staging();if(!staging){store_.discard_staging();return Result::failure(invalid("Community catalog staging file unavailable"));}auto verified=catalog_.verify(*staging);if(!verified.ok()||verified.value().size!=size||verified.value().records!=manifest["records"].as<unsigned>()||verified.value().version!=manifest["version"].as<std::string>()||verified.value().source_revision!=manifest["source_revision"].as<std::string>()||verified.value().source_sha256!=manifest["source_sha256"].as<std::string>()){store_.discard_staging();return Result::failure(invalid("Community catalog internal verification failed; existing catalog retained"));}
+  staging.reset();if(!store_.install_staging()){store_.discard_staging();return Result::failure({core::ErrorCategory::storage,"Community catalog install failed; existing catalog retained",true});}return verified;
+}
+}

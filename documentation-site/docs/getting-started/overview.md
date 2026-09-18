@@ -20,6 +20,6 @@ Spoolman does not automatically rewrite the tag, and a successful HTTP response
 alone does not establish a verified physical write or printer assignment.
 
 You need the supported hardware, trusted Wi-Fi, Spoolman for canonical inventory,
-and FilaBridge only if printer assignment is wanted. Community browsing also needs
-internet access from the browser. Local operation does not require a station cloud
+and FilaBridge only if printer assignment is wanted. An installed Community catalog
+works offline; internet is needed only to install or update it. Local operation does not require a station cloud
 account. See [quick start](quick-start.md) for the complete first-spool sequence.

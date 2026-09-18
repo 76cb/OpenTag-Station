@@ -520,6 +520,11 @@ struct ServiceFixture {
         network::BackendDocument page;
         deserializeJson(page,R"({"items":[{"id":"acme_blue","manufacturer":"Acme","name":"Blue","material":"PLA","density":1.24,"diameter":1.75}],"has_more":false})");
         return core::Result<network::BackendDocument>::success(std::move(page));
+      }, [](const std::string& id) {
+        TEST_ASSERT_EQUAL_STRING("acme_blue",id.c_str());
+        network::BackendDocument detail;
+        deserializeJson(detail,R"({"id":"acme_blue","manufacturer":"Acme","name":"Blue","material":"PLA","density":1.24,"diameter":1.75})");
+        return core::Result<network::BackendDocument>::success(std::move(detail));
       }};
   R run(const char *command) {
     network::BackendDocument d;
