@@ -21,14 +21,14 @@ state, one managed live connection per tab, fallback polling, and a read-only
 transport self-test. Browser request epochs, payload revision guards, and socket
 identity checks prevent stale REST/WebSocket responses from replacing newer
 state. The grouped contract/security review and physical browser/LAN matrix are in
-[release-validation.md](https://github.com/76cb/OpenTag-Station/blob/codex/current-spool-experience/docs/release-validation.md).
+[release-validation.md](https://github.com/76cb/OpenTag-Station/blob/main/docs/release-validation.md).
 
 The 2026-08-22 pre-commit stabilization gates pass 278/278 native cases across
 twenty-one suites in 00:06:57.037 and 37/37 deterministic browser-transport cases.
 Embedded JavaScript syntax validation passes for the 127,078-byte shipped
 source, and the warning-free WT32 build uses 170,776/327,680 RAM bytes (52.1%)
 and 2,173,233/5,242,880 flash bytes (39.9%). Stack and pre-commit factory-bundle
-measurements are recorded in [release-validation.md](https://github.com/76cb/OpenTag-Station/blob/codex/current-spool-experience/docs/release-validation.md).
+measurements are recorded in [release-validation.md](https://github.com/76cb/OpenTag-Station/blob/main/docs/release-validation.md).
 Portable router, parser, patch, and bounded-ledger logic executes in host tests;
 the embedded browser, production context, HTTP/WebSocket transport, and
 device-control integration compile and link but were not executed on target. No
@@ -421,7 +421,7 @@ material fields and transport errors are available without decoding on httpd.
 or resolved stage. NFC live invalidations refresh both NFC and spool views.
 An empty valid tag is recognized, not treated as absent. No tag-write endpoint
 exists. The legacy `/nfc/read` command reports that reading is automatic and is
-not exposed as an action on the read-only UI. See [production NFC](https://github.com/76cb/OpenTag-Station/blob/codex/current-spool-experience/docs/production-nfc.md).
+not exposed as an action on the read-only UI. See [production NFC](https://github.com/76cb/OpenTag-Station/blob/main/docs/production-nfc.md).
 
 ## Reboot and factory reset
 
@@ -588,4 +588,4 @@ deadline.
 
 ## Production OpenPrintTag writer
 
-See [writer workflow and contract](https://github.com/76cb/OpenTag-Station/blob/codex/current-spool-experience/docs/openprinttag-writer.md). GET /api/v1/tag-writer returns its bounded snapshot; authenticated POST enqueues only approved high-level catalog/import/spool/preview/write/association operations. Periodic reads never write.
+See [writer workflow and contract](https://github.com/76cb/OpenTag-Station/blob/main/docs/openprinttag-writer.md). GET /api/v1/tag-writer returns its bounded snapshot; authenticated POST enqueues only approved high-level catalog/import/spool/preview/write/association operations. Periodic reads never write.

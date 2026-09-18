@@ -152,6 +152,7 @@ TagWriterService::api(const char *method, const std::string &path,
 }
 void TagWriterService::publish(const char *phase, const char *message,
                                std::size_t done, std::size_t total) {
+  view_["operation_id"] = operation_id_;
   view_["phase"] = phase;
   view_["message"] = message;
   view_["completed_blocks"] = done;
@@ -165,6 +166,33 @@ void TagWriterService::publish(const char *phase, const char *message,
     publish_(error);
   } else
     publish_(out);
+}
+Result TagWriterService::community(JsonObjectConst c) {
+  if (c["action"].as<std::string>() == "community_select") {
+    if (view_["phase"].as<std::string>() != "community" || !c["id"].is<const char*>())
+      return fail("Search Community again before selecting a result");
+    network::BackendDocument selected;
+    for (auto item : view_["items"].as<JsonArrayConst>())
+      if(item["id"] == c["id"])selected["entry"].set(item);
+    if(selected["entry"].isNull())return fail("Community selection changed; search again");
+    selected["contract"]="spoolmandb-community/0a39c9b5";
+    const std::string name=selected["entry"]["name"]|"";
+    // Keep full source identity; only an explicit user edit changes the name
+    // proposed to Spoolman. The import preview validates its byte limit.
+    if(!c["import_name"].isNull())selected["import_name"]=c["import_name"];
+    else if(name.size()>64)return fail("Choose Edit display name and shorten it to 64 bytes before importing");
+    return import_preview(selected.as<JsonObjectConst>());
+  }
+  if(!community_search_ || !c["search"].is<const char*>() || !c["offset"].is<unsigned>())
+    return fail("Community search is unavailable or invalid");
+  const std::string query=c["search"]|"";
+  const unsigned offset=c["offset"].as<unsigned>();
+  if(query.empty()||query.size()>64||offset>100000)return fail("Enter a search of 1–64 characters");
+  view_.clear(); publish("searching", "Searching Community…");
+  auto results=community_search_(query,offset);
+  if(!results.ok())return Result::failure(results.error());
+  view_.set(results.value()); publish("community", "Choose a filament");
+  return Result::success();
 }
 Result TagWriterService::catalog(JsonObjectConst c) {
   const std::string entity = c["entity"] | "spool";
@@ -721,12 +749,16 @@ __attribute__((noinline)) Result TagWriterService::restore_cleanup() {
     return fail("Recovery workspace unavailable");
   std::int32_t owner = 0;
   std::uint32_t backend = 0;
-  if (!journal_->load(*saved, owner, backend) ||
-      saved->operation != nfc::WriterPlan::Operation::clear)
+  if (!journal_->load(*saved, owner, backend)) return Result::success();
+  if (saved->operation != nfc::WriterPlan::Operation::clear) {
+    view_["uid"]=saved->uid.hex(); view_["spool_id"]=owner;
+    publish("write_recovery", "Present the same tag to resume its verified write review.");
     return Result::success();
+  }
   if (backend != backend_identity(spoolman_.settings_))
     return fail("Pending clear belongs to different Spoolman settings; restore "
                 "settings first");
+  view_["uid"]=saved->uid.hex();view_["spool_id"]=owner;view_["mode"]="clear";
   clear_recovery_required_ = true;
   if (!saved->cleanup_pending) {
     publish("clear_recovery", "Interrupted clear. Present the same tag and "
@@ -1281,6 +1313,7 @@ TagWriterService::commit_write(JsonObjectConst c) {
   return result;
 }
 Result TagWriterService::process(JsonObjectConst c) {
+  operation_id_=c["_operation_id"]|std::uint64_t{0};
   const std::string action = c["action"] | "";
   if (!restore_ready())
     return fail("Writer recovery unavailable; see status before continuing");
@@ -1308,6 +1341,8 @@ Result TagWriterService::process(JsonObjectConst c) {
     result = commit_clear(c);
   else if (action == "retry_unlink")
     result = unlink();
+  else if (action == "community_search" || action == "community_select")
+    result = community(c);
   else if (action == "catalog")
     result = catalog(c);
   else if (action == "import_preview")

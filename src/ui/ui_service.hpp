@@ -6,6 +6,8 @@
 #include <optional>
 
 #include <lvgl.h>
+#include "ui/tag_flow.hpp"
+#include "ui/touch_input_screen.hpp"
 
 #include "application/configuration_worker.hpp"
 #include "application/scale_command_queue.hpp"
@@ -104,6 +106,20 @@ class UiService {
   void build_scale_page();
   void build_printer_page();
   void build_tags_page();
+  void refresh_tags();
+  void draw_tags();
+  void tag_command(std::string command);
+  void tag_action(TagAction action);
+  void open_input(InputSpec spec, std::function<void(const std::string&)> accepted);
+  static void tag_action_callback(lv_event_t* event);
+  std::unique_ptr<TagFlow,network::ExternalDelete<TagFlow>> tag_flow_;
+  std::unique_ptr<TouchInputScreen,network::ExternalDelete<TouchInputScreen>> input_screen_;
+  std::array<lv_obj_t*,8> tag_buttons_{};
+  lv_obj_t* tag_title_{nullptr};
+  lv_obj_t* tag_details_{nullptr};
+  std::uint32_t writer_view_checksum_{0};
+  TagScreen tag_screen_;
+
   void build_settings_page();
   void build_setup_screen();
   void build_display_self_test_screen();

@@ -1,6 +1,6 @@
 """Create deterministic, offline review pages using the shipped browser assets."""
 from pathlib import Path
-import argparse
+import argparse,json
 import test_writer_display as harness
 from check_public_privacy import assert_public_text, scan
 
@@ -24,6 +24,12 @@ if(scene==='empty'){A.renderNfc({present:false,available:true,bringup_state:'rea
 if(scene==='weigh')A.openProductDialog('weigh-dialog');
 if(scene==='assignment'){A.openAssignment();id('assign-tools').querySelectorAll('button')[2].click();}
 if(scene==='manage')A.openProductDialog('manage-dialog');
+if(scene==='blank'||scene==='unlinked'){
+ const blank=scene==='blank',current={...tag,blank_compatible:blank,state:blank?'blank_compatible':'openprinttag',decode:blank?'blank':'pass',material_name:blank?'':tag.material_name,lifecycle:blank?'BLANK_COMPATIBLE':'OPENPRINTTAG_UNLINKED'};
+ A.renderNfc(current);A.renderSpool({workflow:{...workflow,tag:current,spool:null,tag_lifecycle:current.lifecycle}});A.openProductDialog('manage-dialog');
+}
+if(scene==='reuse'){A.renderClear({phase:'cleared',uid:tag.uid,message:'Tag cleared and verified. Ready to reuse.'});id('clear-dialog').showModal();}
+
 if(scene==='inventory') {A.activateProductPage('inventory');await new Promise(r=>setTimeout(r,80));}
 if(scene==='printer')A.activateProductPage('printer');
 if(scene==='writer'||scene==='preview'){await W.openModal();if(scene==='preview'){W.selected(spool,spool.filament);W.renderWriter(preview);}}
@@ -40,13 +46,14 @@ def main():
     args.output.mkdir(parents=True,exist_ok=True)
     harness.CHECKS=REVIEW
     page=args.output/'index.html';content=harness.fixture(page);assert_public_text(content);page.write_text(content,encoding='utf-8')
-    scenes=['empty','dashboard','weigh','assignment','manage','inventory','printer','writer','preview','settings','clear']
+    scenes=['empty','dashboard','weigh','assignment','manage','inventory','printer','writer','preview','settings','clear','blank','unlinked','reuse']
     extra=['settings-station','settings-scale','settings-network','settings-display','settings-advanced']
     sections=[]
     for width in [1440,1280,1024,768,390]:
         names=scenes+(extra if width in [1440,390] else [])
         sections.append(f'<h2>{width}px browser</h2><div class="grid">'+''.join(f'<a href="{width}-{s}.png"><img loading="lazy" src="{width}-{s}.png" alt="{s}"><span>{s}</span></a>' for s in names)+'</div>')
-    sections.append('<h2>WT32 layout approximations</h2><p>Production coordinates; approximate fonts. These are not LVGL framebuffers or physical hardware captures.</p><div class="grid">'+''.join(f'<a href="wt32-{s}.png"><img src="wt32-{s}.png" alt="{s}"><span>{s}</span></a>' for s in ['empty','home','weigh','assign','tag','settings'])+'</div>')
+    touch_scenes=['empty','home','weigh','assign','settings']+list(json.loads((Path(__file__).resolve().parents[1]/'.pio/touch-flow-fixtures.json').read_text(encoding='utf-8')))
+    sections.append('<h2>WT32 layout approximations</h2><p>Production coordinates; approximate fonts. These are not LVGL framebuffers or physical hardware captures.</p><div class="grid">'+''.join(f'<a href="wt32-{s}.png"><img src="wt32-{s}.png" alt="{s}"><span>{s}</span></a>' for s in touch_scenes)+'</div>')
     (args.output/'REVIEW.html').write_text('<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>OpenTag UI review</title><style>body{background:#101416;color:#f3f5f3;font:16px system-ui;margin:40px}h1,h2{font-weight:550}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:24px}a{color:#72dfbe;text-decoration:none}img{width:100%;display:block;border:1px solid #34433f}span{display:block;padding:12px}</style><h1>OpenTag Station · Current spool experience</h1><p>Offline fixtures using the shipped browser assets. Open a capture for full resolution. No station is connected.</p>'+''.join(sections)+'</html>',encoding='utf-8')
     scan([args.output])
 if __name__=='__main__':main()

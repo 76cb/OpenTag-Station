@@ -933,8 +933,16 @@ core::Result<api::JsonBody> ApplicationApiContext::snapshot_json(
     }
     case api::Resource::spool: {
       const auto tag = nfc_.snapshot();
+      auto writer_body=backend_worker_.writer_snapshot();
+      network::BackendJsonAllocator lifecycle_allocator;
+      JsonDocument writer(&lifecycle_allocator), filter(&lifecycle_allocator);
+      filter["phase"]=true;filter["uid"]=true;
+      (void)deserializeJson(writer,writer_body.data(),writer_body.size(),DeserializationOption::Filter(filter));
+      const std::string phase=writer["phase"]|"";
+      const bool same=tag.uid&&tag.uid->hex()==std::string(writer["uid"]|"");
       workflow_.visit([&](const services::WorkflowSnapshot& workflow) {
         auto encoded = document["workflow"].to<JsonObject>();
+        encoded["tag_lifecycle"]=services::to_string(services::tag_lifecycle({tag.present,tag.blank_compatible,bool(tag.tag),bool(tag.uid&&workflow.uid==*tag.uid&&workflow.spool),tag.state==nfc::ReadState::unsupported,phase,same}));
         encoded["stage"] = workflow_stage_name(workflow.stage);
         encoded["spool_generation"] = workflow.spool_generation;
         encoded["openprinttag_available"] = workflow.openprinttag_available;

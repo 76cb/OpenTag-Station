@@ -2,6 +2,17 @@
 
 # Changelog
 
+## 1.0.0-rc.2
+
+- Standalone WT32 selection from My Spools, My Filaments, or Community; physical
+  spool creation, import/reuse, exact writer review, and reassignment without a prior clear.
+- Shared tag lifecycle: compatible blanks offer Assign; successful cleanup offers
+  immediate reuse. Existing remote ownership and NFC safety fences remain mandatory.
+- Full-screen text, numeric, URL and password input with 44 px keys, explicit acceptance,
+  cancel, and repeat backspace. Bounded inventory pages and streaming gzip Community search.
+- Explicit production version changes enforced in PR CI. Physical touch comfort,
+  real-network Community timing and complete standalone appliance acceptance remain pending.
+
 # 1.0.0
 
 **Unreleased; acceptance pending.** The current candidate is derived from `VERSION`.
@@ -27,4 +38,4 @@ acceptance remains required. See [the release checklist](../contributing/release
 
 ## Development history
 
-Earlier milestones are preserved in [the historical changelog](https://github.com/76cb/OpenTag-Station/blob/codex/current-spool-experience/docs/history/changelog-before-1.0.md).
+Earlier milestones are preserved in [the historical changelog](https://github.com/76cb/OpenTag-Station/blob/main/docs/history/changelog-before-1.0.md).

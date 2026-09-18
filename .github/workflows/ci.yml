@@ -9,6 +9,17 @@ permissions:
   contents: read
 
 jobs:
+  version-policy:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+      - run: python tools/check_version_policy.py --base "$BASE_SHA"
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+      - run: python -m unittest discover -s tools -p test_version_policy.py
   documentation:
     runs-on: ubuntu-24.04
     steps:
@@ -40,6 +51,8 @@ jobs:
       - run: .pio/review-tools/node_modules/.bin/playwright install --with-deps chromium
       - run: python tools/check_public_privacy.py
       - run: python tools/generate_product_ui.py --check
+      - run: python -m pip install --requirement requirements-dev.txt
+      - run: pio test --environment native --filter test_touch_flow
       - run: python tools/product_review.py --output .pio/ui-review
       - run: python tools/render_touch_review.py --output .pio/ui-review
       - run: node tools/capture_product_review.cjs .pio/ui-review
@@ -97,6 +110,7 @@ jobs:
       - run: python tools/analyze_stack_usage.py
       - run: python tools/check_production_nfc_stack_usage.py
       - run: python tools/check_production_http_stack_usage.py
+      - run: python tools/check_touch_stack_usage.py
       - run: pio run --environment wt32-sc01-plus --target web-flasher
       - run: python tools/web_flasher.py validate-bundle --bundle-dir .pio/build/wt32-sc01-plus/web-flasher --maximum-size 16777216
       - name: Upload PR production NFC bundle

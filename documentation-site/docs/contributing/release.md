@@ -5,7 +5,7 @@ below are historical checkpoints, not the current candidate’s acceptance recor
 See the release checklist for outstanding physical checks.
 
 
-The candidate is `1.0.0-rc.1`. `VERSION` is authoritative; generated manifests and
+The candidate is `1.0.0-rc.2`. `VERSION` is authoritative; generated manifests and
 documentation metadata must be refreshed from it. A successful build is not
 physical acceptance. Keep PR #32 open and unmerged until external signoff.
 
@@ -57,3 +57,5 @@ build metadata and SHA-256 checksums. There is no test-firmware distribution.
 If validation fails, fix the source and choose a new appropriate version; do not
 silently move a published tag. Retain the prior known-good production release for
 USB recovery. OTA consumes the application binary, never the offset-zero factory image.
+
+Production PRs must explicitly change `VERSION` and synchronize generated firmware, flasher and docs metadata. CI validates the base-to-head diff without mutating the version. README/docs-only changes are exempt.

@@ -1,5 +1,6 @@
 #include "network/http_transport.hpp"
 #include "network/deadline_client.hpp"
+#include "network/gzip_stream.hpp"
 
 #ifdef ARDUINO
 #include <Arduino.h>
@@ -48,13 +49,23 @@ class BackendWiFiClient final : public WiFiClient {
 
 class BoundedResponseStream final : public Stream {
  public:
-  explicit BoundedResponseStream(std::size_t maximum) : data_(maximum) {}
+  explicit BoundedResponseStream(const HttpRequest& request, bool gzip)
+      : data_(request.maximum_response_bytes), request_(request) {
+    if(gzip)gzip_=make_external<GzipStream>([&]{return GzipStream(request.response_consumer,request.maximum_stream_bytes);});
+    stream_failed_=gzip&&!gzip_;
+  }
 
   std::size_t write(std::uint8_t value) override {
     return write(&value, 1U);
   }
 
   std::size_t write(const std::uint8_t* data, std::size_t size) override {
+    if(stream_failed_)return 0;
+    if (request_.response_consumer) {
+      if (size > request_.maximum_stream_bytes - received_ ||
+          !(gzip_?gzip_->feed(data,size):request_.response_consumer(data,size))) { stream_failed_=true; return 0; }
+      received_ += size; return size;
+    }
     return data_.append(reinterpret_cast<const char*>(data), size) ? size : 0U;
   }
 
@@ -63,12 +74,17 @@ class BoundedResponseStream final : public Stream {
   int peek() override { return -1; }
   void flush() override {}
 
-  [[nodiscard]] bool overflowed() const { return data_.overflowed(); }
+  [[nodiscard]] bool overflowed() const { return data_.overflowed() || stream_failed_; }
   [[nodiscard]] bool failed() const { return data_.failed(); }
+  [[nodiscard]] bool complete() const {return !gzip_||gzip_->finish();}
   [[nodiscard]] ResponseBody take() { return std::move(data_); }
 
  private:
   ResponseBody data_;
+  const HttpRequest& request_;
+  std::size_t received_{0};
+  bool stream_failed_{false};
+  std::unique_ptr<GzipStream,ExternalDelete<GzipStream>> gzip_;
 };
 
 bool valid_method(const std::string& method) {
@@ -175,7 +191,9 @@ core::Result<HttpResponse> HttpTransport::perform(const HttpRequest& request) {
       request.connect_timeout_ms > 60000U || request.read_timeout_ms < 100U ||
       request.read_timeout_ms > 60000U || request.maximum_response_bytes == 0U ||
       request.maximum_response_bytes > 65536U || request.body.size() > 65536U ||
-      request.headers.size() > 32U) {
+      request.headers.size() > 32U ||
+      (request.response_consumer && (request.maximum_stream_bytes == 0 ||
+       request.maximum_stream_bytes > 64U*1024U*1024U || request.method != "GET"))) {
     return core::Result<HttpResponse>::failure(
         request_error("HTTP request limits are invalid"));
   }
@@ -220,8 +238,9 @@ core::Result<HttpResponse> HttpTransport::perform(const HttpRequest& request) {
   http.setTimeout(static_cast<std::uint16_t>(request.read_timeout_ms));
   http.setFollowRedirects(HTTPC_DISABLE_FOLLOW_REDIRECTS);
   http.setReuse(false);
-  const char* collected_headers[] = {"Content-Type"};
-  http.collectHeaders(collected_headers, 1U);
+  const char* collected_headers[] = {"Content-Type","Content-Encoding"};
+  http.collectHeaders(collected_headers, 2U);
+  if(request.accept_gzip&&request.response_consumer)http.addHeader("Accept-Encoding","gzip");
   for (const auto& header : request.headers) {
     if (header.first.empty() || header.first.size() > 128U ||
         header.second.size() > 1024U || header.first.find('\n') != std::string::npos ||
@@ -251,12 +270,16 @@ core::Result<HttpResponse> HttpTransport::perform(const HttpRequest& request) {
     return core::Result<HttpResponse>::failure(network_error(message));
   }
   const auto content_length = http.getSize();
-  if (content_length > static_cast<std::int32_t>(request.maximum_response_bytes)) {
+  if (content_length > static_cast<std::int32_t>(request.response_consumer ? request.maximum_stream_bytes : request.maximum_response_bytes)) {
     http.end();
     return core::Result<HttpResponse>::failure(
         network_error("HTTP response exceeds configured limit", false));
   }
-  BoundedResponseStream response_stream(request.maximum_response_bytes);
+  const std::string encoding=http.header("Content-Encoding").c_str();
+  if(!encoding.empty()&&encoding!="identity"&&!(encoding=="gzip"&&request.accept_gzip&&request.response_consumer)) {
+    http.end();return core::Result<HttpResponse>::failure(network_error("Unsupported HTTP content encoding",false));
+  }
+  BoundedResponseStream response_stream(request,encoding=="gzip");
   const auto copied = http.writeToStream(&response_stream);
   if (response_stream.failed()) {
     http.end();
@@ -267,7 +290,7 @@ core::Result<HttpResponse> HttpTransport::perform(const HttpRequest& request) {
     http.end();
     return deadline_error();
   }
-  if (copied < 0 || response_stream.overflowed()) {
+  if (copied < 0 || response_stream.overflowed() || !response_stream.complete()) {
     http.end();
     return core::Result<HttpResponse>::failure(
         network_error("HTTP response read failed or exceeded its limit"));

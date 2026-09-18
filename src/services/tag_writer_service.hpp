@@ -14,16 +14,17 @@ public:
       const std::string &, const std::string &, std::int32_t)>;
   using VerifiedAssociation = std::function<core::Result<void>(
       const domain::ConfirmedSpoolMapping &)>;
+  using CommunitySearch = std::function<core::Result<network::BackendDocument>(const std::string&, unsigned)>;
   TagWriterService(integrations::spoolman::SpoolmanAdapter &spoolman,
                    nfc::IWriterReader &reader,
                    std::function<std::uint64_t()> generation, Random random,
                    Publish publish, nfc::WriterJournal *journal = nullptr,
                    VerifiedClearMapping clear_mapping = {},
-                   VerifiedAssociation sync_mapping = {})
+                   VerifiedAssociation sync_mapping = {}, CommunitySearch community_search = {})
       : spoolman_(spoolman), writer_(reader, std::move(generation)),
         random_(std::move(random)), publish_(std::move(publish)),
         journal_(journal), clear_mapping_(std::move(clear_mapping)),
-        sync_mapping_(std::move(sync_mapping)) {}
+        sync_mapping_(std::move(sync_mapping)), community_search_(std::move(community_search)) {}
   core::Result<void> process(JsonObjectConst command);
   core::Result<void> restore_cleanup();
   bool physical_pass() const { return plan_ && plan_->verified; }
@@ -31,6 +32,7 @@ public:
 private:
   core::Result<network::BackendDocument>
   api(const char *method, const std::string &path, JsonVariantConst body = {});
+  core::Result<void> community(JsonObjectConst command);
   core::Result<void> catalog(JsonObjectConst command);
   core::Result<void> import_preview(JsonObjectConst command);
   core::Result<void> import_commit(JsonObjectConst command);
@@ -61,10 +63,12 @@ private:
   std::int32_t spool_id_{0}, import_vendor_{0}, import_filament_{0};
   std::string uuid_, import_token_, settings_url_, identity_key_, uid_key_;
   std::uint64_t preview_serial_{0};
+  std::uint64_t operation_id_{0};
   bool association_pending_{false};
   nfc::WriterJournal *journal_{nullptr};
   VerifiedClearMapping clear_mapping_;
   VerifiedAssociation sync_mapping_;
+  CommunitySearch community_search_;
   bool unlink_pending_{false};
   bool clear_recovery_required_{false};
 };

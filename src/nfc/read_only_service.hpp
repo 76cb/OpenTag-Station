@@ -36,6 +36,7 @@ enum class ReadState {
   stabilizing,
   reading,
   openprinttag,
+  blank,
   unsupported,
   multiple,
   error

@@ -6,7 +6,7 @@ const journeys=require('./product_journeys.cjs');
 const root=path.resolve(process.argv[2]||'.pio/ui-review');
 const server=http.createServer((req,res)=>{const name=path.basename(new URL(req.url,'http://localhost').pathname)||'index.html';const file=path.join(root,name);if(!fs.existsSync(file)){res.writeHead(404);return res.end();}res.setHeader('Content-Type',name.endsWith('.js')?'application/javascript':name.endsWith('.css')?'text/css':'text/html');res.end(fs.readFileSync(file));});
 (async()=>{await new Promise(r=>server.listen(0,'127.0.0.1',r));const browser=await chromium.launch({headless:true,...(process.env.CHROME_BIN?{executablePath:process.env.CHROME_BIN}:{})});
-try {for(const width of [1440,1280,1024,768,390]){for(const scene of ['empty','dashboard','weigh','assignment','manage','inventory','printer','writer','preview','settings','clear',...(width===1440||width===390?['settings-station','settings-scale','settings-network','settings-display','settings-advanced']:[])]){
+try {for(const width of [1440,1280,1024,768,390]){for(const scene of ['empty','dashboard','weigh','assignment','manage','inventory','printer','writer','preview','settings','clear','blank','unlinked','reuse',...(width===1440||width===390?['settings-station','settings-scale','settings-network','settings-display','settings-advanced']:[])]){
 const page=await browser.newPage({viewport:{width,height:width===390?844:1000}});const errors=[];page.on('pageerror',e=>errors.push(e.message));
 if(scene==='writer')page.on('dialog',d=>d.accept());
 await page.goto(`http://127.0.0.1:${server.address().port}/index.html?scene=${scene}`);await page.waitForFunction(()=>document.documentElement.dataset.review,{timeout:10000});

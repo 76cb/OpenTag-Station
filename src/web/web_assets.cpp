@@ -129,7 +129,7 @@ const char index_html[] = R"HTML(<!doctype html>
 </dl></details>
 </div></article></dialog>
 <div id="writer-panel" hidden></div>
-<dialog id="clear-dialog" class="modal" aria-labelledby="clear-title"><article><header class="modal-header"><h2 id="clear-title">Reuse this NFC tag?</h2><button id="clear-close" class="button" type="button" aria-label="Close clear dialog">×</button></header><div class="modal-body"><p>This removes the filament information and unlinks the tag from Spoolman. Its permanent NFC identifier will not change.</p><dl id="clear-summary" class="facts"></dl><p id="clear-message" class="result-banner" role="status" aria-live="polite"></p><progress id="clear-meter" hidden aria-label="Clear progress"></progress><ul id="clear-effects"><li>Erase OpenPrintTag metadata</li><li>Unlink this tag from Spoolman</li><li>Preserve the permanent NFC UID</li><li><details><summary>Advanced preservation details</summary>Protected blocks 78–79 remain unchanged.</details></li></ul></div><footer class="modal-footer"><button id="clear-cancel" class="button" type="button">Cancel</button><button id="clear-confirm" class="button destructive-action" type="button" disabled>Clear tag</button><button id="clear-retry" class="button primary" type="button" hidden>Retry Spoolman cleanup</button></footer></article></dialog>
+<dialog id="clear-dialog" class="modal" aria-labelledby="clear-title"><article><header class="modal-header"><h2 id="clear-title">Reuse this NFC tag?</h2><button id="clear-close" class="button" type="button" aria-label="Close clear dialog">×</button></header><div class="modal-body"><p>This removes the filament information and unlinks the tag from Spoolman. Its permanent NFC identifier will not change.</p><dl id="clear-summary" class="facts"></dl><p id="clear-message" class="result-banner" role="status" aria-live="polite"></p><progress id="clear-meter" hidden aria-label="Clear progress"></progress><ul id="clear-effects"><li>Erase OpenPrintTag metadata</li><li>Unlink this tag from Spoolman</li><li>Preserve the permanent NFC UID</li><li><details><summary>Advanced preservation details</summary>Protected blocks 78–79 remain unchanged.</details></li></ul></div><footer class="modal-footer"><button id="clear-cancel" class="button" type="button">Cancel</button><button id="clear-confirm" class="button destructive-action" type="button" disabled>Clear tag</button><button id="clear-assign" class="button primary" type="button" hidden>Assign tag to a spool</button><button id="clear-retry" class="button primary" type="button" hidden>Retry Spoolman cleanup</button></footer></article></dialog>
 
 <section id="spool-resolution" class="section product-page home-support" data-page="home">
 <p id="spool-guidance" class="hint" role="status"></p>
@@ -1510,7 +1510,7 @@ const cleared=state.clearSnapshot||{},blank=String(cleared.uid||'').replace(/:/g
 const pending=owned&&writer.phase==='association_pending',complete=owned&&writer.phase==='complete';const id=blank?0:pending?0:complete?writer.spool_id:linked?(w.spool.id||w.spool.spool_id):0;
 setText('nfc-detected-chip',present?'Tag detected':'No tag');setText('nfc-decode-chip',t.decode==='pass'?'Tag valid':t.decode==='fail'?'Tag needs attention':'Reading tag…');setText('nfc-link-chip',pending?'Link pending':id?'Linked to Spoolman':'Not linked');
 setText('nfc-association',pending?'Association pending — open Write / Rewrite to retry':id?'Linked · Spool #'+id:'Not linked');setText('nfc-identity',id?'Spoolman #'+id:'—');byId('nfc-identity-row').hidden=!id;byId('nfc-copy').disabled=!uid;
-if(t.blank_compatible&&!blank){setText('nfc-summary','Tag ready to reuse');setText('nfc-guidance','Ready to write');setText('nfc-decode-chip','BLANK');}if(blank){setText('nfc-summary','Tag ready to reuse');setText('nfc-guidance',cleared.phase==='cleared'?'Ready to reuse':'Tag is blank and verified. Spoolman unlink is still pending.');setText('nfc-decode-chip','BLANK VERIFIED');setText('nfc-link-chip',cleared.phase==='cleared'?'UNLINKED':'UNLINK PENDING');}
+if(t.blank_compatible&&!blank){setBadge('nfc-badge','Blank','good');setText('nfc-summary','Compatible blank tag');setText('nfc-guidance','Ready to assign');setText('nfc-decode-chip','BLANK');}if(blank){setBadge('nfc-badge','Blank','good');setText('nfc-summary','Tag ready to reuse');setText('nfc-guidance',cleared.phase==='cleared'?'Ready to assign':cleared.message||'Tag blank and verified. Cleanup still needs attention.');setText('nfc-decode-chip','BLANK VERIFIED');setText('nfc-link-chip',cleared.phase==='cleared'?'UNLINKED':'UNLINK PENDING');}
 if(uid)setText('nfc-uid',uid.replace(/[^a-f0-9]/gi,'').match(/.{1,2}/g)?.join(':')||uid);
 ['detected','decode','link'].forEach((k,i)=>byId('nfc-'+k+'-chip').className='status-chip '+([present,t.decode==='pass',!!id][i]?'status-success':pending?'status-warning':''));
 }
@@ -1579,6 +1579,10 @@ setBadge('nfc-badge', 'Deferred', 'neutral');
 setText('nfc-summary', 'OpenPrintTag recognized');
 setText('nfc-guidance', nfc.material_name || 'Metadata fields unavailable / empty');
 setBadge('nfc-badge', 'OpenPrintTag', 'good');
+} else if (nfc.blank_compatible || nfc.state === 'blank_compatible') {
+setText('nfc-summary', 'Compatible blank tag');
+setText('nfc-guidance', 'Ready to assign');
+setBadge('nfc-badge', 'Blank', 'good');
 } else if (nfc.state === 'unsupported') {
 setText('nfc-summary', 'NFC-V tag detected');
 setText('nfc-guidance', 'OpenPrintTag decode failed / unsupported');
@@ -2996,6 +3000,7 @@ setConfigState(CONFIG_STATE.READY);
 }
 
 function startHomeWeigh() {
+if(spoolIdentity().t.blank_compatible)return window.OpenTagWriter.openModal();
 const scale = asObject(state.scale);
 const calibrated = first(scale.calibrated, scale.calibration_loaded,
 asObject(scale.calibration).configured, false) === true;
@@ -3275,15 +3280,15 @@ const cleanupSummary=clearView.cleanup_stage==='checkpoint'?'Tag blank and verif
 setText('clear-message',p==='unlink_pending'?cleanupSummary+' Retry cleanup without rewriting the tag.'+(clearView.message?' Reason: '+clearView.message:''):clearView.message||(p==='clear_preview'?'Ready for your confirmation. Nothing has been changed.':'Reading this tag…'));byId('clear-message').className='result-banner '+(p==='cleared'?'status-success':p==='failed'?'status-error':p==='unlink_pending'?'status-warning':'');
 const list=byId('clear-summary');list.replaceChildren();[['Tag',clearView.uid],['Current material',clearView.material_name],['Spoolman',clearView.spool_id?'Spool #'+clearView.spool_id:'Exact owner checked after blank verification']].forEach(([k,v])=>{const row=document.createElement('div'),dt=document.createElement('dt'),dd=document.createElement('dd');dt.textContent=k;dd.textContent=v||'—';row.append(dt,dd);list.append(row);});
 byId('clear-confirm').hidden=p!=='clear_preview';byId('clear-confirm').disabled=locked||p!=='clear_preview';byId('clear-retry').hidden=p!=='unlink_pending';byId('clear-retry').disabled=locked;
-['close','cancel'].forEach(k=>byId('clear-'+k).disabled=locked);setText('clear-cancel',p==='cleared'?'Done':'Cancel');
+['close','cancel'].forEach(k=>byId('clear-'+k).disabled=locked);setText('clear-cancel',p==='cleared'?'Done':'Cancel');byId('clear-assign').hidden=p!=='cleared';
 byId('clear-effects').hidden=p!=='clear_preview';const meter=byId('clear-meter');meter.hidden=!locked;if(clearView.total_blocks){meter.max=clearView.total_blocks;meter.value=clearView.completed_blocks||0;if(p==='clearing')setText('clear-message',meter.value+' / '+meter.max+' changed blocks verified. Keep tag on reader. Do not remove power.');}else meter.removeAttribute('value');
 setText('clear-open',p==='unlink_pending'?'Retry unlink':'Clear / Reuse Tag');tagStatus();}
 async function clearCommand(action){if(clearLocked())return;const p=clearView,body={action};if(action==='clear'){if(p.phase!=='clear_preview')return;['uid','generation','current_checksum','target_checksum'].forEach(k=>body[k]=p[k]);}
 window.OpenTagWriter?.writerState&&(window.OpenTagWriter.writerState.invalidated=true);clearBusy=true;renderClear({...p,phase:action==='clear_preview'?'reading':action==='clear'?'clearing':'unlinking',message:action==='clear_preview'?'Reading complete tag and protection state…':'Keep tag on reader. Do not remove power.'});let fetching=false,accepting=true;
 try{await submitMutation('/tag-writer',{body,operationTimeoutMs:180000,onProgress:()=>{if(fetching)return;fetching=true;api('/tag-writer',{priority:PRIORITY.CONTROL}).then(v=>{if(accepting)renderClear(v);}).catch(()=>{}).finally(()=>fetching=false);}});}catch(e){setText('clear-message',e.message);}finally{accepting=false;clearBusy=false;try{renderClear(await api('/tag-writer',{priority:PRIORITY.CONTROL}));}catch(e){renderClear({phase:'failed',message:e.message});}}}
 async function openClear(){if(window.OpenTagWriter?.writerState?.busy)return;closeProductDialog('manage-dialog');byId('clear-dialog').showModal();document.body.classList.add('modal-open');try{const v=await api('/tag-writer',{priority:PRIORITY.CONTROL});if(v.mode==='clear'&&['unlink_pending','clearing','verifying','unlinking'].includes(v.phase)){renderClear(v);byId('clear-retry').focus();return;}if(['association_pending','writing','associating','validating','decoding'].includes(v.phase)){renderClear({phase:'failed',message:'Finish the pending write or association in Write / Rewrite first.'});return;}}catch(e){renderClear({phase:'failed',message:e.message});return;}await clearCommand('clear_preview');byId('clear-confirm').focus();}
-function closeClear(){if(clearLocked())return;byId('clear-dialog').close();document.body.classList.remove('modal-open');openProductDialog('manage-dialog');byId('clear-open').focus();}
-function bindWeighAndClear(){byId('weigh-update').addEventListener('click',updateWeighedSpool);byId('clear-open').addEventListener('click',openClear);['close','cancel'].forEach(k=>byId('clear-'+k).addEventListener('click',closeClear));byId('clear-dialog').addEventListener('cancel',e=>{e.preventDefault();closeClear();});byId('clear-confirm').addEventListener('click',()=>clearCommand('clear'));byId('clear-retry').addEventListener('click',()=>clearCommand('retry_unlink'));}
+function closeClear(){if(clearLocked())return;byId('clear-dialog').close();document.body.classList.remove('modal-open');openProductDialog('manage-dialog');(byId('clear-open').hidden?byId('writer-open'):byId('clear-open')).focus();}
+function bindWeighAndClear(){byId('clear-assign').addEventListener('click',()=>{if(clearView.phase!=='cleared')return;byId('clear-dialog').close();document.body.classList.remove('modal-open');window.OpenTagWriter.openModal();});byId('weigh-update').addEventListener('click',updateWeighedSpool);byId('clear-open').addEventListener('click',openClear);['close','cancel'].forEach(k=>byId('clear-'+k).addEventListener('click',closeClear));byId('clear-dialog').addEventListener('cancel',e=>{e.preventDefault();closeClear();});byId('clear-confirm').addEventListener('click',()=>clearCommand('clear'));byId('clear-retry').addEventListener('click',()=>clearCommand('retry_unlink'));}
 
 // PRODUCT PRESENTATION BEGIN
 // Presentation only. All commands go through the station's existing fenced handlers.
@@ -3303,11 +3308,13 @@ function closeProductDialog(id) {
   productDialogs.get(id)?.focus();
 }
 function spoolIdentity() {
-  const t=state.currentTag||{}, w=state.tagWorkflow||{}, inv=t.inventory||{};
+  const original=state.currentTag||{}, w=state.tagWorkflow||{}, inv=original.inventory||{};
+  const clear=state.clearSnapshot||{},cleared=String(clear.uid||'').replace(/:/g,'')===String(original.uid||inv.uid||'').replace(/:/g,'')&&['cleared','unlink_pending','unlinking'].includes(clear.phase);
+  const t=cleared?{...original,blank_compatible:true,decode:'blank',material_name:'',brand_name:'',brand:''}:original;
   const uid=String(first(t.uid,inv.uid,'')).replace(/:/g,'');
   const present=first(t.present,inv.present,false)===true;
   const same=present&&uid&&uid===String(w.tag?.uid||'').replace(/:/g,'');
-  return {t,w,present,spool:same&&w.openprinttag_available?w.spool:null};
+  return {t,w,present,spool:same&&!cleared&&w.openprinttag_available?w.spool:null};
 }
 function renderSpoolChoices(workflow) {
   const form=byId('confirm-spool-form');
@@ -3327,6 +3334,16 @@ function renderSpoolChoices(workflow) {
 function renderCurrentSpool() {
   if (!byId('current-spool')) return;
   const {t,w,present,spool}=spoolIdentity(), s=spool||{};
+  const lifecycle=present&&String(w.tag?.uid||'')===String(t.uid||t.inventory?.uid||'')?w.tag_lifecycle:t.lifecycle;
+  const blank=present&&(t.blank_compatible||lifecycle==='BLANK_COMPATIBLE'||(lifecycle==='READY'&&state.clearSnapshot?.phase==='cleared'));
+  const linked=present&&!blank&&!!s.id, valid=present&&!blank&&(t.decode==='pass'||linked||lifecycle==='OPENPRINTTAG_UNLINKED');
+  const cleanup=lifecycle==='CLEANUP_PENDING'||state.clearSnapshot?.phase==='unlink_pending';
+  const writePending=lifecycle==='WRITE_PENDING';
+  byId('tag-update').hidden=!linked||cleanup||writePending;
+  byId('writer-open').hidden=(!blank&&!valid&&!writePending)||cleanup;
+  byId('clear-open').hidden=(!valid&&!cleanup)||writePending;
+  setText('writer-open',writePending?'Resume tag workflow':blank?'Assign tag to a spool':linked?'Reassign':'Link to a spool');
+  setText('clear-open',cleanup?'Retry cleanup':'Clear / Reuse');
   byId('spool-empty').hidden=present;
   byId('current-spool').hidden=!present;
   if (!present) return;
@@ -3336,7 +3353,7 @@ function renderCurrentSpool() {
   setText('current-name',name);setText('manage-material',name);
   setText('current-vendor',first(s.vendor,t.brand_name,t.brand,''));
   setText('current-material',first(s.material,t.material_abbreviation,''));
-  setText('current-number',s.id?'Spool #'+s.id:'Not yet linked');
+  setText('current-number',blank?'Ready to assign':s.id?'Spool #'+s.id:'Not yet linked');
   setText('current-remaining',remaining===null?'—':Math.round(Number(remaining)));
   const percentage=remaining!==null&&Number(initial)>0?Math.max(0,Math.min(100,Math.round(Number(remaining)/Number(initial)*100))):null;
   byId('remaining-summary').hidden=percentage===null;
@@ -3354,7 +3371,8 @@ function renderCurrentSpool() {
   setText('dashboard-printer',assignments.length?assignments.join(', '):'Choose a toolhead to assign this spool.');
   const v=state.weighSync||{}, sameWeight=s.id&&Number(v.spool_id)===Number(s.id);
   setText('dashboard-weight',sameWeight&&v.measured!=null?formatGrams(v.measured)+' measured · '+formatGrams(v.canonical_remaining)+' in Spoolman':'Weigh this spool to compare it with your inventory.');
-  setText('home-action-label',state.scale?.measurement?.active?'Weighing…':'Weigh');
+  setText('home-action-label',blank?'Assign tag':state.scale?.measurement?.active?'Weighing…':'Weigh');
+  if(blank)byId('home-weigh').disabled=!!state.maintenance;
   byId('spool-edit').disabled=!s.id;byId('tag-update').disabled=!s.id;
   byId('spool-assign').disabled=!s.id||state.maintenance;
 }

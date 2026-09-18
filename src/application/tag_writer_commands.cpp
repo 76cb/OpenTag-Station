@@ -2,6 +2,7 @@
 #include "application/nfc_worker.hpp"
 #include "platform/storage/writer_journal.hpp"
 #include <Arduino.h>
+#include "services/community_catalog.hpp"
 #include <esp_system.h>
 namespace opentag::application {
 CommandReceipt BackendWorker::submit_writer(std::string_view payload) {
@@ -76,6 +77,9 @@ __attribute__((noinline)) bool BackendWorker::ensure_writer() {
           },
           [this](const domain::ConfirmedSpoolMapping &mapping) {
             return configuration_.sync_verified_spool_identity_mapping(mapping);
+          },
+          [this](const std::string& query, unsigned offset) {
+            return services::search_community(transport_,query,offset);
           });
     });
   if (writer_)
@@ -118,6 +122,7 @@ void BackendWorker::process_writer(Command &command) {
   }
   operations_.mark_running(command.operation_id, millis(),
                            "Writer operation running; see Tags progress");
+  parsed.value()["_operation_id"]=command.operation_id;
   const auto result = writer_->process(parsed.value().as<JsonObjectConst>());
   if (action == "write" || action == "clear" ||
       ((action == "retry_association" || action == "retry_unlink") &&

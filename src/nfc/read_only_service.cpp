@@ -41,6 +41,8 @@ const char* to_string(ReadState s) {
       return "reading";
     case ReadState::openprinttag:
       return "openprinttag";
+    case ReadState::blank:
+      return "blank_compatible";
     case ReadState::unsupported:
       return "unsupported";
     case ReadState::multiple:
@@ -134,7 +136,7 @@ core::Result<void> ReadOnlyService::read_tag(const nfcv::Uid& uid) {
         invalid("Memory read consistency failed"));
   live_.checksum = nfcv::diagnostic_checksum(first.data(), first.size());
   live_.blank_compatible=geometry.value().block_size==4 && geometry.value().block_count==80 && uid.bytes[0]==0xe0 && uid.bytes[1]==4 && std::all_of(first.data(),first.data()+312,[](auto b){return b==0;});
-  if(live_.blank_compatible){processed_=uid;++live_.generation;live_.state=ReadState::unsupported;live_.error.reset();return core::Result<void>::success();}
+  if(live_.blank_compatible){processed_=uid;++live_.generation;live_.state=ReadState::blank;live_.error.reset();return core::Result<void>::success();}
   auto tag = make_read_storage<IdentifiedTag>();
   if (!tag)
     return core::Result<void>::failure(invalid("NFC decode allocation failed"));
