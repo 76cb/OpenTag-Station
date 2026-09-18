@@ -1,6 +1,6 @@
 # Releasing OpenTag Station
 
-The candidate is `1.0.0-rc.7`. `VERSION` is authoritative; generated manifests and
+The candidate is `1.0.0-rc.8`. `VERSION` is authoritative; generated manifests and
 documentation metadata must be refreshed from it. A successful build is not
 physical acceptance. Keep the release PR open and unmerged until external signoff.
 
