@@ -652,6 +652,7 @@ void UiService::tag_action(TagAction action) {
   }
   if(action==TagAction::initial||action==TagAction::remaining||action==TagAction::tare) {
     InputSpec spec;spec.mode=InputMode::numeric;spec.unit="g";spec.maximum_length=9;spec.required=true;
+    spec.minimum=action==TagAction::initial?0.001:0;
     spec.title=action==TagAction::initial?"Initial filament":action==TagAction::remaining?"Remaining filament":"Empty spool weight";
     spec.initial=weight_text(action==TagAction::initial?tag_flow_->initial:action==TagAction::remaining?tag_flow_->remaining:tag_flow_->tare);
     open_input(spec,[this,action](const std::string& text){const auto n=std::strtod(text.c_str(),nullptr);if(action==TagAction::initial)tag_flow_->initial=n;else if(action==TagAction::remaining)tag_flow_->remaining=n;else tag_flow_->tare=n;draw_tags();});return;
@@ -1397,7 +1398,7 @@ void UiService::refresh_setup() {
       body = "PRINTER\nEnter the stable ID from FilaBridge discovery.";
       break;
     case services::SetupStep::scale_calibration:
-      body = "SCALE CALIBRATION\nUse browser Scale controls: tare empty, then use a known mass.";
+      body = "SCALE CALIBRATION\nTap Main, then Weigh to tare and calibrate.\nEnter the known mass on this station.";
       break;
     case services::SetupStep::nfc_status:
       body = "NFC STATUS\nPresent an OpenPrintTag spool. View recognition on Tags.";
@@ -1406,14 +1407,7 @@ void UiService::refresh_setup() {
       body = "READY\nLocal API authentication is optional.";
       break;
   }
-  if (!network.wifi_configured && network.provisioning_active) {
-    const std::string setup_body =
-        "SETUP REQUIRED\nConnect a phone or computer to\n" +
-        network.setup_ap_ssid + "\nthen open http://192.168.4.1/";
-    lv_label_set_text(setup_body_label_, setup_body.c_str());
-  } else {
-    lv_label_set_text(setup_body_label_, body);
-  }
+  lv_label_set_text(setup_body_label_, body);
   if (setup_network_dropdown_ != nullptr &&
       setup_scan_generation_ != network.wifi_scan_generation) {
     const auto networks = network_.scan_results();

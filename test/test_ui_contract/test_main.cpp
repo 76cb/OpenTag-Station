@@ -231,6 +231,8 @@ void test_tags_page_exposes_guarded_writer_and_reader_state() {
   TEST_ASSERT_TRUE(build.find("transport_.perform") == std::string::npos);
   TEST_ASSERT_TRUE(build.find("write_block") == std::string::npos);
   TEST_ASSERT_TRUE(build.find("use the browser") == std::string::npos);
+  TEST_ASSERT_TRUE(source.find("Use browser") == std::string::npos);
+  TEST_ASSERT_TRUE(source.find("Connect a phone or computer") == std::string::npos);
 }
 
 void test_clear_has_two_steps_and_large_touch_targets() {

@@ -42,6 +42,10 @@ void reassign_review() {
   TEST_ASSERT_TRUE(f.act(TagAction::use).empty());TEST_ASSERT_TRUE(f.page==TagPage::move);
   auto c=command(f.act(TagAction::use));TEST_ASSERT_EQUAL_STRING("preview",c["action"]);TEST_ASSERT_EQUAL_STRING("rewrite",c["mode"]);TEST_ASSERT_EQUAL(31,c["spool_id"].as<int>());
   f.page=TagPage::created;TEST_ASSERT_TRUE(f.act(TagAction::use).empty());TEST_ASSERT_TRUE(f.page==TagPage::move);
+  f.act(TagAction::back);TEST_ASSERT_TRUE(f.page==TagPage::created);
+  f.act(TagAction::use);c=command(f.act(TagAction::use));
+  receive(f,R"({"phase":"preview"})");f.act(TagAction::back);TEST_ASSERT_TRUE(f.page==TagPage::move);
+  f.act(TagAction::back);TEST_ASSERT_TRUE(f.page==TagPage::created);
 }
 void exact_confirmation() {
   TagFlow f;f.uid="E004000000000001";receive(f,R"({"phase":"preview","uid":"E004000000000001","generation":"18446744073709551600","spool_id":31,"previous_spool_id":28,"current_checksum":"12345678","target_checksum":"AABBCCDD"})");

@@ -13,15 +13,15 @@
     "src/web/writer_assets.cpp": "9c342947757bc6f634525b73b0bc30ff5cf50ffef9dffccce6624c21459a06c4",
     "src/web/writer_layout.inc": "c618f609bab9103ae3ca78470c341f6761f4d62b8265f73c5a7d3cbdc148bcab",
     "src/ui/product_layout.hpp": "b2c3e2fe6afbcfb084c66f98bd08c29eb8e97892cefed7991005c5ebd74ad739",
-    "src/ui/tag_flow.hpp": "672b2701798482b3543483a6c4c918c1a2a5cd56dbf44da15ccbb8ad81295a05",
+    "src/ui/tag_flow.hpp": "a70517683d70b0ad15476771eb774f4fa7e530c31af8ece5b42b849368ed7f5f",
     "src/ui/touch_input.hpp": "80fa15c718726adbbd3c35173479826f2c1bc0b8ff9a63133e737b17b3998eed",
     "test/test_touch_flow/fixtures.hpp": "422334748ea079da782f6ba34fcf88d9cde969324a8e5e36430a74e42d659a34"
   },
   "images": {
-    "docs/assets/images/browser/dashboard.png": "fc42727a626e1b9cd6dba800202a395f88c3cf1da03ae9a4c292a19fe0097f30",
-    "docs/assets/images/browser/weigh.png": "c2b99929866ab8a8bad90db296ea11f0c4e9d86181bae39c47d98dd0dc896e5d",
-    "docs/assets/images/browser/assignment.png": "e20d53151e2a0376dc3e5c58fe70105f6a45a5bd32f91c91c6202e0049e83c7c",
-    "docs/assets/images/browser/tag-management.png": "70ab2d68e84e1d6ce05796e0b570edb5f2879a5758137d7c87df9af5c93d9c6d",
+    "docs/assets/images/browser/dashboard.png": "cc2529ce336cb34c737995c6509474f1599e1a79aaa92ef71db93e9efa4eb680",
+    "docs/assets/images/browser/weigh.png": "a2ec782fc6209dda44c0e48f8acf8c447a1454369d39d7c943ebf4eb5b23d1b1",
+    "docs/assets/images/browser/assignment.png": "285fbe9c388b812c2e2ddf2738818a6a79d278099711a2f80bff74b3b4813245",
+    "docs/assets/images/browser/tag-management.png": "3af064070fafc22c688e09ebe0458bb96481511d463953f7364f6c0f40109753",
     "docs/assets/images/touchscreen/wt32-home.png": "24e85fa20f7d3f357f29336e347725ea9c4af7eece0f92828fb0f4480b1ff247"
   }
 }

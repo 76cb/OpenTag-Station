@@ -36,6 +36,7 @@ class TagFlow {
  public:
   TagFlow() {}
   TagPage page{TagPage::tag};
+  TagPage review_return{TagPage::tag},move_return{TagPage::selected};
   services::TagLifecycle lifecycle{services::TagLifecycle::no_tag};
   std::string uid,material,query,entity{"spool"},message,phase;
   int current_spool{0},from_spool{0};
@@ -114,11 +115,13 @@ class TagFlow {
           break;
         }
         if(page==TagPage::selected&&entity=="filament") {weights();page=TagPage::create;return {};}
-        if((page==TagPage::selected||page==TagPage::created)&&from_spool>0&&selected["id"].as<int>()!=from_spool) {page=TagPage::move;return {};}
+        if((page==TagPage::selected||page==TagPage::created)&&from_spool>0&&selected["id"].as<int>()!=from_spool) {move_return=page;page=TagPage::move;return {};}
+        review_return=page;
         command["action"]="preview";command["spool_id"]=selected["id"];
         command["mode"]=rewrite?"rewrite":"blank";break;
       case TagAction::update:
         if(current_spool<=0)return {};
+        review_return=TagPage::tag;
         command["action"]="preview";command["mode"]="rewrite";command["spool_id"]=current_spool;break;
       case TagAction::write:
         if(page!=TagPage::review)return {};
@@ -126,7 +129,7 @@ class TagFlow {
         for(auto key:{"uid","generation","spool_id","previous_spool_id","current_checksum","target_checksum"})
           if(!view[key].isNull())command[key]=view[key];
         break;
-      case TagAction::clear:command["action"]="clear_preview";break;
+      case TagAction::clear:review_return=TagPage::tag;command["action"]="clear_preview";break;
       case TagAction::retry:
         if(phase=="write_recovery"){command["action"]="preview";command["mode"]="rewrite";command["spool_id"]=view["spool_id"];break;}
         command["action"]=phase=="association_pending"?"retry_association":phase=="clear_recovery"?"clear_preview":"retry_unlink";break;
@@ -137,9 +140,10 @@ class TagFlow {
         command["spool"]["initial_weight"]=initial;command["spool"]["remaining_weight"]=remaining;command["spool"]["spool_weight"]=tare;break;
       case TagAction::back:
         if(page==TagPage::selected||page==TagPage::create)page=TagPage::catalog;
-        else if(page==TagPage::move)page=TagPage::selected;
+        else if(page==TagPage::move)page=move_return;
         else if(page==TagPage::catalog)page=TagPage::sources;
-        else if(page==TagPage::review||page==TagPage::import_review)page=TagPage::selected;
+        else if(page==TagPage::review)page=review_return;
+        else if(page==TagPage::import_review)page=TagPage::selected;
         else page=TagPage::tag;
         return {};
       default:return {};
