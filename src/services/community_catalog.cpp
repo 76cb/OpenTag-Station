@@ -140,14 +140,14 @@ void log_inflate_begin(ICommunityCatalogMemory& memory,const Directory& d,std::s
 #endif
 }
 void log_inflate_complete(ICommunityCatalogMemory& memory,const Directory& d,std::size_t block_index,
-    const char* status,int tinfl_status,std::size_t consumed,std::size_t produced,bool crc_ok,bool guards_ok,bool heap_ok,std::uint32_t started){
+    const char* status,int tinfl_status,std::size_t consumed,std::size_t produced,bool crc_ok,bool guards_ok,std::uint32_t started){
 #ifdef ARDUINO
-  Serial.printf("COMMUNITY_INFLATE phase=complete kind=%s block_index=%u ordinal=%u status=%s tinfl_status=%d input_consumed=%u output_produced=%u crc=%s canaries=%s heap=%s duration_ms=%lu\n",
+  Serial.printf("COMMUNITY_INFLATE phase=complete kind=%s block_index=%u ordinal=%u status=%s tinfl_status=%d input_consumed=%u output_produced=%u crc=%s canaries=%s heap_scan=skipped duration_ms=%lu\n",
       block_kind_name(d.kind),static_cast<unsigned>(block_index),static_cast<unsigned>(d.first),status,tinfl_status,
       static_cast<unsigned>(consumed),static_cast<unsigned>(produced),crc_ok?"ok":"failed",guards_ok?"ok":"failed",
-      heap_ok?"ok":"failed",static_cast<unsigned long>(memory.milliseconds()-started));
+      static_cast<unsigned long>(memory.milliseconds()-started));
 #else
-  (void)memory;(void)d;(void)block_index;(void)status;(void)tinfl_status;(void)consumed;(void)produced;(void)crc_ok;(void)guards_ok;(void)heap_ok;(void)started;
+  (void)memory;(void)d;(void)block_index;(void)status;(void)tinfl_status;(void)consumed;(void)produced;(void)crc_ok;(void)guards_ok;(void)started;
 #endif
 }
 bool read_header(ICommunityCatalogFile& file,Header& h) {
@@ -170,28 +170,28 @@ core::Result<GuardedBuffer> inflate(ICommunityCatalogFile& file,const Directory&
   using Result=core::Result<GuardedBuffer>;const auto started=memory.milliseconds();
   const bool metadata_ok=d.compressed&&d.expanded&&d.compressed<=block_limit&&d.expanded<=block_limit&&
       d.offset<=file.size()&&d.compressed<=file.size()-d.offset;
-  if(!metadata_ok){log_inflate_begin(memory,d,block_index,nullptr,nullptr,nullptr);log_inflate_complete(memory,d,block_index,"metadata_invalid",0,0,0,false,true,true,started);return Result::failure(invalid("Community catalog block metadata invalid"));}
+  if(!metadata_ok){log_inflate_begin(memory,d,block_index,nullptr,nullptr,nullptr);log_inflate_complete(memory,d,block_index,"metadata_invalid",0,0,0,false,true,started);return Result::failure(invalid("Community catalog block metadata invalid"));}
   GuardedBuffer input(memory,d.compressed),output(memory,d.expanded);InternalInflater inflater(memory);
   log_inflate_begin(memory,d,block_index,input.data(),output.data(),inflater.get());
-  if(!input||!output){log_inflate_complete(memory,d,block_index,"buffer_allocation_failed",0,0,0,false,true,true,started);return Result::failure({core::ErrorCategory::backend_unavailable,"Community catalog block memory unavailable",true});}
-  if(!inflater.get()){log_inflate_complete(memory,d,block_index,"inflater_allocation_failed",0,0,0,false,true,true,started);return Result::failure({core::ErrorCategory::backend_unavailable,"Community catalog inflater memory unavailable",true});}
+  if(!input||!output){log_inflate_complete(memory,d,block_index,"buffer_allocation_failed",0,0,0,false,true,started);return Result::failure({core::ErrorCategory::backend_unavailable,"Community catalog block memory unavailable",true});}
+  if(!inflater.get()){log_inflate_complete(memory,d,block_index,"inflater_allocation_failed",0,0,0,false,true,started);return Result::failure({core::ErrorCategory::backend_unavailable,"Community catalog inflater memory unavailable",true});}
   const bool classes_ok=!memory.requires_strict_classes()||
       (memory.classify(input.data())==CommunityCatalogMemoryClass::external&&
        memory.classify(output.data())==CommunityCatalogMemoryClass::external&&
        memory.classify(inflater.get())==CommunityCatalogMemoryClass::internal);
   const bool guards_before=input.canaries_valid()&&output.canaries_valid();
-  // One address per heap region keeps the integrity check bounded to two region scans.
-  const bool heap_before=memory.check_heap(inflater.get())&&memory.check_heap(input.data());
-  if(!classes_ok||!guards_before||!heap_before){log_inflate_complete(memory,d,block_index,"memory_capability_failed",0,0,0,false,guards_before,heap_before,started);return Result::failure({core::ErrorCategory::backend_unavailable,"Community catalog memory capability check failed",false});}
-  if(!file.read(d.offset,input.data(),d.compressed)){const bool guards=input.canaries_valid()&&output.canaries_valid();const bool heap=memory.check_heap(inflater.get())&&memory.check_heap(input.data());log_inflate_complete(memory,d,block_index,"truncated",0,0,0,false,guards,heap,started);return Result::failure(invalid("Community catalog block truncated"));}
+  // Do not call ESP-IDF heap integrity walkers from this hot path. Physical rc.6
+  // testing showed heap_caps_check_integrity_addr() itself can panic while
+  // inspecting PSRAM-backed allocations before miniz is entered.
+  if(!classes_ok||!guards_before){log_inflate_complete(memory,d,block_index,"memory_capability_failed",0,0,0,false,guards_before,started);return Result::failure({core::ErrorCategory::backend_unavailable,"Community catalog memory capability check failed",false});}
+  if(!file.read(d.offset,input.data(),d.compressed)){const bool guards=input.canaries_valid()&&output.canaries_valid();log_inflate_complete(memory,d,block_index,"truncated",0,0,0,false,guards,started);return Result::failure(invalid("Community catalog block truncated"));}
   tinfl_init(inflater.get());std::size_t input_size=d.compressed,output_size=d.expanded;
   const auto status=tinfl_decompress(inflater.get(),input.data(),&input_size,output.data(),output.data(),&output_size,TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF);
   const bool guards_after=input.canaries_valid()&&output.canaries_valid();
-  const bool heap_after=memory.check_heap(inflater.get())&&memory.check_heap(input.data());
   const bool crc_ok=status==TINFL_STATUS_DONE&&output_size==d.expanded&&crc32(output.data(),d.expanded)==d.crc;
-  const bool valid=status==TINFL_STATUS_DONE&&input_size==d.compressed&&output_size==d.expanded&&crc_ok&&guards_after&&heap_after;
-  log_inflate_complete(memory,d,block_index,valid?"ok":"damaged",static_cast<int>(status),input_size,output_size,crc_ok,guards_after,heap_after,started);
-  if(!valid)return Result::failure(invalid(guards_after&&heap_after?"Community catalog block damaged":"Community catalog inflate memory damaged"));
+  const bool valid=status==TINFL_STATUS_DONE&&input_size==d.compressed&&output_size==d.expanded&&crc_ok&&guards_after;
+  log_inflate_complete(memory,d,block_index,valid?"ok":"damaged",static_cast<int>(status),input_size,output_size,crc_ok,guards_after,started);
+  if(!valid)return Result::failure(invalid(guards_after?"Community catalog block damaged":"Community catalog inflate memory damaged"));
   return Result::success(std::move(output));
 }
 bool take_string(const std::uint8_t*& p,const std::uint8_t* end,std::string& out){if(end-p<2)return false;const auto n=u16(p);p+=2;if(std::size_t(end-p)<n)return false;out.assign(reinterpret_cast<const char*>(p),n);p+=n;return true;}

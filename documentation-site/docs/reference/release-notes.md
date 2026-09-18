@@ -2,6 +2,15 @@
 
 # Changelog
 
+## 1.0.0-rc.7
+
+Remove the ESP-IDF heap integrity walker from the Community decompression hot
+path after WT32 rc.6 hardware testing showed the diagnostic itself could panic
+before miniz was entered. Miniz state remains in internal RAM; compressed and
+expanded blocks remain in PSRAM. Memory-class validation, block bounds,
+canaries, decompressed-size checks, and CRC verification remain in place.
+Regression coverage asserts Community inflate never invokes the heap walker.
+
 ## 1.0.0-rc.6
 
 Fix Community local-search crashes on the ESP32-S3 by keeping miniz inflater
