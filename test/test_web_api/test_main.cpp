@@ -1550,6 +1550,63 @@ void test_writer_requires_specific_authorized_high_level_confirmation() {
   TEST_ASSERT_EQUAL(1,context.submit_calls);
   TEST_ASSERT_EQUAL(static_cast<int>(MutationKind::tag_writer),static_cast<int>(context.last_mutation->kind));
 }
+void test_community_writer_commands_are_strict_and_forwarded_by_router() {
+  FakeContext context; Router router(context);
+  const std::array<const char*, 5U> accepted = {{
+      R"({"action":"community_status"})",
+      R"({"action":"community_search","search":"SUNLU PLA","offset":8})",
+      R"({"action":"community_select","id":"sunlu_pla-black"})",
+      R"({"action":"community_select","id":"sunlu_pla-black","import_name":"SUNLU PLA Black"})",
+      R"({"action":"community_update"})",
+  }};
+  for (const auto* body : accepted) {
+    const auto response = router.handle(
+        mutation_request(Method::post, "/api/v1/tag-writer", body));
+    TEST_ASSERT_EQUAL(202, response.status);
+    TEST_ASSERT_TRUE(context.last_mutation.has_value());
+    TEST_ASSERT_EQUAL(static_cast<int>(MutationKind::tag_writer),
+        static_cast<int>(context.last_mutation->kind));
+    TEST_ASSERT_EQUAL_STRING(body,
+        std::get<opentag::web::api::TagWriterMutation>(
+            context.last_mutation->payload).json.c_str());
+  }
+  TEST_ASSERT_EQUAL(5, context.submit_calls);
+
+  const std::array<const char*, 14U> rejected = {{
+      R"({"action":"community_refresh"})",
+      R"({"action":"community_status","search":"PLA"})",
+      R"({"action":"community_update","offset":0})",
+      R"({"action":"community_search","offset":0})",
+      R"({"action":"community_search","search":"PLA","offset":-1})",
+      R"({"action":"community_search","search":"PLA","offset":1.5})",
+      R"({"action":"community_search","search":"PLA","offset":true})",
+      R"({"action":"community_search","search":"PLA","offset":100001})",
+      R"({"action":"community_search","search":"PLA","offset":0,"entity":"community"})",
+      R"({"action":"community_select"})",
+      R"({"action":"community_select","id":""})",
+      R"({"action":"community_select","id":"sunlu_pla-black","uid":"E00401086627D8D4"})",
+      R"({"action":"community_select","id":"sunlu_pla-black","bytes":[0]})",
+      R"({"action":"community_select","id":"sunlu_pla-black","search":"PLA"})",
+  }};
+  for (const auto* body : rejected) {
+    TEST_ASSERT_EQUAL(400, router.handle(
+        mutation_request(Method::post, "/api/v1/tag-writer", body)).status);
+  }
+  const auto oversized_query = std::string(
+      R"({"action":"community_search","search":")") +
+      std::string(65U, 'q') + R"(","offset":0})";
+  const auto oversized_id = std::string(
+      R"({"action":"community_select","id":")") +
+      std::string(181U, 'i') + R"("})";
+  const auto oversized_name = std::string(
+      R"({"action":"community_select","id":"sunlu_pla-black","import_name":")") +
+      std::string(65U, 'n') + R"("})";
+  for (const auto& body : {oversized_query, oversized_id, oversized_name}) {
+    TEST_ASSERT_EQUAL(400, router.handle(
+        mutation_request(Method::post, "/api/v1/tag-writer", body)).status);
+  }
+  TEST_ASSERT_EQUAL(5, context.submit_calls);
+}
 void test_clear_route_requires_and_forwards_exact_confirmation() {
   FakeContext context; Router router(context);
   for (const auto* body : {R"({"action":"clear"})",
@@ -1578,6 +1635,7 @@ int main(int, char**) {
   RUN_TEST(test_clear_route_requires_and_forwards_exact_confirmation);
   RUN_TEST(test_weight_update_route_requires_only_explicit_measurement_id);
   RUN_TEST(test_writer_requires_specific_authorized_high_level_confirmation);
+  RUN_TEST(test_community_writer_commands_are_strict_and_forwarded_by_router);
   RUN_TEST(test_response_allocation_failure_sends_static_valid_503);
   RUN_TEST(test_spool_confirmation_is_explicit_bounded_and_queued);
   RUN_TEST(

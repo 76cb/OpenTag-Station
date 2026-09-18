@@ -3,7 +3,7 @@
   "browser_captures": 80,
   "touch_layout_fixtures": 38,
   "sources": {
-    "VERSION": "88ea7d36adb579694883db250b37e012ebf9dfcb5938032d92cc5b843a548a11",
+    "VERSION": "716bf12bab16380fee453f79b476edef39c14ebb81334085d08eb88549c8489f",
     "tools/product_review.py": "376adaa8e3c6255ad7bf4e73cc35e53e7f9ccb6acdc8610ee77ccf39a3a6cffd",
     "tools/test_writer_display.py": "929940a2a68f81458649b7e8c9e6939bd486a4a733a0b69fbba5aed53373c5ac",
     "tools/capture_product_review.cjs": "23d6c11b616ac2c271e980410b162d71cf69b72575a452926794bf4838fe22d0",
@@ -18,10 +18,10 @@
     "test/test_touch_flow/fixtures.hpp": "196fe9a0c8eeee7d700b8332ef7786229643ca7f8100568e6b41d26f187c0d03"
   },
   "images": {
-    "docs/images/dashboard.png": "5a991b753b3e0bff3f62f01a94f4682edeacf1e7352618ed1f1654e6b6b3f1bf",
-    "docs/images/weigh.png": "ec3a17ca0c682775fb4739cffbe410172c917b1a4b595c0d6c4cdf55dc6bc5fd",
-    "docs/images/assignment.png": "da1274d0c1c5ad1692c333a7f8d276d8c4dc3884c460ee78c90b7913ca6d5aa9",
-    "docs/images/tag-management.png": "74af62cc86914f1cbaef161acf84dad99e26373b6a975c237ebe6ee7c3fbccf9",
+    "docs/images/dashboard.png": "d98f3452c531d663abd6ff96c76f7e0d788a8532cd9161179e66ab03ae5f014e",
+    "docs/images/weigh.png": "88f596e0012bbc6906f6428368d2fd7e684dd15f5eea33ffb8b5abb107fd2af1",
+    "docs/images/assignment.png": "65a297f5738104761b1150679494d36bfa341c60928b3aa83128b1e85fa46c50",
+    "docs/images/tag-management.png": "5ddc15d5ef97ffaacdcb9b9ecfbc9242f4eb75c7800190d5bad0844d7dbd4cfb",
     "docs/images/wt32-home.png": "96398d9dd4dabdd91b8296b282438a12c487fe45801ff104033da33836e219e0"
   }
 }
