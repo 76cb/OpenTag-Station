@@ -1,3 +1,4 @@
+#include "config/product_features.hpp"
 #pragma once
 #include <array>
 #include <cstdio>
@@ -94,6 +95,7 @@ class TagFlow {
   }
   std::string act(TagAction action) {
     if(waiting)return {};
+    if(!config::community_enabled && (action==TagAction::community || action==TagAction::community_update || action==TagAction::import))return {};
     JsonDocument command(&allocator);
     switch(action) {
       case TagAction::sources:
@@ -197,7 +199,7 @@ inline TagScreen TagFlow::screen() const {
       s.button({8,266,464,46},"DONE",TagAction::home);break;
     case TagPage::sources:
       s.title=from_spool?"Reassign tag":"Assign tag";s.body="How do you want to choose the filament?";
-      action(0,"MY SPOOLS",TagAction::spools);action(1,"MY FILAMENTS",TagAction::filaments);action(2,"COMMUNITY",TagAction::community);back();break;
+      action(0,"MY SPOOLS",TagAction::spools);action(1,"MY FILAMENTS",TagAction::filaments);if(config::community_enabled)action(2,"COMMUNITY",TagAction::community);back();break;
     case TagPage::catalog:
       s.title=entity=="spool"?"My Spools":entity=="filament"?"My Filaments":"Community";
       if(entity=="community"&&catalog_state!="ready") {s.title="Community Catalog";s.body=catalog_state=="damaged"?"Catalog damaged\nRedownload to restore local search.":"Not installed\nDownload once for offline search.";action(1,catalog_state=="damaged"?"REDOWNLOAD CATALOG":"DOWNLOAD CATALOG",TagAction::community_update);back();break;}

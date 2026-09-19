@@ -10,7 +10,7 @@ The station combines four views of one physical spool:
 | FilaBridge | Printer/toolhead mapping and consumption integration | Requests a confirmed assignment and verifies the returned mapping |
 
 Home focuses on the spool currently on the station. Inventory manages your
-Spoolman records and Community imports. Printer shows assignments. Settings groups
+Spoolman records. Printer shows assignments. Settings groups
 integration, station, scale, network, display and advanced controls. The touchscreen
 provides Home, Weigh, Assign, Tag and Settings.
 
@@ -20,6 +20,4 @@ Spoolman does not automatically rewrite the tag, and a successful HTTP response
 alone does not establish a verified physical write or printer assignment.
 
 You need the supported hardware, trusted Wi-Fi, Spoolman for canonical inventory,
-and FilaBridge only if printer assignment is wanted. An installed Community catalog
-works offline; internet is needed only to install or update it. Local operation does not require a station cloud
-account. See [quick start](quick-start.md) for the complete first-spool sequence.
+and FilaBridge only if printer assignment is wanted. Community is disabled for 1.0. Local operation does not require a station cloud account. See [quick start](quick-start.md) for the complete first-spool sequence.

@@ -1,16 +1,10 @@
 # Clear, weigh, and reuse
 
-Spoolman stays canonical. Community search uses the station's installed compact
-catalog; browser and WT32 submit the same backend commands.
+Spoolman stays canonical. Community is disabled for 1.0; browser and WT32 submit the same backend commands.
 
-## Community
+## Community disabled for 1.0
 
-Production browser `connect-src` remains same-origin plus WebSocket. Normal search
-does not fetch upstream data. The existing import contract stays
-`spoolmandb-community/0a39c9b5`. Missing or damaged catalog states offer Download
-or Redownload. A valid catalog remains searchable offline even when an explicit
-update fails. Community hides Browse, changes the search hint, and returns to a
-canonical Spoolman filament after import.
+Community import/search is disabled for 1.0 after physical ESP32-S3 testing demonstrated a miniz inflater-state memory overwrite. The implementation is retained for redesign in 1.1.
 
 ## Clear / Reuse Tag
 

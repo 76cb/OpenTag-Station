@@ -1,4 +1,5 @@
 #include "web/web_assets.hpp"
+#include "config/product_features.hpp"
 
 #include "diagnostics/build_info.hpp"
 
@@ -11,6 +12,7 @@ const char index_html[] = R"HTML(<!doctype html>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="color-scheme" content="dark">
 <meta name="description" content="Your filament workstation">
+<meta name="opentag-community" content=")HTML" OPENTAG_COMMUNITY_VALUE R"HTML(">
 <title>OpenTag Station</title>
 <link rel="stylesheet" href="/assets/app.css?v=)HTML" OPENTAG_GIT_SHA R"HTML(">
 <script defer src="/assets/writer.js"></script>
@@ -62,7 +64,7 @@ const char index_html[] = R"HTML(<!doctype html>
 <div id="spool-empty" class="spool-empty"><div class="spool-art" aria-hidden="true"><div class="spool-flange"><div class="spool-winding"><div class="spool-center"></div></div></div></div><p class="eyebrow">YOUR FILAMENT WORKSTATION</p><h2 id="overview-title">Place a spool</h2><p>Set a tagged spool on the station<br>to identify and weigh it.</p><div class="action-row"><button id="new-tag" class="button primary"><svg class="icon" aria-hidden="true"><use href="#i-tag"/></svg> Write a new tag</button><a class="button" href="#inventory">Browse inventory</a></div></div>
 <div id="current-spool" hidden><div class="workspace-heading"><p class="eyebrow">CURRENT SPOOL</p><span id="current-number" class="muted"></span></div><div class="spool-workspace"><div class="spool-object"><div class="spool-art" aria-hidden="true"><div class="spool-flange"><div class="spool-winding"><div class="spool-center"></div></div></div></div><span id="current-color" class="color-caption">Filament</span></div><div class="spool-information"><p id="current-vendor" class="vendor"></p><h2 id="current-name"></h2><p id="current-material" class="muted"></p><div class="remaining-reading"><span id="current-remaining">—</span><small>g <span>remaining</span></small></div><div id="remaining-summary" hidden><progress id="remaining-meter" max="100" value="0" aria-label="Filament remaining"></progress><span id="remaining-caption"></span></div><div class="spool-status"><span id="current-tag"></span><span id="current-link"></span><span id="current-assignment"></span></div><div class="primary-actions"><button id="home-weigh" class="button primary" disabled><svg class="icon" aria-hidden="true"><use href="#i-scale"/></svg> <span id="home-action-label">Weigh</span></button><button id="spool-assign" class="button"><svg class="icon" aria-hidden="true"><use href="#i-printer"/></svg> Assign</button><button id="spool-manage" class="button"><svg class="icon" aria-hidden="true"><use href="#i-tag"/></svg> Manage tag</button></div><div class="secondary-actions"><button id="spool-edit" class="text-button">Edit spool</button><button id="spool-details" class="text-button">View details</button></div></div></div><div class="workspace-bottom"><div><h3>Weight</h3><p id="dashboard-weight">Weigh this spool to compare it with your inventory.</p><p id="home-weight-state" class="muted"></p></div><div><h3>Ready for your next print</h3><p id="dashboard-printer" class="muted">Choose a toolhead to assign this spool.</p><a href="#printer">View printer →</a></div></div></div>
 </section>
-<section id="inventory" class="section product-page" data-page="inventory" hidden><div class="section-heading"><div><p class="eyebrow">YOUR MATERIAL LIBRARY</p><h2>Inventory</h2><p class="muted">Find your next spool. Make it ready for the station.</p></div><button id="inventory-community" class="button"><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg> Add from Community</button></div><div id="inventory-content"></div></section>
+<section id="inventory" class="section product-page" data-page="inventory" hidden><div class="section-heading"><div><p class="eyebrow">YOUR MATERIAL LIBRARY</p><h2>Inventory</h2><p class="muted">Find your next spool. Make it ready for the station.</p></div><button id="inventory-community" class="button" hidden><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg> Add from Community</button></div><div id="inventory-content"></div></section>
 <dialog id="weigh-dialog" class="modal" aria-labelledby="weigh-title"><article><header class="modal-header"><div><p class="eyebrow">CURRENT SPOOL</p><h2 id="weigh-title">Weigh spool</h2></div><button class="button quiet" data-close="weigh-dialog" aria-label="Close weighing">Close</button></header><div id="scale" class="modal-body scale-page">
 <div class="scale-state-row"><span id="scale-badge" class="badge neutral">Idle</span></div>
 <div class="scale-stage">
@@ -152,7 +154,7 @@ const char index_html[] = R"HTML(<!doctype html>
 <article class="card"><h3>Connectivity</h3><dl class="facts compact"><div><dt>Wi-Fi</dt><dd id="wifi-state">—</dd></div><div><dt>LAN address</dt><dd id="device-address">—</dd></div><div><dt>RSSI</dt><dd id="settings-rssi">—</dd></div></dl><a class="button quiet" href="#configuration">Change Wi-Fi</a></article>
 <article class="card"><div class="card-title-row"><h3>Integrations</h3><button id="test-backends" class="button tiny" type="button">Test</button></div><dl class="facts compact"><div><dt>Spoolman</dt><dd id="spoolman-state">Unknown</dd></div><div><dt>FilaBridge</dt><dd id="filabridge-state">Unknown</dd></div><div><dt>Printer</dt><dd id="settings-selected-printer">Not selected</dd></div></dl><span id="spoolman-version" class="visually-hidden">Version —</span><span id="spoolman-capabilities" class="visually-hidden">Capabilities —</span><span id="filabridge-version" class="visually-hidden">Version —</span><span id="filabridge-capabilities" class="visually-hidden">Capabilities —</span></article>
 <article class="card"><h3>Hardware</h3><dl class="facts compact"><div><dt>Scale</dt><dd id="scale-calibration">Checking</dd></div><div><dt>Profile</dt><dd id="scale-profile">—</dd></div><div><dt>Capacity</dt><dd id="scale-capacity">—</dd></div><div><dt>NFC</dt><dd>OpenPrintTag read / write</dd></div><div><dt>Display</dt><dd>WT32-SC01 Plus</dd></div></dl><details><summary>Scale diagnostics</summary><dl class="facts compact"><div><dt>Raw</dt><dd id="scale-raw">—</dd></div><div><dt>Filtered</dt><dd id="scale-filtered">—</dd></div><div><dt>Zero</dt><dd id="scale-zero">—</dd></div><div><dt>Factor</dt><dd id="scale-factor">—</dd></div><div><dt>Reference</dt><dd id="scale-reference">—</dd></div></dl></details></article>
-<article class="card"><div class="card-title-row"><h3>Community Catalog</h3><button id="community-catalog-update" class="button tiny" type="button">Check for update</button></div><dl class="facts compact"><div><dt>Status</dt><dd id="community-catalog-state">Checking</dd></div><div><dt>Version</dt><dd id="community-catalog-version">—</dd></div><div><dt>Records</dt><dd id="community-catalog-records">—</dd></div><div><dt>Size</dt><dd id="community-catalog-size">—</dd></div><div><dt>Updated</dt><dd id="community-catalog-updated">—</dd></div></dl></article>
+<article id="community-settings" class="card" hidden><div class="card-title-row"><h3>Community Catalog</h3><button id="community-catalog-update" class="button tiny" type="button">Check for update</button></div><dl class="facts compact"><div><dt>Status</dt><dd id="community-catalog-state">Checking</dd></div><div><dt>Version</dt><dd id="community-catalog-version">—</dd></div><div><dt>Records</dt><dd id="community-catalog-records">—</dd></div><div><dt>Size</dt><dd id="community-catalog-size">—</dd></div><div><dt>Updated</dt><dd id="community-catalog-updated">—</dd></div></dl></article>
 <article class="card"><h3>Device</h3><dl class="facts compact"><div><dt>Firmware</dt><dd id="firmware-version">—</dd></div><div><dt>Git SHA</dt><dd id="git-sha" class="mono">—</dd></div><div><dt>Build</dt><dd id="build-date">—</dd></div><div><dt>Hardware</dt><dd id="hardware-id">—</dd></div><div><dt>Uptime</dt><dd id="uptime">—</dd></div><div><dt>Free heap</dt><dd id="heap-free">—</dd></div><div><dt>Free PSRAM</dt><dd id="psram-free">—</dd></div></dl></article>
 </div>
 </section>
@@ -234,7 +236,7 @@ const char index_html[] = R"HTML(<!doctype html>
 <section id="maintenance" class="section product-page settings-detail" data-page="settings" aria-labelledby="maintenance-title" hidden>
 <div class="section-heading"><div><p class="eyebrow">MAINTENANCE</p><h2 id="maintenance-title">Updates and device controls</h2></div></div>
 <div class="card-grid two-column">
-<article class="card update-card"><div class="card-title-row"><h3>Firmware update</h3><span id="update-badge" class="badge neutral">Loading</span></div><p id="update-state" class="large-state">Checking update state</p><p id="update-detail" class="muted">A validated image is written only to the inactive application slot.</p>
+<article class="card update-card"><div class="card-title-row"><h3>Update Existing Station</h3><span id="update-badge" class="badge neutral">Loading</span></div><p class="muted">Application-only OTA preserves settings and calibration, including LittleFS and NVS. Use the normal firmware.bin, never a factory image.</p><p id="update-state" class="large-state">Checking update state</p><p id="update-detail" class="muted">A validated image is written only to the inactive application slot.</p>
 <dl class="facts compact"><div><dt>Current build</dt><dd><span id="update-current-version">—</span> <span id="update-current-sha" class="mono small"></span></dd></div><div><dt>Slots</dt><dd><span id="update-active-slot">—</span> → <span id="update-inactive-slot">—</span></dd></div><div><dt>Candidate</dt><dd id="update-candidate">None</dd></div><div><dt>Validation</dt><dd id="update-validation">Not started</dd></div><div><dt>Rollback</dt><dd id="update-rollback">—</dd></div></dl>
 <label for="firmware-file">WT32-SC01 Plus firmware image (.bin)</label><input id="firmware-file" type="file" accept="application/octet-stream,.bin"><p id="firmware-file-detail" class="hint">Select an image to calculate its SHA-256 in this browser before upload.</p><p id="firmware-sha256" class="mono small">SHA-256 —</p>
 <label for="update-progress">Transfer progress</label><progress id="update-progress" max="100" value="0">0%</progress><p id="update-progress-detail" class="hint">No transfer in progress.</p>
@@ -319,6 +321,7 @@ const SELF_TEST_PATHS = Object.freeze([
 const PRODUCT_PAGES = Object.freeze({home:['overview','spool-resolution'],inventory:['inventory'],printer:['printers'],settings:['settings']});
 const PRODUCT_TITLES = Object.freeze({home:'Dashboard',inventory:'Inventory',printer:'Printer',settings:'Settings'});
 const PRODUCT_EYEBROWS = Object.freeze({home:'IDENTIFY · WEIGH · MAKE',inventory:'YOUR COLLECTION',printer:'READY TO PRINT',settings:'MAKE IT YOURS'});
+window.OpenTagCommunityEnabled=document.querySelector('meta[name="opentag-community"]')?.getAttribute('content')==='1';
 const state = {
 apiToken: '',
 authMode: 'UNKNOWN',
@@ -445,7 +448,7 @@ setText('page-title', PRODUCT_TITLES[selected]);
 setText('page-eyebrow', PRODUCT_EYEBROWS[selected]);
 if (selected !== 'scale' && state.calibrationOpen) setCalibrationPanel(false);
 else syncCalibrationRefresh();
-if (selected === 'settings') {ensureConfigReady();if(window.OpenTagWriter?.writerCommand&&!state.communityStatusLoading){state.communityStatusLoading=true;window.OpenTagWriter.writerCommand({action:'community_status'}).finally(()=>state.communityStatusLoading=false);}}
+if (selected === 'settings') {ensureConfigReady();if(window.OpenTagCommunityEnabled&&window.OpenTagWriter?.writerCommand&&!state.communityStatusLoading){state.communityStatusLoading=true;window.OpenTagWriter.writerCommand({action:'community_status'}).finally(()=>state.communityStatusLoading=false);}}
 if (selected === 'inventory') mountInventory();
 return selected;
 }
@@ -3527,6 +3530,8 @@ function bindProduct() {
   byId('spool-assign').addEventListener('click',openAssignment);
   byId('spool-edit').addEventListener('click',()=>currentSpoolTask(true));
   byId('tag-update').addEventListener('click',()=>currentSpoolTask());
+  byId('inventory-community').hidden=!window.OpenTagCommunityEnabled;
+  byId('community-settings').hidden=!window.OpenTagCommunityEnabled;
   byId('inventory-community').addEventListener('click',async()=>{await window.OpenTagWriter.openModal();setValue('writer-source','community');byId('writer-source').dispatchEvent(new Event('change'));});
   document.querySelectorAll('[data-setting]').forEach(n=>n.addEventListener('click',()=>selectSettings(n.dataset.setting)));
   buildSettings();bindInventoryFilters();renderCurrentSpool();

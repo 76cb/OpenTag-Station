@@ -1,5 +1,7 @@
 # Local Community catalog
 
+> **1.0 status: disabled.** Community import/search is disabled for 1.0 after physical ESP32-S3 testing demonstrated a miniz inflater-state memory overwrite. The implementation is retained for redesign in 1.1. The following is retained development history, not an rc.9 operating procedure.
+
 OpenTag Station 1.0.0-rc.4 compiles the pinned SpoolmanDB-Community JSON snapshot
 into `community/community.pack`. Both the WT32 and browser submit Community commands
 to the backend worker, which searches this local pack. Normal search and detail

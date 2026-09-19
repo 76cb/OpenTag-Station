@@ -1,5 +1,7 @@
 # WT32 local Community catalog acceptance (1.0.0-rc.4)
 
+> **1.0 status: disabled.** Community import/search is disabled for 1.0 after physical ESP32-S3 testing demonstrated a miniz inflater-state memory overwrite. The implementation is retained for redesign in 1.1. The following is retained development history, not an rc.9 operating procedure.
+
 The rc.3 streaming search avoided a watchdog reset but still reached its
 Community-specific 60-second deadline while downloading, inflating, and scanning
 the remote JSON catalog. That physical result prompted the rc.4 local catalog

@@ -20,7 +20,7 @@ the guided inventory picker. No preview performs a write.
 - `src/web/web_assets.cpp`: embedded HTML, existing transport/command handlers,
   and generated presentation regions.
 - `src/web/writer_assets.cpp` / `writer_layout.inc`: the shared inventory and
-  guided writer, including Community import and physical-spool creation.
+  guided writer, including physical-spool creation.
 - `src/ui/product_layout.hpp`: production 480 x 320 geometry, shared with the
   touch review renderer. LVGL uses the existing external widget pool.
 
@@ -40,8 +40,7 @@ Inventory retains eight-record backend pagination. Search, material, vendor,
 and filament filters use the existing catalog request. Color and status refine
 only the displayed page, explicitly labeled **Refine this page**. Selecting a
 vendor browses its filaments; selecting a filament browses its physical spools.
-Community import continues through the verified canonical filament before a
-physical spool is created. The inventory and writer use the same selection and
+Physical spool creation starts from an existing canonical Spoolman filament. Community is disabled for 1.0. The inventory and writer use the same selection and
 edit implementation, so optimistic editing and preview invalidation remain
 consistent.
 

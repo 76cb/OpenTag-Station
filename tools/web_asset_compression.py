@@ -47,7 +47,8 @@ def writer_assets() -> tuple[bytes, bytes]:
     layout = (ROOT / "src/web/writer_layout.inc").read_text(encoding="utf-8")
     layout = layout.split('R"LAYOUT(', 1)[1].split(')LAYOUT"', 1)[0].encode("utf-8")
     # Explicit presentation flash allowances, independent of runtime RAM limits.
-    assert len(logic) <= 24 * 1024, "writer behavior exceeds its independent flash budget"
+    # rc.9 adds recovery controls and source fencing; this is flash, not a RAM/stack allowance.
+    assert len(logic) <= 26 * 1024, "writer behavior exceeds its independent flash budget"
     assert len(layout) <= 12 * 1024, "writer layout exceeds its independent flash budget"
     return logic, layout
 

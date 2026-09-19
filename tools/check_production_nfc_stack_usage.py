@@ -113,20 +113,26 @@ def main():
     # Compressed and expanded 64 KiB buffers and the inflater state live in
     # PSRAM. Model each distinct catalog route and retain 2 KiB for filesystem,
     # JSON and callback leaves beyond the measured project frames.
-    catalog_owner = writer_controller + frame(service, "TagWriterService::community(")
-    catalog = "services/community_catalog"
-    inflate = frame(catalog, "inflate(") + c_frame(
-        "network/miniz/miniz_tinfl", "tinfl_decompress")
-    community_search = catalog_owner + frame(catalog, "CommunityCatalog::search(") + inflate + 2048
-    community_detail = catalog_owner + frame(catalog, "CommunityCatalog::detail(") + inflate + 2048
-    community_status = catalog_owner + frame(catalog, "CommunityCatalog::status(") + frame(catalog, "payload_checksum_valid(") + 2048
-    update = frame("services/community_catalog_updater", "CommunityCatalogUpdater::update(")
-    community_update_http = catalog_owner + update + frame("network/http_transport", "HttpTransport::perform(") + 2048
-    community_update_verify = catalog_owner + update + frame(catalog, "CommunityCatalog::verify(") + inflate + 2048
-    community = max(community_search, community_detail, community_status,
-                    community_update_http, community_update_verify)
+    from product_features import community_enabled
+    community = 0
+    if community_enabled():
+        catalog_owner = writer_controller + frame(service, "TagWriterService::community(")
+        catalog = "services/community_catalog"
+        inflate = frame(catalog, "inflate(") + c_frame(
+            "network/miniz/miniz_tinfl", "tinfl_decompress")
+        community_search = catalog_owner + frame(catalog, "CommunityCatalog::search(") + inflate + 2048
+        community_detail = catalog_owner + frame(catalog, "CommunityCatalog::detail(") + inflate + 2048
+        community_status = catalog_owner + frame(catalog, "CommunityCatalog::status(") + frame(catalog, "payload_checksum_valid(") + 2048
+        update = frame("services/community_catalog_updater", "CommunityCatalogUpdater::update(")
+        community_update_http = catalog_owner + update + frame("network/http_transport", "HttpTransport::perform(") + 2048
+        community_update_verify = catalog_owner + update + frame(catalog, "CommunityCatalog::verify(") + inflate + 2048
+        community = max(community_search, community_detail, community_status,
+                        community_update_http, community_update_verify)
+    else:
+        print("Community disabled: no production catalog stack path")
     worst = max(decoded, transport, backend, persistence, writer_decode, writer_transport, writer_http, writer_storage, clear_decode, clear_transport, clear_http, clear_storage, association_storage, restore_storage, weigh_http, weigh_inventory, community)
-    print(f"Bounded local Community catalog search={community_search}; detail={community_detail}; status={community_status}; update HTTP={community_update_http}; update verify={community_update_verify}; worst reserve={stack-community}")
+    if community_enabled():
+        print(f"Bounded local Community catalog search={community_search}; detail={community_detail}; status={community_status}; update HTTP={community_update_http}; update verify={community_update_verify}; worst reserve={stack-community}")
     print(f"Clear decode={clear_decode}; transport={clear_transport}; HTTP={clear_http}; persistence={clear_storage}; association persistence={association_storage}; restart={restore_storage}; weigh HTTP={weigh_http}; inventory={weigh_inventory}")
     print(f"Approved writer decode={writer_decode}; transport={writer_transport}; HTTP={writer_http}")
     print(f"Shared backend stack={stack}; nested NFC decode={decoded}; NFC transport={transport}; backend HTTP={backend}; confirmation persistence={persistence}; remaining={stack-worst}; required={safety}")

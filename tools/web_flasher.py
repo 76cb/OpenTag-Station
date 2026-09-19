@@ -123,7 +123,9 @@ def validate_page(path: pathlib.Path) -> None:
     required = (
         "OpenTag Station",
         "Browser Firmware Installer",
-        "Install OpenTag Station",
+        "Factory Install / Recovery",
+        "Erases station configuration and calibration",
+        "Update Existing Station",
         "Chrome or Edge",
         "USB connection to a WT32-SC01 Plus",
         'manifest="manifest.json"',

@@ -233,6 +233,8 @@ function bindProduct() {
   byId('spool-assign').addEventListener('click',openAssignment);
   byId('spool-edit').addEventListener('click',()=>currentSpoolTask(true));
   byId('tag-update').addEventListener('click',()=>currentSpoolTask());
+  byId('inventory-community').hidden=!window.OpenTagCommunityEnabled;
+  byId('community-settings').hidden=!window.OpenTagCommunityEnabled;
   byId('inventory-community').addEventListener('click',async()=>{await window.OpenTagWriter.openModal();setValue('writer-source','community');byId('writer-source').dispatchEvent(new Event('change'));});
   document.querySelectorAll('[data-setting]').forEach(n=>n.addEventListener('click',()=>selectSettings(n.dataset.setting)));
   buildSettings();bindInventoryFilters();renderCurrentSpool();

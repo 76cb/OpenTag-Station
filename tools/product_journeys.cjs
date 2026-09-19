@@ -24,6 +24,8 @@ module.exports=async function productJourneys(page,scene,width){
     assert.equal(await page.evaluate(()=>requests.filter(r=>r.action==='write').length),0,'update opens a fresh preview without writing');
   }
   if(scene==='settings'){
+    assert.equal(await visible('community-settings'),false);
+    assert.equal(await page.evaluate(()=>requests.some(r=>r.action.startsWith('community_'))),false);
     assert.equal(await visible('config-spoolman-token'),false);assert.equal(await visible('diagnostics'),false);
     await page.getByText('Edit Spoolman',{exact:true}).click();await page.locator('#config-spoolman-url').fill('http://spoolman.example:7912');
     assert.equal(await page.evaluate(()=>window.__OpenTagTest.state.configDirty),true,'grouped fields preserve dirty tracking');
@@ -57,11 +59,12 @@ module.exports=async function productJourneys(page,scene,width){
     assert.equal(requests[0].expected_current_spool_id,27);assert.equal(requests[0].expected_spool_id,28);assert.equal(requests[0].spool_generation,3);assert.equal(requests[0].printer_revision,7);assert.equal(requests[0].replace_occupied_confirmed,true);
   }
   if(scene==='writer'){
-    await page.locator('[data-writer-source="community"]').click();
-    await page.waitForFunction(()=>window.OpenTagWriter.writerState.snapshot.phase==='community_catalog'&&!window.OpenTagWriter.writerState.busy);
-    await page.locator('#writer-search').fill('Brand PLA');await page.locator('#writer-search-button').click();
-    await page.getByRole('button',{name:/Community PLA/}).click();
-    await page.locator('#writer-import').click();await page.waitForFunction(()=>window.OpenTagWriter.writerState.filament===88&&!window.OpenTagWriter.writerState.busy);
+    assert.equal(await page.locator('[data-writer-source="community"]').count(),0);
+    await page.locator('[data-writer-entity="filament"]').click();
+    await page.waitForFunction(()=>window.OpenTagWriter.writerState.entity==='filament'&&!window.OpenTagWriter.writerState.busy);
+    await page.locator('#writer-results button').first().click();
+    await page.waitForFunction(()=>window.OpenTagWriter.writerState.filament===22&&!window.OpenTagWriter.writerState.busy);
+
     assert.equal(await page.locator('#writer-source').inputValue(),'spoolman');
     await page.locator('#writer-create-submit').click();await page.waitForFunction(()=>window.OpenTagWriter.writerState.spool===29);
     await page.locator('#writer-preview').click();await page.waitForFunction(()=>window.OpenTagWriter.writerState.snapshot.phase==='preview');

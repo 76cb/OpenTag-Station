@@ -60,7 +60,9 @@ def build_web_flasher(source: object, target: object, env: object) -> None:
     if filesystem_root.exists():
         shutil.rmtree(filesystem_root)
     filesystem_root.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(catalog_pack, filesystem_root / "community.pack")
+    from product_features import community_enabled
+    if community_enabled():
+        shutil.copy2(catalog_pack, filesystem_root / "community.pack")
     filesystem_image = build_dir / "community-littlefs.bin"
     filesystem_tool = pathlib.Path(str(build_env.subst("$MKFSTOOL")))
     if not filesystem_tool.is_absolute():
@@ -76,9 +78,11 @@ def build_web_flasher(source: object, target: object, env: object) -> None:
     listing = subprocess.check_output(
         [str(filesystem_tool), "-l", str(filesystem_image)], text=True)
     expected_catalog = f"{catalog_pack.stat().st_size}\t/community.pack\t"
-    if expected_catalog not in listing:
+    if community_enabled() and expected_catalog not in listing:
         raise RuntimeError("Generated LittleFS image does not contain the exact Community catalog")
-    parts.append(FlashPart(name="community-littlefs", offset=0xA10000,
+    if not community_enabled() and "community.pack" in listing:
+        raise RuntimeError("Disabled Community must not be seeded into factory LittleFS")
+    parts.append(FlashPart(name="factory-littlefs", offset=0xA10000,
                            path=filesystem_image))
 
     command, size = build_bundle(

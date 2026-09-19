@@ -1,7 +1,9 @@
 # Production web flasher
 
+**FACTORY INSTALL — Erases station configuration and calibration.** For **Update Existing Station**, use the station browser Update page with the application firmware image. Normal OTA preserves LittleFS and NVS; the USB factory flasher is for new devices/recovery only.
+
 The [installer](https://76cb.github.io/OpenTag-Station/) offers one action:
-**Install OpenTag Station**. It installs the complete production factory image
+**Factory Install / Recovery**. It installs the complete production factory image
 over desktop Chrome/Edge Web Serial for first use or USB recovery. The separate
 [documentation site](https://76cb.github.io/OpenTag-Station-Docs/) is a build/user
 manual, not another firmware installer.

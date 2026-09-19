@@ -16,12 +16,12 @@ operations disable Close, Escape and Back. A resumed active operation offers
 The touchscreen keeps its compact spool/preview/confirmation workflow, with
 44 px action buttons, clearer progress and explicit verified/pending results.
 
-For Clear / Reuse, Community loading and explicit-Weigh inventory updating, see
+For Clear / Reuse and explicit-Weigh inventory updating, see
 [Clear, weigh, and reuse](https://github.com/76cb/OpenTag-Station/blob/main/docs/clear-weigh-workflows.md).
 
 ## Pick inventory
 
-Choose **My Spoolman** or **SpoolmanDB Community**. My Spoolman supports spool,
+Choose **My Spoolman**. My Spoolman supports spool,
 filament and vendor browsing. Each result is a keyboard-operable toggle button
 with a checkmark, contrasting selected border/background, and `aria-pressed`.
 The selected spool ID and product appear on Review after **Continue**. Selection
@@ -36,15 +36,12 @@ creation, but cannot enable tag preview until a physical spool is selected.
 Previous/Next retain the backend's eight-item page size. Page number and range
 use the current page start, not the next offset. Previous is disabled on page 1;
 Next follows `has_more`. A full final page can lead to an empty next page because
-the bounded Spoolman query does not request an inventory-wide count. Community
-uses the same eight-result backend page and `has_more` contract. Refresh keeps the current offset when the search
+the bounded Spoolman query does not request an inventory-wide count. Refresh keeps the current offset when the search
 is unchanged; a changed search starts from the first page.
 
-Community results explicitly say **COMMUNITY — NOT YET IN SPOOLMAN**. Select one
-to review/import it. Only canonical import readback becomes a normal filament
-selection. Create or select its physical spool before previewing a tag. The
-existing Community import contract remains unchanged; lookup comes from the
-station's validated local catalog and needs no Community network request.
+Community import/search is disabled for 1.0 after physical ESP32-S3 testing demonstrated a miniz inflater-state memory overwrite. The implementation is retained for redesign in 1.1.
+
+A failed preview keeps the selected physical spool and reviewed values. **Retry Read** retries that spool and write mode. **Back to Review** preserves the review; **Back to Select** clears the result list and reloads the active Spoolman query.
 
 ## Edit canonical data
 

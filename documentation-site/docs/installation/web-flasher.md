@@ -1,5 +1,7 @@
 # First installation and USB recovery
 
+**FACTORY INSTALL — Erases station configuration and calibration.** New devices or recovery only. For **Update Existing Station**, open the station browser Update page and upload the application firmware image; [normal OTA](ota.md) preserves settings.
+
 Install the complete production factory image or recover an unreachable station over USB.
 
 ## Before you start
@@ -10,7 +12,7 @@ A supported WT32-SC01 Plus, stable power, data-capable USB cable and desktop Chr
 
 1. Open the [OpenTag Station installer](https://76cb.github.io/OpenTag-Station/). Check the manifest version against the intended release. During PR review, main’s installer may still precede the candidate.
 2. Connect the board by USB. Close serial monitors and other programs holding the device.
-3. Choose **Install OpenTag Station**, select the correct USB port, and review the erase choice. A factory/erase recovery can remove configuration and calibration.
+3. Choose **Factory Install / Recovery**, select the correct USB port, and review the erase choice. Factory installation erases station configuration and calibration.
 4. Let flashing and verification finish without disconnecting the board. Use board-manufacturer boot/download instructions if the port does not enter flashing mode automatically.
 5. Reboot into normal OpenTag Station and verify version in About/boot output. Follow [first boot](../getting-started/first-boot.md) if configuration is absent.
 6. Check reader, scale and touch using the normal production firmware. Restore nonsecret configuration and locally re-enter secrets as required.

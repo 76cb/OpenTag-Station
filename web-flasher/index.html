@@ -162,18 +162,22 @@
 <body>
   <main>
     <p class="product">OpenTag Station</p>
-    <h1>Browser Firmware Installer</h1>
+    <h1>Station Firmware</h1>
     <p class="intro">
       Use this page for a first installation or to recover a station over USB.
       After installation, use the station's authenticated local A/B updater for
       normal firmware updates.
     </p>
 
+    <section class="installer">
+      <h2>Update Existing Station</h2>
+      <p>Preserves settings and calibration. Open your station’s browser interface, choose Update, and upload the normal application firmware.bin. The A/B OTA updater writes only the inactive application partition; it preserves LittleFS configuration and NVS.</p>
+    </section>
     <div class="installer">
-      <h2>OpenTag Station</h2>
-      <p>Install or recover the normal OpenTag Station firmware.</p>
+      <h2>Factory Install / Recovery</h2>
+      <p><strong>FACTORY INSTALL — Erases station configuration and calibration.</strong> New devices or recovery only. Back up your configuration before starting.</p>
       <esp-web-install-button manifest="manifest.json">
-        <button slot="activate" type="button">Install OpenTag Station</button>
+        <button slot="activate" type="button">Factory Install / Recovery</button>
         <span slot="unsupported" class="compatibility">
           This installer requires desktop Chrome or Edge with Web Serial support.
         </span>

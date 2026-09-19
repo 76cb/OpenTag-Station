@@ -1,6 +1,6 @@
 # Local OTA updates and rollback
 
-Stage an application update in the inactive slot while preserving the normal configuration path.
+**Update Existing Station** stages only the normal application firmware in the inactive app partition. It preserves LittleFS configuration, NVS, Wi-Fi, Spoolman/FilaBridge and printer settings, and scale calibration. It does not flash the partition table, bootloader, LittleFS image or factory image.
 
 ## Before you start
 

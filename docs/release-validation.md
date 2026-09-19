@@ -11,7 +11,7 @@ constants. Keep one evidence log with firmware SHA, screenshots, operation IDs,
 serial output, checksums, Spoolman IDs and exact FilaBridge readback. An HTTP
 receipt is not evidence of a successful physical write.
 
-1. **Normal boot.** Install the PR production artifact using the existing flasher.
+1. **Normal boot.** Use **Update Existing Station** with the PR application OTA artifact. Factory Install / Recovery erases configuration and calibration and is only for a new device or deliberate recovery.
    Boot with saved configuration; verify healthy backend discovery, scale and NFC,
    no restart loop and zero bus errors. Record the exact firmware commit.
 2. **Browser and touchscreen.** Open Tags in both interfaces. Verify current tag
@@ -29,14 +29,9 @@ receipt is not evidence of a successful physical write.
 5. **Existing Spoolman catalog.** Browse vendors, filaments and spools. Exercise
    search, material filter, more than one page and Search / Refresh. Compare IDs
    with live Spoolman. Opening/browsing must perform no tag writes.
-6. **Community search.** Confirm the catalog reports Ready, disconnect internet
-   while retaining LAN/Spoolman access, then search vendor/product and material.
-   Confirm paging and selection remain local and interactive. Separately test an
-   explicit catalog update and verify failure retains the installed catalog.
-7. **Import one missing filament.** Select a genuinely absent product; inspect
-   source versus proposed vendor/filament and unknown values. Confirm import and
-   verify canonical Spoolman GET/readback IDs. Preview/import the same source again:
-   expect reuse, not duplicate vendor/filament creation.
+6. **Community disabled.** Confirm WT32 and browser have no Community source or update action. All Community API actions must fail closed. Start with an older catalog present and verify normal boot and ordinary spool/tag work make no catalog access or Community network request.
+
+7. **Choose an existing filament.** On WT32, open My Filaments, search, select an existing Spoolman filament, and review its nominal mass and tare. This path must work without opening a browser.
 8. **Create/select the physical spool.** Create a spool from that canonical
    filament, supplying only known initial/used weight, tare, price/location/batch
    or notes. Verify the returned canonical spool ID. Also exercise selection of an

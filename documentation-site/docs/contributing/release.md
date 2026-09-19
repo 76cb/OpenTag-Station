@@ -5,7 +5,7 @@ below are historical checkpoints, not the current candidate’s acceptance recor
 See the release checklist for outstanding physical checks.
 
 
-The candidate is `1.0.0-rc.8`. `VERSION` is authoritative; generated manifests and
+The candidate is `1.0.0-rc.9`. `VERSION` is authoritative; generated manifests and
 documentation metadata must be refreshed from it. A successful build is not
 physical acceptance. Keep the release PR open and unmerged until external signoff.
 
@@ -16,7 +16,7 @@ result and sanitized evidence for every item. All boxes below are **pending**.
 
 - [ ] Browser visual review: all 65 desktop/tablet/mobile captures and real browser flows.
 - [ ] WT32 physical visual, color, clipping and touch review of all five views.
-- [ ] Community catalog update, offline local search, import, and canonical Spoolman result.
+- [ ] No Community action appears on WT32 or browser; Community API requests fail closed.
 - [ ] Approved tag write and complete readback; reject a changed/unsupported tag.
 - [ ] Clear / Reuse and full blank verification, including reserved-tail preservation.
 - [ ] Spoolman UID/instance unlink verification; preserve usage and unrelated fields.
