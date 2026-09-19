@@ -15,6 +15,7 @@ TOOLS_DIR = PROJECT_DIR / "tools"
 sys.path.insert(0, str(TOOLS_DIR))
 
 from web_flasher import FlashPart, build_bundle, flash_size_bytes  # noqa: E402
+from product_features import community_enabled  # noqa: E402
 
 
 def git_short_sha() -> str:
@@ -60,7 +61,6 @@ def build_web_flasher(source: object, target: object, env: object) -> None:
     if filesystem_root.exists():
         shutil.rmtree(filesystem_root)
     filesystem_root.mkdir(parents=True, exist_ok=True)
-    from product_features import community_enabled
     if community_enabled():
         shutil.copy2(catalog_pack, filesystem_root / "community.pack")
     filesystem_image = build_dir / "community-littlefs.bin"
