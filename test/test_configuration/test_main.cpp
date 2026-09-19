@@ -598,6 +598,31 @@ void test_noncredential_import_preserves_current_secrets_and_network() {
       "existing-local-api-token", result.web.access_token.c_str());
 }
 
+void test_backup_restores_core_station_settings_without_network_secrets() {
+  MemoryDocumentStore source, destination; LegacyScaleStore legacy, restored_legacy;
+  ConfigurationService station(source,legacy), restored(destination,restored_legacy);
+  TEST_ASSERT_TRUE(station.initialize().ok());TEST_ASSERT_TRUE(restored.initialize().ok());
+  auto settings=station.snapshot();
+  settings.spoolman.url="http://spoolman.example:7912";
+  settings.spoolman.identity_field="opentag_instance_uuid";settings.spoolman.nfc_uid_field="nfc_uid";
+  settings.filabridge.url="http://filabridge.example:5000";settings.filabridge.selected_printer_id="prusa-xl";
+  settings.scale_calibration=valid_scale(settings.scale_hardware.rated_capacity_grams);
+  for(int i=0;i<5;i++)settings.toolheads.push_back({i,"T"+std::to_string(i+1),0.6F,true,"Hardened",300U,"Prusa XL"});
+  opentag::domain::ConfirmedSpoolMapping mapping;mapping.spool_id=28;mapping.nfc_uid="E004010203040506";mapping.instance_uuid="00112233-4455-6677-8899-aabbccddeeff";
+  settings.spool_identity_mappings.push_back(mapping);
+  TEST_ASSERT_TRUE(station.replace(settings).ok());
+  const auto backup=station.export_json(false);TEST_ASSERT_TRUE(backup.ok());
+  TEST_ASSERT_TRUE(restored.import_json(backup.value(),false).ok());
+  ConfigurationService rebooted(destination,restored_legacy);TEST_ASSERT_TRUE(rebooted.initialize().ok());const auto actual=rebooted.snapshot();
+  TEST_ASSERT_EQUAL_STRING(settings.spoolman.url.c_str(),actual.spoolman.url.c_str());
+  TEST_ASSERT_EQUAL_STRING("opentag_instance_uuid",actual.spoolman.identity_field.c_str());TEST_ASSERT_EQUAL_STRING("nfc_uid",actual.spoolman.nfc_uid_field.c_str());
+  TEST_ASSERT_EQUAL_STRING(settings.filabridge.url.c_str(),actual.filabridge.url.c_str());TEST_ASSERT_EQUAL_STRING("prusa-xl",actual.filabridge.selected_printer_id.c_str());
+  TEST_ASSERT_TRUE(actual.scale_calibration.has_value());TEST_ASSERT_EQUAL_FLOAT(-42.5,actual.scale_calibration->counts_per_gram);
+  TEST_ASSERT_EQUAL(5,actual.toolheads.size());for(int i=0;i<5;i++){TEST_ASSERT_EQUAL(i,actual.toolheads[i].backend_id);TEST_ASSERT_EQUAL_STRING(("T"+std::to_string(i+1)).c_str(),actual.toolheads[i].display_name.c_str());TEST_ASSERT_EQUAL_STRING("Prusa XL",actual.toolheads[i].notes.c_str());}
+  TEST_ASSERT_EQUAL(1,actual.spool_identity_mappings.size());TEST_ASSERT_EQUAL(28,actual.spool_identity_mappings[0].spool_id);
+  TEST_ASSERT_EQUAL_STRING("E004010203040506",actual.spool_identity_mappings[0].nfc_uid->c_str());
+}
+
 void test_failed_save_does_not_replace_live_configuration() {
   MemoryDocumentStore documents;
   LegacyScaleStore legacy;
@@ -1067,6 +1092,7 @@ int main(int, char**) {
   RUN_TEST(test_invalid_import_is_transactional_and_wrong_hardware_is_rejected);
   RUN_TEST(test_default_export_redacts_all_credentials_and_ssid);
   RUN_TEST(test_noncredential_import_preserves_current_secrets_and_network);
+  RUN_TEST(test_backup_restores_core_station_settings_without_network_secrets);
   RUN_TEST(test_failed_save_does_not_replace_live_configuration);
   RUN_TEST(test_revision_is_consistent_and_advances_once_per_successful_commit);
   RUN_TEST(test_conditional_replace_rejects_stale_revision_transactionally);

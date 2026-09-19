@@ -15,7 +15,7 @@ class ReleasePackagingTests(unittest.TestCase):
         root = Path(__file__).resolve().parents[1]
         import re
         environments = re.findall(r'^\[env:([^\]]+)\]', (root / 'platformio.ini').read_text(), re.M)
-        self.assertEqual(environments, ['wt32-sc01-plus', 'native', 'native-writer-sanitized'])
+        self.assertEqual(environments, ['wt32-sc01-plus', 'native', 'native-writer-sanitized', 'native-community'])
         production = (root / 'platformio.ini').read_text()
         self.assertIn('board_build.filesystem = littlefs', production)
         self.assertIn('platformio/tool-mklittlefs@1.203.210628', production)

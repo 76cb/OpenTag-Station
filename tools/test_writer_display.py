@@ -43,8 +43,9 @@ if(body.action==='community_search')result={phase:'community',items:[communityRo
 if(body.action==='community_update')result={phase:'community_catalog',catalog_state:'ready',catalog_version:'2026-09-18',catalog_records:53424,catalog_size:2430373,message:'Community catalog ready'};
 if(body.action==='community_select')result={phase:'import_preview',import_token:'fixture-import',vendor_name:'Brand',proposed_filament:communityRow};
 if(body.action==='import')result={phase:'imported',filament:{...communityRow,id:88,vendor:{id:5,name:'Brand'}}};
+if(body.action==='catalog'&&body.entity==='filament')result={phase:'catalog',entity:'filament',items:[structuredClone(spool.filament)],offset:0,has_more:false};
 if(body.action==='catalog'&&body.filament_id===88)result={phase:'catalog',entity:'spool',items:[],offset:0,has_more:false};
-if(body.action==='create_spool'){Object.assign(spool,body.spool,{id:29,filament:{...communityRow,id:88,vendor:{id:5,name:'Brand'}}});result={phase:'spool_selected',spool:structuredClone(spool)};}
+if(body.action==='create_spool'){Object.assign(spool,body.spool,{id:29,filament:structuredClone(spool.filament)});result={phase:'spool_selected',spool:structuredClone(spool)};}
 if(body.action==='update_filament'){Object.assign(spool.filament,body.changes);result={phase:'updated',spool:structuredClone(spool),filament:structuredClone(spool.filament),message:'Saved and verified in Spoolman.'};}
 if(body.action==='update_spool'){Object.assign(spool,body.changes);spool.remaining_weight=Math.max(0,spool.initial_weight-spool.used_weight);result={phase:'updated',spool:structuredClone(spool),message:'Saved and verified in Spoolman.'};}
 if(body.action==='clear_preview')result={phase:'clear_preview',mode:'clear',uid:preview.uid,generation:'3',current_checksum:'AA',target_checksum:'BB',material_name:spool.filament.name,changed_blocks:[0,1,2]};
@@ -89,12 +90,19 @@ check(T.writerState.snapshot.phase==='association_pending','pending link');check
 id('writer-done').click();check(!dialog.open,'Done closes');check(document.activeElement===id('writer-open'),'focus restored');check(id('manage-dialog').open,'returns to tag management');id('manage-dialog').close();document.body.classList.remove('modal-open');
 await T.openModal();await settle();dialog.dispatchEvent(new Event('cancel',{cancelable:true}));check(!dialog.open,'idle Escape closes');
 await T.openModal();await settle();id('writer-search').value='none';await T.writerSearch(false);check(id('writer-results').textContent.includes('No matching spools'),'empty state');
-for(const phase of ['idle','failed','preview','import_preview','association_pending','complete']){T.writerState.invalidated=false;T.renderWriter({...preview,phase});for(const [name,active] of [['confirm','preview'],['import','import_preview'],['retry','association_pending']]){const node=id('writer-'+name);node.hidden=false;check((getComputedStyle(node).display!=='none')===(phase===active),'CSS action visibility '+name+' '+phase);}}
+for(const phase of ['idle','failed','preview','association_pending','complete']){T.writerState.invalidated=false;T.renderWriter({...preview,phase});for(const [name,active] of [['confirm','preview'],['import','import_preview'],['retry','association_pending']]){const node=id('writer-'+name);node.hidden=false;check((getComputedStyle(node).display!=='none')===(phase===active),'CSS action visibility '+name+' '+phase);}}
 T.renderWriter({phase:'failed',message:'Tag moved. Place the same tag back on the reader.'});check(id('writer-progress').textContent.includes('Tag moved'),'failure visible in workflow');check(shown('writer-back'),'safe recovery navigation');T.closeModal();
 
-// Exercise the shared station-local Community backend.
-T.writerState.snapshot={phase:'idle'};T.writerState.step=1;await T.openModal();id('writer-search').value='';id('writer-source').value='community';await T.writerSearch(false);check(id('writer-progress').textContent.includes('Ready for offline search'),'Community local status');check(!shown('writer-browse'),'Community hides Spools browse');id('writer-search').value='Brand PLA';await T.writerSearch(false);check(id('writer-range').textContent.includes('Showing 1–1'),'Community backend count');check(id('writer-results').textContent.includes('Community PLA'),'Community local result');check(requests.some(r=>r.action==='community_search'&&r.search==='Brand PLA'),'Community station command');
-id('writer-source').value='spoolman';id('writer-source').dispatchEvent(new Event('change'));await settle();check(shown('writer-browse'),'Spoolman browse restored');T.closeModal();
+// Production sources and failed-read recovery at every real viewport width.
+T.writerState.snapshot={phase:'idle'};T.writerState.step=1;await T.openModal();
+check(!document.querySelector('[data-writer-source="community"]'),'disabled source absent');
+check(!document.querySelector('#writer-source option[value="community"]'),'disabled source option absent');
+check(!requests.some(r=>r.action.startsWith('community_')),'no automatic catalog requests');
+T.selected(spool,spool.filament);T.writerState.step=2;T.writerState.lastAction='preview';T.writerState.previewRequest={action:'preview',spool_id:28,mode:'rewrite'};
+T.renderWriter({phase:'reading'});T.renderWriter({phase:'failed',message:'Place exactly one stable NFC-V tag'});
+check(T.writerState.spool===28,'failed preview retains spool');check(shown('writer-retry-read'),'failed preview offers Retry Read');check(!shown('writer-activity'),'failure clears busy');
+id('writer-back').click();check(T.writerState.step===2&&T.writerState.spool===28,'Back to Review retains spool');
+id('writer-back').click();await settle();check(T.writerState.step===1,'Back to Select');check(id('writer-source').value==='spoolman','active source retained');check(!id('writer-results').textContent.includes('Community'),'no stale source text');T.closeModal();
 const policy=document.querySelector('meta[http-equiv="Content-Security-Policy"]').content,connect=policy.match(/connect-src ([^;]+)/)[1];check(!connect.includes('github.io')&&!connect.includes('*')&&!connect.split(' ').includes('https:'),'Community CSP remains station local');
 const violations=[];document.addEventListener('securitypolicyviolation',e=>violations.push(e.blockedURI));await window.cspFetch('https://unrelated.invalid/opentag-fixture').catch(()=>{});await new Promise(r=>setTimeout(r,25));check(violations.some(v=>v.includes('unrelated.invalid')),'real CSP denies unrelated fetch');
 A.activateProductPage('scale');A.renderWeighSync(weighResult);check(id('weigh-policy').textContent.includes('OFF'),'manual policy');check(!id('weigh-update').disabled,'manual weight update offered');check(id('weigh-measured').textContent.includes('712'),'gross minus tare calculation');await A.updateWeighedSpool();check(requests.at(-1).measurement_id===8,'manual update bound to explicit measurement');check(id('weigh-message').textContent.includes('updated and verified'),'manual update result');A.renderWeighSync({...weighResult,policy_auto:true,automatic:true,phase:'ready',can_update:true});check(id('weigh-policy').textContent.includes('ON'),'auto policy');check(id('weigh-update').hidden,'auto ready does not offer duplicate update');A.renderWeighSync({...weighResult,phase:'conflict',can_update:false,message:'Spoolman usage changed. No inventory value was overwritten.'});check(id('weigh-update').disabled&&id('weigh-message').textContent.includes('No inventory'),'weight concurrency conflict');
@@ -140,6 +148,8 @@ def fixture(page):
     policy = ''.join(re.findall(r'"([^"]*)"', policy))
     html = (root / 'src/web/web_assets.cpp').read_text().split('R"HTML(',1)[1].split(')HTML";',1)[0]
     html = html.replace(')HTML" OPENTAG_GIT_SHA R"HTML(', 'fixture')
+    from product_features import community_enabled
+    html = html.replace(')HTML" OPENTAG_COMMUNITY_VALUE R"HTML(', str(int(community_enabled())))
     html = re.sub(r'<script.*?</script>', '', html)
     html = re.sub(r'<link rel="stylesheet".*?>', '<link rel="stylesheet" href="writer-fixture.css">', html)
     html = html.replace('<meta charset="utf-8">', '<meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="'+policy+'">')

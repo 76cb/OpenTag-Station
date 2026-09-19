@@ -21,3 +21,5 @@ The validated document is applied as a coherent revision. Noncredential imports 
 ## If it fails
 
 A stale edit must reload the current revision. A calibration from a different capacity is invalid. Do not assume a redacted export can provision all secrets after an erase; see the [configuration reference](../reference/configuration.md) for exact persistence and migration behavior.
+
+The backup includes Spoolman URL, `opentag_instance_uuid` and `nfc_uid` field settings, FilaBridge URL and selected printer ID, T1–T5 profiles (backend IDs 0–4), confirmed spool identity mappings, and calibration. Live printer tool assignments remain authoritative in FilaBridge. Normal exports omit Wi-Fi SSID/password, backend tokens/custom CAs and API tokens. A noncredential restore preserves the destination network and secrets; after a factory erase, configure Wi-Fi and secrets again.

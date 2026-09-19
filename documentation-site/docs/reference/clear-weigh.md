@@ -5,16 +5,7 @@ below are historical checkpoints, not the current candidate’s acceptance recor
 See the release checklist for outstanding physical checks.
 
 
-Spoolman stays canonical. Community search and selection use the station's local,
-block-compressed catalog; the browser and WT32 share that backend service.
-
-## Community
-
-Normal browser Community traffic is same-origin. Catalog updates use the pinned
-OpenTag manifest and pack URLs on the backend task with TLS verification. Size,
-SHA-256, format, block, and record coverage checks complete before atomic install.
-The existing import contract stays `spoolmandb-community/0a39c9b5`. Community hides
-Browse, changes the search hint, and returns to a canonical Spoolman filament after import.
+Spoolman stays canonical. Community is disabled for 1.0; no Community search/import/update workflow is offered. Its implementation is retained for redesign in 1.1.
 
 ## Clear / Reuse Tag
 

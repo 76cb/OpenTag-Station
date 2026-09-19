@@ -1,5 +1,7 @@
 # Production OpenPrintTag writer
 
+> **1.0 scope:** Community import/search/update is disabled after physical ESP32-S3 inflater-state memory overwrite. Community internals below are retained development reference for 1.1; My Spools/My Filaments and the guarded writer remain the production workflow.
+
 The Tags page supports Spoolman browsing, Community import, spool creation,
 initialize/rewrite preview, explicit physical confirmation, consumed-weight
 updates, and retryable identity association. Nothing writes in response to a

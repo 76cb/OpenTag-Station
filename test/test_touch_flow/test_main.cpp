@@ -1,3 +1,4 @@
+#include "config/product_features.hpp"
 #include <unity.h>
 #include "ui/tag_flow.hpp"
 #include "ui/touch_input.hpp"
@@ -64,6 +65,7 @@ void filament_and_community_create() {
   TagFlow f;f.act(TagAction::filaments);receive(f,R"({"phase":"catalog","items":[{"id":12,"weight":1000,"spool_weight":130,"name":"PLA"}]})");f.act(TagAction::row0);f.act(TagAction::use);
   TEST_ASSERT_TRUE(f.page==TagPage::create);TEST_ASSERT_EQUAL_FLOAT(130,f.tare);
   auto c=command(f.act(TagAction::create));TEST_ASSERT_EQUAL(12,c["spool"]["filament_id"].as<int>());
+  if(!opentag::config::community_enabled){f.waiting=false;f.page=TagPage::sources;TEST_ASSERT_FALSE(has(f.screen(),TagAction::community));TEST_ASSERT_TRUE(f.act(TagAction::community).empty());TEST_ASSERT_TRUE(f.act(TagAction::community_update).empty());return;}
   c=command(f.act(TagAction::community));TEST_ASSERT_EQUAL_STRING("community_status",c["action"]);
   receive(f,R"({"phase":"community_catalog","catalog_state":"ready","catalog_version":"2026-09-18"})");
   f.query="SUNLU PLA";c=command(f.browse());TEST_ASSERT_EQUAL_STRING("community_search",c["action"]);
@@ -115,6 +117,7 @@ void gzip_explicit_completion_and_error() {
   }
 }
 void community_catalog_status_download_and_retry() {
+  if(!opentag::config::community_enabled)return;
   network::OperationBudget normal,catalog;normal.begin(100);catalog.begin_catalog_update(100);
   TEST_ASSERT_TRUE(normal.expired(20100));TEST_ASSERT_FALSE(catalog.expired(20100));
   TEST_ASSERT_TRUE(catalog.expired(120100));
@@ -157,4 +160,4 @@ void production_sink_full_gzip_integrity() {
 
 }
 void setUp() {} void tearDown() {}
-int main() {UNITY_BEGIN();RUN_TEST(lifecycle);RUN_TEST(sensible_actions);RUN_TEST(bounded_paging_and_selection);RUN_TEST(reassign_review);RUN_TEST(exact_confirmation);RUN_TEST(clear_retry_to_immediate_assign);RUN_TEST(filament_and_community_create);RUN_TEST(stale_operation_rejected);RUN_TEST(keyboard_geometry);RUN_TEST(keyboard_value_and_validation);RUN_TEST(gzip_chunked_integrity_and_limits);RUN_TEST(gzip_explicit_completion_and_error);RUN_TEST(community_catalog_status_download_and_retry);RUN_TEST(production_sink_closes_on_disposition);RUN_TEST(production_sink_full_gzip_integrity);export_touch_fixtures();return UNITY_END();}
+int main() {UNITY_BEGIN();RUN_TEST(lifecycle);RUN_TEST(sensible_actions);RUN_TEST(bounded_paging_and_selection);RUN_TEST(reassign_review);RUN_TEST(exact_confirmation);RUN_TEST(clear_retry_to_immediate_assign);RUN_TEST(filament_and_community_create);RUN_TEST(stale_operation_rejected);RUN_TEST(keyboard_geometry);RUN_TEST(keyboard_value_and_validation);RUN_TEST(gzip_chunked_integrity_and_limits);RUN_TEST(gzip_explicit_completion_and_error);RUN_TEST(community_catalog_status_download_and_retry);RUN_TEST(production_sink_closes_on_disposition);RUN_TEST(production_sink_full_gzip_integrity);if(!opentag::config::community_enabled)export_touch_fixtures();return UNITY_END();}

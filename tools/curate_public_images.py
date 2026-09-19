@@ -7,7 +7,7 @@ from pathlib import Path
 from check_public_privacy import scan
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCES = ['VERSION', 'tools/product_review.py', 'tools/test_writer_display.py',
+SOURCES = ['VERSION', 'src/config/product_features.hpp', 'tools/product_features.py', 'tools/product_journeys.cjs', 'tools/product_review.py', 'tools/test_writer_display.py',
            'tools/capture_product_review.cjs', 'tools/render_touch_review.py',
            'tools/check_public_privacy.py', 'src/web/web_assets.cpp',
            'src/web/writer_assets.cpp', 'src/web/writer_layout.inc', 'src/ui/product_layout.hpp', 'src/ui/tag_flow.hpp', 'src/ui/touch_input.hpp', 'test/test_touch_flow/fixtures.hpp']

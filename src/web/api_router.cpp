@@ -1,3 +1,4 @@
+#include "config/product_features.hpp"
 #include "web/api_router.hpp"
 #include "network/backend_json.hpp"
 
@@ -920,6 +921,8 @@ core::Result<Mutation> parse_mutation(
   mutation.idempotency_key = idempotency_key;
   if (request.path == "/api/v1/tag-writer") {
     const std::string action = object["action"] | "";
+    if (!config::community_enabled && (action.compare(0, 10, "community_") == 0 || action == "import_preview" || action == "import"))
+      return core::Result<Mutation>::failure({core::ErrorCategory::backend_unavailable, "Community is disabled for 1.0", false});
     if (action != "catalog" && action != "import_preview" && action != "import" && action != "create_spool" &&
         action != "clear_preview" && action != "clear" && action != "retry_unlink" &&
         action != "preview" && action != "write" && action != "retry_association" && action != "update_spool" && action != "update_filament" &&

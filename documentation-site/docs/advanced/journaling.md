@@ -1,5 +1,7 @@
 # Writer journaling
 
+> **1.0 scope:** Community import/search/update is disabled after physical ESP32-S3 inflater-state memory overwrite. Community internals below are retained development reference for 1.1; My Spools/My Filaments and the guarded writer remain the production workflow.
+
 This technical reference describes implementation contracts. Dated test figures
 below are historical checkpoints, not the current candidate’s acceptance record.
 See the release checklist for outstanding physical checks.

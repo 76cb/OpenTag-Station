@@ -1,3 +1,4 @@
+#include "config/product_features.hpp"
 #include "nfc/formats/openprinttag/initializer.hpp"
 #include "nfc/writer_journal_codec.hpp"
 #include "services/tag_writer_service.hpp"
@@ -540,6 +541,15 @@ struct ServiceFixture {
     return service.process(c.as<JsonObjectConst>());
   }
 };
+void production_community_disabled() {
+  if(opentag::config::community_enabled)return;
+  ServiceFixture f;
+  for(const auto* command : {R"({"action":"community_status"})",R"({"action":"community_search","search":"must not execute","offset":0})",R"({"action":"community_select","id":"must not execute"})",R"({"action":"community_update"})",R"({"action":"import_preview"})",R"({"action":"import"})"}) {
+    const auto result=f.run(command);TEST_ASSERT_FALSE(result.ok());
+    TEST_ASSERT_NOT_EQUAL(std::string::npos,result.error().message.find("disabled"));
+  }
+  TEST_ASSERT_TRUE(f.http.urls.empty());TEST_ASSERT_EQUAL(0,f.reader.writes);
+}
 void canonical_association_readback() {
   ServiceFixture f;
   TEST_ASSERT_TRUE(f.run(R"({"action":"preview","spool_id":12})").ok());
@@ -2038,12 +2048,14 @@ int main() {
   RUN_TEST(real_zero_preserved);
   RUN_TEST(uuid_validation);
   RUN_TEST(repeated_plans_release_workspace);
+  RUN_TEST(production_community_disabled);
   RUN_TEST(canonical_association_readback);
   RUN_TEST(association_pending_retry_without_write);
   RUN_TEST(duplicate_uuid_refuses_before_write);
   RUN_TEST(confirmation_mismatch_refuses);
   RUN_TEST(catalog_pagination_and_search);
   RUN_TEST(catalog_malformed_and_timeout);
+#if OPENTAG_ENABLE_COMMUNITY
   RUN_TEST(community_contract_drift_rejected);
   RUN_TEST(community_missing_required_rejected);
   RUN_TEST(community_success_and_canonical_readback);
@@ -2053,6 +2065,7 @@ int main() {
   RUN_TEST(community_filament_failure);
   RUN_TEST(community_canonical_failure);
   RUN_TEST(community_oversized_and_unknown_fields);
+#endif
   RUN_TEST(same_spool_identity_retained);
   RUN_TEST(preview_psram_failure_has_no_write);
   RUN_TEST(repeated_catalog_releases_parser);

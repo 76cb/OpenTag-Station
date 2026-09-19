@@ -1,3 +1,4 @@
+#include "config/product_features.hpp"
 #include "services/tag_writer_service.hpp"
 #include "nfc/formats/openprinttag/material_json.hpp"
 #include "nfc/protocols/nfcv/read_protocol.hpp"
@@ -1325,6 +1326,8 @@ TagWriterService::commit_write(JsonObjectConst c) {
 Result TagWriterService::process(JsonObjectConst c) {
   operation_id_=c["_operation_id"]|std::uint64_t{0};
   const std::string action = c["action"] | "";
+  if (!config::community_enabled && (action.compare(0, 10, "community_") == 0 || action == "import_preview" || action == "import"))
+    return fail("Community is disabled for 1.0");
   if (!restore_ready())
     return fail("Writer recovery unavailable; see status before continuing");
   if (clear_recovery_required_ && action != "clear_preview" &&
@@ -1351,15 +1354,19 @@ Result TagWriterService::process(JsonObjectConst c) {
     result = commit_clear(c);
   else if (action == "retry_unlink")
     result = unlink();
+#if OPENTAG_ENABLE_COMMUNITY
   else if (action == "community_search" || action == "community_select" ||
            action == "community_status" || action == "community_update")
     result = community(c);
+#endif
   else if (action == "catalog")
     result = catalog(c);
+#if OPENTAG_ENABLE_COMMUNITY
   else if (action == "import_preview")
     result = import_preview(c);
   else if (action == "import")
     result = import_commit(c);
+#endif
   else if (action == "create_spool")
     result = create_spool(c);
   else if (action == "preview")

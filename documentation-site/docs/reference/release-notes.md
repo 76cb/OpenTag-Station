@@ -2,6 +2,15 @@
 
 # Changelog
 
+## 1.0.0-rc.9
+
+Community import/search is disabled for 1.0 after physical ESP32-S3 testing demonstrated a miniz inflater-state memory overwrite. The implementation is retained for redesign in 1.1.
+
+- My Spools and My Filaments remain available on WT32 and in the optional browser. Production rejects Community API/import actions and installs no catalog callbacks; no startup download, verify, inflate, or catalog access runs.
+- Failed browser NFC preview retains the reviewed physical spool. Retry Read uses the same spool and mode; Back to Review preserves values; Back to Select reloads the current source and clears stale rows. Busy state ends on completion or failure.
+- Update Existing Station uses application-only A/B OTA, preserving LittleFS configuration, NVS, scale calibration and service/printer settings. Factory Install / Recovery explicitly erases configuration and calibration. Disabled Community is not seeded into factory LittleFS.
+- Final physical acceptance of the core workflow is still required. Community is postponed, not fixed.
+
 ## 1.0.0-rc.8
 
 Harden Community decompression after WT32 rc.7 hardware testing showed the
@@ -73,7 +82,7 @@ Community-specific timeout guidance and Retry. Hardware acceptance is pending.
 No final 1.0.0 release or tag has been published by this change.
 
 - Current-spool dashboard, responsive inventory, explicit Weigh, printer assignment,
-  tag management, Community import, and organized settings in the browser.
+  tag management and organized settings in the browser.
 - Five touch views for the WT32-SC01 Plus, with large actions and shared spool state.
 - Guarded NXP ICODE SLIX2 OpenPrintTag writing, readback, recovery journaling,
   Clear / Reuse, and verified Spoolman identity cleanup.

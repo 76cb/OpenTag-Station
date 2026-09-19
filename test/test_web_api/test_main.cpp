@@ -1,3 +1,4 @@
+#include "config/product_features.hpp"
 #include <unity.h>
 
 #include <ArduinoJson.h>
@@ -1552,6 +1553,16 @@ void test_writer_requires_specific_authorized_high_level_confirmation() {
 }
 void test_community_writer_commands_are_strict_and_forwarded_by_router() {
   FakeContext context; Router router(context);
+  if (!opentag::config::community_enabled) {
+    for (const auto* action : {"community_status", "community_search", "community_select", "community_update", "import_preview", "import"}) {
+      const auto body=std::string("{\"action\":\"")+action+"\"}";
+      const auto response=router.handle(mutation_request(Method::post,"/api/v1/tag-writer",body));
+      TEST_ASSERT_EQUAL(503,response.status);
+      TEST_ASSERT_NOT_EQUAL(std::string::npos,std::string(response.body.data(),response.body.size()).find("disabled"));
+    }
+    TEST_ASSERT_EQUAL(0,context.submit_calls);
+    return;
+  }
   const std::array<const char*, 5U> accepted = {{
       R"({"action":"community_status"})",
       R"({"action":"community_search","search":"SUNLU PLA","offset":8})",
