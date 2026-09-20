@@ -14,12 +14,20 @@ enum class TagPage { tag, sources, catalog, selected, create, created, move,
 enum class TagAction { none, home, back, sources, spools, filaments, community,
   row0,row1,row2,previous,next,search,use,write,update,clear,retry,import,community_update,
   create,initial,remaining,tare,weigh,printer,name };
-struct TagButton { layout::Box box{}; std::string text; TagAction action{TagAction::none}; bool enabled{true}; };
+enum class TagButtonTone { secondary, primary, navigation, danger };
+struct TagButton {
+  layout::Box box{};
+  std::string text;
+  TagAction action{TagAction::none};
+  bool enabled{true};
+  TagButtonTone tone{TagButtonTone::secondary};
+};
 struct TagScreen {
   std::string title,body;
   std::array<TagButton,8> buttons{}; std::size_t count{0};
-  void button(layout::Box box,std::string text,TagAction action,bool enabled=true) {
-    buttons[count++]={box,std::move(text),action,enabled};
+  void button(layout::Box box,std::string text,TagAction action,bool enabled=true,
+              TagButtonTone tone=TagButtonTone::secondary) {
+    buttons[count++]={box,std::move(text),action,enabled,tone};
   }
 };
 inline layout::Box tag_body_box(const TagScreen& screen) {
@@ -179,9 +187,11 @@ inline std::string filament_name(JsonVariantConst item) {
 }
 inline TagScreen TagFlow::screen() const {
   TagScreen s; s.title="Manage tag";
-  const auto action=[&](int n,const char* label,TagAction a){s.button({16,static_cast<std::int16_t>(112+n*50),448,44},label,a);};
-  const auto back=[&]{s.button({8,266,140,46},"BACK",TagAction::back);};
-  const auto primary=[&](const char* text,TagAction a){s.button({156,266,316,46},text,a);};
+  const auto action=[&](int n,const char* label,TagAction a,TagButtonTone tone=TagButtonTone::secondary){
+    s.button({16,static_cast<std::int16_t>(112+n*50),448,44},label,a,true,tone);
+  };
+  const auto back=[&]{s.button({8,266,140,46},"BACK",TagAction::back,true,TagButtonTone::navigation);};
+  const auto primary=[&](const char* text,TagAction a){s.button({156,266,316,46},text,a,true,TagButtonTone::primary);};
   switch(page) {
     case TagPage::tag:
       if(phase=="unlink_pending"||phase=="association_pending"||phase=="clear_recovery"||phase=="write_recovery") {
@@ -191,10 +201,10 @@ inline TagScreen TagFlow::screen() const {
         s.body="BLANK TAG\nReady to use\n"+uid;action(0,"ASSIGN TAG",TagAction::sources);
       } else if(lifecycle==services::TagLifecycle::linked) {
         s.body=material+"\nTag valid - Spool #"+std::to_string(current_spool);
-        action(0,"UPDATE TAG",TagAction::update);action(1,"REASSIGN",TagAction::sources);action(2,"CLEAR / REUSE",TagAction::clear);
+        action(0,"UPDATE TAG",TagAction::update,TagButtonTone::primary);action(1,"REASSIGN",TagAction::sources);action(2,"CLEAR / REUSE",TagAction::clear,TagButtonTone::danger);
       } else if(lifecycle==services::TagLifecycle::unlinked) {
         s.body=material+"\nValid OpenPrintTag - not linked";
-        action(0,"LINK TO A SPOOL",TagAction::sources);action(1,"REASSIGN",TagAction::sources);action(2,"CLEAR / REUSE",TagAction::clear);
+        action(0,"LINK TO A SPOOL",TagAction::sources,TagButtonTone::primary);action(1,"REASSIGN",TagAction::sources);action(2,"CLEAR / REUSE",TagAction::clear,TagButtonTone::danger);
       } else s.body=lifecycle==services::TagLifecycle::no_tag?"PLACE A TAG\nSet an NFC tag on the reader.":lifecycle==services::TagLifecycle::unsupported?"Tag needs attention\n"+message:"Reading tag…\nKeep the tag on the reader.";
       s.button({8,266,464,46},"DONE",TagAction::home);break;
     case TagPage::sources:
@@ -211,9 +221,9 @@ inline TagScreen TagFlow::screen() const {
         else text+="\n"+std::string(item["material"]|"")+"  "+std::to_string(static_cast<int>(item["weight"]|0.))+" g";
         s.button({8,static_cast<std::int16_t>(58+i*62),464,56},text,static_cast<TagAction>(static_cast<int>(TagAction::row0)+i));
       }
-      s.button({8,266,140,46},"PREV",TagAction::previous,row>0||offset>0);
-      s.button({156,266,168,46},"BACK",TagAction::back);
-      s.button({332,266,140,46},"NEXT",TagAction::next,row+3<catalog_page["items"].size()||(catalog_page["has_more"]|false));break;
+      s.button({8,266,140,46},"PREVIOUS PAGE",TagAction::previous,row>0||offset>0,TagButtonTone::navigation);
+      s.button({156,266,168,46},"BACK TO SOURCES",TagAction::back,true,TagButtonTone::secondary);
+      s.button({332,266,140,46},"NEXT PAGE",TagAction::next,row+3<catalog_page["items"].size()||(catalog_page["has_more"]|false),TagButtonTone::navigation);break;
     case TagPage::selected:
       s.title=entity=="spool"?"Use this spool?":"Use this filament?";s.body=filament_name(selected);
       if(entity=="spool")s.body+="\nSpool #"+std::to_string(selected["id"].as<int>())+" - "+std::to_string(static_cast<int>(selected["remaining_weight"]|0.))+" g remaining";
@@ -242,11 +252,26 @@ inline TagScreen TagFlow::screen() const {
       s.title=phase=="clear_preview"?"Reuse this NFC tag?":"Ready to write";
       s.body=phase=="clear_preview"?"Remove old filament information and links.\nThe permanent NFC identifier stays unchanged.":filament_name(view["spool"])+"\nSpool #"+std::to_string(view["spool_id"].as<int>())+"\nKeep the tag on the reader.";
       back();primary(phase=="clear_preview"?"CONFIRM CLEAR":"WRITE TAG",TagAction::write);break;
-    case TagPage::progress:
+    case TagPage::progress: {
       if(phase=="catalog_downloading") {s.title="Downloading Community catalog";s.body=std::to_string(view["completed_blocks"]|0)+"%\nThe station remains available.";break;}
       if(community_request&&(phase=="searching"||phase=="queued")) {s.title="Searching Community…";s.body=query+"\nSearching catalog. Please wait…";break;}
-      s.title=phase=="writing"?"Writing tag":phase=="verifying"?"Verifying tag":phase=="associating"?"Linking Spoolman":"Please wait";
-      s.body=message+"\n"+std::to_string(view["completed_blocks"]|0)+" / "+std::to_string(view["total_blocks"]|0)+" blocks";break;
+      const auto done=view["completed_blocks"]|0;
+      const auto total=view["total_blocks"]|0;
+      const std::string phase_label=
+          phase=="reading"?"READING TAG":
+          phase=="loading_spool"?"LOADING SPOOLMAN":
+          phase=="validating"?"VALIDATING TAG":
+          phase=="writing"?"WRITING TAG":
+          phase=="verifying"?"VERIFYING TAG":
+          phase=="decoding"?"DECODING TAG":
+          phase=="associating"?"LINKING SPOOLMAN":"WORKING";
+      s.title=phase_label;
+      s.body=message.empty()?"Keep the tag on the reader.":message;
+      if(total>0)s.body+="\n\nProgress  "+std::to_string(done)+" / "+std::to_string(total)+" blocks";
+      if(phase=="reading"||phase=="validating"||phase=="writing"||phase=="verifying"||phase=="decoding")
+        s.body+="\n\nKEEP TAG ON READER\nDO NOT REMOVE POWER";
+      break;
+    }
     case TagPage::reuse:
       s.title="TAG READY TO REUSE";s.body="The old filament information is removed.\nWhat should this tag become?";
       action(0,"CHOOSE EXISTING SPOOL",TagAction::spools);action(1,"CREATE NEW SPOOL",TagAction::sources);
