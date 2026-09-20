@@ -158,6 +158,36 @@ void production_sink_full_gzip_integrity() {
   }
 }
 
+void navigation_labels_progress_and_tones() {
+  TagFlow f;
+  f.lifecycle=services::TagLifecycle::linked;f.current_spool=28;
+  auto linked=f.screen();
+  bool saw_primary=false,saw_danger=false;
+  for(std::size_t i=0;i<linked.count;++i){
+    if(linked.buttons[i].action==TagAction::update)saw_primary=linked.buttons[i].tone==TagButtonTone::primary;
+    if(linked.buttons[i].action==TagAction::clear)saw_danger=linked.buttons[i].tone==TagButtonTone::danger;
+  }
+  TEST_ASSERT_TRUE(saw_primary);TEST_ASSERT_TRUE(saw_danger);
+
+  f.act(TagAction::sources);f.act(TagAction::spools);
+  receive(f,R"({"phase":"catalog","items":[{"id":1},{"id":2},{"id":3},{"id":4}],"has_more":true})");
+  auto catalog=f.screen();
+  bool previous=false,back=false,next=false;
+  for(std::size_t i=0;i<catalog.count;++i){
+    previous|=catalog.buttons[i].text=="PREVIOUS PAGE";
+    back|=catalog.buttons[i].text=="BACK TO SOURCES";
+    next|=catalog.buttons[i].text=="NEXT PAGE";
+  }
+  TEST_ASSERT_TRUE(previous);TEST_ASSERT_TRUE(back);TEST_ASSERT_TRUE(next);
+
+  receive(f,R"({"phase":"writing","message":"Writing changed blocks","completed_blocks":4,"total_blocks":12})");
+  auto progress=f.screen();
+  TEST_ASSERT_EQUAL_STRING("WRITING TAG",progress.title.c_str());
+  TEST_ASSERT_NOT_EQUAL(std::string::npos,progress.body.find("Progress  4 / 12 blocks"));
+  TEST_ASSERT_NOT_EQUAL(std::string::npos,progress.body.find("KEEP TAG ON READER"));
+  TEST_ASSERT_EQUAL(0,progress.count);
+}
+
 }
 void setUp() {} void tearDown() {}
-int main() {UNITY_BEGIN();RUN_TEST(lifecycle);RUN_TEST(sensible_actions);RUN_TEST(bounded_paging_and_selection);RUN_TEST(reassign_review);RUN_TEST(exact_confirmation);RUN_TEST(clear_retry_to_immediate_assign);RUN_TEST(filament_and_community_create);RUN_TEST(stale_operation_rejected);RUN_TEST(keyboard_geometry);RUN_TEST(keyboard_value_and_validation);RUN_TEST(gzip_chunked_integrity_and_limits);RUN_TEST(gzip_explicit_completion_and_error);RUN_TEST(community_catalog_status_download_and_retry);RUN_TEST(production_sink_closes_on_disposition);RUN_TEST(production_sink_full_gzip_integrity);if(!opentag::config::community_enabled)export_touch_fixtures();return UNITY_END();}
+int main() {UNITY_BEGIN();RUN_TEST(lifecycle);RUN_TEST(sensible_actions);RUN_TEST(navigation_labels_progress_and_tones);RUN_TEST(bounded_paging_and_selection);RUN_TEST(reassign_review);RUN_TEST(exact_confirmation);RUN_TEST(clear_retry_to_immediate_assign);RUN_TEST(filament_and_community_create);RUN_TEST(stale_operation_rejected);RUN_TEST(keyboard_geometry);RUN_TEST(keyboard_value_and_validation);RUN_TEST(gzip_chunked_integrity_and_limits);RUN_TEST(gzip_explicit_completion_and_error);RUN_TEST(community_catalog_status_download_and_retry);RUN_TEST(production_sink_closes_on_disposition);RUN_TEST(production_sink_full_gzip_integrity);if(!opentag::config::community_enabled)export_touch_fixtures();return UNITY_END();}
