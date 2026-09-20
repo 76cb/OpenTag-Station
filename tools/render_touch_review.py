@@ -12,7 +12,7 @@ ROOT=Path(__file__).resolve().parents[1]
 BOXES={name:tuple(map(int,coords.split(','))) for name,coords in re.findall(r'Box (\w+)\{([\d, ]+)\}',(ROOT/'src/ui/product_layout.hpp').read_text())}
 for name,(x,y,w,h) in BOXES.items():
     assert 0<=x<x+w<=480 and 0<=y<y+h<=320,name
-BG='#101416';SURFACE='#242c30';TEXT='#f3f5f3';MUTED='#a4afb0';MINT='#72dfbe'
+BG='#101416';SURFACE='#344248';TEXT='#f3f5f3';MUTED='#cbd5e1';MINT='#72dfbe'
 def font(size):
     for path in ['C:/Windows/Fonts/segoeui.ttf','/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf']:
         if Path(path).exists():return ImageFont.truetype(path,size)
@@ -44,7 +44,7 @@ def render(scene,out):
         label('home_identity','Spool #28  |  Tag valid' if scene=='home' else 'Set a tagged spool on the station',color=MUTED)
         if scene=='home':label('home_weight','712 g remaining',32)
         x,y,w,h=BOXES['home_art' if scene=='home' else 'empty_art'];d.ellipse((x,y,x+w,y+h),fill='#191f22',outline='#788583',width=6);d.ellipse((x+w/2-9,y+h/2-9,x+w/2+9,y+h/2+9),fill=BG,outline='#788583',width=2)
-        button('home_weigh','WEIGH',True);button('home_assign','ASSIGN');button('home_tag','MANAGE TAG');button('home_more','SETTINGS')
+        button('home_weigh','WEIGH',True);button('home_assign','ASSIGN');button('home_tag','MANAGE TAG')
     elif scene=='weigh':
         label('heading','PLA+ 2.0 Black',20);label('gross','842',32);label('gross_unit','GROSS WEIGHT (g)',color=MUTED);label('quality','STABLE',color=MINT)
         label('receipt','Empty spool  130 g\nFilament  712 g\nSpoolman  720 g\nDifference  -8 g')
