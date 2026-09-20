@@ -146,7 +146,7 @@ void test_scale_screen_has_bounded_480x320_layout_and_distinct_states() {
       "void UiService::build_scale_page()",
       "void UiService::build_printer_page()");
   TEST_ASSERT_TRUE(build.find("place(workflow_weight_label_,layout::gross)") != std::string::npos);
-  TEST_ASSERT_TRUE(build.find("place(weight_update_,layout::update)") != std::string::npos);
+  TEST_ASSERT_TRUE(build.find("product_button(screen,layout::update,\"UPDATE SPOOLMAN\"") != std::string::npos);
   TEST_ASSERT_TRUE(build.find("lv_obj_set_pos(button, 248, y)") != std::string::npos);
   TEST_ASSERT_TRUE(build.find("lv_obj_set_size(button, 216, 48)") != std::string::npos);
   TEST_ASSERT_TRUE(build.find("place(workflow_status_label_,layout::feedback)") !=
