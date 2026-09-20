@@ -596,14 +596,28 @@ void catalog_pagination_and_search() {
     c["action"] = "catalog";
     c["entity"] = entity;
     c["offset"] = 1024;
-    c["search"] = "PLA & Blue";
+    c["search"] = "";
     TEST_ASSERT_TRUE(f.service.process(c.as<JsonObjectConst>()).ok());
     TEST_ASSERT_EQUAL(1032, f.view["next_offset"].as<int>());
     TEST_ASSERT_TRUE(f.view["has_more"].as<bool>());
     TEST_ASSERT_TRUE(f.http.urls.back().find("offset=1024") !=
                      std::string::npos);
-    TEST_ASSERT_TRUE(f.http.urls.back().find("PLA%20%26%20Blue") !=
-                     std::string::npos);
+  }
+
+  f.http.custom=[](const network::HttpRequest& request)->std::string {
+    if(request.url.find("/search?") == std::string::npos)return {};
+    return R"({"spools":[{"spool":{"id":31,"filament":{"id":77,"name":"Rapid PLA+","vendor":{"id":4,"name":"ELEGOO"},"material":"PLA","density":1.24,"diameter":1.75,"extra":{}},"used_weight":0,"archived":false,"extra":{}},"match_field":"filament.vendor.name"}],"filaments":[{"filament":{"id":77,"name":"Rapid PLA+","vendor":{"id":4,"name":"ELEGOO"},"material":"PLA","density":1.24,"diameter":1.75,"extra":{}},"match_field":"vendor.name","spool_count":1}],"vendors":[],"is_color_query":false})";
+  };
+  for(const auto* entity : {"filament","spool"}) {
+    network::BackendDocument q;
+    q["action"]="catalog";q["entity"]=entity;q["offset"]=0;q["search"]="ELEGOO Rapid";
+    TEST_ASSERT_TRUE(f.service.process(q.as<JsonObjectConst>()).ok());
+    TEST_ASSERT_EQUAL_STRING(entity,f.view["entity"].as<const char*>());
+    TEST_ASSERT_EQUAL(0,f.view["offset"].as<int>());
+    TEST_ASSERT_FALSE(f.view["has_more"].as<bool>());
+    TEST_ASSERT_EQUAL(1,f.view["items"].size());
+    TEST_ASSERT_EQUAL(entity==std::string("filament")?77:31,f.view["items"][0]["id"].as<int>());
+    TEST_ASSERT_TRUE(f.http.urls.back().find("/search?q=ELEGOO%20Rapid")!=std::string::npos);
   }
 }
 void catalog_malformed_and_timeout() {
