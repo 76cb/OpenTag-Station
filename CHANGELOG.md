@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.0.0-rc.10
+
+Final WT32 usability cleanup before physical 1.0 acceptance.
+
+- My Filaments free-text search now uses Spoolman 0.26.1's bounded `/search` endpoint, so manufacturer, filament name, material and article/SKU searches such as `ELEGOO` resolve the live Spoolman filament catalog.
+- The WT32 home screen removes the duplicate Settings action, makes Manage Tag full-width, strengthens primary/secondary/destructive button contrast, and clarifies catalog paging as Previous Page / Sources / Next Page.
+- Tag read/write/verify/link phases use the previously empty screen area for spool context, block progress and a prominent keep-tag-present status panel.
+- Manual Weigh makes Update Spoolman an explicit high-contrast primary action when the captured measurement is eligible for synchronization; unavailable/update-complete states remain visible without silently writing inventory.
+- The transparent tag detail region suppresses its LVGL scrollbar/outline to remove the stray rectangular artifact.
+
+Community remains disabled for 1.0. This candidate is limited to demonstrated core-product usability blockers.
+
 ## 1.0.0-rc.9
 
 Community import/search is disabled for 1.0 after physical ESP32-S3 testing demonstrated a miniz inflater-state memory overwrite. The implementation is retained for redesign in 1.1.
