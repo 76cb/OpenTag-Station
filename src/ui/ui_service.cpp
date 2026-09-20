@@ -1785,7 +1785,7 @@ void UiService::refresh_workflow() {
       auto* update_label=lv_obj_get_child(weight_update_,0);
       const bool updating=measured.phase=="updating";
       const bool updated=measured.phase=="updated"||measured.phase=="unchanged";
-      if(update_label)lv_label_set_text(update_label,updating?"UPDATING…":updated?"SPOOLMAN UPDATED":"UPDATE SPOOLMAN");
+      if(update_label)lv_label_set_text(update_label,updating?"UPDATING...":updated?"SPOOLMAN UPDATED":"UPDATE SPOOLMAN");
       lv_obj_set_style_bg_color(weight_update_,lv_color_hex(can_update?accent_text:secondary_surface),0);
       lv_obj_set_style_border_color(weight_update_,lv_color_hex(can_update?accent_text:secondary_border),0);
       const auto update_text=can_update?0x112C25:primary_text;
