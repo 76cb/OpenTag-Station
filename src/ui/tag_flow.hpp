@@ -211,9 +211,9 @@ inline TagScreen TagFlow::screen() const {
         else text+="\n"+std::string(item["material"]|"")+"  "+std::to_string(static_cast<int>(item["weight"]|0.))+" g";
         s.button({8,static_cast<std::int16_t>(58+i*62),464,56},text,static_cast<TagAction>(static_cast<int>(TagAction::row0)+i));
       }
-      s.button({8,266,140,46},"PREV",TagAction::previous,row>0||offset>0);
-      s.button({156,266,168,46},"BACK",TagAction::back);
-      s.button({332,266,140,46},"NEXT",TagAction::next,row+3<catalog_page["items"].size()||(catalog_page["has_more"]|false));break;
+      s.button({8,266,140,46},"PREVIOUS PAGE",TagAction::previous,row>0||offset>0);
+      s.button({156,266,168,46},"SOURCES",TagAction::back);
+      s.button({332,266,140,46},"NEXT PAGE",TagAction::next,row+3<catalog_page["items"].size()||(catalog_page["has_more"]|false));break;
     case TagPage::selected:
       s.title=entity=="spool"?"Use this spool?":"Use this filament?";s.body=filament_name(selected);
       if(entity=="spool")s.body+="\nSpool #"+std::to_string(selected["id"].as<int>())+" - "+std::to_string(static_cast<int>(selected["remaining_weight"]|0.))+" g remaining";
@@ -242,11 +242,28 @@ inline TagScreen TagFlow::screen() const {
       s.title=phase=="clear_preview"?"Reuse this NFC tag?":"Ready to write";
       s.body=phase=="clear_preview"?"Remove old filament information and links.\nThe permanent NFC identifier stays unchanged.":filament_name(view["spool"])+"\nSpool #"+std::to_string(view["spool_id"].as<int>())+"\nKeep the tag on the reader.";
       back();primary(phase=="clear_preview"?"CONFIRM CLEAR":"WRITE TAG",TagAction::write);break;
-    case TagPage::progress:
+    case TagPage::progress: {
       if(phase=="catalog_downloading") {s.title="Downloading Community catalog";s.body=std::to_string(view["completed_blocks"]|0)+"%\nThe station remains available.";break;}
       if(community_request&&(phase=="searching"||phase=="queued")) {s.title="Searching Community…";s.body=query+"\nSearching catalog. Please wait…";break;}
-      s.title=phase=="writing"?"Writing tag":phase=="verifying"?"Verifying tag":phase=="associating"?"Linking Spoolman":"Please wait";
-      s.body=message+"\n"+std::to_string(view["completed_blocks"]|0)+" / "+std::to_string(view["total_blocks"]|0)+" blocks";break;
+      const int spool_id=view["spool_id"]|selected["id"]|0;
+      const unsigned done=view["completed_blocks"]|0;
+      const unsigned total=view["total_blocks"]|0;
+      s.title=phase=="reading"?"Reading tag":
+              phase=="loading_spool"?"Loading Spoolman":
+              phase=="writing"?"Writing tag":
+              phase=="verifying"?"Verifying tag":
+              phase=="associating"?"Linking Spoolman":
+              phase=="validating"?"Checking tag":
+              "Preparing tag";
+      s.body=message.empty()?"Working on this tag…":message;
+      if(spool_id>0)s.body+="\n\nSpool #"+std::to_string(spool_id);
+      if(total>0)s.body+="\nProgress  "+std::to_string(done)+" / "+std::to_string(total)+" blocks";
+      else if(phase=="reading"||phase=="loading_spool"||phase=="queued")
+        s.body+="\nReading identity and safety state…";
+      const char* hold=phase=="associating"?"TAG VERIFIED - FINISHING LINK":"KEEP TAG ON READER";
+      s.button({16,210,448,46},hold,TagAction::none,false);
+      break;
+    }
     case TagPage::reuse:
       s.title="TAG READY TO REUSE";s.body="The old filament information is removed.\nWhat should this tag become?";
       action(0,"CHOOSE EXISTING SPOOL",TagAction::spools);action(1,"CREATE NEW SPOOL",TagAction::sources);
