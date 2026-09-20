@@ -10,7 +10,7 @@
     "tools/product_review.py": "376adaa8e3c6255ad7bf4e73cc35e53e7f9ccb6acdc8610ee77ccf39a3a6cffd",
     "tools/test_writer_display.py": "16bfd4fe4f7c1cf9466b39db6e5038454d05eb0e82d0706135672be5759fe386",
     "tools/capture_product_review.cjs": "23d6c11b616ac2c271e980410b162d71cf69b72575a452926794bf4838fe22d0",
-    "tools/render_touch_review.py": "8343198d91ed9f6eb7cfda54ceed53e4dfda05fb44615069e117205ec2e2cff3",
+    "tools/render_touch_review.py": "3825d266247d10f19f092cc48c83564d1972f40f0446f5f4e05427fc61e86b27",
     "tools/check_public_privacy.py": "b5b3fc8482b8e9692e1524002b911cbcace8c213fd180454469f7c4963ebacd9",
     "src/web/web_assets.cpp": "136fd27ecc0626c46b54d289c13b6d09094d3db4361c0e6e8a4f36c5fb36791a",
     "src/web/writer_assets.cpp": "80a1386644df431b0a32d15e2e87f4e2160cd9423d0929dad350b8db245345ee",
