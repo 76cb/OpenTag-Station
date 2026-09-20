@@ -758,7 +758,7 @@ void repeated_catalog_releases_parser() {
     for (int i = 0; i < 100; ++i)
       TEST_ASSERT_TRUE(
           f.run(
-               R"({"action":"catalog","entity":"spool","offset":10000,"search":"Blue"})")
+               R"({"action":"catalog","entity":"spool","offset":10000,"search":""})")
               .ok());
   }
   TEST_ASSERT_EQUAL(before, network::backend_json_allocator.used());
