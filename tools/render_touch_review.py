@@ -44,11 +44,11 @@ def render(scene,out):
         label('home_identity','Spool #28  |  Tag valid' if scene=='home' else 'Set a tagged spool on the station',color=MUTED)
         if scene=='home':label('home_weight','712 g remaining',32)
         x,y,w,h=BOXES['home_art' if scene=='home' else 'empty_art'];d.ellipse((x,y,x+w,y+h),fill='#191f22',outline='#788583',width=6);d.ellipse((x+w/2-9,y+h/2-9,x+w/2+9,y+h/2+9),fill=BG,outline='#788583',width=2)
-        button('home_weigh','WEIGH',True);button('home_assign','ASSIGN');button('home_tag','MANAGE TAG');button('home_more','SETTINGS')
+        button('home_weigh','WEIGH',True);button('home_assign','ASSIGN');button('home_tag','MANAGE TAG')
     elif scene=='weigh':
         label('heading','PLA+ 2.0 Black',20);label('gross','842',32);label('gross_unit','GROSS WEIGHT (g)',color=MUTED);label('quality','STABLE',color=MINT)
         label('receipt','Empty spool  130 g\nFilament  712 g\nSpoolman  720 g\nDifference  -8 g')
-        button('weigh','WEIGH AGAIN',True);button('update','Update Spoolman');label('feedback','Measurement differs by 8 g',14,MUTED)
+        button('weigh','WEIGH AGAIN');button('update','UPDATE SPOOLMAN',True);label('feedback','Captured. Review and update Spoolman',14,MUTED)
     elif scene=='assign':
         label('printer_name',"Prusa XL",20);label('printer_spool','PLA+ 2.0 Black · Spool #28',color=MUTED)
         for i in range(1,6):button('tool'+str(i),'T'+str(i)+'\n'+({2:'Spool #27',4:'Spool #31'}.get(i,'Empty')))
