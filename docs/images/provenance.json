@@ -3,7 +3,7 @@
   "browser_captures": 80,
   "touch_layout_fixtures": 32,
   "sources": {
-    "VERSION": "1f3be64156da6e26b40869c6e7c48eba07b958684ca19a5ac982c6b7a5bda2f6",
+    "VERSION": "f939e5dff6ad54601fe6ac9bf87152b64a53bc6839f44b7a0cad542b7435d738",
     "src/config/product_features.hpp": "9dddd04943423d813b971f172916109373dcf69afe3b2b6c5bf72b6710386703",
     "tools/product_features.py": "03f986c77c5938ef362db12d81d0505beb5f9d14e6c628e048f0b83bfe74c2eb",
     "tools/product_journeys.cjs": "529869de6091d119477dbc4ad03f9f02552e11a807a4c59c61a8a5150d64215b",
@@ -15,8 +15,8 @@
     "src/web/web_assets.cpp": "136fd27ecc0626c46b54d289c13b6d09094d3db4361c0e6e8a4f36c5fb36791a",
     "src/web/writer_assets.cpp": "80a1386644df431b0a32d15e2e87f4e2160cd9423d0929dad350b8db245345ee",
     "src/web/writer_layout.inc": "76eda7f48921176490d141013bb6423f962e6cd58bdca8208d7c2f30b6bd3841",
-    "src/ui/product_layout.hpp": "b2c3e2fe6afbcfb084c66f98bd08c29eb8e97892cefed7991005c5ebd74ad739",
-    "src/ui/tag_flow.hpp": "91e3a8fe8a71413f59e2b66aa4c98dd79a6e5654914ea15ee79d59c49be326d7",
+    "src/ui/product_layout.hpp": "c5f04c95de5e18ab5b3bd6b7d68b9dbbd2bf1d595b860f34a039f9179853340d",
+    "src/ui/tag_flow.hpp": "ce7c25cb8b1f8cb344e30b884f720b2de25b8ceda9e9c570552d76c83e0d0793",
     "src/ui/touch_input.hpp": "80fa15c718726adbbd3c35173479826f2c1bc0b8ff9a63133e737b17b3998eed",
     "test/test_touch_flow/fixtures.hpp": "4e59dd06ada24b5a5e91de013687415c9aae801152b19259cedb6c177a54b8ff"
   },
