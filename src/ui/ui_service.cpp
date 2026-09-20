@@ -32,6 +32,12 @@ constexpr std::uint32_t primary_text = 0xF8FAFC;
 constexpr std::uint32_t secondary_text = 0xCBD5E1;
 constexpr std::uint32_t accent_text = 0x72DFBE;
 constexpr std::uint32_t warning_text = 0xFDE68A;
+constexpr std::uint32_t secondary_surface = 0x344248;
+constexpr std::uint32_t secondary_border = 0x667A83;
+constexpr std::uint32_t navigation_surface = 0x1B2327;
+constexpr std::uint32_t selected_navigation_surface = 0x205A53;
+constexpr std::uint32_t danger_surface = 0x8A2E2E;
+constexpr std::uint32_t danger_text = 0xFFF1F2;
 
 void style_screen(lv_obj_t* screen) {
   lv_obj_set_style_bg_color(screen, lv_color_hex(screen_background), 0);
@@ -55,8 +61,13 @@ lv_obj_t* product_label(lv_obj_t* parent, layout::Box box, const char* text, con
 }
 lv_obj_t* product_button(lv_obj_t* parent, layout::Box box, const char* text, lv_event_cb_t callback, void* user, bool primary=false) {
   auto* button=lv_btn_create(parent);place(button,box);lv_obj_set_style_radius(button,8,0);
-  lv_obj_set_style_shadow_width(button,0,0);lv_obj_set_style_bg_color(button,lv_color_hex(primary?0x72DFBE:0x242C30),0);
-  lv_obj_set_style_text_color(button,lv_color_hex(primary?0x112C25:0xF3F5F3),0);
+  lv_obj_set_style_shadow_width(button,0,0);
+  lv_obj_set_style_bg_color(button,lv_color_hex(primary?accent_text:secondary_surface),0);
+  lv_obj_set_style_text_color(button,lv_color_hex(primary?0x112C25:primary_text),0);
+  lv_obj_set_style_border_width(button,1,0);
+  lv_obj_set_style_border_color(button,lv_color_hex(primary?accent_text:secondary_border),0);
+  lv_obj_set_style_bg_opa(button,LV_OPA_40,LV_STATE_DISABLED);
+  lv_obj_set_style_text_opa(button,LV_OPA_55,LV_STATE_DISABLED);
   lv_obj_set_style_pad_all(button,4,0);lv_obj_add_event_cb(button,callback,LV_EVENT_CLICKED,user);
   auto* label=lv_label_create(button);lv_label_set_text(label,text);lv_obj_set_style_text_font(label,&lv_font_montserrat_16,0);lv_obj_center(label);return button;
 }
@@ -407,8 +418,10 @@ void UiService::build_product_rail() {
     const bool selected=i==static_cast<std::size_t>(active_page_);
     product_nav_buttons_[i]=product_button(screen,{static_cast<std::int16_t>(i*96),layout::nav.y,96,48},labels[i],navigation_callback,this);
     lv_obj_set_style_radius(product_nav_buttons_[i],0,0);
-    lv_obj_set_style_bg_color(product_nav_buttons_[i],lv_color_hex(selected?0x303A3F:0x191F22),0);
-    lv_obj_set_style_text_color(product_nav_buttons_[i],lv_color_hex(selected?0x72DFBE:0xA4AFB0),0);
+    lv_obj_set_style_bg_color(product_nav_buttons_[i],lv_color_hex(selected?selected_navigation_surface:navigation_surface),0);
+    lv_obj_set_style_border_width(product_nav_buttons_[i],selected?2:1,0);
+    lv_obj_set_style_border_color(product_nav_buttons_[i],lv_color_hex(selected?accent_text:0x2B3438),0);
+    lv_obj_set_style_text_color(product_nav_buttons_[i],lv_color_hex(selected?primary_text:secondary_text),0);
   }
 }
 
@@ -430,7 +443,6 @@ void UiService::build_home_page() {
   workflow_weigh_button_=product_button(screen,layout::home_weigh,"WEIGH",weigh_callback,this,true);
   product_button(screen,layout::home_assign,"ASSIGN",forward_navigation,product_nav_buttons_[2]);
   product_button(screen,layout::home_tag,"MANAGE TAG",forward_navigation,product_nav_buttons_[3]);
-  product_button(screen,layout::home_more,"SETTINGS",forward_navigation,product_nav_buttons_[4]);
 }
 
 void UiService::build_scale_page() {
@@ -525,8 +537,7 @@ void UiService::build_scale_page() {
   lv_obj_add_flag(
       workflow_calibration_close_button_, LV_OBJ_FLAG_HIDDEN);
 
-  weight_update_=lv_btn_create(screen);place(weight_update_,layout::update);
-  auto* update_label=lv_label_create(weight_update_);lv_label_set_text(update_label,"Update Spoolman");lv_obj_center(update_label);lv_obj_add_event_cb(weight_update_,weight_update_callback,LV_EVENT_CLICKED,this);
+  weight_update_=product_button(screen,layout::update,"UPDATE SPOOLMAN",weight_update_callback,this);
   weight_policy_=lv_btn_create(screen);place(weight_policy_,layout::update);lv_obj_add_flag(weight_policy_,LV_OBJ_FLAG_HIDDEN);
   auto* policy_label=lv_label_create(weight_policy_);lv_label_set_text(policy_label,"Auto-update OFF");lv_obj_center(policy_label);lv_obj_add_event_cb(weight_policy_,weight_policy_callback,LV_EVENT_CLICKED,this);
   workflow_status_label_ = lv_label_create(screen);
@@ -604,8 +615,9 @@ void UiService::build_tags_page() {
   tag_title_=product_label(screen,{16,8,448,32},"Manage tag",&lv_font_montserrat_20);
   tag_details_=lv_obj_create(screen);place(tag_details_,{16,48,448,208});
   lv_obj_set_style_bg_opa(tag_details_,LV_OPA_TRANSP,0);
-  lv_obj_set_style_border_width(tag_details_,0,0);lv_obj_set_style_pad_all(tag_details_,0,0);
-  lv_obj_set_scroll_dir(tag_details_,LV_DIR_VER);
+  lv_obj_set_style_border_width(tag_details_,0,0);lv_obj_set_style_outline_width(tag_details_,0,0);
+  lv_obj_set_style_shadow_width(tag_details_,0,0);lv_obj_set_style_pad_all(tag_details_,0,0);
+  lv_obj_set_scroll_dir(tag_details_,LV_DIR_VER);lv_obj_set_scrollbar_mode(tag_details_,LV_SCROLLBAR_MODE_OFF);
   nfc_detail_=product_label(tag_details_,{0,0,440,160},"Loading tag…");
   lv_label_set_long_mode(nfc_detail_,LV_LABEL_LONG_WRAP);
   lv_obj_set_height(nfc_detail_,LV_SIZE_CONTENT);
@@ -674,6 +686,35 @@ void UiService::draw_tags() {
     lv_obj_set_width(label,item.box.w-12);
     lv_obj_set_height(label,item.text.find('\n')==std::string::npos?20:40);
     lv_label_set_long_mode(label,LV_LABEL_LONG_DOT);lv_obj_center(label);
+    std::uint32_t background=secondary_surface,text_color=primary_text,border=secondary_border;
+    switch(item.action) {
+      case TagAction::clear:
+        background=danger_surface;text_color=danger_text;border=0xF87171;break;
+      case TagAction::back:
+      case TagAction::previous:
+      case TagAction::next:
+      case TagAction::home:
+        background=navigation_surface;text_color=secondary_text;border=0x3D4A50;break;
+      case TagAction::none:
+        background=0x1F3336;text_color=accent_text;border=0x376A66;break;
+      case TagAction::use:
+      case TagAction::write:
+      case TagAction::create:
+      case TagAction::update:
+      case TagAction::retry:
+      case TagAction::weigh:
+      case TagAction::printer:
+      case TagAction::search:
+      case TagAction::sources:
+        background=accent_text;text_color=0x112C25;border=accent_text;break;
+      default:
+        break;
+    }
+    lv_obj_set_style_bg_color(b,lv_color_hex(background),0);
+    lv_obj_set_style_border_width(b,1,0);
+    lv_obj_set_style_border_color(b,lv_color_hex(border),0);
+    lv_obj_set_style_text_color(b,lv_color_hex(text_color),0);
+    if(label)lv_obj_set_style_text_color(label,lv_color_hex(text_color),0);
     if(item.enabled)lv_obj_clear_state(b,LV_STATE_DISABLED);else lv_obj_add_state(b,LV_STATE_DISABLED);
   }
 }
@@ -1738,7 +1779,19 @@ void UiService::refresh_workflow() {
     }
     bool automatic=false;configuration_.visit([&](const auto& config,auto){automatic=config.reconciliation.auto_update_after_weigh;});
     lv_label_set_text(lv_obj_get_child(weight_policy_,0),automatic?"Auto-update ON":"Auto-update OFF");
-    set_enabled(weight_update_,!busy&&measured.phase=="ready"&&!measured.consumed);
+    const bool can_update=!automatic&&!busy&&measured.phase=="ready"&&!measured.consumed;
+    set_enabled(weight_update_,can_update);
+    if(weight_update_) {
+      auto* update_label=lv_obj_get_child(weight_update_,0);
+      const bool updating=measured.phase=="updating";
+      const bool updated=measured.phase=="updated"||measured.phase=="unchanged";
+      if(update_label)lv_label_set_text(update_label,updating?"UPDATING…":updated?"SPOOLMAN UPDATED":"UPDATE SPOOLMAN");
+      lv_obj_set_style_bg_color(weight_update_,lv_color_hex(can_update?accent_text:secondary_surface),0);
+      lv_obj_set_style_border_color(weight_update_,lv_color_hex(can_update?accent_text:secondary_border),0);
+      const auto update_text=can_update?0x112C25:primary_text;
+      lv_obj_set_style_text_color(weight_update_,lv_color_hex(update_text),0);
+      if(update_label)lv_obj_set_style_text_color(update_label,lv_color_hex(update_text),0);
+    }
     set_enabled(weight_policy_,!busy&&!configuration_worker_.pending());
     return;
   }
