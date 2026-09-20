@@ -245,7 +245,9 @@ inline TagScreen TagFlow::screen() const {
     case TagPage::progress: {
       if(phase=="catalog_downloading") {s.title="Downloading Community catalog";s.body=std::to_string(view["completed_blocks"]|0)+"%\nThe station remains available.";break;}
       if(community_request&&(phase=="searching"||phase=="queued")) {s.title="Searching Community…";s.body=query+"\nSearching catalog. Please wait…";break;}
-      const int spool_id=view["spool_id"]|selected["id"]|0;
+      const int spool_id=view["spool_id"].is<int>()
+          ? view["spool_id"].as<int>()
+          : selected["id"].as<int>();
       const unsigned done=view["completed_blocks"]|0;
       const unsigned total=view["total_blocks"]|0;
       s.title=phase=="reading"?"Reading tag":
