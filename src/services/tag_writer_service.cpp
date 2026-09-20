@@ -215,17 +215,59 @@ Result TagWriterService::catalog(JsonObjectConst c) {
   if (!c["offset"].is<unsigned>() || c["offset"].as<unsigned>() > 1000000)
     return fail("Invalid catalog offset");
   const auto offset = c["offset"].as<unsigned>();
+  const std::string search = c["search"] | "";
+  const std::string material = c["material"] | "";
+  const std::string article = c["article_number"] | "";
+  const int vendor_id = c["vendor_id"].as<int>();
+
+  // Spoolman 0.26.1 provides a bounded cross-entity free-text search that
+  // matches filament name, material, article number and vendor name. Use it
+  // for the touchscreen/browser's unscoped My Filaments search so a query
+  // such as "ELEGOO" finds the manufacturer's filaments instead of being
+  // incorrectly treated as filament.name=ELEGOO.
+  const bool broad_filament_search =
+      entity == "filament" && !search.empty() && vendor_id <= 0 &&
+      material.empty() && article.empty();
+  if (broad_filament_search) {
+    view_.clear();
+    view_["entity"] = "filament";
+    view_["offset"] = offset;
+    view_["next_offset"] = offset;
+    view_["has_more"] = false;
+    auto items = view_["items"].to<JsonArray>();
+    if (offset > 0) {
+      publish("catalog");
+      return Result::success();
+    }
+    auto searched = api("GET", "/search?q=" + encode(search) + "&limit=8");
+    if (!searched.ok())
+      return Result::failure(searched.error());
+    if (!searched.value().is<JsonObjectConst>() ||
+        !searched.value()["filaments"].is<JsonArrayConst>() ||
+        searched.value()["filaments"].size() > 8)
+      return fail("Spoolman search contract changed");
+    for (auto hit : searched.value()["filaments"].as<JsonArrayConst>()) {
+      if (!hit["filament"].is<JsonObjectConst>() ||
+          !hit["filament"]["id"].is<int>() ||
+          hit["filament"]["id"].as<int>() <= 0)
+        return fail("Malformed Spoolman filament search result");
+      items.add(hit["filament"]);
+    }
+    view_["next_offset"] = items.size();
+    publish("catalog");
+    return Result::success();
+  }
+
   std::string path = "/" + entity +
                      "?limit=8&offset=" + std::to_string(offset) +
                      "&sort=id:asc";
   const std::string prefix = entity == "spool" ? "filament." : "";
-  const std::string search = c["search"] | "";
   if (!search.empty())
     path += "&" + prefix + "name=" + encode(search);
   if (entity != "vendor") {
-    if (c["vendor_id"].as<int>() > 0)
+    if (vendor_id > 0)
       path += "&" + prefix +
-              "vendor.id=" + std::to_string(c["vendor_id"].as<int>());
+              "vendor.id=" + std::to_string(vendor_id);
     for (const auto *key : {"material", "article_number"})
       if (c[key].is<const char *>() && *c[key].as<const char *>() &&
           (entity == "filament" || std::string(key) == "material"))

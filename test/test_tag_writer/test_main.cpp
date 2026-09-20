@@ -591,7 +591,7 @@ void confirmation_mismatch_refuses() {
 }
 void catalog_pagination_and_search() {
   ServiceFixture f;
-  for (const auto *entity : {"vendor", "filament", "spool"}) {
+  for (const auto *entity : {"vendor", "spool"}) {
     network::BackendDocument c;
     c["action"] = "catalog";
     c["entity"] = entity;
@@ -605,6 +605,24 @@ void catalog_pagination_and_search() {
     TEST_ASSERT_TRUE(f.http.urls.back().find("PLA%20%26%20Blue") !=
                      std::string::npos);
   }
+}
+void filament_free_text_search_includes_vendor_material_and_sku() {
+  ServiceFixture f;
+  f.http.custom = [](const network::HttpRequest& request) -> std::string {
+    if (request.url.find("/search?") == std::string::npos) return {};
+    return R"({"spools":[],"filaments":[{"filament":{"id":44,"name":"Rapid PLA+","material":"PLA","article_number":"EL-PLA-RAPID","vendor":{"id":7,"name":"ELEGOO"}},"match_field":"vendor.name"}],"vendors":[],"is_color_query":false})";
+  };
+  TEST_ASSERT_TRUE(
+      f.run(R"({"action":"catalog","entity":"filament","offset":0,"search":"ELEGOO"})").ok());
+  TEST_ASSERT_EQUAL_STRING("catalog", f.view["phase"].as<const char*>());
+  TEST_ASSERT_EQUAL_STRING("filament", f.view["entity"].as<const char*>());
+  TEST_ASSERT_EQUAL(1, f.view["items"].size());
+  TEST_ASSERT_EQUAL(44, f.view["items"][0]["id"].as<int>());
+  TEST_ASSERT_EQUAL_STRING("ELEGOO",
+                           f.view["items"][0]["vendor"]["name"].as<const char*>());
+  TEST_ASSERT_FALSE(f.view["has_more"].as<bool>());
+  TEST_ASSERT_TRUE(f.http.urls.back().find("/search?q=ELEGOO&limit=8") !=
+                   std::string::npos);
 }
 void catalog_malformed_and_timeout() {
   ServiceFixture f;
@@ -2054,6 +2072,7 @@ int main() {
   RUN_TEST(duplicate_uuid_refuses_before_write);
   RUN_TEST(confirmation_mismatch_refuses);
   RUN_TEST(catalog_pagination_and_search);
+  RUN_TEST(filament_free_text_search_includes_vendor_material_and_sku);
   RUN_TEST(catalog_malformed_and_timeout);
 #if OPENTAG_ENABLE_COMMUNITY
   RUN_TEST(community_contract_drift_rejected);
