@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.0.0-rc.10
+
+Final WT32 core-workflow usability cleanup from physical acceptance:
+
+- Spoolman searches now use Spoolman's bounded cross-entity search when no structured filters are active, so vendor, filament name, material and article/SKU terms can find My Filaments/My Spools without a station cache.
+- WT32 spool/tag navigation distinguishes PREVIOUS PAGE / NEXT PAGE from BACK TO SOURCES, and primary, navigation, destructive and disabled actions use visibly different treatments.
+- The duplicate Home-screen Settings action is removed; Settings remains in the persistent bottom navigation and Manage Tag spans the secondary action row.
+- Tag read/write/verify/link phases use the available screen area with centered status, explicit keep-tag/power guidance and block progress when available.
+- The WT32 scale page clearly exposes UPDATE SPOOLMAN after a valid manual Weigh and visually demotes WEIGH AGAIN while an update is pending.
+- Raw LVGL tag/scale containers are explicitly styled to avoid stray default rectangles/scrollbar artifacts.
+
 ## 1.0.0-rc.9
 
 Community import/search is disabled for 1.0 after physical ESP32-S3 testing demonstrated a miniz inflater-state memory overwrite. The implementation is retained for redesign in 1.1.
