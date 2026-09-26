@@ -52,7 +52,7 @@ void WeighSync::capture(std::uint64_t id, domain::WeightReading reading) {
   state_.measured = reading.gross_grams - *state_.tare;
   state_.difference = *state_.measured - *state_.canonical_remaining;
   state_.phase = "ready";
-  state_.message = state_.automatic ? "Measured. Saving to Spoolman…"
+  state_.message = state_.automatic ? "Measured. Saving to Spoolman..."
                                     : "Measured. Tap Update Spoolman to save it.";
 }
 void WeighSync::fail(std::uint64_t id, const std::string &message) {

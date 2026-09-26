@@ -1,7 +1,7 @@
 name: Web flasher Pages
 
-# The public installer serves released firmware only: it is rebuilt from a
-# release tag, never from every merge to main. (The github-pages environment
+# The public installer is rebuilt from release tags (final releases and
+# release candidates), never from every merge to main. (The github-pages environment
 # must allow deployments from tags matching v*.)
 on:
   push:

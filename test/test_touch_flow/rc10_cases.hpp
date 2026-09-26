@@ -50,7 +50,9 @@ inline void unknown_empty_spool_weight_must_be_entered() {
   f.act(TagAction::row0);f.act(TagAction::use);
   TEST_ASSERT_TRUE(f.page==TagPage::create);TEST_ASSERT_FALSE(f.tare_known);
   TEST_ASSERT_NOT_EQUAL(std::string::npos,f.screen().buttons[2].text.find("NOT SET"));
-  TEST_ASSERT_TRUE(f.act(TagAction::create).empty());TEST_ASSERT_TRUE(f.page==TagPage::error);
+  // Stays on the form (rc.10 review: an error page lost the entered values).
+  TEST_ASSERT_TRUE(f.act(TagAction::create).empty());TEST_ASSERT_TRUE(f.page==TagPage::create);
+  TEST_ASSERT_NOT_EQUAL(std::string::npos,f.screen().body.find("empty spool weight"));
   // Vendor empty weight is used when the filament has none.
   TagFlow g;g.act(TagAction::filaments);
   feed(g,R"({"phase":"catalog","items":[{"id":12,"weight":1000,"name":"PLA","vendor":{"name":"Acme","empty_spool_weight":215}}]})");
@@ -95,6 +97,15 @@ inline void recovery_can_be_skipped_explicitly() {
   TEST_ASSERT_TRUE(f.page==TagPage::error);TEST_ASSERT_EQUAL_STRING("Recovery skipped",f.screen().title.c_str());
   // Skip is only meaningful for pending recovery.
   TagFlow g;g.lifecycle=services::TagLifecycle::linked;TEST_ASSERT_TRUE(g.act(TagAction::skip).empty());TEST_ASSERT_TRUE(g.page==TagPage::tag);
+}
+
+inline void metadata_candidates_can_be_chosen_on_the_touchscreen() {
+  TagFlow f;f.lifecycle=services::TagLifecycle::unlinked;f.candidates={{41,"Prusament PETG"},{42,"Prusament PETG"}};
+  TEST_ASSERT_TRUE(shows(f.screen(),TagAction::choose));
+  f.act(TagAction::choose);TEST_ASSERT_TRUE(f.page==TagPage::choose);
+  TEST_ASSERT_TRUE(f.act(TagAction::row1).empty());
+  TEST_ASSERT_EQUAL(42,f.confirm_spool_id);TEST_ASSERT_TRUE(f.page==TagPage::tag);
+  f.candidates.clear();TEST_ASSERT_FALSE(shows(f.screen(),TagAction::choose));
 }
 
 }  // namespace rc10

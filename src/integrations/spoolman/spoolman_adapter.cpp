@@ -459,6 +459,8 @@ core::Result<void> SpoolmanAdapter::probe_read_capabilities() {
       verified_extra_keys_.insert(settings_.identity_field);
       verified_extra_keys_.insert(settings_.nfc_uid_field);
     }
+    // A field deleted in Spoolman after it was verified must be re-checked.
+    for (const auto& key : missing) verified_extra_keys_.erase(key);
   }
   return core::Result<void>::success();
 }
@@ -691,7 +693,16 @@ core::Result<domain::Spool> SpoolmanAdapter::set_remaining_weight(
          "weight in Spoolman, then weigh again.",
          false});
   }
-  if (update.remaining_grams > *initial + update.verification_tolerance_grams) {
+  // A new spool often holds a few grams more than its nominal weight. Up to
+  // 10 g over is saved as "full" (the most Spoolman can store); more than
+  // that points at a wrong empty-spool or initial weight and is refused.
+  constexpr float overfill_allowance_grams = 10.0F;
+  float remaining_grams = update.remaining_grams;
+  if (remaining_grams > *initial &&
+      remaining_grams <= *initial + overfill_allowance_grams) {
+    remaining_grams = *initial;
+  }
+  if (remaining_grams > *initial + update.verification_tolerance_grams) {
     return core::Result<domain::Spool>::failure(
         {core::ErrorCategory::configuration,
          "The measured filament (" +
@@ -703,7 +714,7 @@ core::Result<domain::Spool> SpoolmanAdapter::set_remaining_weight(
          false});
   }
   network::BackendDocument body;
-  body["remaining_weight"] = update.remaining_grams;
+  body["remaining_weight"] = remaining_grams;
   if (body.overflowed()) {
     return core::Result<domain::Spool>::failure({core::ErrorCategory::backend_unavailable,
         "Spoolman mutation JSON workspace unavailable; no request sent", true});
@@ -724,7 +735,7 @@ core::Result<domain::Spool> SpoolmanAdapter::set_remaining_weight(
   const auto verified = get_spool(id);
   if (!verified.ok()) return verified;
   if (verified.value().id!=id || !verified.value().remaining_grams.has_value() ||
-      std::fabs(*verified.value().remaining_grams - update.remaining_grams) >
+      std::fabs(*verified.value().remaining_grams - remaining_grams) >
           update.verification_tolerance_grams) {
     return core::Result<domain::Spool>::failure(
         {core::ErrorCategory::invalid_response,

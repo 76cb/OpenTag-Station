@@ -1372,7 +1372,8 @@ TagWriterService::commit_write(JsonObjectConst c) {
     // for another tag and could strand that tag half-written.
     result = fail(("Another tag (" + other +
                    ") has an unfinished write or clear. Place that tag on the "
-                   "reader to finish it first, or choose Skip recovery.")
+                   "reader to finish it first. If it is lost, choose Skip "
+                   "recovery on the Tag screen.")
                       .c_str());
   else {
     if (journal_ && !journal_->save(*plan_, spool_id_,

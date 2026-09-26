@@ -337,6 +337,23 @@ void test_remaining_weight_above_initial_is_refused_before_patch() {
   assert_transport_consumed(transport);
 }
 
+void test_small_overfill_is_saved_as_full() {
+  ScriptedTransport transport;
+  script_probe(transport);
+  transport.expect("GET", "/spool/17", spool_json());
+  transport.expect_body(
+      "PATCH", "/spool/17", R"json({"remaining_weight":1000})json", spool_json(0.0F, 1000.0F));
+  transport.expect("GET", "/spool/17", spool_json(0.0F, 1000.0F));
+  SpoolmanAdapter adapter(transport, settings());
+  TEST_ASSERT_TRUE(adapter.probe().ok());
+  RemainingWeightUpdate update;
+  update.expected_used_grams = 250.0F;
+  update.remaining_grams = 1006.0F;
+  const auto result = adapter.set_remaining_weight(17, update);
+  TEST_ASSERT_TRUE_MESSAGE(result.ok(), result.ok() ? "" : result.error().message.c_str());
+  assert_transport_consumed(transport);
+}
+
 void test_remaining_weight_update_rejects_mismatched_readback() {
   ScriptedTransport transport;
   script_probe(transport);
@@ -503,6 +520,7 @@ int main(int, char**) {
   RUN_TEST(test_remaining_weight_update_aborts_if_usage_changed);
   RUN_TEST(test_remaining_weight_update_rejects_mismatched_readback);
   RUN_TEST(test_remaining_weight_above_initial_is_refused_before_patch);
+  RUN_TEST(test_small_overfill_is_saved_as_full);
   RUN_TEST(test_explicit_create_spool_serializes_identity_without_implicit_creation);
   RUN_TEST(test_extra_field_patch_contains_only_intended_key_and_is_verified);
   RUN_TEST(test_location_and_field_shapes_are_bounded_and_typed);

@@ -79,6 +79,9 @@ void test_empty_weight_resolver_uses_documented_priority_and_exposes_source() {
       static_cast<int>(EmptyWeightSource::spoolman_spool),
       static_cast<int>(resolved->source));
 
+  // An explicit Spoolman 0 does not hide a real value from the tag.
+  candidates.spoolman_spool_grams = 0.0F;
+  TEST_ASSERT_FLOAT_WITHIN(0.01F, 190.0F, EmptyWeightResolver::resolve(candidates)->grams);
   candidates.spoolman_spool_grams.reset();
   const auto fallback = EmptyWeightResolver::resolve(candidates);
   TEST_ASSERT_TRUE(fallback.has_value());

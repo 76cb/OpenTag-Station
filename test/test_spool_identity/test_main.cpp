@@ -235,6 +235,26 @@ void test_gtin_exact_match_precedes_metadata_candidates() {
   TEST_ASSERT_EQUAL_INT32(31, result.value().candidates.front().id);
 }
 
+void test_stale_nfc_uid_owner_with_other_instance_is_a_conflict() {
+  // After an interrupted reassignment the old spool may still hold the UID
+  // while the tag carries the new spool's instance UUID.
+  FakeInventory inventory;
+  MemoryMappings mappings;
+  inventory.find_results.push_back(spool_result({}));
+  auto stale = spool(9);
+  stale.openprinttag_instance_uuid = "old-instance";
+  inventory.find_results.push_back(spool_result({stale}));
+  SpoolIdentityResolver resolver(inventory, mappings, settings());
+  SpoolIdentity identity;
+  identity.instance_uuid = "new-instance";
+  identity.nfc_uid = "E004010203040506";
+  const auto result = resolver.resolve(identity);
+  TEST_ASSERT_TRUE(result.ok());
+  TEST_ASSERT_EQUAL(static_cast<int>(SpoolResolutionStatus::conflict),
+                    static_cast<int>(result.value().status));
+  TEST_ASSERT_NULL(result.value().match());
+}
+
 void test_single_metadata_candidate_requires_confirmation() {
   FakeInventory inventory;
   MemoryMappings mappings;
@@ -321,6 +341,7 @@ int main(int, char**) {
   RUN_TEST(test_gtin_exact_match_precedes_metadata_candidates);
   RUN_TEST(test_multiple_metadata_candidates_require_manual_selection);
   RUN_TEST(test_single_metadata_candidate_requires_confirmation);
+  RUN_TEST(test_stale_nfc_uid_owner_with_other_instance_is_a_conflict);
   RUN_TEST(test_confirmation_persists_both_stable_identities);
   RUN_TEST(test_openprinttag_uuid_and_nfc_uid_are_normalized);
   return UNITY_END();

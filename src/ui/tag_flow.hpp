@@ -4,16 +4,18 @@
 #include <cstdio>
 #include <algorithm>
 #include <string>
+#include <utility>
+#include <vector>
 #include "network/backend_json.hpp"
 #include "services/tag_lifecycle.hpp"
 #include "ui/product_layout.hpp"
 
 namespace opentag::ui {
 enum class TagPage { tag, sources, catalog, selected, create, created, move,
-                     review, progress, import_review, ready, reuse, error, skip_review };
+                     review, progress, import_review, ready, reuse, error, skip_review, choose };
 enum class TagAction { none, home, back, sources, spools, filaments, community,
   row0,row1,row2,previous,next,search,use,write,update,clear,retry,import,community_update,
-  create,initial,remaining,tare,weigh,printer,name,skip };
+  create,initial,remaining,tare,weigh,printer,name,skip,choose };
 // Destructive buttons (clear, skip recovery) are drawn in a distinct colour.
 struct TagButton { layout::Box box{}; std::string text; TagAction action{TagAction::none}; bool enabled{true}; bool destructive{false}; };
 struct TagScreen {
@@ -62,6 +64,12 @@ class TagFlow {
   // long time; offers a way back without abandoning physical work.
   bool stalled{false};
   bool land_on_last_rows{false};
+  // Spools that may belong to this tag (vendor/material or product match).
+  // The user picks one; the UI submits it as an explicit confirmation.
+  std::vector<std::pair<int,std::string>> candidates;
+  int confirm_spool_id{0};
+  // Shown on the create page when a required value is missing.
+  std::string create_hint;
   int current_spool{0},from_spool{0};
   std::string from_name;
   std::string import_name;
@@ -140,7 +148,15 @@ class TagFlow {
       case TagAction::next:
         if(row+3<catalog_page["items"].size()){row+=3;return {};}
         if(catalog_page["has_more"]|false){offset+=8;return browse();}return {};
+      case TagAction::choose:
+        if(candidates.empty())return {};
+        page=TagPage::choose;return {};
       case TagAction::row0: case TagAction::row1: case TagAction::row2: {
+        if(page==TagPage::choose) {
+          const auto pick=static_cast<std::size_t>(action)-static_cast<std::size_t>(TagAction::row0);
+          if(pick<candidates.size())confirm_spool_id=candidates[pick].first;
+          page=TagPage::tag;return {};
+        }
         const auto index=row+static_cast<unsigned>(action)-static_cast<unsigned>(TagAction::row0);
         if(index>=catalog_page["items"].size())return {};
         selected.set(catalog_page["items"][index]);import_name.clear();page=TagPage::selected;return {};
@@ -151,7 +167,7 @@ class TagFlow {
           if(!import_name.empty())command["import_name"]=import_name;
           break;
         }
-        if(page==TagPage::selected&&entity=="filament") {weights();page=TagPage::create;return {};}
+        if(page==TagPage::selected&&entity=="filament") {weights();create_hint.clear();page=TagPage::create;return {};}
         if((page==TagPage::selected||page==TagPage::created)&&from_spool>0&&selected["id"].as<int>()!=from_spool) {move_return=page;page=TagPage::move;return {};}
         review_return=page;
         command["action"]="preview";command["spool_id"]=selected["id"];
@@ -179,7 +195,7 @@ class TagFlow {
       case TagAction::import:command["action"]="import";command["import_token"]=view["import_token"];break;
       case TagAction::community_update:return request("community_update");
       case TagAction::create:
-        if(!tare_known){fail("Enter the empty spool weight first. Weigh an empty reel of the same type, or use the maker's specification.");return {};}
+        if(!tare_known){create_hint="Enter the empty spool weight first (weigh an empty reel of the same type, or use the maker's value).";return {};}
         if(initial<=0||remaining<0||remaining>initial||tare<0||initial>100000||tare>100000){fail("Check spool weights before creating");return {};}
         command["action"]="create_spool";command["spool"]["filament_id"]=selected["id"];
         command["spool"]["initial_weight"]=initial;command["spool"]["remaining_weight"]=remaining;command["spool"]["spool_weight"]=tare;break;
@@ -188,6 +204,7 @@ class TagFlow {
         else if(page==TagPage::move)page=move_return;
         else if(page==TagPage::catalog)page=TagPage::sources;
         else if(page==TagPage::review||page==TagPage::skip_review)page=review_return;
+        else if(page==TagPage::choose)page=TagPage::tag;
         else if(page==TagPage::import_review)page=TagPage::selected;
         else page=TagPage::tag;
         return {};
@@ -205,15 +222,15 @@ class TagFlow {
     tare=package.is<double>()?package.as<double>():vendor.is<double>()?vendor.as<double>():0.;
   }
   static const char* describe(std::string_view action) {
-    if(action=="catalog"||action=="community_search")return "Searching Spoolman…";
-    if(action=="preview"||action=="clear_preview")return "Reading the tag…";
-    if(action=="write")return "Writing the tag…";
-    if(action=="clear")return "Clearing the tag…";
-    if(action=="create_spool")return "Creating the spool in Spoolman…";
-    if(action=="retry_association")return "Saving the link in Spoolman…";
-    if(action=="retry_unlink")return "Removing the link in Spoolman…";
-    if(action=="discard_recovery")return "Stopping recovery…";
-    return "Working on your request…";
+    if(action=="catalog"||action=="community_search")return "Searching Spoolman...";
+    if(action=="preview"||action=="clear_preview")return "Reading the tag...";
+    if(action=="write")return "Writing the tag...";
+    if(action=="clear")return "Clearing the tag...";
+    if(action=="create_spool")return "Creating the spool in Spoolman...";
+    if(action=="retry_association")return "Saving the link in Spoolman...";
+    if(action=="retry_unlink")return "Removing the link in Spoolman...";
+    if(action=="discard_recovery")return "Stopping recovery...";
+    return "Working on your request...";
   }
   std::string encode(JsonDocument& command) {
     if(command.overflowed()||measureJson(command)>4096){fail("Command exceeds station limits");return {};}
@@ -249,11 +266,15 @@ inline TagScreen TagFlow::screen() const {
         s.body=material+"\nLinked to spool #"+std::to_string(current_spool);
         action(0,"UPDATE TAG",TagAction::update);action(1,"REASSIGN",TagAction::sources);
         s.button({16,212,448,44},"CLEAR / REUSE",TagAction::clear,true,true);
+      } else if(lifecycle==services::TagLifecycle::unlinked&&!candidates.empty()) {
+        s.body=material+"\nThis may be one of your Spoolman spools.";
+        action(0,"CHOOSE WHICH SPOOL",TagAction::choose);action(1,"LINK TO A SPOOL",TagAction::sources);
+        s.button({16,212,448,44},"CLEAR / REUSE",TagAction::clear,true,true);
       } else if(lifecycle==services::TagLifecycle::unlinked) {
         s.body=material+"\nNot linked to a Spoolman spool yet";
         action(0,"LINK TO A SPOOL",TagAction::sources);
         s.button({16,162,448,44},"CLEAR / REUSE",TagAction::clear,true,true);
-      } else s.body=lifecycle==services::TagLifecycle::no_tag?"PLACE A TAG\nSet an NFC tag on the reader.":lifecycle==services::TagLifecycle::unsupported?"This tag can't be used as it is\n"+message+"\nUse a blank NXP ICODE SLIX2 tag.":"Reading tag…\nKeep the tag on the reader.";
+      } else s.body=lifecycle==services::TagLifecycle::no_tag?"PLACE A TAG\nSet an NFC tag on the reader.":lifecycle==services::TagLifecycle::unsupported?"This tag can't be used as it is\n"+message+"\nUse a blank NXP ICODE SLIX2 tag.":"Reading tag...\nKeep the tag on the reader.";
       s.button({8,266,464,46},"DONE",TagAction::home);break;
     case TagPage::sources:
       s.title=from_spool?"Reassign tag":"Assign tag";s.body="How do you want to choose the filament?";
@@ -283,6 +304,7 @@ inline TagScreen TagFlow::screen() const {
       back();primary(entity=="community"?"REVIEW IMPORT":entity=="filament"?"CREATE A SPOOL":"USE SPOOL",TagAction::use);break;
     case TagPage::create:
       s.title="Create physical spool";s.body=filament_name(selected);
+      if(!create_hint.empty())s.body+="\n"+create_hint;
       s.button({16,112,448,44},"Initial: "+weight_text(initial)+" g  -  EDIT",TagAction::initial);
       s.button({16,162,448,44},"Remaining: "+weight_text(remaining)+" g  -  EDIT",TagAction::remaining);
       s.button({16,212,448,44},tare_known?"Empty spool: "+weight_text(tare)+" g  -  EDIT":std::string("Empty spool: NOT SET  -  EDIT"),TagAction::tare);
@@ -304,11 +326,17 @@ inline TagScreen TagFlow::screen() const {
     }
     case TagPage::skip_review:
       s.title="Skip recovery?";
-      s.body=phase=="association_pending"?"The tag is written, but Spoolman will not know it belongs to this spool.\nYou can link it again later from Manage tag.":phase=="unlink_pending"?"The tag is erased, but Spoolman may still list it on the old spool.":"The tag may be left half-written. You may need to clear it or write it again.";
+      s.body=phase=="association_pending"?"The tag is written, but Spoolman will not know it belongs to this spool.\nYou can link it again later from Manage tag.":phase=="unlink_pending"?"The tag is erased, but Spoolman may still list it on the old spool.":"Only do this if that tag is lost or damaged.\nThe station will not be able to write or clear it again.";
       back();primary("SKIP RECOVERY",TagAction::write,true,true);break;
+    case TagPage::choose:
+      s.title="Which spool is this?";
+      for(std::size_t i=0;i<3&&i<candidates.size();++i)
+        s.button({8,static_cast<std::int16_t>(58+i*62),464,56},"#"+std::to_string(candidates[i].first)+" "+candidates[i].second,static_cast<TagAction>(static_cast<int>(TagAction::row0)+static_cast<int>(i)));
+      if(candidates.size()>3)s.body="More matches: choose in the browser.";
+      back();break;
     case TagPage::progress:
       if(phase=="catalog_downloading") {s.title="Downloading Community catalog";s.body=std::to_string(view["completed_blocks"]|0)+"%\nThe station remains available.";break;}
-      if(community_request&&(phase=="searching"||phase=="queued")) {s.title="Searching Community…";s.body=query+"\nSearching catalog. Please wait…";break;}
+      if(community_request&&(phase=="searching"||phase=="queued")) {s.title="Searching Community...";s.body=query+"\nSearching catalog. Please wait...";break;}
       if(physical_phase(phase)) {
         s.title=phase=="clearing"?"Clearing tag":phase=="writing"?"Writing tag":"Checking tag";
         s.body="Keep the tag on the reader.";
@@ -316,7 +344,7 @@ inline TagScreen TagFlow::screen() const {
         break;
       }
       s.title=phase=="associating"?"Saving link in Spoolman":phase=="unlinking"?"Removing link in Spoolman":phase=="reading"?"Reading tag":phase=="loading_spool"?"Checking Spoolman":"Please wait";
-      s.body=phase=="associating"?"The tag is already written.":phase=="unlinking"?"The tag is already erased.":phase=="reading"?"Keep the tag on the reader.":working.empty()?"Working on your request…":working;
+      s.body=phase=="associating"?"The tag is already written.":phase=="unlinking"?"The tag is already erased.":phase=="reading"?"Keep the tag on the reader.":working.empty()?"Working on your request...":working;
       if(stalled){s.body+="\nThis is taking longer than usual.";s.button({8,266,464,46},"BACK TO HOME",TagAction::home);}
       break;
     case TagPage::reuse:
@@ -329,14 +357,14 @@ inline TagScreen TagFlow::screen() const {
       // Wait for the internally refreshed physical/workflow identity before
       // navigating to pages that operate on the active spool.
       s.buttons[0].enabled=s.buttons[1].enabled=current_spool>0&&current_spool==view["spool_id"].as<int>();
-      if(!s.buttons[0].enabled)s.body+="\nRefreshing the active spool…";
+      if(!s.buttons[0].enabled)s.body+="\nRefreshing the active spool...";
       s.button({8,266,464,46},"DONE",TagAction::home);break;
     case TagPage::error:
       s.title=phase=="recovery_discarded"?"Recovery skipped":"Needs attention";s.body=message;back();
       if(community_request||catalog_update_request)primary("RETRY",TagAction::retry);break;
   }
   if(waiting&&page!=TagPage::progress) {
-    s.title="Please wait";s.body=working.empty()?"Working on your request…":working;s.count=0;
+    s.title="Please wait";s.body=working.empty()?"Working on your request...":working;s.count=0;
     if(stalled&&!physical_phase(phase)){s.body+="\nThis is taking longer than usual.";s.button({8,266,464,46},"BACK TO HOME",TagAction::home);}
   }
   return s;

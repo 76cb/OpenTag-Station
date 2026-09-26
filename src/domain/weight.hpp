@@ -60,7 +60,12 @@ class EmptyWeightResolver {
     // Spoolman is canonical: a value corrected on the Spoolman spool must win
     // over a copy written to the tag earlier, which only changes when the tag
     // is rewritten.
-    if (valid(candidates.spoolman_spool_grams)) {
+    // A Spoolman value of exactly 0 is usually "never set" (rc.9 could create
+    // spools that way); prefer a real value from the tag in that case.
+    const bool spoolman_unset_zero = valid(candidates.spoolman_spool_grams) &&
+        *candidates.spoolman_spool_grams == 0.0F &&
+        valid(candidates.openprinttag_grams) && *candidates.openprinttag_grams > 0.0F;
+    if (valid(candidates.spoolman_spool_grams) && !spoolman_unset_zero) {
       return ResolvedEmptyWeight{
           *candidates.spoolman_spool_grams, EmptyWeightSource::spoolman_spool};
     }

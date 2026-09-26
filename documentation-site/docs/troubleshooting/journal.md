@@ -20,7 +20,8 @@ If you can't finish (the tag is lost, or the spool was deleted in Spoolman), use
 **SKIP RECOVERY** on the touchscreen, or **Skip linking** / **Skip cleanup** in the
 browser. The station stops trying. It does not change the tag or Spoolman, so:
 
-- after skipping a write, the tag may be half-written; clear it or write it again;
+- skip an unfinished **write or clear** only if that tag is lost or damaged: a
+  half-written tag can't be read, written or cleared by the station afterwards;
 - after skipping a link, link the tag again later from Manage tag;
 - after skipping an unlink, check the old spool in Spoolman and empty its
   `nfc_uid` and `opentag_instance_uuid` fields yourself.
