@@ -137,6 +137,47 @@ void assert_transport_consumed(const ScriptedTransport& transport) {
 
 }  // namespace
 
+
+constexpr const char* identity_fields_json =
+    R"json([{"key":"opentag_instance_uuid","name":"OpenTag UUID","field_type":"text"},{"key":"nfc_uid","name":"NFC UID","field_type":"text"}])json";
+
+void test_undefined_identity_field_filter_is_refused_before_listing() {
+  // Spoolman ignores extra.<key> filters for undefined fields and would return
+  // arbitrary spools; with one spool in inventory that looked like a match.
+  ScriptedTransport transport;
+  transport.expect("GET", "/field/spool",
+      R"json([{"key":"opentag_instance_uuid","name":"UUID","field_type":"integer"}])json");
+  SpoolmanAdapter adapter(transport, settings());
+  SpoolFilter filter;
+  filter.extra_json["opentag_instance_uuid"] = R"json("uuid-123")json";
+  filter.maximum_results = 2U;
+  const auto result = adapter.find_spools(filter);
+  TEST_ASSERT_FALSE(result.ok());
+  TEST_ASSERT_EQUAL(static_cast<int>(ErrorCategory::configuration),
+                    static_cast<int>(result.error().category));
+  TEST_ASSERT_NOT_EQUAL(std::string::npos,
+                        result.error().message.find("'opentag_instance_uuid'"));
+  TEST_ASSERT_NOT_EQUAL(std::string::npos, result.error().message.find("Text"));
+  assert_transport_consumed(transport);
+}
+
+void test_defined_identity_fields_are_checked_once() {
+  ScriptedTransport transport;
+  transport.expect("GET", "/field/spool", identity_fields_json);
+  transport.expect("GET",
+      "/spool?allow_archived=false&extra.nfc_uid=%22E004%22&limit=2&offset=0", "[]");
+  transport.expect("GET",
+      "/spool?allow_archived=false&extra.nfc_uid=%22E005%22&limit=2&offset=0", "[]");
+  SpoolmanAdapter adapter(transport, settings());
+  SpoolFilter filter;
+  filter.maximum_results = 2U;
+  filter.extra_json["nfc_uid"] = R"json("E004")json";
+  TEST_ASSERT_TRUE(adapter.find_spools(filter).ok());
+  filter.extra_json["nfc_uid"] = R"json("E005")json";
+  TEST_ASSERT_TRUE(adapter.find_spools(filter).ok());
+  assert_transport_consumed(transport);
+}
+
 void setUp() {}
 void tearDown() {}
 
@@ -188,6 +229,7 @@ void test_unknown_version_stays_connected_but_write_capabilities_are_off() {
 
 void test_spool_response_is_normalized_and_identity_values_are_decoded() {
   ScriptedTransport transport;
+  transport.expect("GET", "/field/spool", identity_fields_json);
   transport.expect(
       "GET", "/spool?allow_archived=false&filament.material=PLA%20Plus&extra.opentag_instance_uuid=%22uuid-123%22&limit=2&offset=0",
       "[" + spool_json() + "]");
@@ -271,6 +313,27 @@ void test_remaining_weight_update_aborts_if_usage_changed() {
   TEST_ASSERT_FALSE(result.ok());
   TEST_ASSERT_NOT_EQUAL(
       std::string::npos, result.error().message.find("usage changed"));
+  assert_transport_consumed(transport);
+}
+
+void test_remaining_weight_above_initial_is_refused_before_patch() {
+  // Spoolman clamps used weight at zero; rc.9 PATCHed and then reported a
+  // readback mismatch after inventory had already changed.
+  ScriptedTransport transport;
+  script_probe(transport);
+  transport.expect("GET", "/spool/17", spool_json());
+  SpoolmanAdapter adapter(transport, settings());
+  TEST_ASSERT_TRUE(adapter.probe().ok());
+  RemainingWeightUpdate update;
+  update.expected_used_grams = 250.0F;
+  update.remaining_grams = 1040.0F;
+  bool fenced = false;
+  update.before_mutation = [&] { fenced = true; return true; };
+  const auto result = adapter.set_remaining_weight(17, update);
+  TEST_ASSERT_FALSE(result.ok());
+  TEST_ASSERT_FALSE(fenced);
+  TEST_ASSERT_NOT_EQUAL(std::string::npos, result.error().message.find("initial weight"));
+  TEST_ASSERT_NOT_EQUAL(std::string::npos, result.error().message.find("1040 g"));
   assert_transport_consumed(transport);
 }
 
@@ -433,10 +496,13 @@ int main(int, char**) {
   RUN_TEST(test_probe_known_version_enables_proven_reads_and_guarded_writes);
   RUN_TEST(test_unknown_version_stays_connected_but_write_capabilities_are_off);
   RUN_TEST(test_spool_response_is_normalized_and_identity_values_are_decoded);
+  RUN_TEST(test_undefined_identity_field_filter_is_refused_before_listing);
+  RUN_TEST(test_defined_identity_fields_are_checked_once);
   RUN_TEST(test_malformed_spool_contract_is_rejected_as_api_change);
   RUN_TEST(test_remaining_weight_update_checks_concurrency_and_verifies_readback);
   RUN_TEST(test_remaining_weight_update_aborts_if_usage_changed);
   RUN_TEST(test_remaining_weight_update_rejects_mismatched_readback);
+  RUN_TEST(test_remaining_weight_above_initial_is_refused_before_patch);
   RUN_TEST(test_explicit_create_spool_serializes_identity_without_implicit_creation);
   RUN_TEST(test_extra_field_patch_contains_only_intended_key_and_is_verified);
   RUN_TEST(test_location_and_field_shapes_are_bounded_and_typed);

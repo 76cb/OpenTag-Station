@@ -35,6 +35,9 @@ struct BackendRuntimeSnapshot {
   bool version_formally_tested{false};
   std::string version;
   std::uint32_t capability_bits{0U};
+  // Spoolman only: identity extra-field readiness from the last full probe.
+  std::optional<bool> identity_fields_ready;
+  std::string identity_fields_message;
   std::optional<core::Error> last_error;
 };
 

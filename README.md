@@ -92,12 +92,14 @@ See [configuration and security](https://76cb.github.io/OpenTag-Station-Docs/con
 
 1. Assemble and inspect the supported hardware using the [wiring guide](https://76cb.github.io/OpenTag-Station-Docs/hardware/wiring/).
 2. Connect a data-capable USB cable and open the [web flasher](https://76cb.github.io/OpenTag-Station/) in desktop Chrome or Edge.
-3. Install **OpenTag Station**, join its setup network, and [configure Wi-Fi, Spoolman and optional FilaBridge](https://76cb.github.io/OpenTag-Station-Docs/getting-started/initial-setup/).
+3. Install **OpenTag Station**, join its setup network (the password is shown on the touchscreen), and [configure Wi-Fi, Spoolman and optional FilaBridge](https://76cb.github.io/OpenTag-Station-Docs/getting-started/initial-setup/).
+   In Spoolman, create the two required Spool extra fields `opentag_instance_uuid` and `nfc_uid` (type Text) — see [Spoolman extra fields](https://76cb.github.io/OpenTag-Station-Docs/inventory/custom-fields/).
 4. Select the matching scale profile, then [tare and calibrate the platform](https://76cb.github.io/OpenTag-Station-Docs/scale/calibration/).
 5. Place a spool and use the Dashboard, following the [first-spool guide](https://76cb.github.io/OpenTag-Station-Docs/getting-started/quick-start/).
 
-The public installer tracks firmware main. USB recovery can erase configuration
-and calibration; normal OTA takes an application binary, not a factory image.
+The public installer serves the latest release tag. USB recovery can erase
+configuration and calibration. Normal OTA takes the release's
+`opentag-station-<version>-application.bin`, not the factory image.
 
 ---
 
@@ -109,7 +111,7 @@ and calibration; normal OTA takes an application binary, not a factory image.
 | Scale ADC | NAU7802 |
 | Load cell | YZC-133 5 kg (default) or 2 kg with matching calibration |
 | NFC reader | ELECHOUSE NFC_ST25R3916B, I²C bridge closed, integrated antenna |
-| Tags | NXP ICODE SLIX2 NFC-V / ISO15693, 80 × 4-byte approved profile |
+| Tags | NXP ICODE SLIX2 NFC-V / ISO15693, 80 × 4-byte approved profile, **blank/unformatted** |
 | Power | Regulated 5 V with qualified breakout/harness |
 
 ```text

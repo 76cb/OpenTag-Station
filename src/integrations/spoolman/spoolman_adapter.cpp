@@ -285,6 +285,60 @@ ExtraFieldKind parse_field_kind(const std::string& value) {
 void SpoolmanAdapter::configure(config::SpoolmanSettings settings) {
   settings_ = std::move(settings);
   status_ = {};
+  verified_extra_keys_.clear();
+}
+
+namespace {
+std::string missing_identity_fields_message(const std::vector<std::string>& missing) {
+  std::string names;
+  for (const auto& key : missing) {
+    if (!names.empty()) names += ", ";
+    names += "'" + key + "'";
+  }
+  return "Spoolman is missing the Spool extra field" +
+         std::string(missing.size() == 1U ? " " : "s ") + names +
+         ". In Spoolman open Settings > Extra Fields > Spool and add " +
+         (missing.size() == 1U ? "it" : "them") + " with type Text.";
+}
+
+std::vector<std::string> missing_text_fields(
+    const std::vector<ExtraFieldDefinition>& fields,
+    const std::vector<std::string>& keys) {
+  std::vector<std::string> missing;
+  for (const auto& key : keys) {
+    const auto found = std::find_if(fields.begin(), fields.end(), [&](const auto& field) {
+      return field.key == key && field.kind == ExtraFieldKind::text;
+    });
+    if (found == fields.end()) missing.push_back(key);
+  }
+  return missing;
+}
+}  // namespace
+
+std::string SpoolmanAdapter::text_field_problem(
+    const std::vector<ExtraFieldDefinition>& fields,
+    const std::vector<std::string>& keys) {
+  const auto missing = missing_text_fields(fields, keys);
+  return missing.empty() ? std::string{} : missing_identity_fields_message(missing);
+}
+
+core::Result<void> SpoolmanAdapter::require_extra_filters_defined(
+    const std::map<std::string, std::string>& filters) {
+  std::vector<std::string> unverified;
+  for (const auto& filter : filters)
+    if (verified_extra_keys_.count(filter.first) == 0U) unverified.push_back(filter.first);
+  if (unverified.empty()) return core::Result<void>::success();
+  const auto fields = list_extra_fields();
+  if (!fields.ok()) return core::Result<void>::failure(fields.error());
+  const auto missing = missing_text_fields(fields.value(), unverified);
+  if (!missing.empty()) {
+    const core::Error error{core::ErrorCategory::configuration,
+                            missing_identity_fields_message(missing), false};
+    status_.last_error = error;
+    return core::Result<void>::failure(error);
+  }
+  for (const auto& key : unverified) verified_extra_keys_.insert(key);
+  return core::Result<void>::success();
 }
 
 std::string SpoolmanAdapter::endpoint(const std::string& path) const {
@@ -394,7 +448,18 @@ core::Result<void> SpoolmanAdapter::probe_read_capabilities() {
   const auto locations = list_locations();
   if (locations.ok()) status_.capabilities.add(BackendCapability::list_locations);
   const auto fields = list_extra_fields();
-  if (fields.ok()) status_.capabilities.add(BackendCapability::list_extra_fields);
+  if (fields.ok()) {
+    status_.capabilities.add(BackendCapability::list_extra_fields);
+    const auto missing = missing_text_fields(
+        fields.value(), {settings_.identity_field, settings_.nfc_uid_field});
+    status_.identity_fields_ready = missing.empty();
+    status_.identity_fields_message =
+        missing.empty() ? std::string{} : missing_identity_fields_message(missing);
+    if (missing.empty()) {
+      verified_extra_keys_.insert(settings_.identity_field);
+      verified_extra_keys_.insert(settings_.nfc_uid_field);
+    }
+  }
   return core::Result<void>::success();
 }
 
@@ -485,6 +550,11 @@ core::Result<std::vector<domain::Spool>> SpoolmanAdapter::find_spools(
           configuration_error("Spoolman extra-field filter is invalid"));
     }
     common += "&extra." + field.first + "=" + url_encode(field.second);
+  }
+  if (!filter.extra_json.empty()) {
+    const auto defined = require_extra_filters_defined(filter.extra_json);
+    if (!defined.ok())
+      return core::Result<std::vector<domain::Spool>>::failure(defined.error());
   }
 
   std::vector<domain::Spool> result;
@@ -605,6 +675,33 @@ core::Result<domain::Spool> SpoolmanAdapter::set_remaining_weight(
          "Spoolman usage changed after the reconciliation snapshot",
          false});
   }
+  // Spoolman clamps used weight at zero, so a remaining weight above the
+  // spool's initial weight would be silently altered and then fail readback
+  // after inventory had already changed. Refuse before any mutation.
+  const auto& spool = current.value();
+  const std::optional<float> initial = spool.initial_grams.has_value()
+      ? spool.initial_grams
+      : spool.remaining_grams.has_value()
+          ? std::optional<float>(spool.used_grams + *spool.remaining_grams)
+          : std::nullopt;
+  if (!initial.has_value()) {
+    return core::Result<domain::Spool>::failure(
+        {core::ErrorCategory::configuration,
+         "This spool has no initial weight in Spoolman. Set its initial "
+         "weight in Spoolman, then weigh again.",
+         false});
+  }
+  if (update.remaining_grams > *initial + update.verification_tolerance_grams) {
+    return core::Result<domain::Spool>::failure(
+        {core::ErrorCategory::configuration,
+         "The measured filament (" +
+             std::to_string(static_cast<long>(std::lround(update.remaining_grams))) +
+             " g) is more than this spool's initial weight in Spoolman (" +
+             std::to_string(static_cast<long>(std::lround(*initial))) +
+             " g). Check the empty spool weight, or correct the initial weight "
+             "in Spoolman.",
+         false});
+  }
   network::BackendDocument body;
   body["remaining_weight"] = update.remaining_grams;
   if (body.overflowed()) {
@@ -616,7 +713,13 @@ core::Result<domain::Spool> SpoolmanAdapter::set_remaining_weight(
   if(update.before_mutation && !update.before_mutation())
     return core::Result<domain::Spool>::failure({core::ErrorCategory::conflict, "Spool changed before weight mutation", false});
   auto response = request("PATCH", "/spool/" + std::to_string(id), serialized);
-  if (!response.ok()) return core::Result<domain::Spool>::failure(response.error());
+  if (!response.ok()) {
+    auto error = response.error();
+    if (error.message == "Spoolman returned HTTP 400")
+      error.message = "Spoolman refused the new weight (HTTP 400). Check that "
+                      "the spool has an initial weight in Spoolman.";
+    return core::Result<domain::Spool>::failure(std::move(error));
+  }
 
   const auto verified = get_spool(id);
   if (!verified.ok()) return verified;

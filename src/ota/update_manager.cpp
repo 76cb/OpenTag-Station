@@ -560,7 +560,13 @@ core::Result<UpdateSnapshot> UpdateManager::initialize_from_boot(
              same_partition(state_.running, state_.target) &&
              state_.running_image_state == PartitionImageState::valid &&
              (candidate_in_progress(state_.state) ||
-              state_.state == UpdateState::rollback_pending)) {
+              state_.state == UpdateState::rollback_pending ||
+              // The target booted and is already valid (for example it was
+              // confirmed by the framework before the health window, as
+              // rc.9 and earlier allowed). Rollback is no longer possible;
+              // record it as confirmed instead of leaving a permanent
+              // reboot_pending that blocks every later update.
+              state_.state == UpdateState::reboot_pending)) {
     state_.state = UpdateState::confirmed;
     state_.activated = true;
   } else if (!has_record) {

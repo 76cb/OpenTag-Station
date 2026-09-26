@@ -195,6 +195,11 @@ void write_backend(
   object["version_formally_tested"] = backend.version_formally_tested;
   object["version"] = backend.version;
   object["capabilities_bits"] = backend.capability_bits;
+  if (backend.identity_fields_ready.has_value()) {
+    object["identity_fields_ready"] = *backend.identity_fields_ready;
+    if (!backend.identity_fields_message.empty())
+      object["identity_fields_message"] = backend.identity_fields_message;
+  }
   if (backend.last_error.has_value()) {
     add_error(object["error"].to<JsonObject>(), backend.last_error);
   }
@@ -1122,6 +1127,16 @@ core::Result<api::OperationReceipt> ApplicationApiContext::receipt_result(
 core::Result<api::OperationReceipt> ApplicationApiContext::submit_fresh(
     const api::Mutation& mutation,
     std::uint32_t now_ms) {
+  if ((mutation.kind == api::MutationKind::reboot ||
+       mutation.kind == api::MutationKind::factory_reset ||
+       mutation.kind == api::MutationKind::update_reboot) &&
+      backend_worker_.pending() != 0U) {
+    // Never restart underneath a tag write/clear or a Spoolman update: the
+    // backend counter includes the command that is currently executing.
+    return core::Result<api::OperationReceipt>::failure(conflict_error(
+        "The station is busy with a tag or Spoolman operation. Wait for it "
+        "to finish, then try again."));
+  }
   switch (mutation.kind) {
     case api::MutationKind::scale_update:
       return receipt_result(backend_worker_.submit_weight_update(std::get<api::WeightUpdateMutation>(mutation.payload).measurement_id), "Weight update queue unavailable");

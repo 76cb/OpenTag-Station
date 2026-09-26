@@ -74,16 +74,16 @@ void test_empty_weight_resolver_uses_documented_priority_and_exposes_source() {
   candidates.manual_grams = 194.0F;
   const auto resolved = EmptyWeightResolver::resolve(candidates);
   TEST_ASSERT_TRUE(resolved.has_value());
-  TEST_ASSERT_FLOAT_WITHIN(0.01F, 190.0F, resolved->grams);
+  TEST_ASSERT_FLOAT_WITHIN(0.01F, 191.0F, resolved->grams);
   TEST_ASSERT_EQUAL_INT(
-      static_cast<int>(EmptyWeightSource::openprinttag),
+      static_cast<int>(EmptyWeightSource::spoolman_spool),
       static_cast<int>(resolved->source));
 
-  candidates.openprinttag_grams = -1.0F;
+  candidates.spoolman_spool_grams.reset();
   const auto fallback = EmptyWeightResolver::resolve(candidates);
   TEST_ASSERT_TRUE(fallback.has_value());
   TEST_ASSERT_EQUAL_INT(
-      static_cast<int>(EmptyWeightSource::spoolman_spool),
+      static_cast<int>(EmptyWeightSource::openprinttag),
       static_cast<int>(fallback->source));
 }
 

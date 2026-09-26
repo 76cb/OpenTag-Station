@@ -14,6 +14,13 @@ import subprocess
 from dataclasses import dataclass
 from typing import Any, Iterable
 
+try:
+    from product_features import community_enabled
+except ImportError:  # imported as tools.web_flasher
+    from tools.product_features import community_enabled
+
+COMMUNITY_FILES = ("community.pack", "community-manifest.json")
+
 
 FACTORY_IMAGE_NAME = "opentag-station-factory.bin"
 MANIFEST_NAME = "manifest.json"
@@ -204,11 +211,14 @@ def validate_bundle(
 
 def validate_pages_bundle(bundle_dir: pathlib.Path, maximum_size: int) -> None:
     validate_bundle(bundle_dir, maximum_size)
-    expected = {PAGE_NAME, ".nojekyll", MANIFEST_NAME, FACTORY_IMAGE_NAME,
-                "community.pack", "community-manifest.json"}
+    expected = {PAGE_NAME, ".nojekyll", MANIFEST_NAME, FACTORY_IMAGE_NAME}
+    if community_enabled():
+        expected |= set(COMMUNITY_FILES)
     actual = {path.name for path in bundle_dir.iterdir()}
     if actual != expected:
-        raise FlasherError(f"Unexpected Pages contents: {sorted(actual - expected)}")
+        raise FlasherError(f"Unexpected Pages contents: {sorted(actual ^ expected)}")
+    if not community_enabled():
+        return
     pack = bundle_dir / "community.pack"
     catalog = json.loads((bundle_dir / "community-manifest.json").read_text(encoding="utf-8"))
     required = {"schema", "version", "source_revision", "source_sha256", "records", "size", "sha256", "url"}
@@ -222,8 +232,10 @@ def assemble_pages_bundle(factory_bundle: pathlib.Path, output_dir: pathlib.Path
                           maximum_size: int) -> None:
     validate_pages_bundle(factory_bundle, maximum_size)
     output_dir.mkdir(parents=True, exist_ok=True)
-    for name in (PAGE_NAME, ".nojekyll", MANIFEST_NAME, FACTORY_IMAGE_NAME,
-                 "community.pack", "community-manifest.json"):
+    names = [PAGE_NAME, ".nojekyll", MANIFEST_NAME, FACTORY_IMAGE_NAME]
+    if community_enabled():
+        names += list(COMMUNITY_FILES)
+    for name in names:
         shutil.copy2(factory_bundle / name, output_dir / name)
     validate_pages_bundle(output_dir, maximum_size)
 
@@ -275,8 +287,12 @@ def build_bundle(
     image = output_dir / image_name
     image.unlink(missing_ok=True)
     shutil.copy2(page_source, output_dir / PAGE_NAME)
-    shutil.copy2(catalog_pack, output_dir / "community.pack")
-    shutil.copy2(catalog_manifest, output_dir / "community-manifest.json")
+    # Community is disabled for 1.0: do not publish its 2.4 MB catalog.
+    for stale in COMMUNITY_FILES:
+        (output_dir / stale).unlink(missing_ok=True)
+    if community_enabled():
+        shutil.copy2(catalog_pack, output_dir / "community.pack")
+        shutil.copy2(catalog_manifest, output_dir / "community-manifest.json")
     (output_dir / ".nojekyll").write_bytes(b"")
 
     merge_mode = web_tools_flash_mode(actual_flash_mode, memory_type)

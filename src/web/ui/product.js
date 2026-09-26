@@ -123,13 +123,13 @@ function bindInventoryFilters() {
   const row=productElement('div',null,'field-grid'),color=productElement('select'),status=productElement('select');
   color.id='inventory-color';status.id='inventory-status';
   for(const [node,title] of [[color,'Color'],[status,'Status']]){const label=productElement('label',title);label.append(node);row.append(label);}
-  for(const [value,title] of [['','All statuses'],['available','Filament remaining'],['empty','Empty'],['archived','Archived']]){const o=productElement('option',title);o.value=value;status.append(o);}
+  for(const [value,title] of [['','All statuses'],['available','Filament remaining'],['empty','Empty']]){const o=productElement('option',title);o.value=value;status.append(o);}
   const note=productElement('p',null,'hint');group.append(row,note);
   byId('writer-inventory').querySelector('.writer-toolbar').after(group);
   const apply=()=>{
     const S=window.OpenTagWriter.writerState;let count=0;
     S.rows?.forEach((row,i)=>{const s=S.items[i],f=S.entity==='spool'?asObject(s.filament):s;
-      const matches=(!color.value||f.color_hex===color.value)&&(!status.value||S.entity!=='spool'||(status.value==='archived'?s.archived:status.value==='empty'?Number(s.remaining_weight)===0:!s.archived&&Number(s.remaining_weight)>0));
+      const matches=(!color.value||f.color_hex===color.value)&&(!status.value||S.entity!=='spool'||(status.value==='empty'?Number(s.remaining_weight)===0:!s.archived&&Number(s.remaining_weight)>0));
       row.hidden=!matches;if(matches)count++;
     });
     note.textContent=count+' visible on this page. Search and vendor/material filters apply across inventory.';

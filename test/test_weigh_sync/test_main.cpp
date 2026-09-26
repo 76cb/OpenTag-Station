@@ -89,6 +89,34 @@ struct Fixture {
     });
   }
 };
+void unavailable_measurements_explain_the_fix() {
+  {
+    Fixture f;
+    auto s = f.initial();
+    s.spool_id = 0;
+    TEST_ASSERT_TRUE(f.sync.begin(s));
+    f.sync.capture(1, {842, true});
+    TEST_ASSERT_EQUAL_STRING("unavailable", f.sync.snapshot().phase.c_str());
+    TEST_ASSERT_NOT_EQUAL(std::string::npos, f.sync.snapshot().message.find("not linked"));
+  }
+  {
+    Fixture f;
+    auto s = f.initial();
+    s.tare.reset();
+    TEST_ASSERT_TRUE(f.sync.begin(s));
+    f.sync.capture(1, {842, true});
+    TEST_ASSERT_NOT_EQUAL(std::string::npos, f.sync.snapshot().message.find("empty spool weight"));
+  }
+  {
+    Fixture f;
+    f.capture();
+    f.inventory.enabled = false;
+    TEST_ASSERT_FALSE(f.update().ok());
+    // Not the rc.9 "Weigh again" loop: weighing again cannot fix this.
+    TEST_ASSERT_EQUAL(std::string::npos, f.sync.snapshot().message.find("Weigh again"));
+    TEST_ASSERT_NOT_EQUAL(std::string::npos, f.sync.snapshot().message.find("Spoolman version"));
+  }
+}
 void default_off_and_explicit_capture_no_mutation() {
   TEST_ASSERT_FALSE(
       config::Configuration{}.reconciliation.auto_update_after_weigh);
@@ -253,6 +281,7 @@ int main() {
   RUN_TEST(custom_tolerances_survive_success_without_extra_operations);
   RUN_TEST(settings_change_invalidates_captured_measurement);
   RUN_TEST(default_off_and_explicit_capture_no_mutation);
+  RUN_TEST(unavailable_measurements_explain_the_fix);
   RUN_TEST(manual_update_verified);
   RUN_TEST(automatic_update_once);
   RUN_TEST(new_weigh_can_update_again);

@@ -22,8 +22,10 @@ def git(*args):
 
 
 def validate_tag(tag, value):
-    if not re.fullmatch(rf'v{NUMBER}\.{NUMBER}\.{NUMBER}', tag) or tag != 'v' + value:
-        raise ValueError('Production release tag must be vX.Y.Z and exactly match VERSION')
+    # Final releases are vX.Y.Z; release candidates (vX.Y.Z-rc.N) are
+    # published as GitHub pre-releases so users can obtain OTA images.
+    if not tag.startswith('v') or not SEMVER.fullmatch(tag[1:]) or '+' in tag or tag != 'v' + value:
+        raise ValueError('Release tag must be v<VERSION>, for example v1.0.0 or v1.0.0-rc.10')
 
 
 def verify_binary(binary, metadata):

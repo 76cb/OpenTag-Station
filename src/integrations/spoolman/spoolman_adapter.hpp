@@ -1,6 +1,8 @@
 #pragma once
 
+#include <map>
 #include <optional>
+#include <set>
 #include <string>
 #include <utility>
 
@@ -19,6 +21,10 @@ struct SpoolmanStatus {
   std::string version;
   std::string git_commit;
   BackendCapabilities capabilities;
+  // Whether the configured identity keys exist as Spool text extra fields.
+  // Unset until a full probe has read /field/spool.
+  std::optional<bool> identity_fields_ready;
+  std::string identity_fields_message;
   std::optional<core::Error> last_error;
 };
 
@@ -50,6 +56,12 @@ class SpoolmanAdapter final : public ISpoolInventory {
     return status_.capabilities;
   }
 
+  // Empty when every key exists as a Spool text extra field; otherwise a
+  // user-facing explanation of which fields to create in Spoolman.
+  [[nodiscard]] static std::string text_field_problem(
+      const std::vector<ExtraFieldDefinition>& fields,
+      const std::vector<std::string>& keys);
+
   [[nodiscard]] core::Result<domain::Spool> set_extra_field(
       domain::SpoolId id,
       const std::string& key,
@@ -67,11 +79,17 @@ class SpoolmanAdapter final : public ISpoolInventory {
   [[nodiscard]] core::Result<domain::Spool> parse_spool(
       network::ResponseBody& body) const;
   [[nodiscard]] core::Result<void> probe_read_capabilities();
+  // Spoolman silently ignores extra.<key> filters for undefined fields, which
+  // would return arbitrary spools. Refuse such queries until every filtered
+  // key is known to exist as a Spool text field.
+  [[nodiscard]] core::Result<void> require_extra_filters_defined(
+      const std::map<std::string, std::string>& filters);
   [[nodiscard]] std::string endpoint(const std::string& path) const;
 
   network::IHttpTransport& transport_;
   config::SpoolmanSettings settings_;
   SpoolmanStatus status_;
+  std::set<std::string> verified_extra_keys_;
 };
 
 }  // namespace opentag::integrations::spoolman

@@ -107,6 +107,10 @@ core::Result<void> remove_configuration_documents() {
   // Rollback sources are removed before the primary so a partial filesystem
   // failure retains the primary configuration.
   constexpr const char* reset_paths[] = {
+      // Tag-writer recovery record (see writer_journal.cpp). A factory reset
+      // is the user's explicit request to forget pending tag recovery too.
+      "/writer-recovery.new",
+      "/writer-recovery.bin",
       configuration_backup_path,
       configuration_staging_path,
       configuration_path,

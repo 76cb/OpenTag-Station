@@ -86,16 +86,16 @@
           "Connect Spoolman": "inventory/spoolman.md"
         },
         {
+          "Spoolman extra fields (required)": "inventory/custom-fields.md"
+        },
+        {
           "Filaments, spools and remaining weight": "inventory/filaments-spools.md"
         },
         {
           "Edit canonical inventory": "inventory/editing.md"
         },
         {
-          "SpoolmanDB Community import": "inventory/community.md"
-        },
-        {
-          "Identity fields and ownership": "inventory/custom-fields.md"
+          "Community import (postponed to 1.1)": "inventory/community.md"
         }
       ]
     },
@@ -198,7 +198,7 @@
           "Spoolman offline": "troubleshooting/spoolman.md"
         },
         {
-          "Community catalog failure": "troubleshooting/community.md"
+          "Community (postponed to 1.1)": "troubleshooting/community.md"
         },
         {
           "Weight mismatch or unstable readings": "troubleshooting/weight.md"

@@ -1436,9 +1436,27 @@ void test_platform_errors_are_bounded_before_snapshot_persistence() {
   TEST_ASSERT_TRUE(harness.manager.snapshot().last_error.length <= 192U);
 }
 
+void test_framework_confirmed_candidate_does_not_block_later_updates() {
+  // rc.9 regression: Arduino confirmed the candidate before the health window,
+  // leaving the durable record at reboot_pending forever and refusing every
+  // later upload. A booted target that is already valid must normalize.
+  Harness harness;
+  configure_candidate_boot(harness, UpdateState::reboot_pending);
+  harness.platform.status_value.running_state = PartitionImageState::valid;
+  const auto initialized = initialize(harness, 1000U);
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(UpdateState::confirmed),
+                        static_cast<int>(initialized.state));
+  TEST_ASSERT_EQUAL_UINT(0U, harness.platform.confirm_calls);
+  const auto next = harness.manager.begin_upload(
+      request_for(initialized, 8U, digest(1U), 43U), 1100U);
+  TEST_ASSERT_TRUE_MESSAGE(next.ok(),
+                           next.ok() ? "" : next.error().message.c_str());
+}
+
 int main(int, char**) {
   UNITY_BEGIN();
   RUN_TEST(test_boot_initialization_reports_active_boot_and_inactive_slots);
+  RUN_TEST(test_framework_confirmed_candidate_does_not_block_later_updates);
   RUN_TEST(test_fresh_generation_zero_reserves_first_positive_generation);
   RUN_TEST(test_happy_path_streams_validates_then_activates_separately);
   RUN_TEST(test_undefined_running_state_retains_intent_for_exact_activation_retry);

@@ -29,10 +29,8 @@ Initial adapter dependencies:
 | List/filter spools | `GET /api/v1/spool` |
 | Retrieve spool | `GET /api/v1/spool/{id}` |
 | Update explicit remaining weight | `PATCH /api/v1/spool/{id}` |
-| Apply gross scale measurement | `PUT /api/v1/spool/{id}/measure` |
-| Record incremental use | `PUT /api/v1/spool/{id}/use` |
 | List locations | `GET /api/v1/location` |
-| List/create field definitions | `GET/POST /api/v1/field/{entity_type}[/{key}]` |
+| List field definitions | `GET /api/v1/field/spool` |
 | Observe spool changes | WebSocket on `/api/v1/spool` or `/api/v1/spool/{id}` |
 
 These paths are implementation details of `SpoolmanAdapter`, not part of the
@@ -41,12 +39,17 @@ device's local API.
 ## Weight semantics
 
 Spoolman exposes `initial_weight`, `spool_weight`, `used_weight`, derived
-`remaining_weight`, and `remaining_length`. The `/measure` operation expects
-**gross physical spool weight**. An explicit reconciliation may instead patch
-`remaining_weight`. The adapter will select only a capability proven by a
-runtime probe, perform one intentional write after stable measurement/user
-policy, then retrieve the spool and verify the returned value within rounding
-tolerance.
+`remaining_weight`, and `remaining_length`. The station saves a weight by
+patching `remaining_weight` to `gross − empty spool`, then reads the spool back and
+checks the value within rounding tolerance. It never calls `/measure` or `/use`.
+
+Weight saves are enabled only when `GET /api/v1/info` reports the formally tested
+Spoolman version (currently **0.26.1**); other versions show a warning in
+Settings → Integrations. Tag write, link and clear rely on `extra.<key>` list
+filters and on the two identity fields existing as Spool text fields, which the
+station checks via `GET /api/v1/field/spool` before filtering. Before patching it
+also refuses a remaining weight above the spool's initial weight, because
+Spoolman would clamp it.
 
 The device does not race FilaBridge's print-consumption updates. Before a write,
 it re-fetches the spool and detects whether `used_weight` changed since the
@@ -62,7 +65,7 @@ field keys represent OpenPrintTag instance UUID and NFC UID.
 A critical current contract changed after the earlier Phase 0 inspection:
 Spoolman's database implementation now merges only the keys present in an
 `extra` patch, and a key sent as `null` is removed. The adapter therefore sends
-only the one intended key and verifies it with a fresh spool read. It never
+only the two identity keys it owns and verifies them with a fresh spool read. It never
 reconstructs or replaces unrelated values, and never silently creates field
 definitions; field creation remains an explicit user action.
 

@@ -228,7 +228,27 @@ void test_gtin_exact_match_precedes_metadata_candidates() {
   TEST_ASSERT_EQUAL(
       static_cast<int>(SpoolMatchSource::package_or_material_identity),
       static_cast<int>(result.value().source));
-  TEST_ASSERT_EQUAL_INT32(31, result.value().match()->id);
+  // A product identifier narrows candidates but never selects a physical spool.
+  TEST_ASSERT_EQUAL(static_cast<int>(SpoolResolutionStatus::ambiguous),
+                    static_cast<int>(result.value().status));
+  TEST_ASSERT_EQUAL_UINT(1U, result.value().candidates.size());
+  TEST_ASSERT_EQUAL_INT32(31, result.value().candidates.front().id);
+}
+
+void test_single_metadata_candidate_requires_confirmation() {
+  FakeInventory inventory;
+  MemoryMappings mappings;
+  inventory.find_results.push_back(spool_result({spool(41)}));
+  SpoolIdentityResolver resolver(inventory, mappings, settings());
+  SpoolIdentity identity;
+  identity.brand_name = "Prusament";
+  identity.material_abbreviation = "PETG";
+  const auto result = resolver.resolve(identity);
+  TEST_ASSERT_TRUE(result.ok());
+  TEST_ASSERT_EQUAL(static_cast<int>(SpoolResolutionStatus::ambiguous),
+                    static_cast<int>(result.value().status));
+  TEST_ASSERT_NULL(result.value().match());
+  TEST_ASSERT_EQUAL_UINT(1U, result.value().candidates.size());
 }
 
 void test_multiple_metadata_candidates_require_manual_selection() {
@@ -300,6 +320,7 @@ int main(int, char**) {
   RUN_TEST(test_nfc_uid_mapping_follows_missing_instance_sources);
   RUN_TEST(test_gtin_exact_match_precedes_metadata_candidates);
   RUN_TEST(test_multiple_metadata_candidates_require_manual_selection);
+  RUN_TEST(test_single_metadata_candidate_requires_confirmation);
   RUN_TEST(test_confirmation_persists_both_stable_identities);
   RUN_TEST(test_openprinttag_uuid_and_nfc_uid_are_normalized);
   return UNITY_END();

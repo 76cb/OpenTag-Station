@@ -215,13 +215,22 @@ Result TagWriterService::catalog(JsonObjectConst c) {
   if (!c["offset"].is<unsigned>() || c["offset"].as<unsigned>() > 1000000)
     return fail("Invalid catalog offset");
   const auto offset = c["offset"].as<unsigned>();
+  std::string search_field = c["search_field"] | "name";
+  if (search_field != "name" && search_field != "vendor")
+    return fail("Unsupported search field");
+  if (entity == "vendor")
+    search_field = "name";
+  const std::string prefix = entity == "spool" ? "filament." : "";
+  const std::string search = c["search"] | "";
+  const auto build = [&](const std::string &field) {
   std::string path = "/" + entity +
                      "?limit=8&offset=" + std::to_string(offset) +
                      "&sort=id:asc";
-  const std::string prefix = entity == "spool" ? "filament." : "";
-  const std::string search = c["search"] | "";
+  // Spoolman matches case-insensitive substrings. Rows show "Vendor Name",
+  // so a search that finds no names is retried against the vendor.
   if (!search.empty())
-    path += "&" + prefix + "name=" + encode(search);
+    path += "&" + prefix + (field == "vendor" ? "vendor.name=" : "name=") +
+            encode(search);
   if (entity != "vendor") {
     if (c["vendor_id"].as<int>() > 0)
       path += "&" + prefix +
@@ -233,11 +242,23 @@ Result TagWriterService::catalog(JsonObjectConst c) {
     if (entity == "spool" && c["filament_id"].as<int>() > 0)
       path += "&filament.id=" + std::to_string(c["filament_id"].as<int>());
   }
-  auto page = api("GET", path);
+  return path;
+  };
+  auto page = api("GET", build(search_field));
   if (!page.ok())
     return Result::failure(page.error());
   if (!page.value().is<JsonArray>() || page.value().size() > 8)
     return fail("Spoolman pagination contract changed");
+  if (page.value().size() == 0 && !search.empty() && offset == 0 &&
+      entity != "vendor" && search_field == "name") {
+    auto by_vendor = api("GET", build("vendor"));
+    if (!by_vendor.ok())
+      return Result::failure(by_vendor.error());
+    if (!by_vendor.value().is<JsonArray>() || by_vendor.value().size() > 8)
+      return fail("Spoolman pagination contract changed");
+    search_field = "vendor";
+    page = std::move(by_vendor);
+  }
   for (auto item : page.value().as<JsonArrayConst>())
     if (!item["id"].is<int>() || item["id"].as<int>() <= 0)
       return fail("Malformed Spoolman catalog item");
@@ -246,6 +267,7 @@ Result TagWriterService::catalog(JsonObjectConst c) {
   view_["offset"] = offset;
   view_["next_offset"] = offset + page.value().size();
   view_["has_more"] = page.value().size() == 8;
+  view_["search_field"] = search_field;
   view_["items"].set(page.value());
   publish("catalog");
   return Result::success();
@@ -751,9 +773,13 @@ __attribute__((noinline)) bool TagWriterService::restore_ready() {
     publish("failed", result.error().message.c_str());
   return result.ok();
 }
-__attribute__((noinline)) Result TagWriterService::restore_cleanup() {
+__attribute__((noinline)) Result
+TagWriterService::restore_cleanup(const std::string &reason) {
   if (plan_ || !journal_)
     return Result::success();
+  const auto explained = [&](const char *base) {
+    return reason.empty() ? std::string(base) : reason + " " + base;
+  };
   auto saved =
       network::make_external<nfc::WriterPlan>([] { return nfc::WriterPlan{}; });
   if (!saved)
@@ -763,7 +789,8 @@ __attribute__((noinline)) Result TagWriterService::restore_cleanup() {
   if (!journal_->load(*saved, owner, backend)) return Result::success();
   if (saved->operation != nfc::WriterPlan::Operation::clear) {
     view_["uid"]=saved->uid.hex(); view_["spool_id"]=owner;
-    publish("write_recovery", "Present the same tag to resume its verified write review.");
+    publish("write_recovery",
+            explained("Place the same tag on the reader to finish writing it.").c_str());
     return Result::success();
   }
   if (backend != backend_identity(spoolman_.settings_))
@@ -772,8 +799,9 @@ __attribute__((noinline)) Result TagWriterService::restore_cleanup() {
   view_["uid"]=saved->uid.hex();view_["spool_id"]=owner;view_["mode"]="clear";
   clear_recovery_required_ = true;
   if (!saved->cleanup_pending) {
-    publish("clear_recovery", "Interrupted clear. Present the same tag and "
-                              "preview Clear / Reuse to recover.");
+    publish("clear_recovery",
+            explained("Clearing this tag was interrupted. Place the same tag "
+                      "on the reader to finish clearing it.").c_str());
     return Result::success();
   }
   plan_ = std::move(saved);
@@ -790,7 +818,44 @@ __attribute__((noinline)) Result TagWriterService::restore_cleanup() {
   view_["spool_id"] = spool_id_;
   view_["mode"] = "clear";
   publish("unlink_pending",
-          "Tag is blank and verified. Spoolman unlink is still pending.");
+          explained("The tag is cleared. Removing its link in Spoolman is "
+                    "still pending.").c_str());
+  return Result::success();
+}
+std::string TagWriterService::journaled_other_uid() {
+  if (!journal_ || !plan_)
+    return {};
+  auto saved =
+      network::make_external<nfc::WriterPlan>([] { return nfc::WriterPlan{}; });
+  std::int32_t owner = 0;
+  std::uint32_t backend = 0;
+  if (!saved || !journal_->load(*saved, owner, backend) ||
+      saved->uid == plan_->uid)
+    return {};
+  return saved->uid.hex();
+}
+bool TagWriterService::has_durable_recovery() {
+  if (!journal_)
+    return false;
+  auto saved =
+      network::make_external<nfc::WriterPlan>([] { return nfc::WriterPlan{}; });
+  std::int32_t owner = 0;
+  std::uint32_t backend = 0;
+  return saved && journal_->load(*saved, owner, backend);
+}
+Result TagWriterService::discard_recovery() {
+  // Explicit user choice to stop recovering: the tag keeps whatever bytes it
+  // has now and Spoolman is not changed. Nothing physical is touched here.
+  if (journal_ && !journal_->clear())
+    return fail("The recovery record could not be removed; try again");
+  plan_.reset();
+  association_pending_ = unlink_pending_ = clear_recovery_required_ = false;
+  spool_id_ = 0;
+  uuid_.clear();
+  view_.clear();
+  publish("recovery_discarded",
+          "Stopped. The tag keeps its current contents and Spoolman was not "
+          "changed. Read the tag again before using it.");
   return Result::success();
 }
 __attribute__((noinline)) Result TagWriterService::persist_clear() {
@@ -799,6 +864,15 @@ __attribute__((noinline)) Result TagWriterService::persist_clear() {
     return fail("Clear recovery checkpoint could not be verified; cleanup not "
                 "advanced");
   return Result::success();
+}
+Result TagWriterService::require_identity_fields() {
+  auto definitions = spoolman_.list_extra_fields();
+  if (!definitions.ok())
+    return Result::failure(definitions.error());
+  const auto problem = integrations::spoolman::SpoolmanAdapter::text_field_problem(
+      definitions.value(), {spoolman_.settings_.identity_field,
+                            spoolman_.settings_.nfc_uid_field});
+  return problem.empty() ? Result::success() : fail(problem.c_str());
 }
 __attribute__((noinline)) Result TagWriterService::prepare_clear() {
   if (!journal_)
@@ -1114,19 +1188,8 @@ Result TagWriterService::prepare(JsonObjectConst c) {
     return fail(
         "Configure distinct Spoolman identity and NFC UID extra fields");
   publish("loading_spool", "Reading canonical Spoolman data after tag read");
-  auto definitions = spoolman_.list_extra_fields();
-  if (!definitions.ok())
-    return Result::failure(definitions.error());
-  for (const auto &key : {identity_key_, uid_key_}) {
-    auto f = std::find_if(definitions.value().begin(),
-                          definitions.value().end(), [&](const auto &v) {
-                            return v.key == key &&
-                                   v.kind == integrations::ExtraFieldKind::text;
-                          });
-    if (f == definitions.value().end())
-      return fail(
-          "Configured identity fields must exist as Spoolman text fields");
-  }
+  if (auto defined = require_identity_fields(); !defined.ok())
+    return defined;
   auto spool = api("GET", "/spool/" + std::to_string(spool_id_));
   if (!spool.ok())
     return Result::failure(spool.error());
@@ -1304,6 +1367,13 @@ TagWriterService::commit_write(JsonObjectConst c) {
            identity_key_ != spoolman_.settings_.identity_field ||
            uid_key_ != spoolman_.settings_.nfc_uid_field)
     result = fail("Spoolman settings changed; preview again before writing");
+  else if (auto other = journaled_other_uid(); !other.empty())
+    // Saving this write's journal would overwrite the only recovery record
+    // for another tag and could strand that tag half-written.
+    result = fail(("Another tag (" + other +
+                   ") has an unfinished write or clear. Place that tag on the "
+                   "reader to finish it first, or choose Skip recovery.")
+                      .c_str());
   else {
     if (journal_ && !journal_->save(*plan_, spool_id_,
                                     backend_identity(spoolman_.settings_))) {
@@ -1328,6 +1398,8 @@ Result TagWriterService::process(JsonObjectConst c) {
   const std::string action = c["action"] | "";
   if (!config::community_enabled && (action.compare(0, 10, "community_") == 0 || action == "import_preview" || action == "import"))
     return fail("Community is disabled for 1.0");
+  if (action == "discard_recovery")
+    return discard_recovery();
   if (!restore_ready())
     return fail("Writer recovery unavailable; see status before continuing");
   if (clear_recovery_required_ && action != "clear_preview" &&
@@ -1335,13 +1407,13 @@ Result TagWriterService::process(JsonObjectConst c) {
     return fail("Finish Clear / Reuse recovery before another operation");
   if (unlink_pending_ && action != "retry_unlink") {
     publish("unlink_pending",
-            "Tag is blank and verified. Spoolman unlink is still pending.");
+            "The tag is cleared. Removing its link in Spoolman is still pending.");
     return action == "clear_preview" ? Result::success()
                                      : fail("Retry pending unlink first");
   }
   if (association_pending_ && action != "retry_association") {
     publish("association_pending",
-            "Tag written successfully; Spoolman association pending.");
+            "The tag is written. Saving the link in Spoolman is still pending.");
     return fail("Retry pending association first");
   }
   // Editing has a separate result frame; it is not an ancestor of NFC decode.
@@ -1377,17 +1449,31 @@ Result TagWriterService::process(JsonObjectConst c) {
     result =
         association_pending_ ? associate() : fail("No association pending");
   if (!result.ok()) {
+    const bool physical_action = action == "preview" || action == "write" ||
+                                 action == "clear_preview" || action == "clear";
     if (unlink_pending_) {
       const auto message =
-          "Tag is blank and verified. Cleanup is still pending. " +
-          result.error().message;
+          "The tag is cleared. Removing its link in Spoolman is still "
+          "pending: " + result.error().message;
       publish("unlink_pending", message.c_str(), plan_->completed,
               plan_->count);
-    } else if (association_pending_)
-      publish("association_pending",
-              "Tag written successfully; Spoolman association pending.",
-              plan_->completed, plan_->count);
-    else
+    } else if (association_pending_) {
+      // Never imply the tag is still being written: the physical write is
+      // complete and verified. Only the Spoolman link is outstanding.
+      const auto message =
+          "The tag is written. Saving the link in Spoolman failed: " +
+          result.error().message;
+      publish("association_pending", message.c_str(),
+              plan_ ? plan_->completed : 0, plan_ ? plan_->count : 0);
+    } else if (physical_action && has_durable_recovery()) {
+      // A durable write/clear record exists (this attempt or an earlier
+      // interrupted one). Return to its recovery prompt instead of a generic
+      // failure, which could leave a half-written tag with no way forward.
+      plan_.reset();
+      const auto restored = restore_cleanup(result.error().message + ".");
+      if (!restored.ok())
+        publish("failed", restored.error().message.c_str());
+    } else
       publish("failed", result.error().message.c_str(),
               plan_ ? plan_->completed : 0, plan_ ? plan_->count : 0);
   }

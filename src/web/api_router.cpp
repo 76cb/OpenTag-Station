@@ -925,7 +925,7 @@ core::Result<Mutation> parse_mutation(
       return core::Result<Mutation>::failure({core::ErrorCategory::backend_unavailable, "Community is disabled for 1.0", false});
     if (action != "catalog" && action != "import_preview" && action != "import" && action != "create_spool" &&
         action != "clear_preview" && action != "clear" && action != "retry_unlink" &&
-        action != "preview" && action != "write" && action != "retry_association" && action != "update_spool" && action != "update_filament" &&
+        action != "preview" && action != "write" && action != "retry_association" && action != "discard_recovery" && action != "update_spool" && action != "update_filament" &&
         action != "community_status" && action != "community_search" && action != "community_select" && action != "community_update")
       return core::Result<Mutation>::failure(invalid_request("Unknown high-level writer action"));
     if ((action == "community_status" || action == "community_update") &&
@@ -947,8 +947,13 @@ core::Result<Mutation> parse_mutation(
           !valid_required_text(object["import_name"], 64U))))
       return core::Result<Mutation>::failure(invalid_request(
           "Community selection needs a bounded catalog ID and optional import name"));
-    if (action != "community_select" &&
-        !keys_allowed(object, {"action", "entity", "offset", "search", "material", "article_number", "vendor_id", "filament_id",
+    if (action == "discard_recovery" &&
+        (object.size() != 2U || !keys_allowed(object, {"action", "confirm"}) ||
+         std::string(object["confirm"] | "") != "SKIP RECOVERY"))
+      return core::Result<Mutation>::failure(invalid_request(
+          "Skipping recovery requires the exact confirmation SKIP RECOVERY"));
+    if (action != "community_select" && action != "discard_recovery" &&
+        !keys_allowed(object, {"action", "entity", "offset", "search", "search_field", "material", "article_number", "vendor_id", "filament_id",
                               "entry", "contract", "import_token", "import_name", "spool", "spool_id", "previous_spool_id", "mode", "uid", "generation", "target_checksum", "current_checksum", "changes", "expected"}))
       return core::Result<Mutation>::failure(invalid_request("Unsupported writer fields; raw writes are forbidden"));
     if ((action == "update_spool" || action == "update_filament") &&

@@ -12,8 +12,8 @@ manual, not another firmware installer.
 
 Prerequisites: supported WT32-SC01 Plus, stable power and a data-capable USB cable.
 Back up reachable configuration before recovery; erase can remove calibration and
-credentials. During an unmerged candidate review, the public installer follows
-main. Check its manifest version or use the PR's production factory artifact.
+credentials. The public installer serves the latest release tag (including
+release candidates). To test an unreleased PR, use that PR's production factory artifact.
 
 1. Open the HTTPS installer and connect USB. Close other serial programs.
 2. Choose Install OpenTag Station, select the correct port and review erase behavior.

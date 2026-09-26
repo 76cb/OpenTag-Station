@@ -83,6 +83,7 @@ SystemSnapshot SystemDiagnostics::snapshot(std::uint32_t now_ms) const {
     result.provisioning_grace_remaining_ms =
         network_status_.provisioning_grace_remaining_ms;
     result.setup_ap_ssid = network_status_.setup_ap_ssid;
+    result.setup_ap_password = network_status_.setup_ap_password;
     result.setup_ap_ip = network_status_.setup_ap_ip;
     result.wifi_scan_generation = network_status_.scan_generation;
     result.wifi_scan_attempt_generation =

@@ -9,11 +9,12 @@ The station is reachable from your trusted network. Spoolman must be running and
 ## Steps
 
 1. Open **Settings → Integrations**. Enter the Spoolman URL, for example the documentation-only `http://spoolman.example:7912`, replacing it with your actual service address.
-2. Save and test the connection. Confirm the reported backend version/capabilities and correct inventory, rather than accepting a reachable host as sufficient.
-3. If using printer assignment, configure FilaBridge and select its stable printer ID. Check that the displayed printer and T1–T5 mapping match the actual printer.
-4. Open **Settings → Scale**, choose the actual YZC-133 5 kg or 2 kg profile, and complete [tare and calibration](../scale/calibration.md).
-5. Review network, display brightness and optional local API authentication. Empty credential fields preserve saved secrets unless you explicitly choose to clear them.
-6. Export a configuration backup from the advanced configuration controls. Keep network credentials separately because the browser export is redacted.
+2. In Spoolman, create the two required **Spool** extra fields `opentag_instance_uuid` and `nfc_uid` (type Text). See [Spoolman extra fields](../inventory/custom-fields.md).
+3. Back on the station, choose **Test** under Settings → Integrations. Spoolman should show as connected with no warning below it. A warning names any missing field or an untested Spoolman version (weights can't be saved to an untested version).
+4. If using printer assignment, configure FilaBridge and choose your printer (on the touchscreen setup, pick it from the list FilaBridge reports). Check that the displayed printer and T1–T5 mapping match the actual printer.
+5. Open **Settings → Scale**, choose the actual YZC-133 5 kg or 2 kg profile, and complete [tare and calibration](../scale/calibration.md).
+6. Review network, display brightness and optional local API authentication. Empty credential fields preserve saved secrets unless you explicitly choose to clear them.
+7. Export a configuration backup from the advanced configuration controls. Keep network credentials separately because the browser export is redacted.
 
 ## Expected result
 

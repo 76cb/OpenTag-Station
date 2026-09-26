@@ -1,23 +1,44 @@
 # Identity fields and ownership
 
-The station uses configured Spoolman extra-field keys for NFC UID and
-OpenPrintTag instance UUID, plus a bounded local cache of confirmed mappings.
-These identify one physical spool; a display name or material match is not proof
-of ownership. Keep the keys consistent across station settings and Spoolman.
+OpenTag Station remembers which physical spool a tag belongs to by storing two
+values on the **spool** in Spoolman. Spoolman needs two extra fields for this.
+You create them once, before writing your first tag.
 
-Before first linking, inspect Settings → Integrations and the Spoolman adapter's
-connection result. Use the documented supported identity-field types and compare
-a known spool. Changing field keys while a writer or clear journal is pending can
-make cleanup unsafe; restore the original configuration before retrying it.
+## Create the two Spoolman extra fields
 
-Clear / Reuse first verifies the tag is blank, then queries supported UID spellings
-and instance identity. It binds the unique owner durably before mutating only those
-two extra values to null. Readback checks removal; final identity queries detect
-ownership conflicts. Usage and unrelated extras are preserved. A different/new
-owner refuses cleanup rather than erasing that owner's association.
+1. Open Spoolman in a browser.
+2. Go to **Settings → Extra Fields → Spool**. (Use the **Spool** tab, not
+   Filament or Vendor.)
+3. Add a field with key `opentag_instance_uuid`, any name you like (for example
+   "OpenTag ID"), and type **Text**.
+4. Add a second field with key `nfc_uid`, a name such as "NFC tag", and type
+   **Text**.
+5. On the station's browser page, open **Settings → Integrations** and choose
+   **Test**. If a field is missing or has the wrong type, a message under
+   Spoolman names the field to fix.
 
-If an identity matches multiple records, resolve the conflict in canonical
-inventory and refresh the station. Do not repeatedly confirm whichever record
-appears first. Local confirmed mappings are not permission to bypass a contradictory
-backend owner. See the [Spoolman technical reference](../reference/spoolman.md)
-for key validation, encoding and compatibility details.
+The keys must match exactly (lowercase, underscore). If you changed the keys in
+an imported configuration, create fields with those keys instead.
+
+!!! warning "Why this matters"
+    Spoolman ignores searches on extra fields that do not exist and returns
+    unrelated spools. Without these fields the station would not be able to
+    tell spools apart, so it refuses to write, link or look up tags until the
+    fields exist, and says which field is missing.
+
+## How the station uses them
+
+The station stores the tag's OpenPrintTag instance UUID and NFC UID in these
+fields, plus a bounded local cache of confirmed mappings. Together they identify
+one physical spool. A vendor, material or product-barcode match is only a
+suggestion: the station asks you to choose or link the spool before it saves a
+weight or assigns it to a printer.
+
+Clear / Reuse first verifies the tag is blank, then finds the spool that owns the
+tag and sets only those two extra values to empty. It reads Spoolman back to
+confirm the change. Usage and other extra fields are left alone. If a different
+spool claims the tag, cleanup stops instead of erasing that spool's link.
+
+If one tag appears to belong to several spools, fix the duplicates in Spoolman
+and refresh the station. See the [Spoolman technical reference](../reference/spoolman.md)
+for encoding and compatibility details.

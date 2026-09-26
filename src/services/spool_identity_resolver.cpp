@@ -257,13 +257,11 @@ core::Result<SpoolResolution> SpoolIdentityResolver::resolve(
       identifier_matches.push_back(spool);
     }
   }
-  if (identifier_matches.size() == 1U) {
-    return core::Result<SpoolResolution>::success(resolved(
-        SpoolResolutionStatus::matched,
-        SpoolMatchSource::package_or_material_identity,
-        std::move(identifier_matches)));
-  }
-  if (identifier_matches.size() > 1U) {
+  // Product identifiers (GTIN, package/material IDs) and vendor/material
+  // metadata describe a product, not one physical spool. Even a single
+  // candidate is only a suggestion: it must be confirmed by the user (or the
+  // tag linked) before weight updates or assignments can target it.
+  if (!identifier_matches.empty()) {
     return core::Result<SpoolResolution>::success(resolved(
         SpoolResolutionStatus::ambiguous,
         SpoolMatchSource::package_or_material_identity,
@@ -281,13 +279,7 @@ core::Result<SpoolResolution> SpoolIdentityResolver::resolve(
         equal_text(spool.material, *material) || equal_text(spool.subtype, *material);
     if (vendor_matches && material_matches) metadata_matches.push_back(spool);
   }
-  if (metadata_matches.size() == 1U) {
-    return core::Result<SpoolResolution>::success(resolved(
-        SpoolResolutionStatus::matched,
-        SpoolMatchSource::metadata,
-        std::move(metadata_matches)));
-  }
-  if (metadata_matches.size() > 1U) {
+  if (!metadata_matches.empty()) {
     return core::Result<SpoolResolution>::success(resolved(
         SpoolResolutionStatus::ambiguous,
         SpoolMatchSource::metadata,

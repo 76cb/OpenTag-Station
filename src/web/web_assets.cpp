@@ -53,8 +53,8 @@ const char index_html[] = R"HTML(<!doctype html>
 <article class="card">
 <h3>2. Name and secure the station</h3>
 <label for="setup-hostname">Hostname</label><input id="setup-hostname" type="text" maxlength="63" value="opentag-station">
-<label for="setup-token">Local API access token (optional)</label><input id="setup-token" type="password" minlength="16" maxlength="128" autocomplete="new-password">
-<p class="hint">No token enables trusted-LAN control. If a token already exists, blank preserves it; use Configuration to clear it. Tokens are write-only.</p>
+<label for="setup-token">Access token (recommended)</label><input id="setup-token" type="password" minlength="16" maxlength="128" autocomplete="new-password">
+<p class="hint">Without a token, anyone on your network can write tags, update firmware or factory-reset this station. Choose 16 or more characters. Leave blank to keep an existing token.</p>
 <button id="setup-connect" class="button primary" type="button">Save and connect</button>
 <p id="setup-connect-status" class="setup-status" aria-live="polite">Waiting for network details.</p>
 </article>
@@ -131,7 +131,7 @@ const char index_html[] = R"HTML(<!doctype html>
 </dl></details>
 </div></article></dialog>
 <div id="writer-panel" hidden></div>
-<dialog id="clear-dialog" class="modal" aria-labelledby="clear-title"><article><header class="modal-header"><h2 id="clear-title">Reuse this NFC tag?</h2><button id="clear-close" class="button" type="button" aria-label="Close clear dialog">×</button></header><div class="modal-body"><p>This removes the filament information and unlinks the tag from Spoolman. Its permanent NFC identifier will not change.</p><dl id="clear-summary" class="facts"></dl><p id="clear-message" class="result-banner" role="status" aria-live="polite"></p><progress id="clear-meter" hidden aria-label="Clear progress"></progress><ul id="clear-effects"><li>Erase OpenPrintTag metadata</li><li>Unlink this tag from Spoolman</li><li>Preserve the permanent NFC UID</li><li><details><summary>Advanced preservation details</summary>Protected blocks 78–79 remain unchanged.</details></li></ul></div><footer class="modal-footer"><button id="clear-cancel" class="button" type="button">Cancel</button><button id="clear-confirm" class="button destructive-action" type="button" disabled>Clear tag</button><button id="clear-assign" class="button primary" type="button" hidden>Assign tag to a spool</button><button id="clear-retry" class="button primary" type="button" hidden>Retry Spoolman cleanup</button></footer></article></dialog>
+<dialog id="clear-dialog" class="modal" aria-labelledby="clear-title"><article><header class="modal-header"><h2 id="clear-title">Reuse this NFC tag?</h2><button id="clear-close" class="button" type="button" aria-label="Close clear dialog">×</button></header><div class="modal-body"><p>This removes the filament information and unlinks the tag from Spoolman. Its permanent NFC identifier will not change.</p><dl id="clear-summary" class="facts"></dl><p id="clear-message" class="result-banner" role="status" aria-live="polite"></p><progress id="clear-meter" hidden aria-label="Clear progress"></progress><ul id="clear-effects"><li>Erase OpenPrintTag metadata</li><li>Unlink this tag from Spoolman</li><li>Preserve the permanent NFC UID</li><li><details><summary>Advanced preservation details</summary>Protected blocks 78–79 remain unchanged.</details></li></ul></div><footer class="modal-footer"><button id="clear-cancel" class="button" type="button">Cancel</button><button id="clear-confirm" class="button destructive-action" type="button" disabled>Clear tag</button><button id="clear-assign" class="button primary" type="button" hidden>Assign tag to a spool</button><button id="clear-retry" class="button primary" type="button" hidden>Retry Spoolman cleanup</button><button id="clear-skip" class="button destructive-action" type="button" hidden>Skip cleanup</button></footer></article></dialog>
 
 <section id="spool-resolution" class="section product-page home-support" data-page="home">
 <p id="spool-guidance" class="hint" role="status"></p>
@@ -152,7 +152,7 @@ const char index_html[] = R"HTML(<!doctype html>
 <div class="section-heading"><div><p class="eyebrow">STATION CONTROL</p><h2 id="settings-title">Settings</h2></div></div>
 <nav class="settings-nav" aria-label="Settings sections"><button class="text-button" data-setting="station">Station</button><button class="text-button" data-setting="integrations">Integrations</button><button class="text-button" data-setting="scale">Scale</button><button class="text-button" data-setting="network">Network</button><button class="text-button" data-setting="display">Display</button><button class="text-button" data-setting="advanced">Advanced</button></nav><div class="settings-grid">
 <article class="card"><h3>Connectivity</h3><dl class="facts compact"><div><dt>Wi-Fi</dt><dd id="wifi-state">—</dd></div><div><dt>LAN address</dt><dd id="device-address">—</dd></div><div><dt>RSSI</dt><dd id="settings-rssi">—</dd></div></dl><a class="button quiet" href="#configuration">Change Wi-Fi</a></article>
-<article class="card"><div class="card-title-row"><h3>Integrations</h3><button id="test-backends" class="button tiny" type="button">Test</button></div><dl class="facts compact"><div><dt>Spoolman</dt><dd id="spoolman-state">Unknown</dd></div><div><dt>FilaBridge</dt><dd id="filabridge-state">Unknown</dd></div><div><dt>Printer</dt><dd id="settings-selected-printer">Not selected</dd></div></dl><span id="spoolman-version" class="visually-hidden">Version —</span><span id="spoolman-capabilities" class="visually-hidden">Capabilities —</span><span id="filabridge-version" class="visually-hidden">Version —</span><span id="filabridge-capabilities" class="visually-hidden">Capabilities —</span></article>
+<article class="card"><div class="card-title-row"><h3>Integrations</h3><button id="test-backends" class="button tiny" type="button">Test</button></div><dl class="facts compact"><div><dt>Spoolman</dt><dd id="spoolman-state">Unknown</dd></div><div><dt>FilaBridge</dt><dd id="filabridge-state">Unknown</dd></div><div><dt>Printer</dt><dd id="settings-selected-printer">Not selected</dd></div></dl><p id="spoolman-setup" class="hint warning-text" role="status" hidden></p><span id="spoolman-version" class="visually-hidden">Version —</span><span id="spoolman-capabilities" class="visually-hidden">Capabilities —</span><span id="filabridge-version" class="visually-hidden">Version —</span><span id="filabridge-capabilities" class="visually-hidden">Capabilities —</span></article>
 <article class="card"><h3>Hardware</h3><dl class="facts compact"><div><dt>Scale</dt><dd id="scale-calibration">Checking</dd></div><div><dt>Profile</dt><dd id="scale-profile">—</dd></div><div><dt>Capacity</dt><dd id="scale-capacity">—</dd></div><div><dt>NFC</dt><dd>OpenPrintTag read / write</dd></div><div><dt>Display</dt><dd>WT32-SC01 Plus</dd></div></dl><details><summary>Scale diagnostics</summary><dl class="facts compact"><div><dt>Raw</dt><dd id="scale-raw">—</dd></div><div><dt>Filtered</dt><dd id="scale-filtered">—</dd></div><div><dt>Zero</dt><dd id="scale-zero">—</dd></div><div><dt>Factor</dt><dd id="scale-factor">—</dd></div><div><dt>Reference</dt><dd id="scale-reference">—</dd></div></dl></details></article>
 <article id="community-settings" class="card" hidden><div class="card-title-row"><h3>Community Catalog</h3><button id="community-catalog-update" class="button tiny" type="button">Check for update</button></div><dl class="facts compact"><div><dt>Status</dt><dd id="community-catalog-state">Checking</dd></div><div><dt>Version</dt><dd id="community-catalog-version">—</dd></div><div><dt>Records</dt><dd id="community-catalog-records">—</dd></div><div><dt>Size</dt><dd id="community-catalog-size">—</dd></div><div><dt>Updated</dt><dd id="community-catalog-updated">—</dd></div></dl></article>
 <article class="card"><h3>Device</h3><dl class="facts compact"><div><dt>Firmware</dt><dd id="firmware-version">—</dd></div><div><dt>Git SHA</dt><dd id="git-sha" class="mono">—</dd></div><div><dt>Build</dt><dd id="build-date">—</dd></div><div><dt>Hardware</dt><dd id="hardware-id">—</dd></div><div><dt>Uptime</dt><dd id="uptime">—</dd></div><div><dt>Free heap</dt><dd id="heap-free">—</dd></div><div><dt>Free PSRAM</dt><dd id="psram-free">—</dd></div></dl></article>
@@ -195,7 +195,7 @@ const char index_html[] = R"HTML(<!doctype html>
 <fieldset class="card" disabled><legend>Load-cell profile</legend>
 <label><input id="config-auto-weigh" type="checkbox"> Auto-update Spoolman after Weigh</label><p class="hint">Only explicit completed measurements can update inventory.</p>
 <label for="config-weight-tolerance">Inventory matching tolerance (g)</label><input id="config-weight-tolerance" type="number" min="0" step="0.1">
-<label for="config-scale-profile">YZC-133 variant</label><select id="config-scale-profile"><option value="yzc-133-5kg">5 kg (actual station)</option><option value="yzc-133-2kg">2 kg</option></select>
+<label for="config-scale-profile">YZC-133 variant</label><select id="config-scale-profile"><option value="yzc-133-5kg">5 kg</option><option value="yzc-133-2kg">2 kg</option></select>
 <label for="config-overload-ratio">Overload threshold ratio</label><input id="config-overload-ratio" type="number" min="1.01" max="2" step="0.01">
 <p id="profile-capacity-help" class="hint">Rated capacity: 5000 g</p>
 </fieldset>
@@ -236,12 +236,12 @@ const char index_html[] = R"HTML(<!doctype html>
 <section id="maintenance" class="section product-page settings-detail" data-page="settings" aria-labelledby="maintenance-title" hidden>
 <div class="section-heading"><div><p class="eyebrow">MAINTENANCE</p><h2 id="maintenance-title">Updates and device controls</h2></div></div>
 <div class="card-grid two-column">
-<article class="card update-card"><div class="card-title-row"><h3>Update Existing Station</h3><span id="update-badge" class="badge neutral">Loading</span></div><p class="muted">Application-only OTA preserves settings and calibration, including LittleFS and NVS. Use the normal firmware.bin, never a factory image.</p><p id="update-state" class="large-state">Checking update state</p><p id="update-detail" class="muted">A validated image is written only to the inactive application slot.</p>
+<article class="card update-card"><div class="card-title-row"><h3>Update Existing Station</h3><span id="update-badge" class="badge neutral">Loading</span></div><p class="muted">Keeps Wi-Fi, Spoolman, printer settings and scale calibration. Download <strong>opentag-station-&lt;version&gt;-application.bin</strong> from the <a href="https://github.com/76cb/OpenTag-Station/releases" target="_blank" rel="noopener">GitHub releases page</a>. Do not use the factory image here.</p><p id="update-state" class="large-state">Checking update state</p><p id="update-detail" class="muted">The current firmware keeps running until you restart.</p>
 <dl class="facts compact"><div><dt>Current build</dt><dd><span id="update-current-version">—</span> <span id="update-current-sha" class="mono small"></span></dd></div><div><dt>Slots</dt><dd><span id="update-active-slot">—</span> → <span id="update-inactive-slot">—</span></dd></div><div><dt>Candidate</dt><dd id="update-candidate">None</dd></div><div><dt>Validation</dt><dd id="update-validation">Not started</dd></div><div><dt>Rollback</dt><dd id="update-rollback">—</dd></div></dl>
 <label for="firmware-file">WT32-SC01 Plus firmware image (.bin)</label><input id="firmware-file" type="file" accept="application/octet-stream,.bin"><p id="firmware-file-detail" class="hint">Select an image to calculate its SHA-256 in this browser before upload.</p><p id="firmware-sha256" class="mono small">SHA-256 —</p>
 <label for="update-progress">Transfer progress</label><progress id="update-progress" max="100" value="0">0%</progress><p id="update-progress-detail" class="hint">No transfer in progress.</p>
-<div class="action-row"><button id="upload-firmware" class="button primary" type="button" disabled>Upload and validate</button><button id="cancel-update" class="button" type="button" disabled>Cancel update</button><button id="reboot-update" class="button warning" type="button" disabled>Reboot into candidate</button></div>
-<ol id="update-stages" class="update-stages"><li data-stage="upload">Upload not started</li><li data-stage="validate">Image not validated</li><li data-stage="install">Inactive slot not installed</li><li data-stage="boot">Candidate not booted</li><li data-stage="confirm">Candidate not confirmed</li></ol><p id="update-error" class="hint" role="alert"></p>
+<div class="action-row"><button id="upload-firmware" class="button primary" type="button" disabled>Upload and check</button><button id="cancel-update" class="button" type="button" disabled>Cancel update</button><button id="reboot-update" class="button warning" type="button" disabled>Restart to finish update</button></div>
+<ol id="update-stages" class="update-stages"><li data-stage="upload">Upload not started</li><li data-stage="validate">File not checked</li><li data-stage="install">Update not installed</li><li data-stage="boot">Not restarted</li><li data-stage="confirm">Not confirmed</li></ol><p id="update-error" class="hint" role="alert"></p>
 </article>
 <article class="card danger-card"><h3>Device controls</h3><p id="device-control-auth" class="muted">Local API authentication: CHECKING. Local browser control: ENABLED.</p><div class="action-row"><button id="start-setup-mode" class="button" type="button" disabled>Start setup access point</button><button id="reboot-device" class="button warning" type="button" disabled>Reboot device</button></div><label for="factory-confirm">Type <strong>FACTORY RESET</strong> to enable reset</label><input id="factory-confirm" type="text" autocomplete="off"><button id="factory-reset" class="button danger" type="button" disabled>Factory reset</button></article>
 </div>
@@ -296,6 +296,7 @@ const char application_css[] = R"CSS(:root{color-scheme:dark;--bg:#101416;--surf
 #clear-effects>li:has(details){list-style:none}
 
 @media(max-width:520px){.settings-nav{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));overflow:visible;margin-inline:0;padding:0}.settings-nav button{padding:10px 4px;font-size:13px}}
+.warning-text{color:var(--warning)}
 )CSS";
 
 const std::size_t application_css_size = sizeof(application_css) - 1U;
@@ -1280,6 +1281,13 @@ setText(prefix + '-version', 'Version ' + String(first(value.version, '—')));
 const capabilities = first(value.capabilities, value.capabilities_bits, value.capability_names);
 setText(prefix + '-capabilities', 'Capabilities ' + (Array.isArray(capabilities) ? capabilities.join(', ') : first(capabilities, '—')));
 setText('footer-' + prefix, availability);
+if (prefix === 'spoolman') {
+const notes = [];
+if (value.identity_fields_ready === false) notes.push(String(first(value.identity_fields_message, 'Spoolman is missing the Spool extra fields opentag_instance_uuid and nfc_uid (type Text).')));
+if (value.connected === true && value.version && value.version_formally_tested === false) notes.push('Spoolman ' + String(value.version) + ' has not been tested with this firmware, so saving weights to Spoolman is turned off.');
+const hint = byId('spoolman-setup');
+if (hint) { hint.textContent = notes.join(' '); hint.hidden = notes.length === 0; }
+}
 }
 
 function setCalibrationStep(id, status) {
@@ -2125,10 +2133,10 @@ const afterUpload = ['validating', 'ready_to_activate', 'ready_to_reboot', 'rebo
 const installed = ['ready_to_activate', 'ready_to_reboot', 'reboot_pending', 'candidate_boot', 'validating_candidate', 'confirmed', 'rollback_pending', 'rolled_back'].indexOf(status) >= 0;
 const booted = ['candidate_boot', 'validating_candidate', 'confirmed', 'rollback_pending', 'rolled_back'].indexOf(status) >= 0;
 setUpdateStage('upload', afterUpload ? 'Upload completed' : 'Upload not completed', ['upload_receiving', 'writing'].indexOf(status) >= 0 ? 'active' : afterUpload ? 'complete' : '');
-setUpdateStage('validate', installed ? 'Image validated' : 'Image not validated', status === 'validating' ? 'active' : installed ? 'complete' : '');
-setUpdateStage('install', installed ? 'Installed to inactive slot' : 'Inactive slot not installed', installed ? 'complete' : '');
-setUpdateStage('boot', booted ? (status === 'rolled_back' ? 'Candidate boot rolled back' : 'Candidate booted') : 'Candidate not booted', status === 'reboot_pending' ? 'active' : booted && status !== 'rolled_back' ? 'complete' : '');
-setUpdateStage('confirm', status === 'confirmed' ? 'Candidate confirmed' : status === 'rolled_back' ? 'Candidate was not confirmed' : 'Candidate not confirmed', ['candidate_boot', 'validating_candidate', 'rollback_pending'].indexOf(status) >= 0 ? 'active' : status === 'confirmed' ? 'complete' : '');
+setUpdateStage('validate', installed ? 'File checked' : 'File not checked', status === 'validating' ? 'active' : installed ? 'complete' : '');
+setUpdateStage('install', installed ? 'Update installed, waiting for restart' : 'Update not installed', installed ? 'complete' : '');
+setUpdateStage('boot', booted ? (status === 'rolled_back' ? 'New firmware failed; previous firmware restored' : 'Restarted into new firmware') : 'Not restarted', status === 'reboot_pending' ? 'active' : booted && status !== 'rolled_back' ? 'complete' : '');
+setUpdateStage('confirm', status === 'confirmed' ? 'Update confirmed' : status === 'rolled_back' ? 'Update was not kept' : 'Not confirmed (checks run for 30 s after restart)', ['candidate_boot', 'validating_candidate', 'rollback_pending'].indexOf(status) >= 0 ? 'active' : status === 'confirmed' ? 'complete' : '');
 }
 
 function updateCapability(capabilities, name, fallback) {
@@ -2393,7 +2401,7 @@ if (state.uploadXhr) {
 if (window.confirm('Stop this upload? The incomplete inactive-slot write will be aborted.')) state.uploadXhr.abort();
 return;
 }
-if (!window.confirm('Cancel the validated candidate and keep the current firmware?')) return;
+if (!window.confirm('Cancel this update and keep the current firmware?')) return;
 button.disabled = true;
 try {
 const body = Object.assign(updatePreconditions(), { confirmation: 'CANCEL UPDATE' });
@@ -2405,7 +2413,7 @@ finally { updateButtons(); }
 }
 
 async function rebootIntoUpdate(button) {
-if (!window.confirm('Activate the validated inactive image and reboot now? The candidate must pass its health window before it is confirmed.')) return;
+if (!window.confirm('Restart now to finish the update? The station checks itself for 30 seconds after restarting and returns to the previous firmware if something is wrong.')) return;
 const body = Object.assign(updatePreconditions(), { confirmation: 'REBOOT INTO UPDATE' });
 if (await submitRestartButton(button, '/update/reboot', body, 'Update reboot')) {
 setText('update-state', 'Reboot accepted; waiting for candidate');
@@ -3283,16 +3291,16 @@ setText('clear-title',p==='cleared'?'Tag ready to reuse · verified':p==='unlink
 const cleanupSummary=clearView.cleanup_stage==='checkpoint'?'Tag blank and verified. Saving the recovery record still needs attention.':clearView.cleanup_stage==='local_identity'?'Tag cleared and Spoolman unlinked. Local station identity cleanup still needs attention.':clearView.cleanup_stage==='journal'?'Tag cleared and Spoolman unlinked. Recovery record cleanup still needs attention.':clearView.cleanup_stage==='spoolman'?'Tag blank and verified. Spoolman cleanup is still pending.':'Tag blank and verified. Spoolman or local cleanup is still pending.';
 setText('clear-message',p==='unlink_pending'?cleanupSummary+' Retry cleanup without rewriting the tag.'+(clearView.message?' Reason: '+clearView.message:''):clearView.message||(p==='clear_preview'?'Ready for your confirmation. Nothing has been changed.':'Reading this tag…'));byId('clear-message').className='result-banner '+(p==='cleared'?'status-success':p==='failed'?'status-error':p==='unlink_pending'?'status-warning':'');
 const list=byId('clear-summary');list.replaceChildren();[['Tag',clearView.uid],['Current material',clearView.material_name],['Spoolman',clearView.spool_id?'Spool #'+clearView.spool_id:'Exact owner checked after blank verification']].forEach(([k,v])=>{const row=document.createElement('div'),dt=document.createElement('dt'),dd=document.createElement('dd');dt.textContent=k;dd.textContent=v||'—';row.append(dt,dd);list.append(row);});
-byId('clear-confirm').hidden=p!=='clear_preview';byId('clear-confirm').disabled=locked||p!=='clear_preview';byId('clear-retry').hidden=p!=='unlink_pending';byId('clear-retry').disabled=locked;
+byId('clear-confirm').hidden=p!=='clear_preview';byId('clear-confirm').disabled=locked||p!=='clear_preview';byId('clear-retry').hidden=p!=='unlink_pending';byId('clear-retry').disabled=locked;byId('clear-skip').hidden=p!=='unlink_pending';byId('clear-skip').disabled=locked;
 ['close','cancel'].forEach(k=>byId('clear-'+k).disabled=locked);setText('clear-cancel',p==='cleared'?'Done':'Cancel');byId('clear-assign').hidden=p!=='cleared';
 byId('clear-effects').hidden=p!=='clear_preview';const meter=byId('clear-meter');meter.hidden=!locked;if(clearView.total_blocks){meter.max=clearView.total_blocks;meter.value=clearView.completed_blocks||0;if(p==='clearing')setText('clear-message',meter.value+' / '+meter.max+' changed blocks verified. Keep tag on reader. Do not remove power.');}else meter.removeAttribute('value');
 setText('clear-open',p==='unlink_pending'?'Retry unlink':'Clear / Reuse Tag');tagStatus();}
-async function clearCommand(action){if(clearLocked())return;const p=clearView,body={action};if(action==='clear'){if(p.phase!=='clear_preview')return;['uid','generation','current_checksum','target_checksum'].forEach(k=>body[k]=p[k]);}
+async function clearCommand(action){if(clearLocked())return;const p=clearView,body={action};if(action==='discard_recovery')body.confirm='SKIP RECOVERY';if(action==='clear'){if(p.phase!=='clear_preview')return;['uid','generation','current_checksum','target_checksum'].forEach(k=>body[k]=p[k]);}
 window.OpenTagWriter?.writerState&&(window.OpenTagWriter.writerState.invalidated=true);clearBusy=true;renderClear({...p,phase:action==='clear_preview'?'reading':action==='clear'?'clearing':'unlinking',message:action==='clear_preview'?'Reading complete tag and protection state…':'Keep tag on reader. Do not remove power.'});let fetching=false,accepting=true;
 try{await submitMutation('/tag-writer',{body,operationTimeoutMs:180000,onProgress:()=>{if(fetching)return;fetching=true;api('/tag-writer',{priority:PRIORITY.CONTROL}).then(v=>{if(accepting)renderClear(v);}).catch(()=>{}).finally(()=>fetching=false);}});}catch(e){setText('clear-message',e.message);}finally{accepting=false;clearBusy=false;try{renderClear(await api('/tag-writer',{priority:PRIORITY.CONTROL}));}catch(e){renderClear({phase:'failed',message:e.message});}}}
 async function openClear(){if(window.OpenTagWriter?.writerState?.busy)return;closeProductDialog('manage-dialog');byId('clear-dialog').showModal();document.body.classList.add('modal-open');try{const v=await api('/tag-writer',{priority:PRIORITY.CONTROL});if(v.mode==='clear'&&['unlink_pending','clearing','verifying','unlinking'].includes(v.phase)){renderClear(v);byId('clear-retry').focus();return;}if(['association_pending','writing','associating','validating','decoding'].includes(v.phase)){renderClear({phase:'failed',message:'Finish the pending write or association in Write / Rewrite first.'});return;}}catch(e){renderClear({phase:'failed',message:e.message});return;}await clearCommand('clear_preview');byId('clear-confirm').focus();}
 function closeClear(){if(clearLocked())return;byId('clear-dialog').close();document.body.classList.remove('modal-open');openProductDialog('manage-dialog');(byId('clear-open').hidden?byId('writer-open'):byId('clear-open')).focus();}
-function bindWeighAndClear(){byId('clear-assign').addEventListener('click',()=>{if(clearView.phase!=='cleared')return;byId('clear-dialog').close();document.body.classList.remove('modal-open');window.OpenTagWriter.openModal();});byId('weigh-update').addEventListener('click',updateWeighedSpool);byId('clear-open').addEventListener('click',openClear);['close','cancel'].forEach(k=>byId('clear-'+k).addEventListener('click',closeClear));byId('clear-dialog').addEventListener('cancel',e=>{e.preventDefault();closeClear();});byId('clear-confirm').addEventListener('click',()=>clearCommand('clear'));byId('clear-retry').addEventListener('click',()=>clearCommand('retry_unlink'));}
+function bindWeighAndClear(){byId('clear-assign').addEventListener('click',()=>{if(clearView.phase!=='cleared')return;byId('clear-dialog').close();document.body.classList.remove('modal-open');window.OpenTagWriter.openModal();});byId('weigh-update').addEventListener('click',updateWeighedSpool);byId('clear-open').addEventListener('click',openClear);['close','cancel'].forEach(k=>byId('clear-'+k).addEventListener('click',closeClear));byId('clear-dialog').addEventListener('cancel',e=>{e.preventDefault();closeClear();});byId('clear-confirm').addEventListener('click',()=>clearCommand('clear'));byId('clear-retry').addEventListener('click',()=>clearCommand('retry_unlink'));byId('clear-skip').addEventListener('click',()=>{if(clearView.phase!=='unlink_pending'||clearLocked())return;if(!window.confirm('Skip removing the link in Spoolman? The tag stays erased, but Spoolman may still list it on the old spool.'))return;clearCommand('discard_recovery');});}
 
 // PRODUCT PRESENTATION BEGIN
 // Presentation only. All commands go through the station's existing fenced handlers.
@@ -3420,13 +3428,13 @@ function bindInventoryFilters() {
   const row=productElement('div',null,'field-grid'),color=productElement('select'),status=productElement('select');
   color.id='inventory-color';status.id='inventory-status';
   for(const [node,title] of [[color,'Color'],[status,'Status']]){const label=productElement('label',title);label.append(node);row.append(label);}
-  for(const [value,title] of [['','All statuses'],['available','Filament remaining'],['empty','Empty'],['archived','Archived']]){const o=productElement('option',title);o.value=value;status.append(o);}
+  for(const [value,title] of [['','All statuses'],['available','Filament remaining'],['empty','Empty']]){const o=productElement('option',title);o.value=value;status.append(o);}
   const note=productElement('p',null,'hint');group.append(row,note);
   byId('writer-inventory').querySelector('.writer-toolbar').after(group);
   const apply=()=>{
     const S=window.OpenTagWriter.writerState;let count=0;
     S.rows?.forEach((row,i)=>{const s=S.items[i],f=S.entity==='spool'?asObject(s.filament):s;
-      const matches=(!color.value||f.color_hex===color.value)&&(!status.value||S.entity!=='spool'||(status.value==='archived'?s.archived:status.value==='empty'?Number(s.remaining_weight)===0:!s.archived&&Number(s.remaining_weight)>0));
+      const matches=(!color.value||f.color_hex===color.value)&&(!status.value||S.entity!=='spool'||(status.value==='empty'?Number(s.remaining_weight)===0:!s.archived&&Number(s.remaining_weight)>0));
       row.hidden=!matches;if(matches)count++;
     });
     note.textContent=count+' visible on this page. Search and vendor/material filters apply across inventory.';

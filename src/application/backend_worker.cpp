@@ -49,6 +49,8 @@ BackendRuntimeSnapshot runtime_snapshot(
   result.version_formally_tested = status.version_formally_tested;
   result.version = bounded_status_text(status.version);
   result.capability_bits = status.capabilities.bits();
+  result.identity_fields_ready = status.identity_fields_ready;
+  result.identity_fields_message = status.identity_fields_message.substr(0U, 256U);
   result.last_error = status.last_error;
   if (result.last_error.has_value()) {
     result.last_error->message = bounded_status_text(result.last_error->message);

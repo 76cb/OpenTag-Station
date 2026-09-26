@@ -57,13 +57,16 @@ class EmptyWeightResolver {
     const auto valid = [](const std::optional<float>& value) {
       return value.has_value() && std::isfinite(*value) && *value >= 0.0F;
     };
-    if (valid(candidates.openprinttag_grams)) {
-      return ResolvedEmptyWeight{
-          *candidates.openprinttag_grams, EmptyWeightSource::openprinttag};
-    }
+    // Spoolman is canonical: a value corrected on the Spoolman spool must win
+    // over a copy written to the tag earlier, which only changes when the tag
+    // is rewritten.
     if (valid(candidates.spoolman_spool_grams)) {
       return ResolvedEmptyWeight{
           *candidates.spoolman_spool_grams, EmptyWeightSource::spoolman_spool};
+    }
+    if (valid(candidates.openprinttag_grams)) {
+      return ResolvedEmptyWeight{
+          *candidates.openprinttag_grams, EmptyWeightSource::openprinttag};
     }
     if (valid(candidates.package_default_grams)) {
       return ResolvedEmptyWeight{

@@ -833,7 +833,7 @@ void test_outside_zero_window_and_spool_load_are_never_auto_zeroed() {
     TEST_ASSERT_FALSE(service.status().last_completed_grams.has_value());
     TEST_ASSERT_TRUE(service.status().measurement_error.has_value());
     TEST_ASSERT_EQUAL_STRING(
-        "Scale zero has shifted. Tare the empty platform and retry.",
+        "Scale zero has shifted. Empty the platform, then use Tare in Settings > Calibrate scale and retry.",
         service.status().measurement_error->message.c_str());
   }
 

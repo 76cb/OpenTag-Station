@@ -606,6 +606,25 @@ void catalog_pagination_and_search() {
                      std::string::npos);
   }
 }
+void catalog_search_falls_back_to_vendor_name() {
+  ServiceFixture f;
+  f.http.custom = [](const network::HttpRequest &request) -> std::string {
+    if (request.url.find("vendor.name=Polymaker") != std::string::npos)
+      return R"([{"id":5,"name":"PolyTerra PLA","vendor":{"name":"Polymaker"}}])";
+    return "[]";
+  };
+  TEST_ASSERT_TRUE(
+      f.run(R"({"action":"catalog","entity":"filament","offset":0,"search":"Polymaker"})").ok());
+  TEST_ASSERT_EQUAL(1, f.view["items"].size());
+  TEST_ASSERT_EQUAL_STRING("vendor", f.view["search_field"].as<const char *>());
+  TEST_ASSERT_TRUE(f.http.urls[f.http.urls.size() - 2].find("&name=Polymaker") != std::string::npos);
+  // Paging keeps the field the client echoes back; spools use filament.vendor.
+  TEST_ASSERT_TRUE(
+      f.run(R"({"action":"catalog","entity":"spool","offset":8,"search":"Polymaker","search_field":"vendor"})").ok());
+  TEST_ASSERT_TRUE(f.http.urls.back().find("filament.vendor.name=Polymaker") != std::string::npos);
+  TEST_ASSERT_FALSE(
+      f.run(R"({"action":"catalog","entity":"spool","offset":0,"search":"x","search_field":"comment"})").ok());
+}
 void catalog_malformed_and_timeout() {
   ServiceFixture f;
   f.http.bad_page = true;
@@ -837,6 +856,22 @@ void recovery_case(bool replacement, bool move = false) {
       TEST_ASSERT_EQUAL(writes, reader.writes);
       TEST_ASSERT_EQUAL(0, http.patches);
       TEST_ASSERT_TRUE(journal.present);
+      // rc.10: writing the replacement must not overwrite the other tag's
+      // recovery record.
+      const auto recorded = journal.saved.uid;
+      c.clear();
+      c["action"] = "write";
+      for (const auto *key : {"uid", "generation", "spool_id",
+                              "previous_spool_id", "target_checksum"})
+        c[key] = view[key];
+      const auto refused = service.process(c.as<JsonObjectConst>());
+      TEST_ASSERT_FALSE(refused.ok());
+      TEST_ASSERT_NOT_EQUAL(std::string::npos,
+                            refused.error().message.find("unfinished"));
+      TEST_ASSERT_EQUAL(writes, reader.writes);
+      TEST_ASSERT_TRUE(journal.present);
+      TEST_ASSERT_TRUE(recorded == journal.saved.uid);
+      TEST_ASSERT_EQUAL_STRING("write_recovery", view["phase"].as<const char *>());
       return;
     }
     TEST_ASSERT_EQUAL_STRING("association_pending",
@@ -1972,6 +2007,81 @@ void restart_v3_verified_clear_repairs_stale_cache_without_nfc() {
 } // namespace
 void setUp() {}
 void tearDown() {}
+// ---- rc.10 recovery regressions ----
+struct JournalServiceFixture {
+  Reader reader;
+  Http http;
+  Journal journal;
+  integrations::spoolman::SpoolmanAdapter adapter{http,
+                                                  {"http://spoolman.test"}};
+  network::BackendDocument view;
+  services::TagWriterService service{
+      adapter, reader, [this] { return reader.generation; },
+      [](std::uint8_t *p, std::size_t n) { std::memset(p, 0x33, n); },
+      [this](const auto &b) { deserializeJson(view, b.data(), b.size()); },
+      &journal, {}, accept_verified_association};
+  R run(const char *command) {
+    network::BackendDocument d;
+    deserializeJson(d, command);
+    return service.process(d.as<JsonObjectConst>());
+  }
+  R confirm() {
+    network::BackendDocument c;
+    c["action"] = "write";
+    for (const auto *key : {"uid", "generation", "spool_id",
+                            "previous_spool_id", "target_checksum"})
+      c[key] = view[key];
+    return service.process(c.as<JsonObjectConst>());
+  }
+};
+void runtime_write_failure_returns_to_write_recovery() {
+  JournalServiceFixture f;
+  TEST_ASSERT_TRUE(f.run(R"({"action":"preview","spool_id":12})").ok());
+  f.reader.fail_write = 2;
+  TEST_ASSERT_FALSE(f.confirm().ok());
+  TEST_ASSERT_TRUE(f.journal.present);
+  // Not a generic failure: the recovery prompt must stay reachable at runtime.
+  TEST_ASSERT_EQUAL_STRING("write_recovery", f.view["phase"].as<const char *>());
+  TEST_ASSERT_NOT_EQUAL(std::string::npos,
+                        std::string(f.view["message"] | "").find("same tag"));
+  f.reader.fail_write = -1;
+  TEST_ASSERT_TRUE(f.run(R"({"action":"preview","mode":"rewrite","spool_id":12})").ok());
+  TEST_ASSERT_TRUE(f.confirm().ok());
+  TEST_ASSERT_FALSE(f.journal.present);
+}
+void runtime_clear_failure_returns_to_clear_recovery() {
+  ClearFixture f;
+  f.preview();
+  f.reader.fail_write = 5;
+  TEST_ASSERT_FALSE(f.confirm().ok());
+  TEST_ASSERT_TRUE(f.journal.present);
+  TEST_ASSERT_EQUAL_STRING("clear_recovery", f.view["phase"].as<const char *>());
+  f.reader.fail_write = -1;
+  f.preview();
+  TEST_ASSERT_TRUE(f.confirm().ok());
+  TEST_ASSERT_FALSE(f.journal.present);
+}
+void association_failure_reports_reason_and_can_be_skipped() {
+  JournalServiceFixture f;
+  TEST_ASSERT_TRUE(f.run(R"({"action":"preview","spool_id":12})").ok());
+  f.http.offline = true;
+  TEST_ASSERT_FALSE(f.confirm().ok());
+  TEST_ASSERT_EQUAL_STRING("association_pending",
+                           f.view["phase"].as<const char *>());
+  const std::string message = f.view["message"] | "";
+  TEST_ASSERT_NOT_EQUAL(std::string::npos, message.find("offline"));
+  TEST_ASSERT_EQUAL(std::string::npos, message.find("writing"));
+  const auto writes = f.reader.writes;
+  TEST_ASSERT_TRUE(f.run(R"({"action":"discard_recovery"})").ok());
+  TEST_ASSERT_EQUAL_STRING("recovery_discarded",
+                           f.view["phase"].as<const char *>());
+  TEST_ASSERT_FALSE(f.journal.present);
+  TEST_ASSERT_EQUAL(writes, f.reader.writes);
+  f.http.offline = false;
+  TEST_ASSERT_TRUE(f.run(R"({"action":"preview","mode":"rewrite","spool_id":12})").ok());
+  TEST_ASSERT_EQUAL_STRING("preview", f.view["phase"].as<const char *>());
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(verified_association_repairs_stale_cache_after_remote_checks);
@@ -2033,6 +2143,9 @@ int main() {
   RUN_TEST(protection_changed);
   RUN_TEST(geometry_changed);
   RUN_TEST(write_failure_stops);
+  RUN_TEST(runtime_write_failure_returns_to_write_recovery);
+  RUN_TEST(runtime_clear_failure_returns_to_clear_recovery);
+  RUN_TEST(association_failure_reports_reason_and_can_be_skipped);
   RUN_TEST(block_mismatch_stops);
   RUN_TEST(final_mismatch_stops);
   RUN_TEST(removed_mid_write);
@@ -2055,6 +2168,7 @@ int main() {
   RUN_TEST(confirmation_mismatch_refuses);
   RUN_TEST(catalog_pagination_and_search);
   RUN_TEST(catalog_malformed_and_timeout);
+  RUN_TEST(catalog_search_falls_back_to_vendor_name);
 #if OPENTAG_ENABLE_COMMUNITY
   RUN_TEST(community_contract_drift_rejected);
   RUN_TEST(community_missing_required_rejected);

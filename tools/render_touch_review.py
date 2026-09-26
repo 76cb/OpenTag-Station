@@ -41,14 +41,14 @@ def render(scene,out):
     if scene in ['home','empty']:
         label('home_state','SUNLU' if scene=='home' else 'OpenTag Station',color=MINT)
         label('home_material','PLA+ 2.0 Black' if scene=='home' else 'Place a spool',20)
-        label('home_identity','Spool #28  |  Tag valid' if scene=='home' else 'Set a tagged spool on the station',color=MUTED)
+        label('home_identity','Spool #28' if scene=='home' else 'Set a tagged spool on the station',color=MUTED)
         if scene=='home':label('home_weight','712 g remaining',32)
         x,y,w,h=BOXES['home_art' if scene=='home' else 'empty_art'];d.ellipse((x,y,x+w,y+h),fill='#191f22',outline='#788583',width=6);d.ellipse((x+w/2-9,y+h/2-9,x+w/2+9,y+h/2+9),fill=BG,outline='#788583',width=2)
         button('home_weigh','WEIGH',True);button('home_assign','ASSIGN');button('home_tag','MANAGE TAG');button('home_more','SETTINGS')
     elif scene=='weigh':
         label('heading','PLA+ 2.0 Black',20);label('gross','842',32);label('gross_unit','GROSS WEIGHT (g)',color=MUTED);label('quality','STABLE',color=MINT)
-        label('receipt','Empty spool  130 g\nFilament  712 g\nSpoolman  720 g\nDifference  -8 g')
-        button('weigh','WEIGH AGAIN',True);button('update','Update Spoolman');label('feedback','Measurement differs by 8 g',14,MUTED)
+        label('receipt','Empty spool  130 g\nFilament now  712 g\nIn Spoolman  720 g')
+        button('weigh','WEIGH AGAIN');button('update','UPDATE SPOOLMAN',True);label('feedback','Tap UPDATE SPOOLMAN to set its remaining\nweight to 712 g.',14,MUTED)
     elif scene=='assign':
         label('printer_name',"Prusa XL",20);label('printer_spool','PLA+ 2.0 Black · Spool #28',color=MUTED)
         for i in range(1,6):button('tool'+str(i),'T'+str(i)+'\n'+({2:'Spool #27',4:'Spool #31'}.get(i,'Empty')))
@@ -58,7 +58,7 @@ def render(scene,out):
         button('tag_update','UPDATE TAG',True);button('tag_clear','CLEAR / REUSE');button('tag_confirm','Review before writing')
     else:
         label('heading','Display brightness',20);x,y,w,h=BOXES['brightness'];d.rounded_rectangle((x,y+18,x+w,y+26),4,fill=SURFACE);d.rounded_rectangle((x,y+18,x+w*.8,y+26),4,fill=MINT);d.ellipse((x+w*.8-10,y+12,x+w*.8+10,y+32),fill=TEXT)
-        button('policy','Auto-update OFF');button('calibration','Calibrate scale');button('about','About / Advanced');label('wifi','Wi-Fi connected\n192.0.2.42',16,MUTED)
+        button('policy','Auto-update OFF');button('calibration','Calibrate scale');button('about','About / Advanced');button('network','Wi-Fi & services');label('wifi','Connected · 192.0.2.42',16,MUTED)
     im.save(out/f'wt32-{scene}.png')
 
 def model_scene(name,scene,out):
@@ -91,7 +91,7 @@ def model_scene(name,scene,out):
         x,y,w,h=b['box'];assert 4<=x<x+w<=476 and 4<=y<y+h<=316 and w>=44 and h>=44,(name,b)
         for bx,by,bw,bh in boxes:assert x+w<=bx or bx+bw<=x or y+h<=by or by+bh<=y,(name,b)
         boxes.append((x,y,w,h));primary=b['text'] in ['SEARCH','DONE','WRITE TAG','CREATE SPOOL','REVIEW TAG WRITE']
-        d.rounded_rectangle((x,y,x+w-1,y+h-1),6,fill='#147d73' if primary else SURFACE,outline='#52645f')
+        d.rounded_rectangle((x,y,x+w-1,y+h-1),6,fill='#8f2d2d' if b.get('destructive') else '#147d73' if primary else SURFACE,outline='#52645f')
         value=b['text'];size=20 if keyboard and len(value)==1 else 16
         text((x+6,y+max(3,(h-(size+3)*min(2,value.count('\n')+1))//2),w-12,h-6),value,size)
     im.save(out/f'wt32-{name}.png')

@@ -152,7 +152,7 @@ Spool spool() {
   result.vendor = "Prusament";
   result.material = "PETG";
   result.remaining_grams = 695.0F;
-  result.empty_spool_grams = 210.0F;
+  result.empty_spool_grams = 200.0F;
   return result;
 }
 

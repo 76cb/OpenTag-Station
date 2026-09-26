@@ -37,7 +37,8 @@ class ReleasePackagingTests(unittest.TestCase):
 
     def test_release_refuses_candidate_and_mismatch(self):
         validate_tag('v1.0.0', '1.0.0')
-        for tag, value in [('v1.0.0', '1.0.0-rc.1'), ('v1.0.1', '1.0.0'), ('v1.0.0-rc.1', '1.0.0-rc.1')]:
+        validate_tag('v1.0.0-rc.10', '1.0.0-rc.10')
+        for tag, value in [('v1.0.0', '1.0.0-rc.1'), ('v1.0.1', '1.0.0'), ('v1.0.0-rc.1', '1.0.0-rc.2'), ('1.0.0', '1.0.0'), ('v1.0.0+b1', '1.0.0+b1')]:
             with self.assertRaises(ValueError):
                 validate_tag(tag, value)
 
@@ -62,9 +63,12 @@ class ReleasePackagingTests(unittest.TestCase):
                 (root / name).write_bytes((source / name).read_bytes())
             (root / '.nojekyll').touch()
             (root / 'opentag-station-factory.bin').write_bytes(b'\xe9test')
-            (root / 'community.pack').write_bytes((Path(__file__).resolve().parents[1] / 'community/community.pack').read_bytes())
-            (root / 'community-manifest.json').write_bytes((Path(__file__).resolve().parents[1] / 'community/manifest.json').read_bytes())
             validate_pages_bundle(root, 16777216)
+            # Community is disabled: its catalog must not be published.
+            (root / 'community.pack').write_bytes(b'x')
+            with self.assertRaises(FlasherError):
+                validate_pages_bundle(root, 16777216)
+            (root / 'community.pack').unlink()
             (root / 'unapproved-test.bin').write_bytes(b'\xe9test')
             with self.assertRaises(FlasherError):
                 validate_pages_bundle(root, 16777216)
