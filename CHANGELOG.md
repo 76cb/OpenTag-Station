@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.0-rc.11
+
+- Wi-Fi: when joining the network fails, the station now says why instead of always "Wi-Fi connection timed out": password rejected, network not found (2.4 GHz only), signal too weak, or refused by the router. The reason comes from the Wi-Fi driver and is shown on the touchscreen setup screen and in the browser, and logged with the network's signal strength from the last scan.
+
 ## 1.0.0-rc.10
 
 Fixes from the rc.9 release review. No new subsystems.

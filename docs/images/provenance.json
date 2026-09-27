@@ -3,7 +3,7 @@
   "browser_captures": 80,
   "touch_layout_fixtures": 35,
   "sources": {
-    "VERSION": "f939e5dff6ad54601fe6ac9bf87152b64a53bc6839f44b7a0cad542b7435d738",
+    "VERSION": "e3ea18d763203f805b85280ab84b46474d6c0616afa1f7ebed135c049e6797ad",
     "src/config/product_features.hpp": "9dddd04943423d813b971f172916109373dcf69afe3b2b6c5bf72b6710386703",
     "tools/product_features.py": "03f986c77c5938ef362db12d81d0505beb5f9d14e6c628e048f0b83bfe74c2eb",
     "tools/product_journeys.cjs": "529869de6091d119477dbc4ad03f9f02552e11a807a4c59c61a8a5150d64215b",

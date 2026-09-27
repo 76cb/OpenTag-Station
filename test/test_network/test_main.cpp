@@ -399,6 +399,18 @@ void test_backend_budget_wrap_and_flush() {
   TEST_ASSERT_TRUE(budget.expired(now));
 }
 
+void test_wifi_failure_reasons_are_actionable() {
+  using opentag::network::wifi_failure_text;
+  for (unsigned reason : {2U, 15U, 202U, 204U})
+    TEST_ASSERT_NOT_EQUAL(std::string::npos,
+        std::string(wifi_failure_text(static_cast<std::uint8_t>(reason))).find("password"));
+  TEST_ASSERT_NOT_EQUAL(std::string::npos, std::string(wifi_failure_text(201)).find("2.4 GHz"));
+  TEST_ASSERT_NOT_EQUAL(std::string::npos, std::string(wifi_failure_text(200)).find("signal"));
+  TEST_ASSERT_NOT_EQUAL(std::string::npos, std::string(wifi_failure_text(203)).find("refused"));
+  TEST_ASSERT_NULL(wifi_failure_text(8));  // ASSOC_LEAVE: our own disconnect
+  TEST_ASSERT_NULL(wifi_failure_text(0));
+}
+
 int main(int, char**) {
   UNITY_BEGIN();
   RUN_TEST(test_backend_operation_budget_bounds_trickling_http);
@@ -422,5 +434,6 @@ int main(int, char**) {
   RUN_TEST(test_async_scan_failure_preserves_actual_result_code);
   RUN_TEST(test_async_scan_state_survives_repeated_replacement_cycles);
   RUN_TEST(test_connect_receipt_gate_blocks_reconfigure_until_exact_ack);
+  RUN_TEST(test_wifi_failure_reasons_are_actionable);
   return UNITY_END();
 }
