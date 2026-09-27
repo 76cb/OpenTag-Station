@@ -18,6 +18,13 @@
 #error "OpenTag Station OTA requires ESP-IDF bootloader rollback support"
 #endif
 
+// Arduino-ESP32's initArduino() runs before setup() and, unless this hook
+// returns true, marks a PENDING_VERIFY image valid immediately. That would
+// confirm every OTA candidate before OpenTag's boot-health window runs,
+// defeating rollback. Returning true leaves the image pending so that only
+// UpdateManager::confirm_candidate (via confirm_running) accepts it.
+extern "C" bool verifyRollbackLater() { return true; }
+
 namespace opentag::platform::ota {
 namespace {
 

@@ -118,6 +118,14 @@ class UiService {
   lv_obj_t* tag_title_{nullptr};
   lv_obj_t* tag_details_{nullptr};
   std::uint32_t writer_view_checksum_{0};
+  // When the current touch request was queued, for the "taking longer than
+  // usual" escape on Spoolman-only work.
+  std::uint32_t tag_wait_started_ms_{0};
+  std::uint64_t tag_candidate_generation_{0};
+  // First-run setup: return to the setup screen after scale calibration.
+  bool return_to_setup_after_calibration_{false};
+  lv_obj_t* setup_printer_dropdown_{nullptr};
+  void start_weigh();
   TagScreen tag_screen_;
 
   void build_settings_page();

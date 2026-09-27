@@ -15,6 +15,13 @@ must remain unchanged. Protection/system information must be complete and safe.
 | Inventory | One stable tag, same UID and generation throughout the operation |
 | Source image | Recognized supported content, blank compatible image, or matching recovery journal |
 
+!!! warning "Buy blank (unformatted) tags"
+    The station writes only to tags whose data area is empty (all zeros) or that
+    already hold OpenPrintTag data. Many SLIX2 stickers sold for phones come
+    pre-formatted with an empty NDEF record, or carry a URL. The station cannot
+    use or clear those tags; it shows "This tag can't be used as it is". Buy tags
+    described as blank/unformatted, or erase them first with a phone NFC tool.
+
 NTAG and MIFARE stickers use other technologies/profiles. Other ISO15693 vendors,
 memory sizes, protected tags and malformed images can be detected or rejected
 without being safe write targets. A reader's broad RF capability is not a

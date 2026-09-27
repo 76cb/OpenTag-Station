@@ -1,6 +1,6 @@
 # Releasing OpenTag Station
 
-The candidate is `1.0.0-rc.9`. `VERSION` is authoritative; generated manifests and
+The candidate is `1.0.0-rc.10`. `VERSION` is authoritative; generated manifests and
 documentation metadata must be refreshed from it. A successful build is not
 physical acceptance. Keep the release PR open and unmerged until external signoff.
 
@@ -35,17 +35,22 @@ result and sanitized evidence for every item. All boxes below are **pending**.
 3. Update the changelog from pending to the accepted release date. Review the diff,
    run complete CI, and require approval of the final exact commit.
 4. Merge only after the maintainer authorizes it. This PR update does not authorize merging.
-5. Tag the accepted main commit `v1.0.0` and push that tag. The production workflow
-   refuses prerelease tags, mismatched VERSION, dirty tracked sources and a
-   checkout different from the tagged commit.
+5. Tag the accepted main commit `v1.0.0` and push that tag. Release candidates are
+   tagged the same way (`v1.0.0-rc.10`) and published as GitHub pre-releases so
+   testers can download the OTA application image. The production workflow
+   refuses a tag that differs from VERSION, dirty tracked sources and a checkout
+   different from the tagged commit.
 6. Confirm release files/checksums, source commit in the manifest and build metadata,
    documentation version, and installer deployment. Do not substitute binaries
    from an earlier CI run or a local working tree.
 
 ## Release workflow and rollback
 
-Ordinary main pushes update the installer but do not create releases. A `v*` tag
-starts full CI and then a fresh production build on that exact tag. Packaging
+Ordinary main pushes neither create releases nor change the public installer. A
+`v*` tag starts full CI and then a fresh production build on that exact tag, and
+the installer (GitHub Pages) is rebuilt from the same tag. The `github-pages`
+environment must allow deployments from tags matching `v*`
+(Settings → Environments → github-pages → Deployment branches and tags). Packaging
 includes the application binary for OTA, merged factory binary for USB, manifest,
 build metadata and SHA-256 checksums. There is no test-firmware distribution.
 

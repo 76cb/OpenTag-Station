@@ -12,16 +12,17 @@ share one filament. A vendor is the manufacturer record, not a spool identity.
 | Write / update tag | Current approved physical tag | Selected canonical spool and fresh tag preview |
 | Update Spoolman after Weigh | One measured spool | Measurement receipt, expected canonical usage and same current tag |
 
-Choose a physical spool before requesting a tag preview. Selecting a Community
-entry or a filament definition alone cannot supply a physical spool ID. After
-import, create or select that filament's physical spool.
+Choose a physical spool before requesting a tag preview. Selecting a filament
+definition alone cannot supply a physical spool ID; create or select that
+filament's physical spool first.
 
-Remaining mass is compared to `gross − empty spool`. A missing empty-spool mass
-is not zero. The UI displays unknown values as a dash and keeps zero as a real
+Remaining mass is compared to `gross − empty spool`. The empty-spool weight comes
+from the Spoolman spool first, then the tag, then the filament, then the vendor.
+A missing empty-spool mass is not zero: when you create a spool on the
+touchscreen and none is known, the station asks you to enter it. The UI displays unknown values as a dash and keeps zero as a real
 value. Verify tare in Spoolman before accepting a surprising difference.
 Edits use expected-value fences; if another client changes a field, review fresh
 values alongside your draft and explicitly save again. Do not overwrite concurrent
 print consumption just to match an old screen.
 
-For workflow details see [editing](editing.md), [Community](community.md) and
-[Weigh](../daily-use/weigh.md).
+For workflow details see [editing](editing.md) and [Weigh](../daily-use/weigh.md).

@@ -1,25 +1,43 @@
 # Weigh a spool
 
-Measure gross mass and compare usable filament with Spoolman without changing inventory implicitly.
+Measure the spool and, if you choose, save the result to Spoolman. Weighing on
+its own never changes Spoolman.
 
 ## Before you start
 
-A calibrated stable scale, correct load-cell profile, resolved spool and known empty-spool tare. Keep the entire spool supported only by the platform.
+The scale is calibrated, the tag is linked to a Spoolman spool, and that spool
+has an empty-spool weight and an initial weight in Spoolman. Rest the whole spool
+on the platform; don't let filament or a cable pull on anything else.
 
 ## Steps
 
-1. Select **Weigh** on Home or the WT32 Weigh view. This explicitly starts a measurement session.
-2. Wait for stable completion; do not hold the spool or let its filament/cable pull against another surface.
-3. Read gross mass, empty-spool weight, measured filament and Spoolman remaining weight. The calculation is gross minus empty-spool tare.
-4. Check the active **Auto-update Spoolman after Weigh** policy. It is off by default. If enabled, an eligible explicit measurement can request an update.
-5. With auto-update off, use **Update Spoolman** only after reviewing the receipt. For a changed setup or a failed/conflicted update, start a new explicit Weigh.
+1. Tap **WEIGH** on Home (touchscreen) or **Weigh** in the browser dashboard.
+2. Keep the spool still until the reading settles.
+3. Read the result:
+    - **Empty spool** – the reel's own weight.
+    - **Filament now** – what is on the scale minus the empty reel.
+    - **In Spoolman** – the remaining weight Spoolman has now.
+4. To save it, tap **UPDATE SPOOLMAN**. The message above the buttons tells you
+   exactly what will be saved (for example "set its remaining weight to 712 g").
+5. To measure again, tap **WEIGH AGAIN**.
 
-## Expected result
+**Auto-update Spoolman after Weigh** (Settings) saves automatically instead. It is
+off by default.
 
-A completed receipt shows a stable measurement and its difference from canonical inventory. Identification-triggered measurements, tare, calibration and ordinary refreshes do not update Spoolman.
+## When UPDATE SPOOLMAN is not available
 
-## If it fails
+The message on the Weigh screen says why. The common cases:
 
-Unknown tare, unstable samples, negative net mass, stale identity or an offline backend prevent a safe update. Correct the cause and measure again. The 5 g default normal tolerance is a no-write deadband; a small difference can correctly produce no PATCH.
+| Message | What to do |
+|---|---|
+| This spool is not linked to Spoolman yet | Manage tag → **Link to a spool**, then weigh again. |
+| The empty spool weight is unknown | Set the spool's empty weight in Spoolman, then weigh again. |
+| Spoolman has no remaining weight for this spool | Set its initial weight in Spoolman, then weigh again. |
+| The measured filament is more than this spool's initial weight | Check the empty spool weight, or correct the initial weight in Spoolman. |
+| Saving weights is turned off… | Your Spoolman version has not been tested with this firmware (see Settings → Integrations), or Spoolman is offline. |
+| Spoolman already matches this weight | Nothing to do. Differences up to 5 g (the default tolerance) are not saved. |
+
+The empty-spool weight is taken from the Spoolman spool first, then from the tag,
+then the filament, then the vendor.
 
 ![Weigh receipt](../assets/images/browser/weigh.png)

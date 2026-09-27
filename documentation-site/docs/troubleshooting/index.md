@@ -11,7 +11,8 @@ names in a public screenshot.
 | Reader ready but no tag | [Tag detection](tag.md) |
 | Unsupported tag or failed write | [Tag writing](write.md) |
 | Spoolman unavailable | [Spoolman connection](spoolman.md) |
-| Community catalog fails | [Community download/import](community.md) |
+| "Spoolman is missing the Spool extra field…" | [Spoolman extra fields](../inventory/custom-fields.md) |
+| Tag stuck on "Finish writing/clearing" or "Link not saved yet" | [Recovery states](journal.md) |
 | Weight differs or is unstable | [Weight and mechanics](weight.md) |
 | FilaBridge offline / assignment fails | [Printer assignment](assignment.md) |
 | Cannot reach station | [Wi-Fi recovery](wifi.md) |

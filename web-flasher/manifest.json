@@ -1,6 +1,6 @@
 {
   "name": "OpenTag Station",
-  "version": "1.0.0-rc.9",
+  "version": "1.0.0-rc.10",
   "new_install_prompt_erase": true,
   "new_install_improv_wait_time": 0,
   "builds": [

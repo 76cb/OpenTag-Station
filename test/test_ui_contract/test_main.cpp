@@ -118,8 +118,9 @@ void test_scale_receipt_has_explicit_update_and_collapsed_calibration() {
           "LV_OBJ_FLAG_HIDDEN)") != std::string::npos);
   TEST_ASSERT_TRUE(build.find("GROSS WEIGHT") != std::string::npos);
   TEST_ASSERT_TRUE(build.find("workflow_scale_capture_label_") != std::string::npos);
-  TEST_ASSERT_TRUE(build.find("\"WEIGH AGAIN\", 180") != std::string::npos);
-  TEST_ASSERT_TRUE(build.find("\"TARE\", 102") != std::string::npos);
+  TEST_ASSERT_TRUE(build.find("\"WEIGH\", 172") != std::string::npos);
+  TEST_ASSERT_TRUE(build.find("\"TARE EMPTY PLATFORM\", 102") != std::string::npos);
+  TEST_ASSERT_TRUE(build.find("\"UPDATE SPOOLMAN\"") != std::string::npos);
   TEST_ASSERT_TRUE(build.find("\"CALIBRATE\", 160") != std::string::npos);
   TEST_ASSERT_TRUE(
       build.find("lv_obj_set_size(button, 216, 48)") != std::string::npos);
@@ -240,7 +241,7 @@ void test_tags_page_exposes_guarded_writer_and_reader_state() {
 
 void test_clear_has_two_steps_and_large_touch_targets() {
   const auto source = read_source("src/ui/tag_flow.hpp");
-  for(const char* token:{"clear_preview", "CONFIRM CLEAR", "retry_unlink", "current_checksum", "target_checksum", "generation", "previous_spool_id"})
+  for(const char* token:{"clear_preview", "ERASE TAG", "retry_unlink", "current_checksum", "target_checksum", "generation", "previous_spool_id"})
     TEST_ASSERT_TRUE_MESSAGE(source.find(token)!=std::string::npos,token);
   const auto keyboard=read_source("src/ui/touch_input_screen.cpp");
   TEST_ASSERT_TRUE(keyboard.find("lv_scr_load(root_)")!=std::string::npos);

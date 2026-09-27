@@ -33,7 +33,9 @@ public:
         community_detail_(std::move(community_detail)) {}
   void set_community_management(CommunityStatus status,CommunityUpdate update){community_status_=std::move(status);community_update_=std::move(update);}
   core::Result<void> process(JsonObjectConst command);
-  core::Result<void> restore_cleanup();
+  // Publishes any durable recovery prompt. `reason` (optional) explains the
+  // failure that returned the station to that prompt.
+  core::Result<void> restore_cleanup(const std::string &reason = {});
   bool physical_pass() const { return plan_ && plan_->verified; }
 
 private:
@@ -48,6 +50,10 @@ private:
   core::Result<void> edit_and_report(JsonObjectConst command, bool filament);
   core::Result<void> prepare(JsonObjectConst command);
   core::Result<void> prepare_clear();
+  core::Result<void> require_identity_fields();
+  core::Result<void> discard_recovery();
+  bool has_durable_recovery();
+  std::string journaled_other_uid();
   core::Result<void> commit_clear(JsonObjectConst command);
   core::Result<void> commit_write(JsonObjectConst command);
   core::Result<void> unlink();

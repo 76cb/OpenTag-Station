@@ -16,7 +16,7 @@ A supported Spoolman service reachable from the station’s network. Documentati
 
 ## Expected result
 
-The station reads canonical records and enables only capabilities supported by the adapter checks. The compatibility reference records Spoolman 0.26.0 as the inspected/live discovery baseline, not a guarantee for every future version.
+The station reads canonical records and enables only capabilities supported by the adapter checks. Spoolman 0.26.1 is the formally tested version. Other versions can read and write tags, but saving weights is turned off and Settings → Integrations shows a warning. Before your first tag, create the two [required extra fields](custom-fields.md).
 
 ## If it fails
 

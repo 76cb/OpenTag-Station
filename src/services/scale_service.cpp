@@ -423,7 +423,7 @@ void ScaleService::advance_measurement(std::uint32_t now_ms) {
                 *status_.sample.gross_grams <
                     -config_.near_zero_deadband_grams
             ? unstable(
-                  "Scale zero has shifted. Tare the empty platform and retry.")
+                  "Scale zero has shifted. Empty the platform, then use Tare in Settings > Calibrate scale and retry.")
             : unstable(
                   "Scale is still moving. Leave the spool still and retry.");
     status_.measurement_state = ScaleMeasurementState::timed_out;

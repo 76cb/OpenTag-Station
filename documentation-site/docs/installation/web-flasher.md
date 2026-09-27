@@ -10,7 +10,7 @@ A supported WT32-SC01 Plus, stable power, data-capable USB cable and desktop Chr
 
 ## Steps
 
-1. Open the [OpenTag Station installer](https://76cb.github.io/OpenTag-Station/). Check the manifest version against the intended release. During PR review, main’s installer may still precede the candidate.
+1. Open the [OpenTag Station installer](https://76cb.github.io/OpenTag-Station/). It installs the latest published release or release candidate.
 2. Connect the board by USB. Close serial monitors and other programs holding the device.
 3. Choose **Factory Install / Recovery**, select the correct USB port, and review the erase choice. Factory installation erases station configuration and calibration.
 4. Let flashing and verification finish without disconnecting the board. Use board-manufacturer boot/download instructions if the port does not enter flashing mode automatically.

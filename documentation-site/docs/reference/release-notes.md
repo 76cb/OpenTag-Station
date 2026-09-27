@@ -2,6 +2,41 @@
 
 # Changelog
 
+## 1.0.0-rc.10
+
+Fixes from the rc.9 release review. No new subsystems.
+
+**Safety**
+- WT32 printer assignment: the dialog's first button is now **Cancel** and only an explicit Assign/Replace confirms. In rc.9 the **Back** button performed the assignment.
+- OTA: the firmware now keeps a new image pending until OpenTag's 30 s health check (Arduino's early auto-confirm is disabled), so a failing update rolls back. A station left in `reboot_pending` by rc.9 now normalizes to confirmed instead of refusing every later update.
+- Spool identity: a vendor/material or product-barcode match is only a suggestion and must be chosen or linked before weights or assignments can target it. Lookups by `extra.<key>` are refused, with the field name to create, when the Spool extra fields do not exist (Spoolman silently ignores unknown filters).
+- Reboot, factory reset and OTA restart are refused while a tag or Spoolman operation is running.
+- The setup access point is WPA2-protected; its per-boot password is shown only on the touchscreen.
+
+**Tag recovery**
+- A write or clear that fails while the station is running returns to its recovery prompt instead of a dead-end "Tag needs attention".
+- Writing a different tag no longer overwrites another tag's unfinished-write record.
+- Link/unlink failures show the reason. **Skip recovery** (touchscreen) / **Skip linking** / **Skip cleanup** (browser) stop a recovery that can't be finished. Factory reset clears unfinished tag operations.
+
+**Spoolman and weighing**
+- Search falls back to the vendor name when no filament name matches, on the WT32 and in the browser.
+- A remaining weight above the spool's initial weight is refused before any change; missing initial weight and untested-version cases have specific messages. The Spoolman spool's empty weight now takes priority over the copy on the tag.
+- WT32 spool creation no longer defaults the empty-spool weight to 0 g: it uses the filament or vendor value, or asks for it.
+- Settings → Integrations warns about missing identity fields and untested Spoolman versions.
+
+**Touchscreen and browser**
+- Weigh: WEIGH → WEIGH AGAIN, UPDATE SPOOLMAN highlighted when a weight can be saved, two-line status that says what will be saved or why it can't.
+- Setup: real NFC reader status (rc.9 always said "NFC disabled by wiring guard"), Next saves typed values, printer chosen from FilaBridge's list, CALIBRATE NOW returns to setup.
+- Tag: erase/skip actions are red, no "0 / 0 blocks" for Spoolman-only work, "1.75 mm" diameter, duplicate LINK/REASSIGN removed, paging back lands on the previous rows, no-change writes disabled, a way back from Spoolman requests that stall.
+- Settings → Wi-Fi & services on the touchscreen; larger About/Advanced buttons; toolheads show which spool is loaded.
+- Plain-language OTA wording and a link to the release files.
+
+**Release**
+- Release candidates can be tagged `v1.0.0-rc.N` and are published as GitHub pre-releases with the OTA application image. The installer is rebuilt from release tags only.
+- The disabled Community catalog is no longer published on Pages or in releases (it also made the release file check fail).
+
+Physical acceptance on hardware is still required; see docs/releasing.md.
+
 ## 1.0.0-rc.9
 
 Community import/search is disabled for 1.0 after physical ESP32-S3 testing demonstrated a miniz inflater-state memory overwrite. The implementation is retained for redesign in 1.1.

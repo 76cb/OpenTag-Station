@@ -4,24 +4,39 @@
 #include <cstdio>
 #include <algorithm>
 #include <string>
+#include <utility>
+#include <vector>
 #include "network/backend_json.hpp"
 #include "services/tag_lifecycle.hpp"
 #include "ui/product_layout.hpp"
 
 namespace opentag::ui {
 enum class TagPage { tag, sources, catalog, selected, create, created, move,
-                     review, progress, import_review, ready, reuse, error };
+                     review, progress, import_review, ready, reuse, error, skip_review, choose };
 enum class TagAction { none, home, back, sources, spools, filaments, community,
   row0,row1,row2,previous,next,search,use,write,update,clear,retry,import,community_update,
-  create,initial,remaining,tare,weigh,printer,name };
-struct TagButton { layout::Box box{}; std::string text; TagAction action{TagAction::none}; bool enabled{true}; };
+  create,initial,remaining,tare,weigh,printer,name,skip,choose };
+// Destructive buttons (clear, skip recovery) are drawn in a distinct colour.
+struct TagButton { layout::Box box{}; std::string text; TagAction action{TagAction::none}; bool enabled{true}; bool destructive{false}; };
 struct TagScreen {
   std::string title,body;
   std::array<TagButton,8> buttons{}; std::size_t count{0};
-  void button(layout::Box box,std::string text,TagAction action,bool enabled=true) {
-    buttons[count++]={box,std::move(text),action,enabled};
+  void button(layout::Box box,std::string text,TagAction action,bool enabled=true,bool destructive=false) {
+    buttons[count++]={box,std::move(text),action,enabled,destructive};
   }
 };
+// Phases in which the physical tag is being changed. The UI must never offer
+// a way out during these, and must never show them for Spoolman-only work.
+inline bool physical_phase(const std::string& phase) {
+  return phase=="validating"||phase=="writing"||phase=="clearing"||phase=="verifying"||phase=="decoding";
+}
+inline bool recovery_phase(const std::string& phase) {
+  return phase=="unlink_pending"||phase=="association_pending"||phase=="clear_recovery"||phase=="write_recovery";
+}
+inline std::string grams_text(JsonVariantConst value) {
+  if(value.isNull())return "weight unknown";
+  char buffer[24];std::snprintf(buffer,sizeof(buffer),"%.0f g",value.as<double>());return buffer;
+}
 inline layout::Box tag_body_box(const TagScreen& screen) {
   std::int16_t bottom=266;
   for(std::size_t i=0;i<screen.count;++i)
@@ -40,11 +55,29 @@ class TagFlow {
   TagPage review_return{TagPage::tag},move_return{TagPage::selected};
   services::TagLifecycle lifecycle{services::TagLifecycle::no_tag};
   std::string uid,material,query,entity{"spool"},message,phase,catalog_state,catalog_version;
+  // Field Spoolman actually matched ("name", or "vendor" after a fallback);
+  // echoed when paging so later pages use the same search.
+  std::string search_field{"name"};
+  // Plain-language description of the queued request for the wait screen.
+  std::string working;
+  // Set by the UI when a non-physical request has shown no progress for a
+  // long time; offers a way back without abandoning physical work.
+  bool stalled{false};
+  bool land_on_last_rows{false};
+  // Spools that may belong to this tag (vendor/material or product match).
+  // The user picks one; the UI submits it as an explicit confirmation.
+  std::vector<std::pair<int,std::string>> candidates;
+  int confirm_spool_id{0};
+  // Shown on the create page when a required value is missing.
+  std::string create_hint;
   int current_spool{0},from_spool{0};
   std::string from_name;
   std::string import_name;
   unsigned offset{0},row{0};
   double initial{1000},remaining{1000},tare{0};
+  // False until the empty-spool weight comes from Spoolman or the user. A
+  // silent 0 g default overstated remaining filament on every later weigh.
+  bool tare_known{false};
   bool waiting{false},rewrite{false},community_request{false},catalog_update_request{false};
   std::uint64_t operation{0};
   network::BackendJsonAllocator allocator;
@@ -63,6 +96,7 @@ class TagFlow {
       command["entity"]=entity;
     }
     command["search"]=query;command["offset"]=offset;
+    if(entity!="community"&&!query.empty()&&offset>0&&search_field=="vendor")command["search_field"]="vendor";
     return encode(command);
   }
   void fail(std::string reason) {waiting=false;message=std::move(reason);page=TagPage::error;}
@@ -79,7 +113,9 @@ class TagFlow {
     view.set(incoming); phase=view["phase"]|""; message=view["message"]|"";
     if(phase=="catalog"||phase=="community") {
       if(!view["items"].is<JsonArray>()||view["items"].size()>8){fail("Inventory page exceeds limit");return false;}
-      catalog_page.set(view);row=0;page=TagPage::catalog;
+      catalog_page.set(view);search_field=view["search_field"]|"name";
+      const auto size=view["items"].size();
+      row=land_on_last_rows&&size>0?static_cast<unsigned>(((size-1)/3)*3):0;land_on_last_rows=false;page=TagPage::catalog;
     } else if(phase=="community_catalog") {
       catalog_state=view["catalog_state"]|"not_installed";catalog_version=view["catalog_version"]|"";page=TagPage::catalog;
     } else if(phase=="preview"||phase=="clear_preview")page=TagPage::review;
@@ -88,8 +124,8 @@ class TagFlow {
     else if(phase=="spool_selected") {selected.set(view["spool"]);page=TagPage::created;}
     else if(phase=="complete")page=TagPage::ready;
     else if(phase=="cleared") {page=TagPage::reuse;current_spool=from_spool=0;rewrite=false;}
-    else if(phase=="unlink_pending"||phase=="association_pending"||phase=="clear_recovery"||phase=="write_recovery")page=TagPage::tag;
-    else if(phase=="failed")page=TagPage::error;
+    else if(recovery_phase(phase))page=TagPage::tag;
+    else if(phase=="failed"||phase=="recovery_discarded")page=TagPage::error;
     else if(phase!="idle") {page=TagPage::progress;return true;}
     waiting=false;operation=0;return true;
   }
@@ -103,16 +139,24 @@ class TagFlow {
         page=TagPage::sources;return {};
       case TagAction::spools: case TagAction::filaments: case TagAction::community:
         entity=action==TagAction::spools?"spool":action==TagAction::filaments?"filament":"community";
-        offset=row=0;query.clear();page=TagPage::catalog;
+        offset=row=0;query.clear();search_field="name";page=TagPage::catalog;
         if(entity=="community"){catalog_page.clear();return request("community_status");}
         return browse();
       case TagAction::previous:
         if(row>=3){row-=3;return {};}
-        if(offset>=8){offset-=8;return browse();}return {};
+        if(offset>=8){offset-=8;land_on_last_rows=true;return browse();}return {};
       case TagAction::next:
         if(row+3<catalog_page["items"].size()){row+=3;return {};}
         if(catalog_page["has_more"]|false){offset+=8;return browse();}return {};
+      case TagAction::choose:
+        if(candidates.empty())return {};
+        page=TagPage::choose;return {};
       case TagAction::row0: case TagAction::row1: case TagAction::row2: {
+        if(page==TagPage::choose) {
+          const auto pick=static_cast<std::size_t>(action)-static_cast<std::size_t>(TagAction::row0);
+          if(pick<candidates.size())confirm_spool_id=candidates[pick].first;
+          page=TagPage::tag;return {};
+        }
         const auto index=row+static_cast<unsigned>(action)-static_cast<unsigned>(TagAction::row0);
         if(index>=catalog_page["items"].size())return {};
         selected.set(catalog_page["items"][index]);import_name.clear();page=TagPage::selected;return {};
@@ -123,7 +167,7 @@ class TagFlow {
           if(!import_name.empty())command["import_name"]=import_name;
           break;
         }
-        if(page==TagPage::selected&&entity=="filament") {weights();page=TagPage::create;return {};}
+        if(page==TagPage::selected&&entity=="filament") {weights();create_hint.clear();page=TagPage::create;return {};}
         if((page==TagPage::selected||page==TagPage::created)&&from_spool>0&&selected["id"].as<int>()!=from_spool) {move_return=page;page=TagPage::move;return {};}
         review_return=page;
         command["action"]="preview";command["spool_id"]=selected["id"];
@@ -133,12 +177,16 @@ class TagFlow {
         review_return=TagPage::tag;
         command["action"]="preview";command["mode"]="rewrite";command["spool_id"]=current_spool;break;
       case TagAction::write:
-        if(page!=TagPage::review)return {};
+        if(page==TagPage::skip_review){command["action"]="discard_recovery";break;}
+        if(page!=TagPage::review||(view["semantic_no_change"]|false))return {};
         command["action"]=phase=="clear_preview"?"clear":"write";
         for(auto key:{"uid","generation","spool_id","previous_spool_id","current_checksum","target_checksum"})
           if(!view[key].isNull())command[key]=view[key];
         break;
       case TagAction::clear:review_return=TagPage::tag;command["action"]="clear_preview";break;
+      case TagAction::skip:
+        if(!recovery_phase(phase))return {};
+        review_return=TagPage::tag;page=TagPage::skip_review;return {};
       case TagAction::retry:
         if(page==TagPage::error&&catalog_update_request)return request("community_update");
         if(page==TagPage::error&&community_request)return browse();
@@ -147,6 +195,7 @@ class TagFlow {
       case TagAction::import:command["action"]="import";command["import_token"]=view["import_token"];break;
       case TagAction::community_update:return request("community_update");
       case TagAction::create:
+        if(!tare_known){create_hint="Enter the empty spool weight first (weigh an empty reel of the same type, or use the maker's value).";return {};}
         if(initial<=0||remaining<0||remaining>initial||tare<0||initial>100000||tare>100000){fail("Check spool weights before creating");return {};}
         command["action"]="create_spool";command["spool"]["filament_id"]=selected["id"];
         command["spool"]["initial_weight"]=initial;command["spool"]["remaining_weight"]=remaining;command["spool"]["spool_weight"]=tare;break;
@@ -154,7 +203,8 @@ class TagFlow {
         if(page==TagPage::selected||page==TagPage::create)page=TagPage::catalog;
         else if(page==TagPage::move)page=move_return;
         else if(page==TagPage::catalog)page=TagPage::sources;
-        else if(page==TagPage::review)page=review_return;
+        else if(page==TagPage::review||page==TagPage::skip_review)page=review_return;
+        else if(page==TagPage::choose)page=TagPage::tag;
         else if(page==TagPage::import_review)page=TagPage::selected;
         else page=TagPage::tag;
         return {};
@@ -164,9 +214,27 @@ class TagFlow {
   }
   TagScreen screen() const;
  private:
-  void weights() {initial=selected["weight"]|1000.;if(initial<=0)initial=1000;remaining=initial;tare=selected["spool_weight"]|0.;}
+  void weights() {
+    initial=selected["weight"]|1000.;if(initial<=0)initial=1000;remaining=initial;
+    // Filament empty-reel weight, else the vendor's; otherwise ask the user.
+    JsonVariantConst package=selected["spool_weight"],vendor=selected["vendor"]["empty_spool_weight"];
+    tare_known=package.is<double>()||vendor.is<double>();
+    tare=package.is<double>()?package.as<double>():vendor.is<double>()?vendor.as<double>():0.;
+  }
+  static const char* describe(std::string_view action) {
+    if(action=="catalog"||action=="community_search")return "Searching Spoolman...";
+    if(action=="preview"||action=="clear_preview")return "Reading the tag...";
+    if(action=="write")return "Writing the tag...";
+    if(action=="clear")return "Clearing the tag...";
+    if(action=="create_spool")return "Creating the spool in Spoolman...";
+    if(action=="retry_association")return "Saving the link in Spoolman...";
+    if(action=="retry_unlink")return "Removing the link in Spoolman...";
+    if(action=="discard_recovery")return "Stopping recovery...";
+    return "Working on your request...";
+  }
   std::string encode(JsonDocument& command) {
     if(command.overflowed()||measureJson(command)>4096){fail("Command exceeds station limits");return {};}
+    working=describe(std::string_view(command["action"]|""));stalled=false;
     community_request=std::string_view(command["action"]|"")=="community_search";
     catalog_update_request=std::string_view(command["action"]|"")=="community_update";
     std::string result;serializeJson(command,result);return result;
@@ -177,25 +245,36 @@ inline std::string filament_name(JsonVariantConst item) {
   std::string vendor=f["manufacturer"] | (f["vendor"]["name"] | "");
   return vendor+(vendor.empty()?"":" ")+std::string(f["name"]|"Unnamed filament");
 }
+inline std::string diameter_text(JsonVariantConst value) {
+  char buffer[16];std::snprintf(buffer,sizeof(buffer),"%.2f mm",value|1.75);return buffer;
+}
 inline TagScreen TagFlow::screen() const {
   TagScreen s; s.title="Manage tag";
   const auto action=[&](int n,const char* label,TagAction a){s.button({16,static_cast<std::int16_t>(112+n*50),448,44},label,a);};
   const auto back=[&]{s.button({8,266,140,46},"BACK",TagAction::back);};
-  const auto primary=[&](const char* text,TagAction a){s.button({156,266,316,46},text,a);};
+  const auto primary=[&](const char* text,TagAction a,bool enabled=true,bool destructive=false){s.button({156,266,316,46},text,a,enabled,destructive);};
   switch(page) {
     case TagPage::tag:
-      if(phase=="unlink_pending"||phase=="association_pending"||phase=="clear_recovery"||phase=="write_recovery") {
-        s.title=phase=="write_recovery"?"Resume tag write":phase=="clear_recovery"?"Resume tag clear":phase=="association_pending"?"Finish linking":"Finish cleanup";
-        s.body=message;action(2,phase=="write_recovery"?"RESUME WRITE":phase=="clear_recovery"?"RESUME CLEAR":phase=="association_pending"?"RETRY LINK":"RETRY CLEANUP",TagAction::retry);
+      if(recovery_phase(phase)) {
+        s.title=phase=="write_recovery"?"Finish writing this tag":phase=="clear_recovery"?"Finish clearing this tag":phase=="association_pending"?"Link not saved yet":"Unlink not finished";
+        s.body=message;
+        action(1,phase=="write_recovery"?"FINISH WRITING":phase=="clear_recovery"?"FINISH CLEARING":phase=="association_pending"?"TRY SAVING LINK AGAIN":"TRY UNLINKING AGAIN",TagAction::retry);
+        s.button({16,212,448,44},"SKIP RECOVERY",TagAction::skip,true,true);
       } else if(lifecycle==services::TagLifecycle::blank_compatible) {
         s.body="BLANK TAG\nReady to use\n"+uid;action(0,"ASSIGN TAG",TagAction::sources);
       } else if(lifecycle==services::TagLifecycle::linked) {
-        s.body=material+"\nTag valid - Spool #"+std::to_string(current_spool);
-        action(0,"UPDATE TAG",TagAction::update);action(1,"REASSIGN",TagAction::sources);action(2,"CLEAR / REUSE",TagAction::clear);
+        s.body=material+"\nLinked to spool #"+std::to_string(current_spool);
+        action(0,"UPDATE TAG",TagAction::update);action(1,"REASSIGN",TagAction::sources);
+        s.button({16,212,448,44},"CLEAR / REUSE",TagAction::clear,true,true);
+      } else if(lifecycle==services::TagLifecycle::unlinked&&!candidates.empty()) {
+        s.body=material+"\nThis may be one of your Spoolman spools.";
+        action(0,"CHOOSE WHICH SPOOL",TagAction::choose);action(1,"LINK TO A SPOOL",TagAction::sources);
+        s.button({16,212,448,44},"CLEAR / REUSE",TagAction::clear,true,true);
       } else if(lifecycle==services::TagLifecycle::unlinked) {
-        s.body=material+"\nValid OpenPrintTag - not linked";
-        action(0,"LINK TO A SPOOL",TagAction::sources);action(1,"REASSIGN",TagAction::sources);action(2,"CLEAR / REUSE",TagAction::clear);
-      } else s.body=lifecycle==services::TagLifecycle::no_tag?"PLACE A TAG\nSet an NFC tag on the reader.":lifecycle==services::TagLifecycle::unsupported?"Tag needs attention\n"+message:"Reading tag…\nKeep the tag on the reader.";
+        s.body=material+"\nNot linked to a Spoolman spool yet";
+        action(0,"LINK TO A SPOOL",TagAction::sources);
+        s.button({16,162,448,44},"CLEAR / REUSE",TagAction::clear,true,true);
+      } else s.body=lifecycle==services::TagLifecycle::no_tag?"PLACE A TAG\nSet an NFC tag on the reader.":lifecycle==services::TagLifecycle::unsupported?"This tag can't be used as it is\n"+message+"\nUse a blank NXP ICODE SLIX2 tag.":"Reading tag...\nKeep the tag on the reader.";
       s.button({8,266,464,46},"DONE",TagAction::home);break;
     case TagPage::sources:
       s.title=from_spool?"Reassign tag":"Assign tag";s.body="How do you want to choose the filament?";
@@ -204,11 +283,11 @@ inline TagScreen TagFlow::screen() const {
       s.title=entity=="spool"?"My Spools":entity=="filament"?"My Filaments":"Community";
       if(entity=="community"&&catalog_state!="ready") {s.title="Community Catalog";s.body=catalog_state=="damaged"?"Catalog damaged\nRedownload to restore local search.":"Not installed\nDownload once for offline search.";action(1,catalog_state=="damaged"?"REDOWNLOAD CATALOG":"DOWNLOAD CATALOG",TagAction::community_update);back();break;}
       s.button({326,4,146,44},"SEARCH",TagAction::search);
-      if(catalog_page["items"].size()==0)s.body=query.empty()?(entity=="community"?"Community Catalog\n"+catalog_version+"\nReady\nSearch for a filament":"Search for a filament"):"No matches. Try another search.";
+      if(catalog_page["items"].size()==0)s.body=offset>0?"End of the list.":query.empty()?(entity=="community"?"Community Catalog\n"+catalog_version+"\nReady\nSearch for a filament":entity=="spool"?"No spools in Spoolman yet.":"No filaments in Spoolman yet."):"No matches for \""+query+"\".\nSearch looks at names and makers.";
       for(unsigned i=0;i<3&&row+i<catalog_page["items"].size();++i) {
         auto item=catalog_page["items"][row+i];std::string text=filament_name(item);
-        if(entity=="spool")text="#"+std::to_string(item["id"].as<int>())+" "+text+"\n"+std::to_string(static_cast<int>(item["remaining_weight"]|0.))+" g remaining";
-        else text+="\n"+std::string(item["material"]|"")+"  "+std::to_string(static_cast<int>(item["weight"]|0.))+" g";
+        if(entity=="spool")text="#"+std::to_string(item["id"].as<int>())+" "+text+"\n"+(item["remaining_weight"].isNull()?std::string("Remaining weight unknown"):grams_text(item["remaining_weight"])+" remaining");
+        else text+="\n"+std::string(item["material"]|"")+"  "+grams_text(item["weight"]);
         s.button({8,static_cast<std::int16_t>(58+i*62),464,56},text,static_cast<TagAction>(static_cast<int>(TagAction::row0)+i));
       }
       s.button({8,266,140,46},"PREV",TagAction::previous,row>0||offset>0);
@@ -216,8 +295,8 @@ inline TagScreen TagFlow::screen() const {
       s.button({332,266,140,46},"NEXT",TagAction::next,row+3<catalog_page["items"].size()||(catalog_page["has_more"]|false));break;
     case TagPage::selected:
       s.title=entity=="spool"?"Use this spool?":"Use this filament?";s.body=filament_name(selected);
-      if(entity=="spool")s.body+="\nSpool #"+std::to_string(selected["id"].as<int>())+" - "+std::to_string(static_cast<int>(selected["remaining_weight"]|0.))+" g remaining";
-      else s.body+="\n"+std::string(selected["material"]|"")+" - "+std::to_string(selected["diameter"]|1.75)+" mm";
+      if(entity=="spool")s.body+="\nSpool #"+std::to_string(selected["id"].as<int>())+" - "+(selected["remaining_weight"].isNull()?std::string("remaining weight unknown"):grams_text(selected["remaining_weight"])+" remaining");
+      else s.body+="\n"+std::string(selected["material"]|"")+" - "+diameter_text(selected["diameter"]);
       if(entity=="community") {
         s.button({16,212,448,44},"EDIT DISPLAY NAME",TagAction::name);
         if(!import_name.empty())s.body+="\nSpoolman name: "+import_name;
@@ -225,9 +304,10 @@ inline TagScreen TagFlow::screen() const {
       back();primary(entity=="community"?"REVIEW IMPORT":entity=="filament"?"CREATE A SPOOL":"USE SPOOL",TagAction::use);break;
     case TagPage::create:
       s.title="Create physical spool";s.body=filament_name(selected);
+      if(!create_hint.empty())s.body+="\n"+create_hint;
       s.button({16,112,448,44},"Initial: "+weight_text(initial)+" g  -  EDIT",TagAction::initial);
       s.button({16,162,448,44},"Remaining: "+weight_text(remaining)+" g  -  EDIT",TagAction::remaining);
-      s.button({16,212,448,44},"Empty spool: "+weight_text(tare)+" g  -  EDIT",TagAction::tare);
+      s.button({16,212,448,44},tare_known?"Empty spool: "+weight_text(tare)+" g  -  EDIT":std::string("Empty spool: NOT SET  -  EDIT"),TagAction::tare);
       back();primary("CREATE SPOOL",TagAction::create);break;
     case TagPage::created:
       s.title="Spool created";s.body=filament_name(selected)+"\nSpool #"+std::to_string(selected["id"].as<int>());
@@ -238,18 +318,38 @@ inline TagScreen TagFlow::screen() const {
     case TagPage::import_review:
       s.title="Add to Spoolman";s.body=filament_name(view["source"])+"\nSpoolman name: "+std::string(view["proposed_filament"]["name"]|"")+"\nExisting matching definitions will be reused.";
       back();primary("ADD TO SPOOLMAN",TagAction::import);break;
-    case TagPage::review:
-      s.title=phase=="clear_preview"?"Reuse this NFC tag?":"Ready to write";
-      s.body=phase=="clear_preview"?"Remove old filament information and links.\nThe permanent NFC identifier stays unchanged.":filament_name(view["spool"])+"\nSpool #"+std::to_string(view["spool_id"].as<int>())+"\nKeep the tag on the reader.";
-      back();primary(phase=="clear_preview"?"CONFIRM CLEAR":"WRITE TAG",TagAction::write);break;
+    case TagPage::review: {
+      const bool clearing=phase=="clear_preview";const bool unchanged=!clearing&&(view["semantic_no_change"]|false);
+      s.title=clearing?"Erase this tag?":unchanged?"Tag already up to date":"Ready to write";
+      s.body=clearing?"Erases the filament data on the tag and removes its link in Spoolman.\nThe spool itself stays in Spoolman.":unchanged?filament_name(view["spool"])+"\nNothing needs to be written.":filament_name(view["spool"])+"\nSpool #"+std::to_string(view["spool_id"].as<int>())+"\nReplaces the filament data on the tag.\nKeep the tag on the reader until it says done.";
+      back();primary(clearing?"ERASE TAG":unchanged?"NOTHING TO WRITE":"WRITE TAG",TagAction::write,!unchanged,clearing);break;
+    }
+    case TagPage::skip_review:
+      s.title="Skip recovery?";
+      s.body=phase=="association_pending"?"The tag is written, but Spoolman will not know it belongs to this spool.\nYou can link it again later from Manage tag.":phase=="unlink_pending"?"The tag is erased, but Spoolman may still list it on the old spool.":"Only do this if that tag is lost or damaged.\nThe station will not be able to write or clear it again.";
+      back();primary("SKIP RECOVERY",TagAction::write,true,true);break;
+    case TagPage::choose:
+      s.title="Which spool is this?";
+      for(std::size_t i=0;i<3&&i<candidates.size();++i)
+        s.button({8,static_cast<std::int16_t>(58+i*62),464,56},"#"+std::to_string(candidates[i].first)+" "+candidates[i].second,static_cast<TagAction>(static_cast<int>(TagAction::row0)+static_cast<int>(i)));
+      if(candidates.size()>3)s.body="More matches: choose in the browser.";
+      back();break;
     case TagPage::progress:
       if(phase=="catalog_downloading") {s.title="Downloading Community catalog";s.body=std::to_string(view["completed_blocks"]|0)+"%\nThe station remains available.";break;}
-      if(community_request&&(phase=="searching"||phase=="queued")) {s.title="Searching Community…";s.body=query+"\nSearching catalog. Please wait…";break;}
-      s.title=phase=="writing"?"Writing tag":phase=="verifying"?"Verifying tag":phase=="associating"?"Linking Spoolman":"Please wait";
-      s.body=message+"\n"+std::to_string(view["completed_blocks"]|0)+" / "+std::to_string(view["total_blocks"]|0)+" blocks";break;
+      if(community_request&&(phase=="searching"||phase=="queued")) {s.title="Searching Community...";s.body=query+"\nSearching catalog. Please wait...";break;}
+      if(physical_phase(phase)) {
+        s.title=phase=="clearing"?"Clearing tag":phase=="writing"?"Writing tag":"Checking tag";
+        s.body="Keep the tag on the reader.";
+        if((view["total_blocks"]|0)>0)s.body+="\n"+std::to_string(view["completed_blocks"]|0)+" / "+std::to_string(view["total_blocks"]|0)+" blocks";
+        break;
+      }
+      s.title=phase=="associating"?"Saving link in Spoolman":phase=="unlinking"?"Removing link in Spoolman":phase=="reading"?"Reading tag":phase=="loading_spool"?"Checking Spoolman":"Please wait";
+      s.body=phase=="associating"?"The tag is already written.":phase=="unlinking"?"The tag is already erased.":phase=="reading"?"Keep the tag on the reader.":working.empty()?"Working on your request...":working;
+      if(stalled){s.body+="\nThis is taking longer than usual.";s.button({8,266,464,46},"BACK TO HOME",TagAction::home);}
+      break;
     case TagPage::reuse:
       s.title="TAG READY TO REUSE";s.body="The old filament information is removed.\nWhat should this tag become?";
-      action(0,"CHOOSE EXISTING SPOOL",TagAction::spools);action(1,"CREATE NEW SPOOL",TagAction::sources);
+      action(0,"CHOOSE EXISTING SPOOL",TagAction::spools);action(1,"NEW SPOOL FROM A FILAMENT",TagAction::filaments);
       s.button({8,266,464,46},"DONE",TagAction::home);break;
     case TagPage::ready:
       s.title="TAG READY";s.body=filament_name(view["spool"])+"\nSpool #"+std::to_string(view["spool_id"].as<int>())+" - verified";
@@ -257,13 +357,16 @@ inline TagScreen TagFlow::screen() const {
       // Wait for the internally refreshed physical/workflow identity before
       // navigating to pages that operate on the active spool.
       s.buttons[0].enabled=s.buttons[1].enabled=current_spool>0&&current_spool==view["spool_id"].as<int>();
-      if(!s.buttons[0].enabled)s.body+="\nRefreshing the active spool…";
+      if(!s.buttons[0].enabled)s.body+="\nRefreshing the active spool...";
       s.button({8,266,464,46},"DONE",TagAction::home);break;
     case TagPage::error:
-      s.title="Needs attention";s.body=message;back();
+      s.title=phase=="recovery_discarded"?"Recovery skipped":"Needs attention";s.body=message;back();
       if(community_request||catalog_update_request)primary("RETRY",TagAction::retry);break;
   }
-  if(waiting&&page!=TagPage::progress) {s.title="Please wait";s.body="Working on your request…";s.count=0;}
+  if(waiting&&page!=TagPage::progress) {
+    s.title="Please wait";s.body=working.empty()?"Working on your request...":working;s.count=0;
+    if(stalled&&!physical_phase(phase)){s.body+="\nThis is taking longer than usual.";s.button({8,266,464,46},"BACK TO HOME",TagAction::home);}
+  }
   return s;
 }
 }  // namespace opentag::ui

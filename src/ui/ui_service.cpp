@@ -1,6 +1,7 @@
 #include "ui/ui_service.hpp"
 #include "ui/lvgl_memory.h"
 #include "ui/product_layout.hpp"
+#include "ui/assignment_dialog.hpp"
 
 #include <Arduino.h>
 #include <esp_heap_caps.h>
@@ -32,6 +33,37 @@ constexpr std::uint32_t primary_text = 0xF8FAFC;
 constexpr std::uint32_t secondary_text = 0xCBD5E1;
 constexpr std::uint32_t accent_text = 0x72DFBE;
 constexpr std::uint32_t warning_text = 0xFDE68A;
+// Destructive actions (erase tag, skip recovery, replace toolhead) use a red
+// fill so they are never mistaken for the normal primary action.
+constexpr std::uint32_t destructive_fill = 0x8F2D2D;
+constexpr std::uint32_t destructive_label = 0xFFF1F1;
+constexpr std::uint32_t primary_fill = 0x72DFBE;
+constexpr std::uint32_t primary_label = 0x112C25;
+constexpr std::uint32_t neutral_fill = 0x242C30;
+constexpr std::uint32_t neutral_label = 0xF3F5F3;
+
+void style_action(lv_obj_t* button, std::uint32_t fill, std::uint32_t label) {
+  if (button == nullptr) return;
+  lv_obj_set_style_bg_color(button, lv_color_hex(fill), 0);
+  auto* text = lv_obj_get_child(button, 0);
+  if (text != nullptr) lv_obj_set_style_text_color(text, lv_color_hex(label), 0);
+}
+
+const char* nfc_status_text(const nfc::ReadSnapshot& tag) {
+  switch (tag.state) {
+    case nfc::ReadState::deferred:
+    case nfc::ReadState::starting: return "NFC reader starting...";
+    case nfc::ReadState::idle: return "NFC reader ready. Place a tag on it to test.";
+    case nfc::ReadState::stabilizing:
+    case nfc::ReadState::reading: return "Reading tag...";
+    case nfc::ReadState::openprinttag: return "OpenPrintTag found. The reader works.";
+    case nfc::ReadState::blank: return "Blank tag found. The reader works.";
+    case nfc::ReadState::unsupported: return "Tag found, but it can't be used as it is.";
+    case nfc::ReadState::multiple: return "More than one tag. Use one tag at a time.";
+    case nfc::ReadState::error: return "NFC reader problem. Check the NFC wiring.";
+  }
+  return "NFC reader starting...";
+}
 
 void style_screen(lv_obj_t* screen) {
   lv_obj_set_style_bg_color(screen, lv_color_hex(screen_background), 0);
@@ -85,11 +117,14 @@ const char* availability_text(services::BackendAvailability availability) {
   return "WAITING";
 }
 
-static const char* assignment_buttons[] = {"Back", "Assign", ""};
-static const char* replacement_buttons[] = {"Cancel", "Replace", ""};
-static const char* override_buttons[] = {"Cancel", "ADVANCED", ""};
+static const char* assignment_buttons[] = {
+    assignment_dialog::cancel_label, assignment_dialog::assign_label, ""};
+static const char* replacement_buttons[] = {
+    assignment_dialog::cancel_label, assignment_dialog::replace_label, ""};
+static const char* override_buttons[] = {
+    assignment_dialog::cancel_label, assignment_dialog::override_label, ""};
 static const char* override_replacement_buttons[] = {
-    "Cancel", "ADVANCED REPLACE", ""};
+    assignment_dialog::cancel_label, assignment_dialog::override_replace_label, ""};
 
 }  // namespace
 
@@ -238,6 +273,7 @@ void UiService::build_current_screen() {
   setup_input_one_ = nullptr;
   setup_input_two_ = nullptr;
   setup_network_dropdown_ = nullptr;
+  setup_printer_dropdown_ = nullptr;
   setup_keyboard_ = nullptr;
   workflow_material_label_ = nullptr;
   workflow_home_state_label_ = nullptr;
@@ -466,10 +502,10 @@ void UiService::build_scale_page() {
     lv_obj_center(label);
   };
   make_action(
-      &workflow_weigh_button_, "WEIGH AGAIN", 180,
+      &workflow_weigh_button_, "WEIGH", 172,
       weigh_callback, true);
   make_action(
-      &workflow_tare_button_, "TARE", 102,
+      &workflow_tare_button_, "TARE EMPTY PLATFORM", 102,
       tare_callback, false);
   lv_obj_add_flag(workflow_tare_button_,LV_OBJ_FLAG_HIDDEN);
   place(workflow_weigh_button_,layout::weigh);
@@ -525,14 +561,15 @@ void UiService::build_scale_page() {
   lv_obj_add_flag(
       workflow_calibration_close_button_, LV_OBJ_FLAG_HIDDEN);
 
-  weight_update_=lv_btn_create(screen);place(weight_update_,layout::update);
-  auto* update_label=lv_label_create(weight_update_);lv_label_set_text(update_label,"Update Spoolman");lv_obj_center(update_label);lv_obj_add_event_cb(weight_update_,weight_update_callback,LV_EVENT_CLICKED,this);
+  weight_update_=lv_btn_create(screen);place(weight_update_,layout::update);lv_obj_set_style_radius(weight_update_,12,0);
+  auto* update_label=lv_label_create(weight_update_);lv_label_set_text(update_label,"UPDATE SPOOLMAN");lv_obj_center(update_label);lv_obj_add_event_cb(weight_update_,weight_update_callback,LV_EVENT_CLICKED,this);
+  style_action(weight_update_,neutral_fill,neutral_label);
   weight_policy_=lv_btn_create(screen);place(weight_policy_,layout::update);lv_obj_add_flag(weight_policy_,LV_OBJ_FLAG_HIDDEN);
   auto* policy_label=lv_label_create(weight_policy_);lv_label_set_text(policy_label,"Auto-update OFF");lv_obj_center(policy_label);lv_obj_add_event_cb(weight_policy_,weight_policy_callback,LV_EVENT_CLICKED,this);
   workflow_status_label_ = lv_label_create(screen);
   lv_label_set_text(
       workflow_status_label_, "Waiting for stable empty platform");
-  place(workflow_status_label_,layout::feedback);lv_label_set_long_mode(workflow_status_label_,LV_LABEL_LONG_DOT);
+  place(workflow_status_label_,layout::feedback);lv_label_set_long_mode(workflow_status_label_,LV_LABEL_LONG_WRAP);
   lv_obj_set_style_text_color(
       workflow_status_label_, lv_color_hex(0xF4C95D), 0);
   lv_obj_set_style_text_font(
@@ -606,7 +643,7 @@ void UiService::build_tags_page() {
   lv_obj_set_style_bg_opa(tag_details_,LV_OPA_TRANSP,0);
   lv_obj_set_style_border_width(tag_details_,0,0);lv_obj_set_style_pad_all(tag_details_,0,0);
   lv_obj_set_scroll_dir(tag_details_,LV_DIR_VER);
-  nfc_detail_=product_label(tag_details_,{0,0,440,160},"Loading tag…");
+  nfc_detail_=product_label(tag_details_,{0,0,440,160},"Loading tag...");
   lv_label_set_long_mode(nfc_detail_,LV_LABEL_LONG_WRAP);
   lv_obj_set_height(nfc_detail_,LV_SIZE_CONTENT);
   for(auto& button:tag_buttons_)button=product_button(screen,{16,212,448,44},"",tag_action_callback,this);
@@ -621,7 +658,7 @@ void UiService::tag_command(std::string command) {
   if(command.empty()||!tag_flow_)return;
   const auto receipt=backend_worker_.submit_writer(command);
   if(!receipt.accepted)tag_flow_->fail("Station is busy. Please try again.");
-  else {tag_flow_->waiting=true;tag_flow_->operation=receipt.operation_id;tag_flow_->page=TagPage::progress;tag_flow_->phase="queued";tag_flow_->message="Please wait…";}
+  else {tag_flow_->waiting=true;tag_flow_->operation=receipt.operation_id;tag_flow_->page=TagPage::progress;tag_flow_->phase="queued";tag_flow_->message=tag_flow_->working;tag_flow_->stalled=false;tag_wait_started_ms_=millis();}
   draw_tags();
 }
 void UiService::tag_action_callback(lv_event_t* event) {
@@ -632,11 +669,19 @@ void UiService::tag_action_callback(lv_event_t* event) {
   }
 }
 void UiService::tag_action(TagAction action) {
-  if(!tag_flow_||tag_flow_->waiting)return;
+  if(!tag_flow_)return;
+  if(tag_flow_->waiting) {
+    // Only a stalled Spoolman-only request may be left; physical writes never.
+    if(action!=TagAction::home||!tag_flow_->stalled||physical_phase(tag_flow_->phase))return;
+    tag_flow_->waiting=false;tag_flow_->operation=0;tag_flow_->stalled=false;
+  }
   if(action==TagAction::home||action==TagAction::weigh||action==TagAction::printer) {
-    tag_flow_->page=TagPage::tag;tag_flow_->phase.clear();
+    tag_flow_->page=TagPage::tag;tag_flow_->phase.clear();tag_flow_->stalled=false;
     active_page_=action==TagAction::weigh?ProductPage::scale:action==TagAction::printer?ProductPage::printer:ProductPage::home;
-    build_current_screen();return;
+    build_current_screen();
+    // "WEIGH" on the tag-ready page means weigh now, not just open the page.
+    if(action==TagAction::weigh&&diagnostics_.scale_snapshot().scale_calibrated)start_weigh();
+    return;
   }
   if(action==TagAction::search) {
     InputSpec spec;spec.title="Search "+(tag_flow_->entity=="community"?std::string("Community"):tag_flow_->entity=="spool"?"My Spools":"My Filaments");
@@ -655,9 +700,16 @@ void UiService::tag_action(TagAction action) {
     spec.minimum=action==TagAction::initial?0.001:0;
     spec.title=action==TagAction::initial?"Initial filament":action==TagAction::remaining?"Remaining filament":"Empty spool weight";
     spec.initial=weight_text(action==TagAction::initial?tag_flow_->initial:action==TagAction::remaining?tag_flow_->remaining:tag_flow_->tare);
-    open_input(spec,[this,action](const std::string& text){const auto n=std::strtod(text.c_str(),nullptr);if(action==TagAction::initial)tag_flow_->initial=n;else if(action==TagAction::remaining)tag_flow_->remaining=n;else tag_flow_->tare=n;draw_tags();});return;
+    spec.initial=action==TagAction::tare&&!tag_flow_->tare_known?std::string():spec.initial;
+    open_input(spec,[this,action](const std::string& text){const auto n=std::strtod(text.c_str(),nullptr);if(action==TagAction::initial)tag_flow_->initial=n;else if(action==TagAction::remaining)tag_flow_->remaining=n;else{tag_flow_->tare=n;tag_flow_->tare_known=true;}draw_tags();});return;
   }
-  tag_command(tag_flow_->act(action));draw_tags();
+  tag_command(tag_flow_->act(action));
+  if(tag_flow_->confirm_spool_id>0) {
+    const auto spool=tag_flow_->confirm_spool_id;tag_flow_->confirm_spool_id=0;
+    const auto receipt=backend_worker_.submit_spool_confirmation(spool,tag_candidate_generation_);
+    tag_flow_->message=receipt.accepted?"Linked to spool #"+std::to_string(spool)+".":"Station is busy. Please try again.";
+  }
+  draw_tags();
 }
 void UiService::draw_tags() {
   if(!tag_flow_||!tag_title_)return;
@@ -675,6 +727,7 @@ void UiService::draw_tags() {
     lv_obj_set_height(label,item.text.find('\n')==std::string::npos?20:40);
     lv_label_set_long_mode(label,LV_LABEL_LONG_DOT);lv_obj_center(label);
     if(item.enabled)lv_obj_clear_state(b,LV_STATE_DISABLED);else lv_obj_add_state(b,LV_STATE_DISABLED);
+    if(item.destructive)style_action(b,destructive_fill,destructive_label);else style_action(b,neutral_fill,neutral_label);
   }
 }
 void UiService::refresh_tags() {
@@ -689,6 +742,12 @@ void UiService::refresh_tags() {
   flow.uid=incoming_uid;
   workflow_.visit([&](const services::WorkflowSnapshot& current) {
     flow.current_spool=tag.tag&&tag.uid&&current.openprinttag_available&&current.uid==*tag.uid&&current.spool?current.spool->id:0;
+    // Product/metadata matches must be chosen explicitly (never auto-linked).
+    flow.candidates.clear();
+    if(tag.uid&&current.uid==*tag.uid&&current.stage==services::WorkflowStage::spool_selection_required) {
+      for(const auto& candidate:current.spool_candidates)flow.candidates.emplace_back(candidate.id,candidate.display_name);
+      tag_candidate_generation_=current.spool_generation;
+    }
   });
   flow.material=tag.tag?tag.tag->decoded.material.material_name.value_or("Filament spool"):"";
   flow.lifecycle=services::tag_lifecycle({tag.present,tag.blank_compatible,bool(tag.tag),flow.current_spool>0,tag.state==nfc::ReadState::unsupported,flow.phase,false});
@@ -702,6 +761,10 @@ void UiService::refresh_tags() {
     const auto op=backend_worker_.writer_operation(flow.operation);
     if(op&&op->state==application::OperationState::failed) {flow.operation=0;flow.fail(op->error?op->error->message:op->message);}
   }
+  // A Spoolman-only request (never a physical write) that shows no result
+  // for 45 s offers a way back instead of an endless wait screen.
+  flow.stalled=flow.waiting&&!physical_phase(flow.phase)&&
+      static_cast<std::uint32_t>(millis()-tag_wait_started_ms_)>=45000U;
   draw_tags();
 }
 
@@ -725,6 +788,13 @@ void UiService::build_settings_page() {
     auto* self=static_cast<UiService*>(lv_event_get_user_data(e));self->active_page_=ProductPage::scale;self->build_current_screen();self->set_scale_calibration_panel_open(true);
   },this);
   product_button(screen,layout::about,"About / Advanced",diagnostics_toggle_callback,this);
+  // Change Wi-Fi, Spoolman or FilaBridge after first-run setup.
+  product_button(screen,layout::network,"Wi-Fi & services",[](lv_event_t* e){
+    auto* self=static_cast<UiService*>(lv_event_get_user_data(e));
+    (void)self->first_run_setup_.go_to(services::SetupStep::wifi);
+    self->showing_setup_=true;self->showing_diagnostics_=false;self->setup_feedback_.clear();
+    self->build_current_screen();
+  },this);
   workflow_status_label_=product_label(screen,layout::wifi,"Wi-Fi status");
 }
 
@@ -747,7 +817,7 @@ void UiService::build_diagnostics_screen() {
   style_screen(screen);
 
   auto* title = lv_label_create(screen);
-  lv_label_set_text(title, "Hardware diagnostics");
+  lv_label_set_text(title, "About this station");
   style_title(title);
   lv_obj_align(title, LV_ALIGN_TOP_LEFT, 14, 9);
 
@@ -782,27 +852,28 @@ void UiService::build_diagnostics_screen() {
 
   auto* brightness_label = lv_label_create(screen);
   lv_label_set_text(brightness_label, "Brightness");
-  lv_obj_align(brightness_label, LV_ALIGN_BOTTOM_LEFT, 18, -31);
+  lv_obj_align(brightness_label, LV_ALIGN_BOTTOM_LEFT, 18, -66);
 
+  // Above the button row (the rc.9 slider overlapped the buttons).
   brightness_slider_ = lv_slider_create(screen);
-  lv_obj_set_size(brightness_slider_, 240, 18);
+  lv_obj_set_size(brightness_slider_, 300, 24);
   lv_slider_set_range(brightness_slider_, 5, 100);
   lv_slider_set_value(brightness_slider_, display_.brightness(), LV_ANIM_OFF);
-  lv_obj_align(brightness_slider_, LV_ALIGN_BOTTOM_LEFT, 105, -30);
+  lv_obj_align(brightness_slider_, LV_ALIGN_BOTTOM_LEFT, 120, -62);
   lv_obj_add_event_cb(
       brightness_slider_, brightness_callback, LV_EVENT_VALUE_CHANGED, this);
 
   auto* sleep_button = lv_btn_create(screen);
-  lv_obj_set_size(sleep_button, 92, 38);
-  lv_obj_align(sleep_button, LV_ALIGN_BOTTOM_RIGHT, -18, -16);
+  lv_obj_set_size(sleep_button, 104, 44);
+  lv_obj_align(sleep_button, LV_ALIGN_BOTTOM_RIGHT, -14, -10);
   lv_obj_add_event_cb(sleep_button, sleep_callback, LV_EVENT_CLICKED, this);
   auto* sleep_label = lv_label_create(sleep_button);
   lv_label_set_text(sleep_label, "Sleep");
   lv_obj_center(sleep_label);
 
   auto* setup_button = lv_btn_create(screen);
-  lv_obj_set_size(setup_button, 92, 38);
-  lv_obj_align(setup_button, LV_ALIGN_BOTTOM_RIGHT, -120, -16);
+  lv_obj_set_size(setup_button, 104, 44);
+  lv_obj_align(setup_button, LV_ALIGN_BOTTOM_RIGHT, -130, -10);
   lv_obj_add_event_cb(
       setup_button, setup_toggle_callback, LV_EVENT_CLICKED, this);
   auto* setup_label = lv_label_create(setup_button);
@@ -810,12 +881,12 @@ void UiService::build_diagnostics_screen() {
   lv_obj_center(setup_label);
 
   auto* main_button = lv_btn_create(screen);
-  lv_obj_set_size(main_button, 92, 38);
-  lv_obj_align(main_button, LV_ALIGN_BOTTOM_RIGHT, -222, -16);
+  lv_obj_set_size(main_button, 104, 44);
+  lv_obj_align(main_button, LV_ALIGN_BOTTOM_RIGHT, -246, -10);
   lv_obj_add_event_cb(
       main_button, diagnostics_toggle_callback, LV_EVENT_CLICKED, this);
   auto* main_label = lv_label_create(main_button);
-  lv_label_set_text(main_label, "Main");
+  lv_label_set_text(main_label, "Home");
   lv_obj_center(main_label);
 }
 
@@ -901,11 +972,31 @@ void UiService::build_setup_screen() {
         true);
   } else if (step == services::SetupStep::printer_selection) {
     setup_input_one_ = create_setup_textarea(
-        94,
-        "Stable printer ID",
+        146,
+        "Printer ID",
         configured.filabridge.selected_printer_id,
         128U,
         false);
+    // Offer the printers FilaBridge reported instead of asking the user to
+    // know an internal ID.
+    setup_printer_dropdown_ = lv_dropdown_create(screen);
+    lv_obj_set_size(setup_printer_dropdown_, 286, 44);
+    lv_obj_align(setup_printer_dropdown_, LV_ALIGN_TOP_LEFT, 16, 94);
+    std::string options;
+    for (const auto& printer : workflow_.snapshot().printers) {
+      if (!options.empty()) options += '\n';
+      options += printer.display_name.empty() ? printer.id : printer.display_name;
+    }
+    if (options.empty()) options = "No printers found yet";
+    lv_dropdown_set_options(setup_printer_dropdown_, options.c_str());
+    lv_obj_add_event_cb(setup_printer_dropdown_, [](lv_event_t* event) {
+      auto* self = static_cast<UiService*>(lv_event_get_user_data(event));
+      if (self->setup_printer_dropdown_ == nullptr || self->setup_input_one_ == nullptr) return;
+      const auto printers = self->workflow_.snapshot().printers;
+      const auto index = lv_dropdown_get_selected(self->setup_printer_dropdown_);
+      if (index < printers.size())
+        lv_textarea_set_text(self->setup_input_one_, printers[index].id.c_str());
+    }, LV_EVENT_VALUE_CHANGED, this);
   } else if (step == services::SetupStep::ready) {
     setup_input_one_ = create_setup_textarea(
         94,
@@ -934,7 +1025,7 @@ void UiService::build_setup_screen() {
     return button;
   };
   make_button("Back", 14, setup_back_callback);
-  make_button("Main", 185, setup_toggle_callback);
+  make_button("Home", 185, setup_toggle_callback);
   make_button(
       step == services::SetupStep::ready ? "Finish" : "Next",
       356,
@@ -952,6 +1043,23 @@ void UiService::build_setup_screen() {
     auto* save_label = lv_label_create(save_button);
     lv_label_set_text(save_label, "Save");
     lv_obj_center(save_label);
+  }
+  if (step == services::SetupStep::scale_calibration) {
+    auto* calibrate = lv_btn_create(screen);
+    lv_obj_set_size(calibrate, 220, 46);
+    lv_obj_align(calibrate, LV_ALIGN_TOP_LEFT, 14, 140);
+    lv_obj_add_event_cb(calibrate, [](lv_event_t* event) {
+      auto* self = static_cast<UiService*>(lv_event_get_user_data(event));
+      self->return_to_setup_after_calibration_ = true;
+      self->showing_setup_ = false;
+      self->active_page_ = ProductPage::scale;
+      self->build_current_screen();
+      self->set_scale_calibration_panel_open(true);
+      self->refresh_workflow();
+    }, LV_EVENT_CLICKED, this);
+    auto* label = lv_label_create(calibrate);
+    lv_label_set_text(label, "CALIBRATE NOW");
+    lv_obj_center(label);
   }
   if (step == services::SetupStep::wifi) {
     auto* scan_button = lv_btn_create(screen);
@@ -977,6 +1085,25 @@ void UiService::setup_back_callback(lv_event_t* event) {
 void UiService::setup_next_callback(lv_event_t* event) {
   auto* self = static_cast<UiService*>(lv_event_get_user_data(event));
   const auto step = self->first_run_setup_.current();
+  {
+    // Next means "save and continue": never silently drop typed values.
+    const auto stored = self->configuration_.snapshot();
+    const std::string first = self->setup_input_one_ != nullptr
+        ? lv_textarea_get_text(self->setup_input_one_) : "";
+    const std::string second = self->setup_input_two_ != nullptr
+        ? lv_textarea_get_text(self->setup_input_two_) : "";
+    const bool dirty =
+        (step == services::SetupStep::wifi &&
+         (first != stored.wifi.ssid || second != stored.wifi.password)) ||
+        (step == services::SetupStep::spoolman &&
+         (first != stored.spoolman.url || second != stored.spoolman.authentication_token)) ||
+        (step == services::SetupStep::filabridge &&
+         (first != stored.filabridge.url || second != stored.filabridge.authentication_token)) ||
+        (step == services::SetupStep::printer_selection &&
+         first != stored.filabridge.selected_printer_id) ||
+        (step == services::SetupStep::ready && !first.empty());
+    if (dirty) setup_save_callback(event);
+  }
   const auto configured = self->configuration_.snapshot();
   const bool complete =
       step == services::SetupStep::welcome ||
@@ -1021,6 +1148,7 @@ void UiService::setup_toggle_callback(lv_event_t* event) {
 
 void UiService::navigation_callback(lv_event_t* event) {
   auto* self = static_cast<UiService*>(lv_event_get_user_data(event));
+  self->return_to_setup_after_calibration_ = false;
   auto* target = static_cast<lv_obj_t*>(lv_event_get_target(event));
   const auto selected = std::find(
       self->product_nav_buttons_.begin(),
@@ -1047,22 +1175,25 @@ void UiService::weigh_callback(lv_event_t* event) {
     self->refresh_workflow();
     return;
   }
-  const auto receipt = self->scale_commands_.submit_weigh(millis());
-  if (receipt.accepted) {
-    self->weigh_operation_id_ = receipt.operation_id;
-    self->scale_action_ = ScaleAction::weigh;
-    self->workflow_feedback_ = "Measuring";
-  } else {
-    self->weigh_operation_id_.reset();
-    self->scale_action_ = ScaleAction::none;
-    self->workflow_feedback_ =
-        "Weigh request rejected or the scale queue is full";
-  }
   if (self->active_page_ == ProductPage::home) {
     self->active_page_ = ProductPage::scale;
     self->build_current_screen();
   }
-  self->refresh_workflow();
+  self->start_weigh();
+}
+
+void UiService::start_weigh() {
+  const auto receipt = scale_commands_.submit_weigh(millis());
+  if (receipt.accepted) {
+    weigh_operation_id_ = receipt.operation_id;
+    scale_action_ = ScaleAction::weigh;
+    workflow_feedback_ = "Measuring. Keep the spool still.";
+  } else {
+    weigh_operation_id_.reset();
+    scale_action_ = ScaleAction::none;
+    workflow_feedback_ = "The scale is busy. Try again in a moment.";
+  }
+  refresh_workflow();
 }
 
 void UiService::tare_callback(lv_event_t* event) {
@@ -1150,6 +1281,12 @@ void UiService::calibrate_callback(lv_event_t* event) {
 void UiService::scale_calibration_close_callback(lv_event_t* event) {
   auto* self = static_cast<UiService*>(lv_event_get_user_data(event));
   self->set_scale_calibration_panel_open(false);
+  if (self->return_to_setup_after_calibration_) {
+    self->return_to_setup_after_calibration_ = false;
+    self->showing_setup_ = true;
+    self->build_current_screen();
+    return;
+  }
   self->refresh_workflow();
 }
 
@@ -1257,7 +1394,7 @@ void UiService::assignment_confirmation_callback(lv_event_t* event) {
   auto* self = static_cast<UiService*>(lv_event_get_user_data(event));
   auto* message_box = static_cast<lv_obj_t*>(lv_event_get_current_target(event));
   const char* action = lv_msgbox_get_active_btn_text(message_box);
-  if (action != nullptr && std::strcmp(action, "Cancel") != 0) {
+  if (assignment_dialog::is_confirmation(action)) {
     services::ToolheadMutationPrecondition precondition;
     precondition.supplied = true;
     precondition.expected_previous_spool_id =
@@ -1273,8 +1410,9 @@ void UiService::assignment_confirmation_callback(lv_event_t* event) {
         std::move(precondition),
         self->pending_printer_revision_);
     self->workflow_feedback_ =
-        receipt.accepted ? "Safety override queued for verification"
-                         : "Assignment rejected or backend queue is full";
+        !receipt.accepted ? "Station is busy. Try the assignment again."
+        : self->pending_active_override_ ? "Assigning anyway; checking with FilaBridge..."
+                                         : "Assigning; checking with FilaBridge...";
   }
   self->pending_printer_id_.clear();
   self->pending_backend_toolhead_id_ = -1;
@@ -1395,16 +1533,16 @@ void UiService::refresh_setup() {
       body = "FILABRIDGE\nEnter and save the service base URL.";
       break;
     case services::SetupStep::printer_selection:
-      body = "PRINTER\nEnter the stable ID from FilaBridge discovery.";
+      body = "PRINTER\nChoose the printer FilaBridge found.";
       break;
     case services::SetupStep::scale_calibration:
-      body = "SCALE CALIBRATION\nTap Main, then Weigh to tare and calibrate.\nEnter the known mass on this station.";
+      body = "SCALE CALIBRATION\nHave an object of known weight ready, then tap\nCALIBRATE NOW and follow the steps.";
       break;
     case services::SetupStep::nfc_status:
-      body = "NFC STATUS\nPresent an OpenPrintTag spool. View recognition on Tags.";
+      body = "NFC READER\nPlace a tag on the reader to check that it works.";
       break;
     case services::SetupStep::ready:
-      body = "READY\nLocal API authentication is optional.";
+      body = "READY\nOptional: set an access token. Without one, anyone\non your network can control and update this station.";
       break;
   }
   lv_label_set_text(setup_body_label_, body);
@@ -1422,12 +1560,16 @@ void UiService::refresh_setup() {
   std::string status;
   switch (step) {
     case services::SetupStep::wifi:
-      status = std::string("State: ") + network::to_string(network.wifi_state) +
-          "  scan results: " + std::to_string(network_.scan_results().size());
-      if (network.wifi_connected) status += "  IP: " + network.ip_address;
-      if (network.provisioning_active) {
-        status += "\nAP: " + network.setup_ap_ssid +
-            "  http://192.168.4.1/";
+      if (network.provisioning_active && !network.setup_ap_ssid.empty()) {
+        // Three short lines that fit above the Back/Home/Next buttons: the
+        // password is the only way to join the WPA2 setup network.
+        status = "Wi-Fi: " + network.setup_ap_ssid + "\nPassword: " +
+            network.setup_ap_password +
+            (setup_feedback_.empty() ? std::string("\nThen open 192.168.4.1") : std::string());
+      } else {
+        status = std::string("State: ") + network::to_string(network.wifi_state) +
+            "  scan results: " + std::to_string(network_.scan_results().size());
+        if (network.wifi_connected) status += "\nIP: " + network.ip_address;
       }
       break;
     case services::SetupStep::spoolman:
@@ -1447,7 +1589,7 @@ void UiService::refresh_setup() {
                    : "Calibration required";
       break;
     case services::SetupStep::nfc_status:
-      status = "NFC disabled by wiring guard";
+      status = nfc_status_text(nfc_.snapshot());
       break;
     case services::SetupStep::ready:
       if (web::local_access_policy(configured.web.access_token)
@@ -1457,7 +1599,7 @@ void UiService::refresh_setup() {
       } else {
         status = "Local API authentication: DISABLED\n"
                  "Local browser control: ENABLED\n"
-                 "Trusted LAN mode — set an API token in Configuration to require authentication.";
+                 "Trusted LAN mode - set an API token in Configuration to require authentication.";
       }
       if (first_run_setup_.complete()) status += "\nSetup previously confirmed";
       break;
@@ -1515,6 +1657,12 @@ void UiService::refresh_workflow() {
       scale_action_ = ScaleAction::none;
       if (calibration_complete) {
         set_scale_calibration_panel_open(false);
+        if (return_to_setup_after_calibration_) {
+          return_to_setup_after_calibration_ = false;
+          showing_setup_ = true;
+          build_current_screen();
+          return;
+        }
       }
     } else {
       workflow_feedback_ = operation->error.has_value()
@@ -1574,7 +1722,10 @@ void UiService::refresh_workflow() {
     lv_obj_set_width(workflow_weight_label_,348);
     lv_label_set_text(workflow_home_state_label_,present?workflow.material.brand_name.value_or("Current spool").c_str():"OpenTag Station");
     lv_label_set_text(workflow_material_label_,present?workflow.material.material_name.value_or("Filament spool").c_str():"Place a spool");
-    const std::string identity=workflow.spool?"Spool #"+std::to_string(workflow.spool->id)+"  |  Tag valid":present?"Tag recognized - looking up spool":"Set a tagged spool on the station";
+    const std::string identity=workflow.spool?"Spool #"+std::to_string(workflow.spool->id):
+        !present?"Set a tagged spool on the station":
+        workflow.stage==services::WorkflowStage::spool_selection_required||workflow.stage==services::WorkflowStage::spool_not_found?"Not linked yet: Manage tag > Link to a spool":
+        workflow.stage==services::WorkflowStage::spool_resolution_unavailable?"Spoolman unavailable; spool not looked up":"Finding this spool in Spoolman...";
     lv_label_set_text(workflow_identity_label_,identity.c_str());
     const auto remaining=workflow.spool?workflow.spool->remaining_grams:std::optional<float>{};
     if(remaining)lv_label_set_text_fmt(workflow_weight_label_,"%ld g remaining",static_cast<long>(std::lround(*remaining)));
@@ -1716,7 +1867,7 @@ void UiService::refresh_workflow() {
     } else if (!scale.scale_tare_ready) {
       guidance = "2. Ready to tare";
     } else if (scale.scale_samples_in_filter == 0U) {
-      guidance = "3. Tare complete — place reference weight";
+      guidance = "3. Tare complete - place reference weight";
     } else if (!scale.scale_raw_stable) {
       guidance = "4. Waiting for stable reference weight";
     } else if (!reference_valid) {
@@ -1731,15 +1882,27 @@ void UiService::refresh_workflow() {
     const auto measured=backend_worker_.weigh_snapshot();
     if(workflow_material_label_)lv_label_set_text(workflow_material_label_,measured.name.empty()?"Scale":measured.name.c_str());
     const auto grams=[](const std::optional<float>& value){return value?std::to_string(static_cast<int>(std::lround(*value)))+" g":"Not set";};
+    const bool can_save=!busy&&measured.phase=="ready"&&!measured.consumed;
     if(!scale_calibration_panel_open_){
-      const auto receipt="Empty spool  "+grams(measured.tare)+"\nFilament  "+grams(measured.measured)+"\nSpoolman  "+grams(measured.canonical_remaining)+"\nDifference  "+grams(measured.difference);
+      const auto receipt="Empty spool  "+grams(measured.tare)+"\nFilament now  "+grams(measured.measured)+"\nIn Spoolman  "+grams(measured.canonical_remaining);
       lv_label_set_text(workflow_scale_capture_label_,receipt.c_str());
-      const auto message=measured.message.substr(0,88);lv_label_set_text(workflow_status_label_,message.c_str());
+      std::string message=busy&&!workflow_feedback_.empty()?workflow_feedback_:measured.message;
+      if(can_save&&measured.measured)message="Tap UPDATE SPOOLMAN to set its remaining weight to "+grams(measured.measured)+".";
+      if(message.size()>150U)message.resize(150U);
+      lv_label_set_text(workflow_status_label_,message.c_str());
+      // "Again" only once there is a measurement to repeat.
+      lv_label_set_text(lv_obj_get_child(workflow_weigh_button_,0),busy?"WEIGHING...":measured.phase.empty()?"WEIGH":"WEIGH AGAIN");
     }
     bool automatic=false;configuration_.visit([&](const auto& config,auto){automatic=config.reconciliation.auto_update_after_weigh;});
     lv_label_set_text(lv_obj_get_child(weight_policy_,0),automatic?"Auto-update ON":"Auto-update OFF");
-    set_enabled(weight_update_,!busy&&measured.phase=="ready"&&!measured.consumed);
+    set_enabled(weight_update_,can_save);
     set_enabled(weight_policy_,!busy&&!configuration_worker_.pending());
+    // The next expected step is the highlighted one: save once a weight is
+    // ready, otherwise weigh.
+    if(scale.scale_calibrated){
+      style_action(weight_update_,can_save?primary_fill:neutral_fill,can_save?primary_label:neutral_label);
+      style_action(workflow_weigh_button_,can_save?neutral_fill:primary_fill,can_save?neutral_label:primary_label);
+    }
     return;
   }
 
@@ -1785,11 +1948,16 @@ void UiService::refresh_workflow() {
       }
       auto* label = lv_obj_get_child(button, 0);
       if (label != nullptr) {
+        // Show which spool is loaded, and mark the one on the station.
+        std::string loaded = "Empty";
+        if (found != nullptr && found->assigned_spool.has_value()) {
+          loaded = "#" + std::to_string(*found->assigned_spool);
+          if (workflow.spool.has_value() && workflow.spool->id == *found->assigned_spool)
+            loaded += " (this spool)";
+        }
         lv_label_set_text_fmt(
             label, "T%u\n%s",
-            static_cast<unsigned>(index + 1U),
-            found != nullptr && found->assigned_spool.has_value()
-                ? "Spool assigned" : "Unassigned");
+            static_cast<unsigned>(index + 1U), loaded.c_str());
       }
       set_enabled(
           button,
@@ -1821,7 +1989,11 @@ void UiService::refresh_workflow() {
         ? "Connected"
         : "Wi-Fi not connected";
     if (system.wifi_connected && !system.ip_address.empty()) {
-      status += " · " + system.ip_address;
+      status += " - " + system.ip_address;
+    }
+    if (system.provisioning_active && !system.setup_ap_ssid.empty()) {
+      status = "Setup network " + system.setup_ap_ssid + "  password " +
+          system.setup_ap_password;
     }
     bool automatic=false;configuration_.visit([&](const auto& c,auto){automatic=c.reconciliation.auto_update_after_weigh;});
     lv_label_set_text(lv_obj_get_child(weight_policy_,0),automatic?"Auto-update ON":"Auto-update OFF");

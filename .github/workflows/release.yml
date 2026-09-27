@@ -41,4 +41,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.ref_name }}
-        run: gh release create "$RELEASE_TAG" --verify-tag --target "$GITHUB_SHA" --title "OpenTag Station $RELEASE_TAG" --notes-file CHANGELOG.md release/*
+        run: |
+          # Release candidates (vX.Y.Z-rc.N) are published as pre-releases so
+          # users can download the application image for OTA updates.
+          prerelease=""
+          case "$RELEASE_TAG" in *-*) prerelease="--prerelease" ;; esac
+          gh release create "$RELEASE_TAG" --verify-tag --target "$GITHUB_SHA" $prerelease --title "OpenTag Station $RELEASE_TAG" --notes-file CHANGELOG.md release/*

@@ -37,3 +37,4 @@
 #clear-effects>li:has(details){list-style:none}
 
 @media(max-width:520px){.settings-nav{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));overflow:visible;margin-inline:0;padding:0}.settings-nav button{padding:10px 4px;font-size:13px}}
+.warning-text{color:var(--warning)}

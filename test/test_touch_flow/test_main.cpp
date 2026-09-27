@@ -73,7 +73,7 @@ void filament_and_community_create() {
   TEST_ASSERT_FALSE(c.containsKey("entity"));
   receive(f,R"({"phase":"community","items":[{"id":"public-filament","name":"PLA"}]})");f.act(TagAction::row0);c=command(f.act(TagAction::use));TEST_ASSERT_EQUAL_STRING("community_select",c["action"]);
   receive(f,R"({"phase":"import_preview","import_token":"TOKEN"})");c=command(f.act(TagAction::import));TEST_ASSERT_EQUAL_STRING("TOKEN",c["import_token"]);
-  receive(f,R"({"phase":"imported","filament":{"id":42,"weight":1000}})");c=command(f.act(TagAction::create));TEST_ASSERT_EQUAL(42,c["spool"]["filament_id"].as<int>());
+  receive(f,R"({"phase":"imported","filament":{"id":42,"weight":1000}})");TEST_ASSERT_FALSE(f.tare_known);f.tare=180;f.tare_known=true;f.waiting=false;c=command(f.act(TagAction::create));TEST_ASSERT_EQUAL(42,c["spool"]["filament_id"].as<int>());
 }
 void stale_operation_rejected() {
   TagFlow f;f.operation=42;f.waiting=true;network::ResponseBody b(R"({"phase":"preview","operation_id":41})");TEST_ASSERT_FALSE(f.consume(b));TEST_ASSERT_TRUE(f.waiting);
@@ -159,5 +159,6 @@ void production_sink_full_gzip_integrity() {
 }
 
 }
+#include "rc10_cases.hpp"
 void setUp() {} void tearDown() {}
-int main() {UNITY_BEGIN();RUN_TEST(lifecycle);RUN_TEST(sensible_actions);RUN_TEST(bounded_paging_and_selection);RUN_TEST(reassign_review);RUN_TEST(exact_confirmation);RUN_TEST(clear_retry_to_immediate_assign);RUN_TEST(filament_and_community_create);RUN_TEST(stale_operation_rejected);RUN_TEST(keyboard_geometry);RUN_TEST(keyboard_value_and_validation);RUN_TEST(gzip_chunked_integrity_and_limits);RUN_TEST(gzip_explicit_completion_and_error);RUN_TEST(community_catalog_status_download_and_retry);RUN_TEST(production_sink_closes_on_disposition);RUN_TEST(production_sink_full_gzip_integrity);if(!opentag::config::community_enabled)export_touch_fixtures();return UNITY_END();}
+int main() {UNITY_BEGIN();RUN_TEST(lifecycle);RUN_TEST(sensible_actions);RUN_TEST(bounded_paging_and_selection);RUN_TEST(reassign_review);RUN_TEST(exact_confirmation);RUN_TEST(clear_retry_to_immediate_assign);RUN_TEST(filament_and_community_create);RUN_TEST(stale_operation_rejected);RUN_TEST(keyboard_geometry);RUN_TEST(keyboard_value_and_validation);RUN_TEST(gzip_chunked_integrity_and_limits);RUN_TEST(gzip_explicit_completion_and_error);RUN_TEST(community_catalog_status_download_and_retry);RUN_TEST(production_sink_closes_on_disposition);RUN_TEST(production_sink_full_gzip_integrity);RUN_TEST(rc10::assignment_dialog_only_affirmative_labels_confirm);RUN_TEST(rc10::progress_never_shows_blocks_for_spoolman_work);RUN_TEST(rc10::filament_review_formats_diameter);RUN_TEST(rc10::unknown_empty_spool_weight_must_be_entered);RUN_TEST(rc10::vendor_search_is_kept_while_paging);RUN_TEST(rc10::destructive_and_duplicate_actions);RUN_TEST(rc10::recovery_can_be_skipped_explicitly);RUN_TEST(rc10::metadata_candidates_can_be_chosen_on_the_touchscreen);if(!opentag::config::community_enabled)export_touch_fixtures();return UNITY_END();}

@@ -20,9 +20,10 @@ inline constexpr Box gross{16, 52, 208, 48};
 inline constexpr Box gross_unit{16, 104, 208, 22};
 inline constexpr Box quality{16, 136, 208, 24};
 inline constexpr Box receipt{248, 52, 216, 112};
-inline constexpr Box weigh{16, 180, 216, 48};
-inline constexpr Box update{248, 180, 216, 48};
-inline constexpr Box feedback{16, 238, 448, 28};
+inline constexpr Box weigh{16, 172, 216, 48};
+inline constexpr Box update{248, 172, 216, 48};
+// Two lines: the reason a weight can or cannot be saved must be readable.
+inline constexpr Box feedback{16, 230, 448, 40};
 inline constexpr Box printer_name{16, 12, 448, 28};
 inline constexpr Box printer_spool{16, 46, 448, 24};
 inline constexpr Box tool1{16, 82, 144, 68};
@@ -38,6 +39,7 @@ inline constexpr Box brightness{24, 60, 432, 44};
 inline constexpr Box policy{16, 118, 216, 48};
 inline constexpr Box calibration{248, 118, 216, 48};
 inline constexpr Box about{248, 180, 216, 48};
-inline constexpr Box wifi{16, 180, 216, 80};
+inline constexpr Box network{16, 180, 216, 48};
+inline constexpr Box wifi{16, 232, 448, 36};
 inline constexpr Box nav{0, 272, 480, 48};
 }

@@ -10,7 +10,7 @@ inline void export_touch_fixtures() {
     scene["title"]=screen.title;scene["body"]=screen.body;
     const auto body=tag_body_box(screen);auto area=scene["body_box"].to<JsonArray>();for(auto n:{body.x,body.y,body.w,body.h})area.add(n);
     auto buttons=scene["buttons"].to<JsonArray>();
-    for(std::size_t i=0;i<screen.count;++i){const auto& b=screen.buttons[i];auto item=buttons.add<JsonObject>();item["text"]=b.text;item["enabled"]=b.enabled;auto box=item["box"].to<JsonArray>();for(auto n:{b.box.x,b.box.y,b.box.w,b.box.h})box.add(n);}
+    for(std::size_t i=0;i<screen.count;++i){const auto& b=screen.buttons[i];auto item=buttons.add<JsonObject>();item["text"]=b.text;item["enabled"]=b.enabled;if(b.destructive)item["destructive"]=true;auto box=item["box"].to<JsonArray>();for(auto n:{b.box.x,b.box.y,b.box.w,b.box.h})box.add(n);}
   };
   TagFlow f;f.uid="E004000000000001";f.material="SUNLU PLA+ 2.0 Black";
   emit("no-tag",f);f.lifecycle=services::TagLifecycle::reading;emit("reading",f);
@@ -34,10 +34,12 @@ inline void export_touch_fixtures() {
   load(R"({"phase":"verifying","message":"Reading every written block back.","completed_blocks":23,"total_blocks":23})");emit("verifying",f);
   load(R"({"phase":"associating","message":"Verifying the Spoolman association."})");emit("linking",f);
   load(R"({"phase":"complete","uid":"E004000000000001","spool_id":31,"spool":{"filament":{"name":"PLA+ 2.0 Black","vendor":{"name":"SUNLU"}}}})");emit("write-success",f);
-  load(R"({"phase":"unlink_pending","message":"Tag blank and verified. Local station cleanup needs attention. Storage unavailable; retry cleanup."})");emit("cleanup-pending",f);
+  load(R"({"phase":"unlink_pending","message":"The tag is cleared. Removing its link in Spoolman is still pending: Spoolman is offline."})");emit("cleanup-pending",f);
   load(R"({"phase":"cleared","uid":"E004000000000001"})");emit("ready-to-reuse",f);
-  load(R"({"phase":"write_recovery","message":"Present the same tag to resume its verified write review.","spool_id":31})");emit("recovery",f);
-  f.waiting=true;emit("loading",f);f.waiting=false;
+  load(R"({"phase":"write_recovery","message":"Place the same tag on the reader to finish writing it.","spool_id":31})");emit("recovery",f);
+  f.act(TagAction::skip);emit("skip-recovery",f);f.act(TagAction::back);
+  load(R"({"phase":"clear_preview","uid":"E004000000000001"})");emit("clear-review",f);
+  f.waiting=true;emit("loading",f);f.stalled=true;f.page=TagPage::progress;f.phase="loading_spool";emit("stalled",f);f.stalled=false;f.waiting=false;
   f.fail("Spoolman is unavailable. Check the station connection and retry. Your tag has not been changed.");emit("error",f);
   f.page=TagPage::selected;f.entity="filament";f.selected["name"]="A deliberately long filament name that remains readable in its scrollable review area";f.selected["vendor"]["name"]="Long manufacturer name";emit("long-name",f);
   for(auto mode:{InputMode::text,InputMode::numeric,InputMode::url,InputMode::password}) {
