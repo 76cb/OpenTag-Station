@@ -120,6 +120,15 @@ core::Result<void> WifiService::initialize(
   completed_reconfigure_operation_id_.store(0U, std::memory_order_relaxed);
   WiFi.persistent(false);
   WiFi.setAutoReconnect(false);
+  if (!disconnect_handler_installed_) {
+    WiFi.onEvent(
+        [this](arduino_event_id_t, arduino_event_info_t info) {
+          last_disconnect_reason_.store(
+              info.wifi_sta_disconnected.reason, std::memory_order_relaxed);
+        },
+        ARDUINO_EVENT_WIFI_STA_DISCONNECTED);
+    disconnect_handler_installed_ = true;
+  }
   if (!WiFi.mode(
           provisioning_.active() ? WIFI_AP_STA : WIFI_STA) ||
       !WiFi.setHostname(device_.hostname.c_str())) {
@@ -152,6 +161,7 @@ void WifiService::start_connection(std::uint32_t now_ms) {
       "sta_association=started ap=%s\n",
       setup_ap_running_ ? "retained" : "inactive");
   WiFi.disconnect(false, false);
+  last_disconnect_reason_.store(0U, std::memory_order_relaxed);
   WiFi.begin(
       wifi_.ssid.c_str(), wifi_.password.empty() ? nullptr : wifi_.password.c_str());
   connect_started_ms_ = now_ms;
@@ -681,11 +691,32 @@ void WifiService::poll(std::uint32_t now_ms) {
   if (status_.state == WifiState::connecting &&
       static_cast<std::uint32_t>(now_ms - connect_started_ms_) >=
           wifi_.connect_timeout_ms) {
+    const auto driver_reason =
+        last_disconnect_reason_.load(std::memory_order_relaxed);
     WiFi.disconnect(false, false);
+    // Report what the scan saw for this network so logs show signal and
+    // security even when the driver gave no specific reason.
+    int target_rssi = 0;
+    bool target_seen = false;
+    for (const auto& network : scan_results()) {
+      if (network.ssid == wifi_.ssid) {
+        target_seen = true;
+        target_rssi = network.rssi_dbm;
+        break;
+      }
+    }
+    Serial.printf(
+        "sta_failure ssid_seen_in_scan=%s rssi=%d driver_reason=%u status=%d\n",
+        target_seen ? "yes" : "no", target_rssi,
+        static_cast<unsigned>(driver_reason), static_cast<int>(wifi_status));
+    const char* explained = wifi_failure_text(driver_reason);
+    if (explained == nullptr && target_seen && target_rssi <= -80)
+      explained = "Wi-Fi signal too weak. Move the station closer to the router.";
     schedule_reconnect(
         now_ms,
-        wifi_status == WL_NO_SSID_AVAIL
-            ? "configured Wi-Fi network was not found"
+        explained != nullptr ? explained
+        : wifi_status == WL_NO_SSID_AVAIL
+            ? "Wi-Fi network not found. Use a 2.4 GHz network and check the name."
             : "Wi-Fi connection timed out");
     update_provisioning_status(now_ms);
     return;

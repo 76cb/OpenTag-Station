@@ -126,6 +126,10 @@ class WifiService {
   std::atomic_bool initialized_{false};
   bool setup_ap_running_{false};
   std::string setup_ap_password_;
+  // Last station disconnect reason from the Wi-Fi driver event (event task
+  // writes, network task reads). 0 = none since the attempt started.
+  std::atomic<std::uint8_t> last_disconnect_reason_{0U};
+  bool disconnect_handler_installed_{false};
   bool was_connected_{false};
   bool ntp_requested_{false};
   bool setup_mode_pending_{false};

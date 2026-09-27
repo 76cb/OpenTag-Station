@@ -20,3 +20,13 @@ The browser reconnects and the temporary AP closes after the success grace perio
 ## If it fails
 
 VLAN isolation, captive portals or a client on a different subnet can prevent access. Recovery provisioning cannot replace an existing local API token. Preserve configuration unless USB recovery is actually necessary.
+
+## Messages when joining Wi-Fi fails
+
+| Message | What to do |
+|---|---|
+| Wi-Fi password was rejected | Re-enter the password; it is case-sensitive. |
+| Wi-Fi network not found | The station supports 2.4 GHz only. Check the name and that the router's 2.4 GHz band is on. |
+| Wi-Fi signal too weak | Move the station closer to the router, or test next to it. |
+| The router refused the connection | Check MAC filtering, WPA3-only mode (use WPA2 or WPA2/WPA3 mixed) and client limits on that network. |
+| Wi-Fi connection timed out | No specific reason was reported. Try the checks above; the serial log line `sta_failure` shows the signal strength the station saw. |

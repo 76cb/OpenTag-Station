@@ -1565,11 +1565,13 @@ void UiService::refresh_setup() {
         // password is the only way to join the WPA2 setup network.
         status = "Wi-Fi: " + network.setup_ap_ssid + "\nPassword: " +
             network.setup_ap_password +
-            (setup_feedback_.empty() ? std::string("\nThen open 192.168.4.1") : std::string());
+            (network.wifi_last_error ? "\n" + network.wifi_last_error->message
+             : setup_feedback_.empty() ? std::string("\nThen open 192.168.4.1") : std::string());
       } else {
         status = std::string("State: ") + network::to_string(network.wifi_state) +
             "  scan results: " + std::to_string(network_.scan_results().size());
         if (network.wifi_connected) status += "\nIP: " + network.ip_address;
+        else if (network.wifi_last_error) status += "\n" + network.wifi_last_error->message;
       }
       break;
     case services::SetupStep::spoolman:
