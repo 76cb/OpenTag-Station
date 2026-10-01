@@ -374,6 +374,9 @@ class ExponentialReconnectBackoff {
 // Plain-language explanation of an ESP-IDF station disconnect reason
 // (wifi_err_reason_t). The driver reports why the router ended an attempt;
 // without it every failure looked like the same 15 s "timed out".
+// The numbers are the ESP-IDF v4.4 values; wifi_service.cpp asserts them
+// against the SDK header. 12 (BSS_TRANSITION_DISASSOC) is roaming steering
+// and deliberately has no text.
 inline const char* wifi_failure_text(std::uint8_t reason) {
   switch (reason) {
     case 2:    // AUTH_EXPIRE
@@ -382,6 +385,7 @@ inline const char* wifi_failure_text(std::uint8_t reason) {
     case 204:  // HANDSHAKE_TIMEOUT
       return "Wi-Fi password was rejected. Check the password (it is case-sensitive).";
     case 14:   // MIC_FAILURE
+    case 17:   // IE_IN_4WAY_DIFFERS
       return "Wi-Fi password or security mismatch. Check the password; WPA3-only networks are not supported.";
     case 201:  // NO_AP_FOUND
       return "Wi-Fi network not found. Use a 2.4 GHz network and check the name.";
@@ -390,8 +394,9 @@ inline const char* wifi_failure_text(std::uint8_t reason) {
     case 205:  // CONNECTION_FAIL
       return "Wi-Fi signal too weak or unstable. Move the station closer to the router.";
     case 203:  // ASSOC_FAIL
-    case 12:   // ASSOC_NOT_AUTHED / rejected by the router
-    case 17:   // IE_INVALID
+    case 5:    // ASSOC_TOOMANY
+    case 9:    // ASSOC_NOT_AUTHED
+    case 13:   // IE_INVALID
     case 18:   // GROUP_CIPHER_INVALID
     case 19:   // PAIRWISE_CIPHER_INVALID
     case 20:   // AKMP_INVALID
