@@ -817,7 +817,11 @@ core::Result<api::JsonBody> ApplicationApiContext::update_event_json(
 
 core::Result<api::JsonBody> ApplicationApiContext::snapshot_json(
     api::Resource resource) {
-  static constexpr const char* names[] = {"status", "device", "health", "network", "scale", "nfc", "nfc_tag", "spool", "printers", "toolheads", "config", "diagnostics", "logs", "update"};
+  // One trace name per api::Resource, in enum order.
+  static constexpr const char* names[] = {"tag_writer", "status", "device", "health", "network", "scale", "nfc", "nfc_tag", "spool", "printers", "toolheads", "config", "diagnostics", "logs", "update"};
+  static_assert(sizeof(names) / sizeof(names[0]) ==
+                    static_cast<unsigned>(api::Resource::update) + 1,
+                "names needs one entry per api::Resource");
   network::MemoryTraceScope memory_scope(names[static_cast<unsigned>(resource)]);
   const auto now_ms = millis();
 

@@ -1647,6 +1647,34 @@ void test_weight_update_route_requires_only_explicit_measurement_id() {
   TEST_ASSERT_EQUAL(1,context.submit_calls);
   TEST_ASSERT_EQUAL(static_cast<int>(MutationKind::scale_update),static_cast<int>(context.last_mutation->kind));
 }
+// WB-D1: snapshot_json indexes its trace-name table with api::Resource, so
+// the table needs one name per resource, in enum order.
+void test_snapshot_trace_names_cover_every_resource_in_order() {
+  const auto source = read_project_source("src/web/application_api_context.cpp");
+  const auto function = source.find("ApplicationApiContext::snapshot_json(");
+  const auto begin = source.find("names[] = {", function);
+  const auto end = source.find("};", begin);
+  TEST_ASSERT_TRUE(function != std::string::npos);
+  TEST_ASSERT_TRUE(begin != std::string::npos);
+  TEST_ASSERT_TRUE(end != std::string::npos);
+  std::vector<std::string> names;
+  for (auto open = source.find('"', begin); open != std::string::npos && open < end;) {
+    const auto close = source.find('"', open + 1);
+    names.push_back(source.substr(open + 1, close - open - 1));
+    open = source.find('"', close + 1);
+  }
+  const auto index = [](Resource resource) {
+    return static_cast<std::size_t>(resource);
+  };
+  TEST_ASSERT_EQUAL(index(Resource::update) + 1, names.size());
+  TEST_ASSERT_EQUAL_STRING("tag_writer", names[index(Resource::tag_writer)].c_str());
+  TEST_ASSERT_EQUAL_STRING("status", names[index(Resource::status)].c_str());
+  TEST_ASSERT_EQUAL_STRING("nfc_tag", names[index(Resource::nfc_tag)].c_str());
+  TEST_ASSERT_EQUAL_STRING("config", names[index(Resource::redacted_configuration)].c_str());
+  TEST_ASSERT_EQUAL_STRING("update", names[index(Resource::update)].c_str());
+  TEST_ASSERT_TRUE(source.find("static_assert(sizeof(names) / sizeof(names[0]) ==", begin) != std::string::npos);
+}
+
 int main(int, char**) {
   UNITY_BEGIN();
   RUN_TEST(test_clear_route_requires_and_forwards_exact_confirmation);
@@ -1697,5 +1725,6 @@ int main(int, char**) {
   RUN_TEST(test_router_stress_repeats_reads_snapshots_and_operation_polls);
   RUN_TEST(test_http_cold_load_policy_is_bounded_and_precompressed);
   RUN_TEST(test_disabled_nfc_snapshot_is_bounded_read_only_and_diagnostic);
+  RUN_TEST(test_snapshot_trace_names_cover_every_resource_in_order);
   return UNITY_END();
 }
