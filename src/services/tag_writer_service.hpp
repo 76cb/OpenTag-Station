@@ -87,5 +87,7 @@ private:
   CommunityUpdate community_update_;
   bool unlink_pending_{false};
   bool clear_recovery_required_{false};
+  // A pending clear was recorded under different Spoolman settings.
+  bool clear_settings_changed_{false};
 };
 } // namespace opentag::services

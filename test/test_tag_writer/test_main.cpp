@@ -2263,6 +2263,113 @@ void recovery_snapshot_holds_only_recovery_fields() {
   TEST_ASSERT_EQUAL_STRING("clear", clear.view["mode"].as<const char *>());
 }
 
+void pending_clear_with_changed_spoolman_settings_can_be_skipped() {
+  for (bool restore_settings : {false, true}) {
+    ClearFixture f;
+    f.preview();
+    f.reader.fail_write = 5;
+    TEST_ASSERT_FALSE(f.confirm().ok());
+    TEST_ASSERT_TRUE(f.journal.present);
+    f.reader.fail_write = -1;
+    const auto writes = f.reader.writes;
+    f.adapter.configure({"http://moved-spoolman.test"});
+    f.restart();
+    // Boot: the caller ignores the result; the published prompt is what counts.
+    f.view.clear();
+    (void)f.service->restore_cleanup();
+    TEST_ASSERT_EQUAL_STRING("clear_recovery",
+                             f.view["phase"].as<const char *>());
+    TEST_ASSERT_NOT_EQUAL(
+        std::string::npos,
+        std::string(f.view["message"] | "").find("Spoolman settings"));
+    TEST_ASSERT_EQUAL_STRING(f.reader.uid.hex().c_str(),
+                             f.view["uid"].as<const char *>());
+    TEST_ASSERT_EQUAL_STRING("clear", f.view["mode"].as<const char *>());
+    for (const auto *action :
+         {"catalog", "clear_preview", "clear", "retry_unlink", "preview"}) {
+      network::BackendDocument c;
+      c["action"] = action;
+      c["entity"] = "spool";
+      c["offset"] = 0;
+      c["spool_id"] = 12;
+      const auto refused = f.service->process(c.as<JsonObjectConst>());
+      TEST_ASSERT_FALSE_MESSAGE(refused.ok(), action);
+      TEST_ASSERT_NOT_EQUAL_MESSAGE(
+          std::string::npos,
+          refused.error().message.find("Spoolman settings"), action);
+      // Never the dead end "failed": Skip is only offered on the prompt.
+      TEST_ASSERT_EQUAL_STRING_MESSAGE(
+          "clear_recovery", f.view["phase"].as<const char *>(), action);
+      TEST_ASSERT_NOT_EQUAL_MESSAGE(
+          std::string::npos,
+          std::string(f.view["message"] | "").find("Spoolman settings"),
+          action);
+    }
+    TEST_ASSERT_TRUE(f.journal.present);
+    TEST_ASSERT_EQUAL(writes, f.reader.writes);
+    TEST_ASSERT_EQUAL(0, f.http.patches);
+    if (restore_settings) {
+      // With the earlier settings back, the interrupted clear can finish.
+      f.adapter.configure({"http://spoolman.test"});
+      f.preview();
+      TEST_ASSERT_TRUE(f.confirm().ok());
+      TEST_ASSERT_EQUAL_STRING("cleared", f.view["phase"].as<const char *>());
+    } else {
+      TEST_ASSERT_TRUE(f.run("discard_recovery").ok());
+      TEST_ASSERT_EQUAL_STRING("recovery_discarded",
+                               f.view["phase"].as<const char *>());
+      network::BackendDocument c;
+      c["action"] = "catalog";
+      c["entity"] = "spool";
+      c["offset"] = 0;
+      TEST_ASSERT_TRUE(f.service->process(c.as<JsonObjectConst>()).ok());
+      TEST_ASSERT_EQUAL_STRING("catalog", f.view["phase"].as<const char *>());
+    }
+    TEST_ASSERT_FALSE(f.journal.present);
+  }
+}
+// The write journal has no such dead end: its prompt is published without a
+// settings check, and a refused recovery returns to that prompt with the
+// reason, so Skip stays reachable. This pins that behaviour.
+void pending_write_with_changed_spoolman_settings_stays_skippable() {
+  JournalServiceFixture f;
+  TEST_ASSERT_TRUE(f.run(R"({"action":"preview","spool_id":12})").ok());
+  f.http.offline = true; // tag fully written, association outstanding
+  TEST_ASSERT_FALSE(f.confirm().ok());
+  f.http.offline = false;
+  TEST_ASSERT_TRUE(f.journal.present);
+  const auto writes = f.reader.writes;
+  f.adapter.configure({"http://moved-spoolman.test"});
+  network::BackendDocument view;
+  services::TagWriterService restarted{
+      f.adapter, f.reader, [&] { return f.reader.generation; },
+      [](std::uint8_t *p, std::size_t n) { std::memset(p, 0x33, n); },
+      [&](const auto &b) { deserializeJson(view, b.data(), b.size()); },
+      &f.journal, {}, accept_verified_association};
+  TEST_ASSERT_TRUE(restarted.restore_cleanup().ok());
+  TEST_ASSERT_EQUAL_STRING("write_recovery", view["phase"].as<const char *>());
+  network::BackendDocument c;
+  c["action"] = "preview";
+  c["mode"] = "rewrite";
+  c["spool_id"] = 12;
+  const auto refused = restarted.process(c.as<JsonObjectConst>());
+  TEST_ASSERT_FALSE(refused.ok());
+  TEST_ASSERT_NOT_EQUAL(std::string::npos,
+                        refused.error().message.find("Spoolman settings"));
+  TEST_ASSERT_EQUAL_STRING("write_recovery", view["phase"].as<const char *>());
+  TEST_ASSERT_NOT_EQUAL(
+      std::string::npos,
+      std::string(view["message"] | "").find("Spoolman settings"));
+  TEST_ASSERT_TRUE(f.journal.present);
+  TEST_ASSERT_EQUAL(writes, f.reader.writes);
+  c.clear();
+  c["action"] = "discard_recovery";
+  TEST_ASSERT_TRUE(restarted.process(c.as<JsonObjectConst>()).ok());
+  TEST_ASSERT_EQUAL_STRING("recovery_discarded",
+                           view["phase"].as<const char *>());
+  TEST_ASSERT_FALSE(f.journal.present);
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(verified_association_repairs_stale_cache_after_remote_checks);
@@ -2395,5 +2502,7 @@ int main() {
   RUN_TEST(untouched_write_failure_leaves_no_recovery_record);
   RUN_TEST(untouched_clear_failure_leaves_no_recovery_lock);
   RUN_TEST(recovery_snapshot_holds_only_recovery_fields);
+  RUN_TEST(pending_clear_with_changed_spoolman_settings_can_be_skipped);
+  RUN_TEST(pending_write_with_changed_spoolman_settings_stays_skippable);
   return UNITY_END();
 }

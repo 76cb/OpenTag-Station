@@ -135,6 +135,10 @@ std::uint32_t backend_identity(const config::SpoolmanSettings &s) {
   return nfc::nfcv::diagnostic_checksum(
       reinterpret_cast<const std::uint8_t *>(identity.data()), identity.size());
 }
+const char *const clear_settings_changed =
+    "Clearing this tag was interrupted and the Spoolman settings have changed "
+    "since. Restore the earlier Spoolman settings to finish clearing it, or "
+    "choose Skip recovery.";
 } // namespace
 core::Result<network::BackendDocument>
 TagWriterService::api(const char *method, const std::string &path,
@@ -777,6 +781,7 @@ __attribute__((noinline)) Result
 TagWriterService::restore_cleanup(const std::string &reason) {
   if (plan_ || !journal_)
     return Result::success();
+  clear_settings_changed_ = false;
   const auto explained = [&](const char *base) {
     return reason.empty() ? std::string(base) : reason + " " + base;
   };
@@ -796,11 +801,15 @@ TagWriterService::restore_cleanup(const std::string &reason) {
             explained("Place the same tag on the reader to finish writing it.").c_str());
     return Result::success();
   }
-  if (backend != backend_identity(spoolman_.settings_))
-    return fail("Pending clear belongs to different Spoolman settings; restore "
-                "settings first");
   view_["uid"]=saved->uid.hex();view_["spool_id"]=owner;view_["mode"]="clear";
   clear_recovery_required_ = true;
+  if (backend != backend_identity(spoolman_.settings_)) {
+    // The clear cannot be finished against a different Spoolman, but the
+    // prompt (and with it Skip recovery) must stay reachable.
+    clear_settings_changed_ = true;
+    publish("clear_recovery", explained(clear_settings_changed).c_str());
+    return Result::success();
+  }
   if (!saved->cleanup_pending) {
     publish("clear_recovery",
             explained("Clearing this tag was interrupted. Place the same tag "
@@ -853,6 +862,7 @@ Result TagWriterService::discard_recovery() {
     return fail("The recovery record could not be removed; try again");
   plan_.reset();
   association_pending_ = unlink_pending_ = clear_recovery_required_ = false;
+  clear_settings_changed_ = false;
   spool_id_ = 0;
   uuid_.clear();
   view_.clear();
@@ -1423,6 +1433,8 @@ Result TagWriterService::process(JsonObjectConst c) {
     return discard_recovery();
   if (!restore_ready())
     return fail("Writer recovery unavailable; see status before continuing");
+  if (clear_settings_changed_)
+    return fail(clear_settings_changed);
   if (clear_recovery_required_ && action != "clear_preview" &&
       action != "clear" && action != "retry_unlink")
     return fail("Finish Clear / Reuse recovery before another operation");
