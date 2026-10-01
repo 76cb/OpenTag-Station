@@ -2760,3 +2760,98 @@ test('source switch clears stale rows, entity, pagination, and empty-state text 
   assert.equal(a.T.writerState.entity,'spool');assert.equal(a.T.writerState.start,0);assert.equal(a.T.writerState.offset,0);assert.equal(a.T.writerState.hasMore,false);
   assert.doesNotMatch(nodeText(a.document.getElementById('writer-results')),/Community/);wait.resolve();await flushPromises(128);
 });
+
+async function timedOutTare(operations) {
+  const clock = new FakeClock();
+  const app = loadApplication({
+    clock,
+    fetch: async (url, init) => {
+      const endpoint = String(url).slice('/api/v1'.length);
+      if (endpoint === '/scale/tare' && init.method === 'POST') {
+        return jsonResponse(202, { operation_id: 41 + app.fetchCalls.filter((call) => call.init.method === 'POST').length });
+      }
+      if (endpoint === '/operations/42') return operations();
+      assert.fail('unexpected request: ' + init.method + ' ' + endpoint);
+    },
+  });
+  app.T.applyAuthState(false, 1);
+  await assert.rejects(drivePromise(app.T.submitMutation('/scale/tare', {
+    method: 'POST', body: {}, scope: 'scale', refresh: false,
+    pollIntervalMs: 10, operationTimeoutMs: 25,
+  }), clock), (error) => error.code === 'operation_timeout' && error.operationId === 42);
+  return app;
+}
+
+for (const [label, settled] of [
+  ['succeeded', () => jsonResponse(200, { id: 42, state: 'succeeded' })],
+  ['failed', () => jsonResponse(200, { id: 42, state: 'failed' })],
+  ['forgotten (HTTP 404)', () => jsonResponse(404, null, { code: 'not_found' })],
+]) {
+  test('uncertain mutation unblocks after its operation is observed terminal: ' + label, async () => {
+    let answer = () => jsonResponse(200, { id: 42, state: 'running' });
+    const app = await timedOutTare(() => answer());
+    const { T } = app;
+    const signature = 'POST /scale/tare' + String.fromCharCode(10) + '{}';
+    const posts = () => app.fetchCalls.filter((call) => call.init.method === 'POST');
+    const firstKey = posts()[0].init.headers['Idempotency-Key'];
+
+    await assert.rejects(T.submitMutationReceipt('/scale/tare', { method: 'POST', body: {} }),
+      (error) => error.code === 'mutation_receipt_uncertain' && error.idempotencyKey === firstKey);
+    assert.equal(posts().length, 1, 'a still-running operation must keep blocking the replay');
+    assert.equal(T.state.uncertainMutations[signature].id, 42);
+
+    answer = settled;
+    const accepted = await T.submitMutationReceipt('/scale/tare', { method: 'POST', body: {} });
+    assert.equal(accepted.id, 43);
+    assert.equal(posts().length, 2);
+    assert.notEqual(posts()[1].init.headers['Idempotency-Key'], firstKey);
+    assert.equal(T.state.uncertainMutations[signature], undefined);
+  });
+}
+
+test('uncertain mutation stays blocked while its operation status cannot be read', async () => {
+  const app = await timedOutTare(() => { throw new TypeError('connection reset'); });
+  await assert.rejects(app.T.submitMutationReceipt('/scale/tare', { method: 'POST', body: {} }),
+    (error) => error.code === 'mutation_receipt_uncertain' && /operation #42/.test(error.message));
+  assert.equal(app.fetchCalls.filter((call) => call.init.method === 'POST').length, 1);
+});
+
+async function lostCalibration() {
+  const clock = new FakeClock();
+  let lost = true;
+  const app = loadApplication({
+    clock,
+    fetch: async (url, init) => {
+      assert.equal(init.method, 'POST', 'an entry without an operation ID has nothing to poll');
+      if (lost) throw new TypeError('connection reset');
+      return jsonResponse(202, { operation_id: 7 });
+    },
+  });
+  app.T.applyAuthState(false, 1);
+  const body = { reference_grams: 250 };
+  const submit = () => app.T.submitMutationReceipt('/scale/calibrate', { method: 'POST', body });
+  await assert.rejects(submit(), (error) => error.uncertain === true && error.kind === 'transport');
+  lost = false;
+  return { app, clock, submit };
+}
+
+test('uncertain mutation unblocks after the TTL when no operation id is known', async () => {
+  const { app, clock, submit } = await lostCalibration();
+  const firstKey = app.fetchCalls[0].init.headers['Idempotency-Key'];
+  clock.now += 600001;
+  const accepted = await submit();
+  assert.equal(accepted.id, 7);
+  assert.equal(app.fetchCalls.length, 2);
+  assert.notEqual(app.fetchCalls[1].init.headers['Idempotency-Key'], firstKey);
+  assert.equal(Object.keys(app.T.state.uncertainMutations).length, 0);
+});
+
+test('uncertain mutation is still blocked inside the TTL', async () => {
+  const { app, clock, submit } = await lostCalibration();
+  const firstKey = app.fetchCalls[0].init.headers['Idempotency-Key'];
+  clock.now += 600000;
+  await assert.rejects(submit(), (error) => error.code === 'mutation_receipt_uncertain' &&
+    error.uncertain === true && error.retryable === false && error.idempotencyKey === firstKey &&
+    !/idempotency key/i.test(error.message) && !error.message.includes(firstKey));
+  assert.equal(app.fetchCalls.length, 1, 'the identical mutation must not be replayed inside the TTL');
+});

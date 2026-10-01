@@ -309,6 +309,8 @@ const REQUEST_TIMEOUT_MS = 8000;
 const OPERATION_WAIT_MS = 45000;
 const NETWORK_OPERATION_WAIT_MS = 90000;
 const BACKEND_OPERATION_WAIT_MS = 120000;
+const UNCERTAIN_MUTATION_TTL_MS = 600000;
+const TERMINAL_OPERATION_STATES = ['succeeded', 'failed', 'confirmation_required'];
 const MAX_IMPORT_BYTES = 16384;
 const MAX_FIRMWARE_IMAGE_BYTES = 0x500000;
 const UPDATE_UPLOAD_TIMEOUT_MS = 190000;
@@ -891,6 +893,16 @@ function sleep(milliseconds) {
 return new Promise(function (resolve) { window.setTimeout(resolve, Math.max(0, milliseconds)); });
 }
 
+async function uncertainMutationSettled(prior) {
+if (!prior.id) return Date.now() - prior.at > UNCERTAIN_MUTATION_TTL_MS;
+try {
+const operation = asObject(await api('/operations/' + prior.id, { priority: PRIORITY.CONTROL, dedupe: false }));
+return TERMINAL_OPERATION_STATES.indexOf(String(operation.state || '').toLowerCase()) >= 0;
+} catch (error) {
+return error instanceof ApiError && Number(error.status) === 404;
+}
+}
+
 async function submitMutationReceipt(path, options) {
 const setting = Object.assign({ method: 'POST' }, options || {});
 setting.method = String(setting.method).toUpperCase();
@@ -899,15 +911,14 @@ setting.body === undefined ? undefined :
 typeof setting.body === 'string' ? setting.body : JSON.stringify(setting.body);
 const signature = setting.method + ' ' + path + '\n' + String(serializedBody || '');
 const prior = state.uncertainMutations[signature];
-if (prior) {
-const operation = prior.id ? ' as operation #' + prior.id : '';
-throw new ApiError('The prior request may already have been accepted' + operation +
-' as idempotency key ' + prior.key +
-'. Check operation and station status before trying a different action.', {
+if (prior && !(await uncertainMutationSettled(prior))) {
+throw new ApiError('The station may already have received this' +
+(prior.id ? ' as operation #' + prior.id : '') + '. Check its status, then try again.', {
 kind: 'uncertain', code: 'mutation_receipt_uncertain', retryable: false,
 uncertain: true, idempotencyKey: prior.key
 });
 }
+delete state.uncertainMutations[signature];
 const key = setting.idempotencyKey || requestId();
 try {
 const receipt = asObject(await api(path, Object.assign({}, setting, {
@@ -923,7 +934,6 @@ kind: 'envelope', code: 'invalid_operation_receipt',
 uncertain: true, idempotencyKey: key
 });
 }
-delete state.uncertainMutations[signature];
 return { receipt: receipt, id: id, key: key, signature: signature };
 } catch (error) {
 if (error instanceof ApiError && error.uncertain) {
@@ -985,7 +995,7 @@ const status = String(operation.state || '').toLowerCase();
 if (setting.onProgress) {
 setting.onProgress({ id: id, state: status || 'running', message: operationMessage(operation, 'Operation ' + normalizeState(status) + '.') });
 }
-if (['succeeded', 'failed', 'confirmation_required'].indexOf(status) < 0) continue;
+if (TERMINAL_OPERATION_STATES.indexOf(status) < 0) continue;
 terminal = true;
 if (status !== 'succeeded') {
 const domain = asObject(operation.error);
