@@ -111,11 +111,11 @@ class TagFlow {
     if(entity!="community"&&!query.empty()&&offset>0&&search_field=="vendor")command["search_field"]="vendor";
     return encode(command);
   }
-  void fail(std::string reason) {waiting=false;message=std::move(reason);page=TagPage::error;}
+  void fail(std::string reason) {waiting=false;land_on_last_rows=false;message=std::move(reason);page=TagPage::error;}
   // Wait, leave and tag-observation transitions. UiService supplies the
   // receipts, reader state and clock; the rules live here so they are
   // host-tested.
-  std::string search(std::string text) {query=std::move(text);offset=row=0;return browse();}
+  std::string search(std::string text) {query=std::move(text);offset=row=0;land_on_last_rows=false;return browse();}
   void begin_wait(std::uint64_t operation_id,std::uint32_t now_ms) {
     waiting=true;operation=operation_id;page=TagPage::progress;phase="queued";message=working;stalled=false;wait_started_ms=now_ms;
   }
@@ -183,7 +183,7 @@ class TagFlow {
         page=TagPage::sources;return {};
       case TagAction::spools: case TagAction::filaments: case TagAction::community:
         entity=action==TagAction::spools?"spool":action==TagAction::filaments?"filament":"community";
-        offset=row=0;query.clear();search_field="name";page=TagPage::catalog;
+        offset=row=0;land_on_last_rows=false;query.clear();search_field="name";page=TagPage::catalog;
         if(entity=="community"){catalog_page.clear();return request("community_status");}
         return browse();
       case TagAction::previous:
@@ -245,7 +245,9 @@ class TagFlow {
       case TagAction::community_update:return request("community_update");
       case TagAction::create:
         if(!tare_known){create_hint="Enter the empty spool weight first (weigh an empty reel of the same type, or use the maker's value).";return {};}
-        if(initial<=0||remaining<0||remaining>initial||tare<0||initial>100000||tare>100000){fail("Check spool weights before creating");return {};}
+        // Stay on the form: the entered values are kept for correction.
+        if(initial<=0||remaining<0||remaining>initial||tare<0||initial>100000||tare>100000){create_hint="Check the spool weights: remaining cannot be more than initial, and none can be above 100000 g.";return {};}
+        create_hint.clear();
         command["action"]="create_spool";command["spool"]["filament_id"]=selected["id"];
         command["spool"]["initial_weight"]=initial;command["spool"]["remaining_weight"]=remaining;command["spool"]["spool_weight"]=tare;break;
       case TagAction::back:

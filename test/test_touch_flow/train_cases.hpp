@@ -109,4 +109,42 @@ inline void progress_from_another_client_is_never_a_dead_end() {
   TEST_ASSERT_TRUE(own.waiting);TEST_ASSERT_EQUAL(0,own.screen().count);
 }
 
+// UI-9: a PREV that never got its page must not make a later, unrelated list
+// open on its last rows, and a mistyped weight must not throw away the
+// create form.
+inline void failed_paging_and_create_mistakes_leave_no_trace() {
+  const char* eight=R"({"phase":"catalog","items":[{"id":1},{"id":2},{"id":3},{"id":4},{"id":5},{"id":6},{"id":7},{"id":8}],"has_more":true})";
+  const auto on_second_page=[&](TagFlow& f) {
+    f.act(TagAction::spools);feed(f,eight);
+    f.act(TagAction::next);f.act(TagAction::next);TEST_ASSERT_FALSE(f.act(TagAction::next).empty());
+    feed(f,R"({"phase":"catalog","items":[{"id":9}],"has_more":false})");TEST_ASSERT_EQUAL(8,f.offset);
+    TEST_ASSERT_FALSE(f.act(TagAction::previous).empty());
+  };
+  // PREV still lands on the last rows of the previous page when it arrives.
+  TagFlow ok;on_second_page(ok);feed(ok,eight);TEST_ASSERT_EQUAL(6,ok.row);
+  // PREV fails; the next list is a new browse.
+  TagFlow f;on_second_page(f);f.fail("Spoolman is unavailable");
+  f.act(TagAction::back);f.act(TagAction::sources);f.act(TagAction::filaments);feed(f,eight);
+  TEST_ASSERT_EQUAL(0,f.row);
+  // PREV is abandoned after a stall; the next list is a search.
+  TagFlow g;on_second_page(g);g.begin_wait(5,0);g.abandon_wait();
+  TEST_ASSERT_FALSE(g.search("PLA").empty());feed(g,eight);
+  TEST_ASSERT_EQUAL(0,g.row);
+
+  TagFlow c;c.act(TagAction::filaments);
+  feed(c,R"({"phase":"catalog","items":[{"id":12,"weight":1000,"spool_weight":130,"name":"PLA"}]})");
+  c.act(TagAction::row0);c.act(TagAction::use);TEST_ASSERT_TRUE(c.page==TagPage::create);
+  c.remaining=1200;c.tare=180;  // typed by the user; remaining exceeds initial
+  TEST_ASSERT_TRUE(c.act(TagAction::create).empty());
+  TEST_ASSERT_TRUE(c.page==TagPage::create);
+  TEST_ASSERT_TRUE(mentions(c.screen(),"Check the spool weights"));
+  TEST_ASSERT_EQUAL_DOUBLE(1200,c.remaining);TEST_ASSERT_EQUAL_DOUBLE(180,c.tare);
+  TEST_ASSERT_TRUE(shows(c.screen(),TagAction::remaining));
+  // Corrected: the request goes out and the hint is gone.
+  c.remaining=800;
+  JsonDocument command;deserializeJson(command,c.act(TagAction::create));
+  TEST_ASSERT_EQUAL_STRING("create_spool",command["action"]|"");TEST_ASSERT_EQUAL_DOUBLE(180,command["spool"]["spool_weight"].as<double>());
+  TEST_ASSERT_TRUE(c.create_hint.empty());
+}
+
 }  // namespace train
