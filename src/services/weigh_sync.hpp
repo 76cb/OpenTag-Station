@@ -18,6 +18,10 @@ struct WeighSyncSnapshot {
   ReconciliationTolerances tolerances;
   std::optional<float> gross, tare, measured, canonical_remaining, difference;
 };
+// Weigh button text: "again" only once there is a measurement to repeat.
+inline const char *weigh_button_label(const WeighSyncSnapshot &snapshot) {
+  return snapshot.measurement_id == 0 ? "WEIGH" : "WEIGH AGAIN";
+}
 // Explicit measurement sessions only. The backend owns HTTP; scale callbacks
 // only publish bounded state. A consumed session can never mutate again.
 class WeighSync final {

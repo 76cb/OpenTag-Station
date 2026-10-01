@@ -274,6 +274,21 @@ void invalid_and_stale_measurements_refused() {
   TEST_ASSERT_FALSE(f.update().ok());
   TEST_ASSERT_EQUAL(0, f.inventory.patches);
 }
+// UI-2: the Weigh button reads WEIGH until a measurement has been started.
+void weigh_button_says_again_only_after_a_measurement() {
+  Fixture f;
+  TEST_ASSERT_EQUAL_STRING("WEIGH", services::weigh_button_label(f.sync.snapshot()));
+  TEST_ASSERT_EQUAL_STRING("WEIGH", services::weigh_button_label(services::WeighSyncSnapshot{}));
+  // A refused session (no id) starts nothing.
+  TEST_ASSERT_FALSE(f.sync.begin(services::WeighSyncSnapshot{}));
+  TEST_ASSERT_EQUAL_STRING("WEIGH", services::weigh_button_label(f.sync.snapshot()));
+  f.capture();
+  TEST_ASSERT_EQUAL_STRING("WEIGH AGAIN", services::weigh_button_label(f.sync.snapshot()));
+  Fixture failed;
+  TEST_ASSERT_TRUE(failed.sync.begin(failed.initial()));
+  failed.sync.fail(1, "Scale timeout");
+  TEST_ASSERT_EQUAL_STRING("WEIGH AGAIN", services::weigh_button_label(failed.sync.snapshot()));
+}
 void setUp() {}
 void tearDown() {}
 int main() {
@@ -293,5 +308,6 @@ int main() {
   RUN_TEST(replaced_tag_refuses_before_and_during_operation);
   RUN_TEST(mutation_capability_required);
   RUN_TEST(invalid_and_stale_measurements_refused);
+  RUN_TEST(weigh_button_says_again_only_after_a_measurement);
   return UNITY_END();
 }

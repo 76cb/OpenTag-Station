@@ -1884,7 +1884,7 @@ void UiService::refresh_workflow() {
       if(message.size()>150U)message.resize(150U);
       lv_label_set_text(workflow_status_label_,message.c_str());
       // "Again" only once there is a measurement to repeat.
-      lv_label_set_text(lv_obj_get_child(workflow_weigh_button_,0),busy?"WEIGHING...":measured.phase.empty()?"WEIGH":"WEIGH AGAIN");
+      lv_label_set_text(lv_obj_get_child(workflow_weigh_button_,0),busy?"WEIGHING...":services::weigh_button_label(measured));
     }
     bool automatic=false;configuration_.visit([&](const auto& config,auto){automatic=config.reconciliation.auto_update_after_weigh;});
     lv_label_set_text(lv_obj_get_child(weight_policy_,0),automatic?"Auto-update ON":"Auto-update OFF");
