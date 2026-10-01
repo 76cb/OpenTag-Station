@@ -61,6 +61,8 @@ class TagFlow {
   std::string search_field{"name"};
   // Plain-language description of the queued request for the wait screen.
   std::string working;
+  // Why the reader rejected the tag now on it; shown for an unsupported tag.
+  std::string tag_error;
   // Set by the UI when a non-physical request has shown no progress for a
   // long time; offers a way back without abandoning physical work.
   bool stalled{false};
@@ -121,7 +123,8 @@ class TagFlow {
       page=TagPage::tag;phase.clear();selected.clear();from_spool=0;
     }
     uid=incoming_uid;
-    if(error_message&&page==TagPage::tag)message=*error_message;
+    // Kept apart from message: that may hold recovery instructions.
+    if(error_message)tag_error=*error_message;else tag_error.clear();
   }
   // The queued request failed without publishing a writer snapshot.
   void operation_failed(std::string reason) {operation=0;fail(std::move(reason));}
@@ -304,7 +307,7 @@ inline TagScreen TagFlow::screen() const {
         s.body=material+"\nNot linked to a Spoolman spool yet";
         action(0,"LINK TO A SPOOL",TagAction::sources);
         s.button({16,162,448,44},"CLEAR / REUSE",TagAction::clear,true,true);
-      } else s.body=lifecycle==services::TagLifecycle::no_tag?"PLACE A TAG\nSet an NFC tag on the reader.":lifecycle==services::TagLifecycle::unsupported?"This tag can't be used as it is\n"+message+"\nUse a blank NXP ICODE SLIX2 tag.":"Reading tag...\nKeep the tag on the reader.";
+      } else s.body=lifecycle==services::TagLifecycle::no_tag?"PLACE A TAG\nSet an NFC tag on the reader.":lifecycle==services::TagLifecycle::unsupported?"This tag can't be used as it is\n"+tag_error+"\nUse a blank NXP ICODE SLIX2 tag.":"Reading tag...\nKeep the tag on the reader.";
       s.button({8,266,464,46},"DONE",TagAction::home);break;
     case TagPage::sources:
       s.title=from_spool?"Reassign tag":"Assign tag";s.body="How do you want to choose the filament?";
