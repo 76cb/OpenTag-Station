@@ -549,6 +549,33 @@ core::Result<UpdateSnapshot> UpdateManager::initialize_from_boot(
     return core::Result<UpdateSnapshot>::success(state_);
   }
 
+  // A record that says the candidate was selected, rebooted into, or being
+  // rolled back, while this boot runs an image that is not awaiting
+  // verification, has no way forward: cancel, activate and a new upload are
+  // all refused in those states. End it so the next upload can start.
+  const bool running_target = has_record && state_.target.present() &&
+      same_partition(state_.running, state_.target);
+  const bool target_confirmed = running_target &&
+      state_.running_image_state == PartitionImageState::valid;
+  const bool target_selected = has_record && state_.target.present() &&
+      state_.activation_intent && !running_target &&
+      same_partition(state_.boot, state_.target);
+  if (has_record &&
+      ((state_.state == UpdateState::reboot_pending && !target_confirmed) ||
+       (state_.state == UpdateState::rollback_pending && !target_confirmed &&
+        !target_selected) ||
+       (state_.state == UpdateState::ready_to_reboot && !target_selected &&
+        (state_.activated ||
+         (state_.activation_intent && running_target))))) {
+    return fail_locked(
+        update_error(
+            running_target
+                ? "The update record does not match the running firmware; upload it again."
+                : "The update was selected but never started; upload it again."),
+        now_ms,
+        false);
+  }
+
   if (has_record && state_.target.present() && state_.activation_intent &&
       same_partition(state_.boot, state_.target) &&
       !same_partition(state_.running, state_.target)) {
