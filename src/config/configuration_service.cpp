@@ -20,6 +20,8 @@ namespace opentag::config {
 namespace {
 
 constexpr std::size_t maximum_document_bytes = 16384U;
+// Matches the limit Configuration::validate() and the load path enforce.
+constexpr std::size_t maximum_spool_identity_mappings = 64U;
 constexpr std::uint32_t setup_step_mask = 0xFFU;
 
 core::Error configuration_error(const std::string& message) {
@@ -1231,8 +1233,16 @@ core::Result<void> ConfigurationService::sync_verified_spool_identity_mapping(
                  normalized.nfc_uid->begin(), [](unsigned char c) { return std::toupper(c); });
   std::transform(normalized.instance_uuid->begin(), normalized.instance_uuid->end(),
                  normalized.instance_uuid->begin(), [](unsigned char c) { return std::tolower(c); });
-  if (selected.value() == mappings.size()) mappings.push_back(normalized);
-  else mappings[selected.value()] = normalized;
+  if (selected.value() == mappings.size()) {
+    // The store is a bounded cache of verified links and Spoolman stays
+    // authoritative, so a full store gives up its oldest entry.
+    if (mappings.size() >= maximum_spool_identity_mappings) {
+      mappings.erase(mappings.begin());
+    }
+    mappings.push_back(normalized);
+  } else {
+    mappings[selected.value()] = normalized;
+  }
   // Validation and transactional persistence retain all unrelated mappings.
   return persist_locked(updated);
 }

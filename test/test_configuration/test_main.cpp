@@ -1,5 +1,6 @@
 #include <unity.h>
 
+#include <cstdio>
 #include <optional>
 #include <string>
 
@@ -1201,6 +1202,63 @@ void test_backend_tokens_reject_control_characters() {
   TEST_ASSERT_TRUE(printable.validate().ok());
 }
 
+void test_full_mapping_store_evicts_the_oldest_verified_mapping() {
+  MemoryDocumentStore documents;
+  LegacyScaleStore legacy;
+  ConfigurationService service(documents, legacy);
+  TEST_ASSERT_TRUE(service.initialize().ok());
+
+  const auto mapping_for = [](int index) {
+    char uid[17];
+    char uuid[37];
+    std::snprintf(uid, sizeof(uid), "E0040100000000%02X", index);
+    std::snprintf(
+        uuid, sizeof(uuid), "11111111-2222-4333-8444-5555555555%02x", index);
+    opentag::domain::ConfirmedSpoolMapping mapping;
+    mapping.spool_id = index;
+    mapping.nfc_uid = uid;
+    mapping.instance_uuid = uuid;
+    return mapping;
+  };
+  for (int index = 1; index <= 64; ++index) {
+    TEST_ASSERT_TRUE(
+        service.sync_verified_spool_identity_mapping(mapping_for(index)).ok());
+  }
+  TEST_ASSERT_EQUAL_UINT(64U, service.snapshot().spool_identity_mappings.size());
+
+  // Re-syncing an entry that is already present never evicts.
+  TEST_ASSERT_TRUE(
+      service.sync_verified_spool_identity_mapping(mapping_for(1)).ok());
+  TEST_ASSERT_EQUAL_UINT(64U, service.snapshot().spool_identity_mappings.size());
+  TEST_ASSERT_EQUAL_INT(
+      1, service.snapshot().spool_identity_mappings.front().spool_id);
+
+  const auto added =
+      service.sync_verified_spool_identity_mapping(mapping_for(65));
+  TEST_ASSERT_TRUE_MESSAGE(
+      added.ok(), added.ok() ? "" : added.error().message.c_str());
+  const auto mappings = service.snapshot().spool_identity_mappings;
+  TEST_ASSERT_EQUAL_UINT(64U, mappings.size());
+  bool first_present = false;
+  bool newest_present = false;
+  for (const auto& mapping : mappings) {
+    if (mapping.spool_id == 1) first_present = true;
+    if (mapping.spool_id == 65) newest_present = true;
+  }
+  TEST_ASSERT_FALSE(first_present);
+  TEST_ASSERT_TRUE(newest_present);
+  TEST_ASSERT_EQUAL_INT(2, mappings.front().spool_id);
+  TEST_ASSERT_EQUAL_INT(65, mappings.back().spool_id);
+
+  // The evicted state is what was persisted.
+  ConfigurationService reloaded(documents, legacy);
+  TEST_ASSERT_TRUE(reloaded.initialize().ok());
+  TEST_ASSERT_EQUAL_UINT(
+      64U, reloaded.snapshot().spool_identity_mappings.size());
+  TEST_ASSERT_EQUAL_INT(
+      65, reloaded.snapshot().spool_identity_mappings.back().spool_id);
+}
+
 int main(int, char**) {
   UNITY_BEGIN();
   RUN_TEST(test_clear_mapping_preserves_unrelated_and_persists);
@@ -1247,5 +1305,6 @@ int main(int, char**) {
   RUN_TEST(test_unreadable_document_is_not_reported_as_newer_firmware);
   RUN_TEST(test_spoolman_field_keys_must_differ_and_match_spoolman_key_rules);
   RUN_TEST(test_backend_tokens_reject_control_characters);
+  RUN_TEST(test_full_mapping_store_evicts_the_oldest_verified_mapping);
   return UNITY_END();
 }
