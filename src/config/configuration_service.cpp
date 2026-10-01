@@ -68,6 +68,14 @@ bool valid_spoolman_field_key(const std::string& value) {
       });
 }
 
+// A token is sent as an HTTP header value; control bytes would corrupt it.
+bool valid_backend_token(const std::string& value) {
+  return std::none_of(value.begin(), value.end(), [](char character) {
+    const auto byte = static_cast<unsigned char>(character);
+    return byte < 0x20U || byte == 0x7FU;
+  });
+}
+
 bool valid_url(const std::string& value) {
   if (value.empty()) return true;
   if (value.size() > 256U || value.find('@') != std::string::npos ||
@@ -563,6 +571,11 @@ core::Result<void> Configuration::validate() const {
       filabridge.selected_printer_id.size() > 128U) {
     return core::Result<void>::failure(
         configuration_error("backend settings are invalid"));
+  }
+  if (!valid_backend_token(spoolman.authentication_token) ||
+      !valid_backend_token(filabridge.authentication_token)) {
+    return core::Result<void>::failure(configuration_error(
+        "backend access tokens must not contain control characters"));
   }
   if (!valid_spoolman_field_key(spoolman.identity_field) ||
       !valid_spoolman_field_key(spoolman.nfc_uid_field) ||

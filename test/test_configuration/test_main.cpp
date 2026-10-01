@@ -1179,6 +1179,28 @@ void test_spoolman_field_keys_must_differ_and_match_spoolman_key_rules() {
   TEST_ASSERT_FALSE(longest.validate().ok());
 }
 
+void test_backend_tokens_reject_control_characters() {
+  for (const char* invalid :
+       {"token\r\nX-Injected: 1", "token\n", "tab\ttoken", "bell\x07",
+        "delete\x7F"}) {
+    Configuration spoolman;
+    spoolman.spoolman.authentication_token = invalid;
+    const auto spoolman_result = spoolman.validate();
+    TEST_ASSERT_FALSE_MESSAGE(spoolman_result.ok(), invalid);
+    TEST_ASSERT_EQUAL_STRING(
+        "backend access tokens must not contain control characters",
+        spoolman_result.error().message.c_str());
+    Configuration filabridge;
+    filabridge.filabridge.authentication_token = invalid;
+    TEST_ASSERT_FALSE_MESSAGE(filabridge.validate().ok(), invalid);
+  }
+
+  Configuration printable;
+  printable.spoolman.authentication_token = "Abc 123+/=~.-_:\xC3\xA9";
+  printable.filabridge.authentication_token = std::string(512U, 'x');
+  TEST_ASSERT_TRUE(printable.validate().ok());
+}
+
 int main(int, char**) {
   UNITY_BEGIN();
   RUN_TEST(test_clear_mapping_preserves_unrelated_and_persists);
@@ -1224,5 +1246,6 @@ int main(int, char**) {
   RUN_TEST(test_newer_schema_backup_is_not_overwritten_when_primary_is_missing);
   RUN_TEST(test_unreadable_document_is_not_reported_as_newer_firmware);
   RUN_TEST(test_spoolman_field_keys_must_differ_and_match_spoolman_key_rules);
+  RUN_TEST(test_backend_tokens_reject_control_characters);
   return UNITY_END();
 }
