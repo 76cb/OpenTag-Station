@@ -168,4 +168,5 @@ int main() {UNITY_BEGIN();RUN_TEST(lifecycle);RUN_TEST(sensible_actions);RUN_TES
   RUN_TEST(train::different_tag_after_removal_restarts_the_flow);
   RUN_TEST(train::progress_from_another_client_is_never_a_dead_end);
   RUN_TEST(train::failed_paging_and_create_mistakes_leave_no_trace);
+  RUN_TEST(train::stall_timer_restarts_with_each_phase);
   if(!opentag::config::community_enabled)export_touch_fixtures();return UNITY_END();}

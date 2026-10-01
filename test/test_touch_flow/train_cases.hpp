@@ -147,4 +147,26 @@ inline void failed_paging_and_create_mistakes_leave_no_trace() {
   TEST_ASSERT_TRUE(c.create_hint.empty());
 }
 
+// UI-10: "taking longer than usual" measures the step now running, not the
+// time since the request was queued. Saving the link after a long physical
+// write must get its own 45 s.
+inline void stall_timer_restarts_with_each_phase() {
+  TagFlow f;f.begin_wait(1,1000);f.update_stall(1000);
+  feed(f,R"({"phase":"writing","operation_id":1,"completed_blocks":1,"total_blocks":40})");f.update_stall(2000);
+  f.update_stall(60000);TEST_ASSERT_FALSE(f.stalled);  // physical: never
+  feed(f,R"({"phase":"associating","operation_id":1})");f.update_stall(61000);
+  TEST_ASSERT_FALSE(f.stalled);TEST_ASSERT_FALSE(shows(f.screen(),TagAction::home));
+  f.update_stall(61000+44999);TEST_ASSERT_FALSE(f.stalled);
+  f.update_stall(61000+45000);TEST_ASSERT_TRUE(f.stalled);TEST_ASSERT_TRUE(shows(f.screen(),TagAction::home));
+  // The same phase published again does not restart the timer.
+  TagFlow g;g.begin_wait(2,0);g.update_stall(0);
+  feed(g,R"({"phase":"loading_spool","operation_id":2})");g.update_stall(5000);
+  feed(g,R"({"phase":"loading_spool","operation_id":2,"message":"still"})");g.update_stall(30000);
+  g.update_stall(49999);TEST_ASSERT_FALSE(g.stalled);
+  g.update_stall(50000);TEST_ASSERT_TRUE(g.stalled);
+  // A request that never leaves the queue stalls 45 s after it was queued.
+  TagFlow q;q.begin_wait(3,4000000000U);q.update_stall(4000000000U+44999U);TEST_ASSERT_FALSE(q.stalled);
+  q.update_stall(4000000000U+45000U);TEST_ASSERT_TRUE(q.stalled);
+}
+
 }  // namespace train

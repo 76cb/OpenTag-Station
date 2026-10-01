@@ -92,6 +92,8 @@ class TagFlow {
   // When the current touch request was queued, for the "taking longer than
   // usual" escape on Spoolman-only work.
   std::uint32_t wait_started_ms{0};
+  // Phase the stall timer is running for; a new phase restarts it.
+  std::string stall_phase;
   network::BackendJsonAllocator allocator;
   JsonDocument view{&allocator},selected{&allocator},catalog_page{&allocator};
 
@@ -117,7 +119,7 @@ class TagFlow {
   // host-tested.
   std::string search(std::string text) {query=std::move(text);offset=row=0;land_on_last_rows=false;return browse();}
   void begin_wait(std::uint64_t operation_id,std::uint32_t now_ms) {
-    waiting=true;operation=operation_id;page=TagPage::progress;phase="queued";message=working;stalled=false;wait_started_ms=now_ms;
+    waiting=true;operation=operation_id;page=TagPage::progress;phase=stall_phase="queued";message=working;stalled=false;wait_started_ms=now_ms;
   }
   // BACK TO HOME from a stalled wait: stop following the request.
   void abandon_wait() {waiting=false;operation=0;stalled=false;}
@@ -136,8 +138,10 @@ class TagFlow {
   // The queued request failed without publishing a writer snapshot.
   void operation_failed(std::string reason) {operation=0;fail(std::move(reason));}
   // A Spoolman-only request (never a physical write) that shows no result
-  // for 45 s offers a way back instead of an endless wait screen.
+  // for 45 s offers a way back instead of an endless wait screen. Each step
+  // gets its own 45 s: linking after a long physical write is not "late".
   void update_stall(std::uint32_t now_ms) {
+    if(phase!=stall_phase){stall_phase=phase;wait_started_ms=now_ms;}
     stalled=waiting&&!physical_phase(phase)&&static_cast<std::uint32_t>(now_ms-wait_started_ms)>=45000U;
   }
   bool consume(const network::ResponseBody& body) {
