@@ -1009,6 +1009,10 @@ __attribute__((noinline)) Result TagWriterService::unlink() {
     return saved;
   view_["cleanup_stage"] = "spoolman";
   publish("unlinking", "Tag blank and verified; checking exact Spoolman owner");
+  // Spoolman ignores an extra.<key> filter whose field is not defined, so an
+  // ownership lookup could then name an unrelated spool.
+  if (auto defined = require_identity_fields(); !defined.ok())
+    return defined;
   auto owner = uid_owner();
   if (!owner.ok())
     return Result::failure(owner.error());
@@ -1285,6 +1289,8 @@ Result TagWriterService::associate() {
       uid_key_ != spoolman_.settings_.nfc_uid_field)
     return fail("Spoolman settings changed; restore settings before retrying "
                 "association");
+  if (auto defined = require_identity_fields(); !defined.ok())
+    return defined;
   publish("associating", "Physical tag verified; associating Spoolman",
           plan_->completed, plan_->count);
   auto unique = unique_identity();

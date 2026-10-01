@@ -2082,6 +2082,106 @@ void association_failure_reports_reason_and_can_be_skipped() {
   TEST_ASSERT_EQUAL_STRING("preview", f.view["phase"].as<const char *>());
 }
 
+// ---- rc.12 bug batch: tag writer and spool identity (C-D1..C-D7) ----
+// Spoolman ignores an `extra.<key>` filter whose Spool extra field is not
+// defined, so an ownership query then returns unrelated spools.
+std::string undefined_identity_fields(const network::HttpRequest &request) {
+  if (request.url.find("/field/spool") != std::string::npos)
+    return "[]";
+  if (request.url.find("/spool?") != std::string::npos &&
+      request.url.find("extra.") != std::string::npos)
+    return R"([{"id":12}])";
+  return {};
+}
+int patch_requests(const Http &http) {
+  int count = 0;
+  for (const auto &event : http.events)
+    count += event.compare(0, 6, "PATCH ") == 0;
+  return count;
+}
+void clear_with_missing_extra_fields_patches_nothing() {
+  ClearFixture f;
+  // An initialized tag without an instance UUID, and one inventory spool that
+  // is linked to a different tag.
+  auto image = nfc::openprinttag::Initializer::generate({312, 4, 32, {}});
+  TEST_ASSERT_TRUE(image.ok());
+  std::copy(image.value().bytes.begin(), image.value().bytes.end(),
+            f.reader.bytes.begin());
+  const std::string other = "\"12345678-1234-4234-9234-123456789012\"";
+  f.http.spool["extra"].remove("nfc_uid");
+  f.http.spool["extra"]["opentag_instance_uuid"] = other;
+  f.http.custom = undefined_identity_fields;
+  f.preview();
+  auto result = f.confirm();
+  TEST_ASSERT_EQUAL(0, f.http.patches);
+  TEST_ASSERT_EQUAL(0, patch_requests(f.http));
+  TEST_ASSERT_EQUAL_STRING(
+      other.c_str(),
+      f.http.spool["extra"]["opentag_instance_uuid"].as<const char *>());
+  TEST_ASSERT_FALSE(result.ok());
+  TEST_ASSERT_NOT_EQUAL(
+      std::string::npos,
+      result.error().message.find("missing the Spool extra fields "
+                                  "'opentag_instance_uuid', 'nfc_uid'"));
+  // The tag itself was cleared; only the Spoolman half is outstanding.
+  TEST_ASSERT_TRUE(std::all_of(f.reader.bytes.begin(),
+                               f.reader.bytes.begin() + 312,
+                               [](auto b) { return !b; }));
+  TEST_ASSERT_TRUE(f.journal.present);
+  TEST_ASSERT_TRUE(f.journal.saved.cleanup_pending);
+  TEST_ASSERT_EQUAL_STRING("unlink_pending",
+                           f.view["phase"].as<const char *>());
+  TEST_ASSERT_NOT_EQUAL(
+      std::string::npos,
+      std::string(f.view["message"] | "").find("missing the Spool extra field"));
+  const auto writes = f.reader.writes;
+  result = f.run("retry_unlink");
+  TEST_ASSERT_FALSE(result.ok());
+  TEST_ASSERT_NOT_EQUAL(
+      std::string::npos,
+      result.error().message.find("missing the Spool extra field"));
+  TEST_ASSERT_EQUAL(0, patch_requests(f.http));
+  TEST_ASSERT_EQUAL(writes, f.reader.writes);
+  TEST_ASSERT_EQUAL(0, f.mappings);
+  TEST_ASSERT_EQUAL_STRING("unlink_pending",
+                           f.view["phase"].as<const char *>());
+}
+void association_with_missing_extra_fields_patches_nothing() {
+  JournalServiceFixture f;
+  TEST_ASSERT_TRUE(f.run(R"({"action":"preview","spool_id":12})").ok());
+  // The fields are deleted in Spoolman after the preview was shown.
+  f.http.custom = undefined_identity_fields;
+  auto result = f.confirm();
+  TEST_ASSERT_EQUAL(0, patch_requests(f.http));
+  TEST_ASSERT_FALSE(result.ok());
+  TEST_ASSERT_NOT_EQUAL(
+      std::string::npos,
+      result.error().message.find("missing the Spool extra fields "
+                                  "'opentag_instance_uuid', 'nfc_uid'"));
+  TEST_ASSERT_TRUE(f.service.physical_pass());
+  TEST_ASSERT_EQUAL_STRING("association_pending",
+                           f.view["phase"].as<const char *>());
+  TEST_ASSERT_NOT_EQUAL(
+      std::string::npos,
+      std::string(f.view["message"] | "").find("missing the Spool extra field"));
+  const auto writes = f.reader.writes;
+  result = f.run(R"({"action":"retry_association"})");
+  TEST_ASSERT_FALSE(result.ok());
+  TEST_ASSERT_NOT_EQUAL(
+      std::string::npos,
+      result.error().message.find("missing the Spool extra field"));
+  TEST_ASSERT_EQUAL(0, patch_requests(f.http));
+  TEST_ASSERT_EQUAL_STRING("association_pending",
+                           f.view["phase"].as<const char *>());
+  // Once the fields exist again the retry links the spool without rewriting.
+  f.http.custom = nullptr;
+  TEST_ASSERT_TRUE(f.run(R"({"action":"retry_association"})").ok());
+  TEST_ASSERT_EQUAL(1, patch_requests(f.http));
+  TEST_ASSERT_EQUAL(writes, f.reader.writes);
+  TEST_ASSERT_FALSE(f.journal.present);
+  TEST_ASSERT_EQUAL_STRING("complete", f.view["phase"].as<const char *>());
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(verified_association_repairs_stale_cache_after_remote_checks);
@@ -2209,5 +2309,7 @@ int main() {
   RUN_TEST(uid_final_uniqueness_recheck_blocks_success);
   RUN_TEST(uid_move_recovery_after_reboot_without_write);
   RUN_TEST(uid_formatted_queries_and_cross_format_conflicts);
+  RUN_TEST(clear_with_missing_extra_fields_patches_nothing);
+  RUN_TEST(association_with_missing_extra_fields_patches_nothing);
   return UNITY_END();
 }
