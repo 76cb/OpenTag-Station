@@ -1347,8 +1347,8 @@ void UiService::toolhead_callback(lv_event_t* event) {
   std::string message;
   const char** buttons = replacement_buttons;
   if ((active || state_unverified) && occupied) {
-    message = active ? "This printer is actively printing and T"
-                     : "This printer state cannot be verified and T";
+    message = active ? "This printer is actively printing and "
+                     : "This printer state cannot be verified and ";
     message +=
         toolhead->display_name + " contains spool #" +
         std::to_string(*toolhead->assigned_spool) +
@@ -1356,8 +1356,8 @@ void UiService::toolhead_callback(lv_event_t* event) {
     buttons = override_replacement_buttons;
   } else if (active || state_unverified) {
     message = active
-                  ? "This printer is actively printing. Mapping T"
-                  : "This printer state cannot be verified. Mapping T";
+                  ? "This printer is actively printing. Mapping "
+                  : "This printer state cannot be verified. Mapping ";
     message +=
         toolhead->display_name +
         " may corrupt consumption accounting.";

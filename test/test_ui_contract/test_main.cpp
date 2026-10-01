@@ -281,6 +281,14 @@ void test_weigh_readback_uses_captured_policy_behind_revision_fence() {
                         readback.find("captured.settings_revision == configuration_.revision()"));
 }
 
+// UI-8: a toolhead's display name already is "T1"; no literal "T" before it.
+void test_printer_dialogs_do_not_prefix_the_toolhead_name() {
+  const auto source = read_source("src/ui/ui_service.cpp");
+  for (const char* doubled : {"printing and T\"", "verified and T\"", "Mapping T\""})
+    TEST_ASSERT_TRUE_MESSAGE(source.find(doubled) == std::string::npos, doubled);
+  TEST_ASSERT_TRUE(source.find("\"This printer is actively printing. Mapping \"") != std::string::npos);
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -297,5 +305,6 @@ int main(int argc, char** argv) {
   RUN_TEST(test_idle_home_and_scale_refresh_do_not_copy_full_configuration);
   RUN_TEST(test_touchscreen_uses_signed_integer_rounded_grams);
   RUN_TEST(test_tags_page_exposes_guarded_writer_and_reader_state);
+  RUN_TEST(test_printer_dialogs_do_not_prefix_the_toolhead_name);
   return UNITY_END();
 }
