@@ -1068,6 +1068,85 @@ void test_first_run_navigation_allows_tokenless_setup_completion() {
   TEST_ASSERT_FALSE(setup.next().ok());
 }
 
+const char* newer_schema_document = R"json({
+  "schema_version": 4,
+  "hardware_id": "wt32-sc01-plus-rev-a",
+  "device": {"hostname": "future-station"},
+  "wifi": {"ssid": "HomeNet", "password": "secret123"},
+  "new_v4_section": {"x": 1}
+})json";
+
+void test_newer_schema_document_is_never_overwritten_by_older_firmware() {
+  MemoryDocumentStore documents;
+  documents.document = newer_schema_document;
+  documents.backup_document = schema_one_document;
+  LegacyScaleStore legacy;
+  ConfigurationService service(documents, legacy);
+
+  TEST_ASSERT_FALSE(service.initialize().ok());
+  auto status = service.status();
+  TEST_ASSERT_TRUE(status.initialized);
+  TEST_ASSERT_FALSE(status.persistence_available);
+  TEST_ASSERT_TRUE(status.stored_by_newer_firmware);
+  TEST_ASSERT_TRUE(status.last_error.has_value());
+  TEST_ASSERT_EQUAL_STRING(
+      "Stored configuration was written by newer firmware; update the "
+      "firmware or factory-reset",
+      status.last_error->message.c_str());
+  // Neither the older backup nor defaults may replace the newer document.
+  TEST_ASSERT_EQUAL_UINT(0U, documents.save_count);
+
+  auto changed = service.snapshot();
+  changed.wifi.ssid = "Reprovisioned";
+  const auto replaced = service.replace(changed);
+  TEST_ASSERT_FALSE(replaced.ok());
+  TEST_ASSERT_EQUAL_STRING(
+      "Stored configuration was written by newer firmware; update the "
+      "firmware or factory-reset",
+      replaced.error().message.c_str());
+  TEST_ASSERT_FALSE(
+      service.replace_if_revision(changed, service.revision()).ok());
+  TEST_ASSERT_FALSE(service.confirm_browser_setup().ok());
+  TEST_ASSERT_FALSE(service.save_scale_calibration(valid_scale()).ok());
+  TEST_ASSERT_EQUAL_UINT(0U, legacy.save_count);
+  opentag::domain::ConfirmedSpoolMapping mapping;
+  mapping.spool_id = 7;
+  mapping.nfc_uid = "E004010000000001";
+  mapping.instance_uuid = "11111111-2222-4333-8444-555555555555";
+  TEST_ASSERT_FALSE(service.sync_verified_spool_identity_mapping(mapping).ok());
+
+  TEST_ASSERT_EQUAL_UINT(0U, documents.save_count);
+  TEST_ASSERT_EQUAL_STRING(newer_schema_document, documents.document->c_str());
+  TEST_ASSERT_TRUE(service.status().stored_by_newer_firmware);
+  TEST_ASSERT_TRUE(service.snapshot().wifi.ssid != "Reprovisioned");
+}
+
+void test_newer_schema_backup_is_not_overwritten_when_primary_is_missing() {
+  MemoryDocumentStore documents;
+  documents.backup_document = newer_schema_document;
+  LegacyScaleStore legacy;
+  ConfigurationService service(documents, legacy);
+
+  TEST_ASSERT_FALSE(service.initialize().ok());
+  TEST_ASSERT_TRUE(service.status().stored_by_newer_firmware);
+  TEST_ASSERT_FALSE(service.replace(service.snapshot()).ok());
+  TEST_ASSERT_EQUAL_UINT(0U, documents.save_count);
+}
+
+void test_unreadable_document_is_not_reported_as_newer_firmware() {
+  MemoryDocumentStore documents;
+  documents.document = "{corrupt";
+  LegacyScaleStore legacy;
+  ConfigurationService service(documents, legacy);
+
+  TEST_ASSERT_FALSE(service.initialize().ok());
+  TEST_ASSERT_FALSE(service.status().persistence_available);
+  TEST_ASSERT_FALSE(service.status().stored_by_newer_firmware);
+  // The existing safe-degraded recovery still rewrites a corrupt document.
+  TEST_ASSERT_TRUE(service.replace(service.snapshot()).ok());
+  TEST_ASSERT_EQUAL_UINT(1U, documents.save_count);
+}
+
 int main(int, char**) {
   UNITY_BEGIN();
   RUN_TEST(test_clear_mapping_preserves_unrelated_and_persists);
@@ -1109,5 +1188,8 @@ int main(int, char**) {
   RUN_TEST(test_confirmed_spool_mapping_round_trips_and_conflicts_are_rejected);
   RUN_TEST(test_browser_setup_completion_is_transactional_and_tokenless);
   RUN_TEST(test_first_run_navigation_allows_tokenless_setup_completion);
+  RUN_TEST(test_newer_schema_document_is_never_overwritten_by_older_firmware);
+  RUN_TEST(test_newer_schema_backup_is_not_overwritten_when_primary_is_missing);
+  RUN_TEST(test_unreadable_document_is_not_reported_as_newer_firmware);
   return UNITY_END();
 }

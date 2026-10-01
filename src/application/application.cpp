@@ -291,8 +291,11 @@ BootHealthSignals Application::boot_health_signals(
       diagnostics.nvs_ready && diagnostics.filesystem_ready;
   signals.configuration_initialized =
       configuration.initialized && configuration.persistence_available;
+  // Settings written by newer firmware are unreadable here, not safely
+  // degraded: after an OTA downgrade the candidate must not be confirmed.
   signals.configuration_safely_degraded =
-      configuration.initialized && !configuration.persistence_available;
+      configuration.initialized && !configuration.persistence_available &&
+      !configuration.stored_by_newer_firmware;
   signals.application_ready =
       application_state != ApplicationState::booting &&
       application_state != ApplicationState::error;

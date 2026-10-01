@@ -492,6 +492,27 @@ core::Result<DecodedOwner> decode_document(
       std::move(result));
 }
 
+core::Error newer_firmware_error() {
+  return configuration_error(
+      "Stored configuration was written by newer firmware; update the "
+      "firmware or factory-reset");
+}
+
+// Reads only the schema number, so a document this firmware cannot decode can
+// still be recognised as a newer one rather than as corruption.
+bool written_by_newer_firmware(
+    const std::string& input, ArduinoJson::Allocator* allocator) {
+  JsonDocument filter(allocator);
+  filter["schema_version"] = true;
+  JsonDocument document(allocator);
+  if (deserializeJson(
+          document, input, DeserializationOption::Filter(filter))) {
+    return false;
+  }
+  return document["schema_version"].as<std::uint32_t>() >
+      Configuration::current_schema;
+}
+
 }  // namespace
 
 struct ConfigurationService::Impl {
@@ -650,21 +671,26 @@ core::Result<void> ConfigurationService::initialize() {
       loaded = std::move(decoded.value());
     } else {
       load_error = decoded.error();
+      status_.stored_by_newer_firmware =
+          written_by_newer_firmware(*stored.value(), &impl_->allocator);
     }
   } else {
     primary_missing = true;
   }
 
   bool recovered_from_backup = false;
-  if (loaded == nullptr) {
+  // An older backup must not replace a primary written by newer firmware.
+  if (loaded == nullptr && !status_.stored_by_newer_firmware) {
     const auto backup = document_store_.load_configuration_backup_document();
     if (backup.ok() && backup.value().has_value()) {
       auto decoded = decode_document(*backup.value(), &impl_->allocator);
       if (decoded.ok()) {
         loaded = std::move(decoded.value());
         recovered_from_backup = true;
-      } else if (!load_error.has_value()) {
-        load_error = decoded.error();
+      } else {
+        if (!load_error.has_value()) load_error = decoded.error();
+        status_.stored_by_newer_firmware =
+            written_by_newer_firmware(*backup.value(), &impl_->allocator);
       }
     } else if (!backup.ok() && !load_error.has_value()) {
       load_error = backup.error();
@@ -707,8 +733,10 @@ core::Result<void> ConfigurationService::initialize() {
     return core::Result<void>::success();
   }
 
-  const auto error = load_error.value_or(
-      configuration_error("configuration document could not be loaded"));
+  const auto error = status_.stored_by_newer_firmware
+      ? newer_firmware_error()
+      : load_error.value_or(
+            configuration_error("configuration document could not be loaded"));
   write_known(impl_->document, configuration_);
   status_.initialized = true;
   status_.persistence_available = false;
@@ -764,6 +792,11 @@ core::Result<void> ConfigurationService::persist_locked(
     const Configuration& configuration,
     bool advance_revision) {
   network::JsonAllocationTrace allocation_trace(impl_->allocator, "config_persist_psram");
+  if (status_.stored_by_newer_firmware) {
+    const auto error = newer_firmware_error();
+    status_.last_error = error;
+    return core::Result<void>::failure(error);
+  }
   const auto valid = configuration.validate();
   if (!valid.ok()) return valid;
 
@@ -969,6 +1002,9 @@ core::Result<void> ConfigurationService::save_scale_calibration(
   updated.scale_calibration = calibration;
   const auto updated_valid = updated.validate();
   if (!updated_valid.ok()) return updated_valid;
+  if (status_.stored_by_newer_firmware) {
+    return core::Result<void>::failure(newer_firmware_error());
+  }
 
   const auto legacy_saved = legacy_scale_store_.save_scale_calibration(calibration);
   if (!legacy_saved.ok()) {
