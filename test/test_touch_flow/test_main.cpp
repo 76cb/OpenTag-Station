@@ -166,4 +166,5 @@ int main() {UNITY_BEGIN();RUN_TEST(lifecycle);RUN_TEST(sensible_actions);RUN_TES
   RUN_TEST(train::nfc_error_does_not_replace_recovery_instructions);
   RUN_TEST(train::recovery_prompt_survives_leaving_and_failed_retries);
   RUN_TEST(train::different_tag_after_removal_restarts_the_flow);
+  RUN_TEST(train::progress_from_another_client_is_never_a_dead_end);
   if(!opentag::config::community_enabled)export_touch_fixtures();return UNITY_END();}

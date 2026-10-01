@@ -150,6 +150,8 @@ class TagFlow {
     const std::string result_phase=incoming["phase"]|"";
     if(!operation&&!result_uid.empty()&&result_uid!=uid&&
        (result_phase=="complete"||result_phase=="cleared"||result_phase=="preview"||result_phase=="clear_preview"))return false;
+    // A Spoolman edit made in the browser is not part of the touch flow.
+    if(result_phase=="editing"||result_phase=="updated")return true;
     view.set(incoming); phase=view["phase"]|""; message=view["message"]|"";
     if(recovery_phase(phase))recovery={phase,message,view["spool_id"]|0};
     else if(phase=="complete"||phase=="cleared"||phase=="recovery_discarded")recovery={};
@@ -394,7 +396,10 @@ inline TagScreen TagFlow::screen() const {
       }
       s.title=phase=="associating"?"Saving link in Spoolman":phase=="unlinking"?"Removing link in Spoolman":phase=="reading"?"Reading tag":phase=="loading_spool"?"Checking Spoolman":"Please wait";
       s.body=phase=="associating"?"The tag is already written.":phase=="unlinking"?"The tag is already erased.":phase=="reading"?"Keep the tag on the reader.":working.empty()?"Working on your request...":working;
-      if(stalled){s.body+="\nThis is taking longer than usual.";s.button({8,266,464,46},"BACK TO HOME",TagAction::home);}
+      if(stalled)s.body+="\nThis is taking longer than usual.";
+      // Another client's request (not waiting) must not strand this screen.
+      // The writer's own link steps always end in a result and stay as is.
+      if(stalled||(!waiting&&phase!="associating"&&phase!="unlinking"))s.button({8,266,464,46},"BACK TO HOME",TagAction::home);
       break;
     case TagPage::reuse:
       s.title="TAG READY TO REUSE";s.body="The old filament information is removed.\nWhat should this tag become?";

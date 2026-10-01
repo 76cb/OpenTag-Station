@@ -82,4 +82,31 @@ inline void different_tag_after_removal_restarts_the_flow() {
   TEST_ASSERT_TRUE(busy.page==TagPage::progress);TEST_ASSERT_EQUAL(5,busy.from_spool);
 }
 
+// UI-3: work started from the browser must not strand the touchscreen. An
+// edit there does not move the touch flow at all, and any other progress the
+// flow is not itself waiting for offers a way out - except while the tag is
+// being changed.
+inline void progress_from_another_client_is_never_a_dead_end() {
+  TagFlow f;f.observe_tag("E004000000000001",nullptr);f.lifecycle=services::TagLifecycle::linked;f.current_spool=5;
+  f.act(TagAction::sources);
+  feed(f,R"({"phase":"editing","message":"Saving canonical Spoolman data; a fresh tag preview is required"})");
+  TEST_ASSERT_TRUE(f.page==TagPage::sources);TEST_ASSERT_EQUAL_STRING("",f.phase.c_str());
+  feed(f,R"({"phase":"updated","message":"Saved and verified in Spoolman. Generate a new tag preview."})");
+  TEST_ASSERT_TRUE(f.page==TagPage::sources);TEST_ASSERT_EQUAL_STRING("",f.phase.c_str());
+  TEST_ASSERT_TRUE(shows(f.screen(),TagAction::spools));
+  for(const char* snapshot:{R"({"phase":"loading_spool"})",R"({"phase":"reading"})",R"({"phase":"a_phase_added_later"})"}) {
+    TagFlow g;feed(g,snapshot);
+    TEST_ASSERT_TRUE(g.page==TagPage::progress);TEST_ASSERT_FALSE(g.waiting);
+    TEST_ASSERT_TRUE_MESSAGE(shows(g.screen(),TagAction::home),snapshot);
+    TEST_ASSERT_FALSE(mentions(g.screen(),"longer than usual"));
+  }
+  for(const char* phase:{"validating","writing","clearing","verifying","decoding"}) {
+    TagFlow g;g.page=TagPage::progress;g.phase=phase;
+    TEST_ASSERT_EQUAL_MESSAGE(0,g.screen().count,phase);
+  }
+  // The flow's own request still shows no way out until it stalls.
+  TagFlow own;own.begin_wait(4,0);feed(own,R"({"phase":"loading_spool","operation_id":4})");
+  TEST_ASSERT_TRUE(own.waiting);TEST_ASSERT_EQUAL(0,own.screen().count);
+}
+
 }  // namespace train
