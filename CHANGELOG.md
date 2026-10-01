@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.0.0-rc.12
+
+Fixes from the deep-refactor audit (report: issue #47). Tag writer and spool identity; no new features.
+
+- Clearing a tag, retrying an unlink and retrying a link now check that the two Spool extra fields exist in Spoolman before looking up the owner. Without them Spoolman ignores the lookup filter, and the station could remove the identity of an unrelated spool or loop on "Multiple NFC UID owners".
+- A write or clear that is refused before anything is written (for example the tag was lifted after confirming) no longer leaves a recovery record. In rc.10/rc.11 it blocked other tags, and after a refused clear even browsing spools.
+- A clear interrupted before the Spoolman settings were changed now shows the recovery prompt with the reason, so **Skip recovery** is reachable. It used to lock the writer in a failed state.
+- Recovery prompts no longer carry the previous preview's data.
+- A locally remembered tag-to-spool link is treated as a conflict when Spoolman now links that spool to a different tag, so the wrong spool cannot receive weight updates.
+- The same tag is recognised when Spoolman stores its UID in lower case or with separators; it is no longer rewritten with a new identity.
+- A spool list page that is too large to show fails with "This page is too large to show; narrow the search." instead of an endless "retry".
+
 ## 1.0.0-rc.11
 
 - Wi-Fi: when joining the network fails, the station now says why instead of always "Wi-Fi connection timed out": password rejected, network not found (2.4 GHz only), signal too weak, or refused by the router. The reason comes from the Wi-Fi driver and is shown on the touchscreen setup screen and in the browser, and logged with the network's signal strength from the last scan.
