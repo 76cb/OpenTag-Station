@@ -394,7 +394,15 @@ core::Result<network::HttpResponse> SpoolmanAdapter::request(
 }
 
 core::Result<SpoolmanStatus> SpoolmanAdapter::probe(bool full) {
-  if (full) status_ = {};
+  // configure() clears status_, so a version still held here was proven for
+  // the currently configured server.
+  std::string proven_version;
+  std::string proven_git_commit;
+  if (full) {
+    proven_version = std::move(status_.version);
+    proven_git_commit = std::move(status_.git_commit);
+    status_ = {};
+  }
   status_.healthy = false;
   {
   auto health = request("GET", "/health", {}, 1024U);
@@ -424,7 +432,16 @@ core::Result<SpoolmanStatus> SpoolmanAdapter::probe(bool full) {
         status_.git_commit = info_json.value()["git_commit"].as<const char*>();
       }
     }
+  } else if (!status_.connected && !proven_version.empty()) {
+    // /info did not answer at all right after /health did: one lost request
+    // says nothing about the server's version, so keep what was proven.
+    status_.version = std::move(proven_version);
+    status_.git_commit = std::move(proven_git_commit);
+    status_.version_formally_tested = status_.version == tested_version;
+    status_.capabilities.add(BackendCapability::runtime_version);
   }
+  // Reset before the read checks so an error they record stays visible.
+  status_.last_error.reset();
   const auto reads = probe_read_capabilities();
   (void)reads;
   if (status_.version_formally_tested) {
@@ -433,7 +450,6 @@ core::Result<SpoolmanStatus> SpoolmanAdapter::probe(bool full) {
     status_.capabilities.add(BackendCapability::create_spool);
     status_.capabilities.add(BackendCapability::update_extra_fields);
   }
-  status_.last_error.reset();
   return core::Result<SpoolmanStatus>::success(status_);
 }
 
