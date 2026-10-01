@@ -1003,6 +1003,32 @@ void stored_uid_spelling_does_not_turn_same_tag_into_repurpose() {
     TEST_ASSERT_EQUAL_MESSAGE(0, f.view["changed_blocks"].size(), spelling);
   }
 }
+void oversized_catalog_page_fails_with_a_specific_message() {
+  ServiceFixture f;
+  // Eight valid rows that fit the 24576-byte HTTP limit but not the snapshot.
+  f.http.custom = [](const network::HttpRequest &) {
+    std::string page = "[";
+    for (int i = 1; i <= 8; ++i)
+      page += std::string(i > 1 ? "," : "") + "{\"id\":" + std::to_string(i) +
+              ",\"comment\":\"" + std::string(3040, 'x') + "\"}";
+    return page + "]";
+  };
+  const auto result =
+      f.run(R"({"action":"catalog","entity":"spool","offset":0})");
+  TEST_ASSERT_FALSE(result.ok());
+  TEST_ASSERT_EQUAL_STRING("This page is too large to show; narrow the search.",
+                           result.error().message.c_str());
+  TEST_ASSERT_EQUAL_STRING("failed", f.view["phase"].as<const char *>());
+  TEST_ASSERT_EQUAL_STRING("This page is too large to show; narrow the search.",
+                           f.view["message"].as<const char *>());
+  TEST_ASSERT_TRUE(f.view["items"].isNull());
+  // An ordinary page is still shown afterwards.
+  f.http.custom = nullptr;
+  TEST_ASSERT_TRUE(
+      f.run(R"({"action":"catalog","entity":"spool","offset":0})").ok());
+  TEST_ASSERT_EQUAL_STRING("catalog", f.view["phase"].as<const char *>());
+  TEST_ASSERT_EQUAL(8, f.view["items"].size());
+}
 void diameter_current_key_and_legacy_compatibility() {
   Fixture f;
   f.prepare();
@@ -2525,6 +2551,7 @@ int main() {
   RUN_TEST(recovery_snapshot_holds_only_recovery_fields);
   RUN_TEST(pending_clear_with_changed_spoolman_settings_can_be_skipped);
   RUN_TEST(stored_uid_spelling_does_not_turn_same_tag_into_repurpose);
+  RUN_TEST(oversized_catalog_page_fails_with_a_specific_message);
   RUN_TEST(pending_write_with_changed_spoolman_settings_stays_skippable);
   return UNITY_END();
 }

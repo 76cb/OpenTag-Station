@@ -273,6 +273,10 @@ Result TagWriterService::catalog(JsonObjectConst c) {
   view_["has_more"] = page.value().size() == 8;
   view_["search_field"] = search_field;
   view_["items"].set(page.value());
+  if (view_.overflowed() || measureJson(view_) > 24000) {
+    view_.clear();
+    return fail("This page is too large to show; narrow the search.");
+  }
   publish("catalog");
   return Result::success();
 }
