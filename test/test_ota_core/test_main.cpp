@@ -1592,6 +1592,65 @@ void test_no_persisted_record_traps_a_boot_that_is_not_pending_verification() {
   TEST_ASSERT_EQUAL_UINT(0U, trapped);
 }
 
+void test_candidate_booted_after_activation_record_cut_is_not_rolled_back() {
+  // activate(): the intent record is durable and the boot slot is switched,
+  // but the "activated" save and the reboot_pending save both fail (power
+  // cut). The bootloader then starts the selected candidate.
+  Harness harness;
+  const auto staged = validated(harness);
+  harness.records.fail_save_on_call = harness.records.save_calls + 2U;
+  const auto activated = harness.manager.activate(guard(staged), 60U);
+  TEST_ASSERT_TRUE(activated.ok());
+  harness.records.fail_save = true;
+  TEST_ASSERT_FALSE(
+      harness.manager.mark_reboot_pending(guard(staged), 61U).ok());
+  const auto durable = *harness.records.record;
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(UpdateState::ready_to_reboot),
+                        static_cast<int>(durable.state));
+  TEST_ASSERT_TRUE(
+      (durable.flags & opentag::ota::record_flag_activation_intent) != 0U);
+  TEST_ASSERT_TRUE((durable.flags & opentag::ota::record_flag_activated) == 0U);
+
+  Harness booted;
+  booted.records.record = durable;
+  booted.records.generation = harness.records.generation;
+  const auto app0 = booted.platform.status_value.running;
+  const auto app1 = booted.platform.status_value.inactive;
+  booted.platform.status_value.running = app1;
+  booted.platform.status_value.boot = app1;
+  booted.platform.status_value.inactive = app0;
+  booted.platform.status_value.running_image = firmware("1.0.0");
+  booted.platform.status_value.running_state =
+      PartitionImageState::pending_verify;
+
+  const auto result = booted.manager.initialize_from_boot(1000U);
+  TEST_ASSERT_TRUE_MESSAGE(
+      result.ok(), result.ok() ? "" : result.error().message.c_str());
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(UpdateState::candidate_boot),
+                        static_cast<int>(result.value().state));
+  TEST_ASSERT_TRUE(result.value().activated);
+  TEST_ASSERT_EQUAL_UINT(0U, booted.platform.rollback_calls);
+  TEST_ASSERT_EQUAL_UINT(0U, booted.platform.confirm_calls);
+  TEST_ASSERT_TRUE(
+      (booted.records.record->flags & opentag::ota::record_flag_activated) !=
+      0U);
+}
+
+void test_pending_candidate_with_intent_only_rolls_back_unless_boot_slot_agrees() {
+  // Intent alone is not proof: the bootloader must also name the running
+  // candidate as the boot slot before the missing flag is inferred.
+  Harness harness;
+  configure_candidate_boot(harness, UpdateState::ready_to_reboot);
+  harness.records.record->flags &= static_cast<std::uint8_t>(
+      ~opentag::ota::record_flag_activated);
+  harness.records.record->checksum =
+      opentag::ota::update_record_checksum(*harness.records.record);
+  harness.platform.status_value.boot = harness.platform.status_value.inactive;
+  const auto result = harness.manager.initialize_from_boot(1000U);
+  TEST_ASSERT_FALSE(result.ok());
+  TEST_ASSERT_EQUAL_UINT(1U, harness.platform.rollback_calls);
+}
+
 int main(int, char**) {
   UNITY_BEGIN();
   RUN_TEST(test_boot_initialization_reports_active_boot_and_inactive_slots);
@@ -1639,5 +1698,7 @@ int main(int, char**) {
   RUN_TEST(test_platform_errors_are_bounded_before_snapshot_persistence);
   RUN_TEST(test_selected_candidate_that_never_started_fails_and_accepts_a_new_upload);
   RUN_TEST(test_no_persisted_record_traps_a_boot_that_is_not_pending_verification);
+  RUN_TEST(test_candidate_booted_after_activation_record_cut_is_not_rolled_back);
+  RUN_TEST(test_pending_candidate_with_intent_only_rolls_back_unless_boot_slot_agrees);
   return UNITY_END();
 }

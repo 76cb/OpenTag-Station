@@ -483,6 +483,15 @@ core::Result<UpdateSnapshot> UpdateManager::initialize_from_boot(
         state_.state == UpdateState::ready_to_reboot ||
         state_.state == UpdateState::reboot_pending ||
         candidate_in_progress(state_.state);
+    if (has_record && state_.activation_intent && !state_.activated &&
+        state_.target.present() &&
+        same_partition(state_.running, state_.target) &&
+        same_partition(state_.boot, state_.target)) {
+      // activate() makes the intent durable before it switches the boot
+      // slot; a cut before the follow-up save leaves "activated" unset. The
+      // bootloader running and selecting the target proves the activation.
+      state_.activated = true;
+    }
     if (!has_record || state_.generation == 0U ||
         state_.operation_id == 0U || !candidate_record_state ||
         !state_.target.present() ||
