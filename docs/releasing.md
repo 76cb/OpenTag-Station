@@ -29,9 +29,13 @@ result and sanitized evidence for every item. All boxes below are **pending**.
 
 1. Complete the record above and link evidence in the PR. Do not check boxes based
    on native tests or layout fixture renders.
-2. Change `VERSION` to `1.0.0` only after acceptance. Run
-   `python tools/release_version.py --sync-manifest` and
-   `python tools/export_docs.py --refresh` to refresh derived metadata.
+2. Change the version only with `python tools/bump_version.py <version>` (`1.0.0`
+   only after acceptance). It rewrites `VERSION`, the installer manifest, the
+   documentation snapshot and the candidate line above, and refuses a version
+   that is not greater. Add the changelog and release-note entries yourself.
+   If the change touched a screenshot source (the list is `SOURCES` in
+   `tools/curate_public_images.py`), run `python tools/refresh_public_images.py`;
+   never edit a provenance hash by hand.
 3. Update the changelog from pending to the accepted release date. Review the diff,
    run complete CI, and require approval of the final exact commit.
 4. Merge only after the maintainer authorizes it. This PR update does not authorize merging.
