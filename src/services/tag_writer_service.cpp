@@ -987,8 +987,15 @@ TagWriterService::commit_clear(JsonObjectConst c) {
       *plan_, [&](const char *phase, std::size_t done, std::size_t total) {
         publish(phase, "Keep tag on reader. Do not remove power.", done, total);
       });
-  if (!physical.ok())
+  if (!physical.ok()) {
+    // Refused before any block was written (for example the tag was lifted):
+    // the tag is unchanged, so no recovery is owed and none must be demanded.
+    if (!plan_->attempted &&
+        plan_->journal_state == nfc::WriterPlan::JournalState::none &&
+        journal_->clear())
+      clear_recovery_required_ = false;
     return physical;
+  }
   plan_->cleanup_pending = true;
   unlink_pending_ = true;
   return unlink();
@@ -1395,7 +1402,11 @@ TagWriterService::commit_write(JsonObjectConst c) {
     if (result.ok()) {
       association_pending_ = true;
       result = associate();
-    }
+    } else if (journal_ && !plan_->attempted &&
+               plan_->journal_state == nfc::WriterPlan::JournalState::none)
+      // Refused before any block was written: the tag is unchanged, so the
+      // record saved above must not block other tags.
+      (void)journal_->clear();
   }
 
   return result;

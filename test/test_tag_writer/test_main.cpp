@@ -2182,6 +2182,54 @@ void association_with_missing_extra_fields_patches_nothing() {
   TEST_ASSERT_EQUAL_STRING("complete", f.view["phase"].as<const char *>());
 }
 
+void untouched_write_failure_leaves_no_recovery_record() {
+  JournalServiceFixture f;
+  TEST_ASSERT_TRUE(f.run(R"({"action":"preview","spool_id":12})").ok());
+  f.reader.count = 0; // tag lifted after Confirm, before any block is written
+  TEST_ASSERT_FALSE(f.confirm().ok());
+  TEST_ASSERT_EQUAL(0, f.reader.writes);
+  TEST_ASSERT_FALSE(f.journal.present);
+  TEST_ASSERT_EQUAL_STRING("failed", f.view["phase"].as<const char *>());
+  // Nothing was written, so a different healthy tag is not held hostage.
+  f.reader.count = 1;
+  f.reader.uid.bytes[7] ^= 1;
+  TEST_ASSERT_TRUE(
+      f.run(R"({"action":"catalog","entity":"spool","offset":0})").ok());
+  TEST_ASSERT_EQUAL_STRING("catalog", f.view["phase"].as<const char *>());
+  TEST_ASSERT_TRUE(f.run(R"({"action":"preview","spool_id":12})").ok());
+  TEST_ASSERT_EQUAL_STRING("preview", f.view["phase"].as<const char *>());
+  const auto written = f.confirm();
+  TEST_ASSERT_TRUE_MESSAGE(written.ok(),
+                           written.ok() ? "" : written.error().message.c_str());
+  TEST_ASSERT_GREATER_THAN(0, f.reader.writes);
+  TEST_ASSERT_FALSE(f.journal.present);
+  TEST_ASSERT_EQUAL_STRING("complete", f.view["phase"].as<const char *>());
+}
+void untouched_clear_failure_leaves_no_recovery_lock() {
+  ClearFixture f;
+  f.preview();
+  f.reader.count = 0; // tag lifted after Confirm, before any block is cleared
+  TEST_ASSERT_FALSE(f.confirm().ok());
+  TEST_ASSERT_EQUAL(0, f.reader.writes);
+  TEST_ASSERT_FALSE(f.journal.present);
+  TEST_ASSERT_EQUAL_STRING("failed", f.view["phase"].as<const char *>());
+  TEST_ASSERT_EQUAL(0, f.http.patches);
+  // No Clear / Reuse recovery is owed: browsing and other actions still work.
+  f.reader.count = 1;
+  network::BackendDocument c;
+  c["action"] = "catalog";
+  c["entity"] = "spool";
+  c["offset"] = 0;
+  const auto browsed = f.service->process(c.as<JsonObjectConst>());
+  TEST_ASSERT_TRUE_MESSAGE(browsed.ok(),
+                           browsed.ok() ? "" : browsed.error().message.c_str());
+  TEST_ASSERT_EQUAL_STRING("catalog", f.view["phase"].as<const char *>());
+  f.preview();
+  TEST_ASSERT_TRUE(f.confirm().ok());
+  TEST_ASSERT_FALSE(f.journal.present);
+  TEST_ASSERT_EQUAL_STRING("cleared", f.view["phase"].as<const char *>());
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(verified_association_repairs_stale_cache_after_remote_checks);
@@ -2311,5 +2359,7 @@ int main() {
   RUN_TEST(uid_formatted_queries_and_cross_format_conflicts);
   RUN_TEST(clear_with_missing_extra_fields_patches_nothing);
   RUN_TEST(association_with_missing_extra_fields_patches_nothing);
+  RUN_TEST(untouched_write_failure_leaves_no_recovery_record);
+  RUN_TEST(untouched_clear_failure_leaves_no_recovery_lock);
   return UNITY_END();
 }
