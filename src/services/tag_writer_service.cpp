@@ -787,6 +787,9 @@ TagWriterService::restore_cleanup(const std::string &reason) {
   std::int32_t owner = 0;
   std::uint32_t backend = 0;
   if (!journal_->load(*saved, owner, backend)) return Result::success();
+  // The recovery prompt replaces whatever preview was on screen; none of that
+  // preview is valid any more.
+  view_.clear();
   if (saved->operation != nfc::WriterPlan::Operation::clear) {
     view_["uid"]=saved->uid.hex(); view_["spool_id"]=owner;
     publish("write_recovery",

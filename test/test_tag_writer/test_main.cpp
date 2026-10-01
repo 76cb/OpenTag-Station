@@ -2230,6 +2230,39 @@ void untouched_clear_failure_leaves_no_recovery_lock() {
   TEST_ASSERT_EQUAL_STRING("cleared", f.view["phase"].as<const char *>());
 }
 
+void recovery_snapshot_holds_only_recovery_fields() {
+  JournalServiceFixture f;
+  TEST_ASSERT_TRUE(f.run(R"({"action":"preview","spool_id":12})").ok());
+  TEST_ASSERT_FALSE(f.view["proposed"].isNull());
+  f.reader.fail_write = 2;
+  TEST_ASSERT_FALSE(f.confirm().ok());
+  TEST_ASSERT_EQUAL_STRING("write_recovery", f.view["phase"].as<const char *>());
+  // The interrupted preview must not ride along as if it were still valid.
+  for (const auto *stale :
+       {"proposed", "current", "changed_blocks", "target_checksum",
+        "current_checksum", "generation", "warnings", "spool", "instance_uuid",
+        "semantic_no_change", "repurpose"})
+    TEST_ASSERT_TRUE_MESSAGE(f.view[stale].isNull(), stale);
+  TEST_ASSERT_EQUAL_STRING(f.reader.uid.hex().c_str(),
+                           f.view["uid"].as<const char *>());
+  TEST_ASSERT_EQUAL(12, f.view["spool_id"].as<int>());
+
+  ClearFixture clear;
+  clear.preview();
+  TEST_ASSERT_FALSE(clear.view["changed_blocks"].isNull());
+  clear.reader.fail_write = 5;
+  TEST_ASSERT_FALSE(clear.confirm().ok());
+  TEST_ASSERT_EQUAL_STRING("clear_recovery",
+                           clear.view["phase"].as<const char *>());
+  for (const auto *stale :
+       {"changed_blocks", "target_checksum", "current_checksum", "generation",
+        "material_name", "recovering_interrupted_write"})
+    TEST_ASSERT_TRUE_MESSAGE(clear.view[stale].isNull(), stale);
+  TEST_ASSERT_EQUAL_STRING(clear.reader.uid.hex().c_str(),
+                           clear.view["uid"].as<const char *>());
+  TEST_ASSERT_EQUAL_STRING("clear", clear.view["mode"].as<const char *>());
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(verified_association_repairs_stale_cache_after_remote_checks);
@@ -2361,5 +2394,6 @@ int main() {
   RUN_TEST(association_with_missing_extra_fields_patches_nothing);
   RUN_TEST(untouched_write_failure_leaves_no_recovery_record);
   RUN_TEST(untouched_clear_failure_leaves_no_recovery_lock);
+  RUN_TEST(recovery_snapshot_holds_only_recovery_fields);
   return UNITY_END();
 }
