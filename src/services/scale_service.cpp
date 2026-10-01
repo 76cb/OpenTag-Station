@@ -21,6 +21,13 @@ core::Error unstable(const std::string& message) {
   return {core::ErrorCategory::scale_unstable, message, true};
 }
 
+// A calibration below this is drift or noise, not a reference weight: the
+// load cells this station supports give hundreds of counts per gram.
+constexpr double minimum_calibration_counts_per_gram = 5.0;
+constexpr const char* no_reference_weight_message =
+    "No reference weight detected. Place the reference weight on the "
+    "platform and retry.";
+
 bool capacities_match(float left, float right) {
   return std::fabs(left - right) <= 0.01F;
 }
@@ -383,7 +390,8 @@ void ScaleService::update_runtime_zero(std::uint32_t now_ms) {
 
 core::Result<void> ScaleService::begin_measurement(
     ScaleMeasurementPurpose purpose,
-    std::uint32_t now_ms) {
+    std::uint32_t now_ms,
+    float calibration_reference_grams) {
   if (!status_.adc_ready) {
     return core::Result<void>::failure(
         unavailable("NAU7802 is not initialized"));
@@ -397,6 +405,12 @@ core::Result<void> ScaleService::begin_measurement(
         configuration_error("scale calibration is required before weighing"));
   }
   reset_filter();
+  calibration_session_reference_grams_ =
+      purpose == ScaleMeasurementPurpose::calibration &&
+              std::isfinite(calibration_reference_grams) &&
+              calibration_reference_grams > 0.0F
+          ? calibration_reference_grams
+          : 0.0F;
   status_.measurement_purpose = purpose;
   status_.measurement_state = ScaleMeasurementState::settling;
   status_.measurement_error.reset();
@@ -440,6 +454,10 @@ void ScaleService::advance_measurement(std::uint32_t now_ms) {
       config_.measurement_timeout_ms) {
     const auto error = status_.sample.overload
         ? unstable("Scale overload detected. Remove weight and retry.")
+        : status_.measurement_purpose == ScaleMeasurementPurpose::calibration &&
+                status_.sample.raw_stable &&
+                !calibration_stable_since_ms_.has_value()
+            ? unstable(no_reference_weight_message)
         : status_.sample.raw_stable && status_.sample.gross_grams.has_value() &&
                 *status_.sample.gross_grams <
                     -config_.near_zero_deadband_grams
@@ -471,11 +489,20 @@ void ScaleService::push_sample(std::int32_t raw_counts, std::uint32_t now_ms) {
   const double adc_limit = 8388607.0 * config_.adc_overload_ratio;
   status_.sample.overload = std::fabs(status_.sample.filtered_raw_counts) >= adc_limit;
 
+  // A session that knows its reference also applies the plausibility floor.
+  const double minimum_reference_counts =
+      status_.measurement_purpose == ScaleMeasurementPurpose::calibration &&
+              measurement_active()
+          ? std::max(
+                100.0,
+                minimum_calibration_counts_per_gram *
+                    calibration_session_reference_grams_)
+          : 100.0;
   const bool calibration_candidate = pending_zero_offset_counts_.has_value() &&
       status_.sample.raw_stable && !status_.sample.overload &&
       std::fabs(
           status_.sample.filtered_raw_counts -
-          *pending_zero_offset_counts_) >= 100.0;
+          *pending_zero_offset_counts_) >= minimum_reference_counts;
   if (!calibration_candidate) {
     calibration_stable_since_ms_.reset();
     status_.calibration_reference_settled = false;
@@ -636,6 +663,10 @@ core::Result<ScaleCalibration> ScaleService::calibrate(
   if (std::fabs(delta) < 100.0) {
     return fail(configuration_error(
         "calibration reference produced too few ADC counts"));
+  }
+  if (std::fabs(delta) / reference_grams <
+      minimum_calibration_counts_per_gram) {
+    return fail(unstable(no_reference_weight_message));
   }
   ScaleCalibration proposed;
   proposed.zero_offset_counts = *pending_zero_offset_counts_;

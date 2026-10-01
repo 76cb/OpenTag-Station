@@ -148,9 +148,13 @@ class ScaleService {
   [[nodiscard]] core::Result<void> reconfigure_hardware(
       const ScaleHardwareSettings& settings);
   [[nodiscard]] core::Result<bool> poll(std::uint32_t now_ms);
+  // calibration_reference_grams: the reference a calibration session waits
+  // for, when the caller already knows it; 0 leaves the plateau check on
+  // ADC counts alone.
   [[nodiscard]] core::Result<void> begin_measurement(
       ScaleMeasurementPurpose purpose,
-      std::uint32_t now_ms);
+      std::uint32_t now_ms,
+      float calibration_reference_grams = 0.0F);
   [[nodiscard]] core::Result<void> tare();
   [[nodiscard]] core::Result<ScaleCalibration> calibrate(
       float reference_grams,
@@ -201,6 +205,7 @@ class ScaleService {
   std::optional<float> stable_baseline_grams_;
   std::optional<std::uint32_t> runtime_zero_candidate_since_ms_;
   std::optional<std::uint32_t> calibration_stable_since_ms_;
+  float calibration_session_reference_grams_{0.0F};
   std::int32_t runtime_zero_correction_counts_{0};
   std::optional<std::uint32_t> measurement_started_ms_;
 };

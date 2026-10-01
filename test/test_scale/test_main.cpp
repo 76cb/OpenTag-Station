@@ -1080,6 +1080,147 @@ void test_reconfiguring_hardware_without_a_measurement_stays_idle() {
   TEST_ASSERT_FALSE(service.status().measurement_error.has_value());
 }
 
+namespace {
+
+constexpr const char* no_reference_message =
+    "No reference weight detected. Place the reference weight on the "
+    "platform and retry.";
+
+// Tares a fresh, uncalibrated service at 132000 counts.
+void tare_at_physical_zero(ScaleService& service, FakeAdc& adc) {
+  ScaleHardwareSettings hardware;
+  TEST_ASSERT_TRUE(service.configure_hardware(hardware).ok());
+  TEST_ASSERT_TRUE(service.initialize(0U, 1000U).ok());
+  TEST_ASSERT_TRUE(service.begin_measurement(
+      ScaleMeasurementPurpose::tare, 0U).ok());
+  for (std::uint32_t index = 0U; index < 10U; ++index) {
+    sample(service, adc, 132000, (index + 1U) * 100U);
+  }
+  TEST_ASSERT_TRUE(service.tare().ok());
+}
+
+// Holds a raw value long enough to refill the filter and settle a plateau.
+void settle_plateau(
+    ScaleService& service, FakeAdc& adc, std::int32_t raw,
+    std::uint32_t start_ms) {
+  for (std::uint32_t at_ms = start_ms; at_ms <= start_ms + 5500U;
+       at_ms += 100U) {
+    sample(service, adc, raw, at_ms);
+  }
+  TEST_ASSERT_TRUE(service.status().calibration_reference_settled);
+}
+
+ScaleProcessingConfig calibration_session_config() {
+  auto config = measurement_config();
+  config.measurement_timeout_ms = 8000U;
+  return config;
+}
+
+}  // namespace
+
+void test_calibration_rejects_drift_mistaken_for_a_reference_weight() {
+  FakeAdc adc;
+  FakeStore store;
+  ScaleService service(adc, store, calibration_session_config());
+  tare_at_physical_zero(service, adc);
+  const auto saves_after_tare = store.save_calls;
+
+  // 150 counts of drift with nothing on the platform: 0.13 counts per gram
+  // for the 1115 g reference the user was asked to place.
+  settle_plateau(service, adc, 132150, 1100U);
+  const auto drift = service.calibrate(1115.0F, 5000.0F);
+  TEST_ASSERT_FALSE(drift.ok());
+  TEST_ASSERT_EQUAL_STRING(no_reference_message, drift.error().message.c_str());
+  TEST_ASSERT_FALSE(service.calibration().has_value());
+  TEST_ASSERT_FALSE(service.status().calibration_loaded);
+  TEST_ASSERT_FALSE(store.stored.has_value());
+  TEST_ASSERT_EQUAL_UINT(saves_after_tare, store.save_calls);
+
+  // Just below five counts per gram is still refused; five is accepted.
+  settle_plateau(service, adc, 132000 + 5574, 7000U);
+  TEST_ASSERT_FALSE(service.calibrate(1115.0F, 5000.0F).ok());
+  TEST_ASSERT_EQUAL_UINT(saves_after_tare, store.save_calls);
+  settle_plateau(service, adc, 132000 + 5575, 13000U);
+  const auto accepted = service.calibrate(1115.0F, 5000.0F);
+  TEST_ASSERT_TRUE_MESSAGE(
+      accepted.ok(), accepted.ok() ? "" : accepted.error().message.c_str());
+  TEST_ASSERT_EQUAL_UINT(saves_after_tare + 1U, store.save_calls);
+}
+
+void test_calibration_session_ignores_drift_below_the_reference_floor() {
+  FakeAdc adc;
+  FakeStore store;
+  ScaleService service(adc, store, calibration_session_config());
+  tare_at_physical_zero(service, adc);
+  const auto saves_after_tare = store.save_calls;
+
+  TEST_ASSERT_TRUE(service.begin_measurement(
+      ScaleMeasurementPurpose::calibration, 1100U, 1115.0F).ok());
+  for (std::uint32_t at_ms = 1200U; at_ms <= 9000U; at_ms += 100U) {
+    sample(service, adc, 132150, at_ms);
+    TEST_ASSERT_FALSE(service.status().calibration_reference_settled);
+    TEST_ASSERT_NOT_EQUAL(
+        static_cast<int>(ScaleMeasurementState::ready),
+        static_cast<int>(service.status().measurement_state));
+  }
+  sample(service, adc, 132150, 9200U);
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(ScaleMeasurementState::timed_out),
+      static_cast<int>(service.status().measurement_state));
+  TEST_ASSERT_TRUE(service.status().measurement_error.has_value());
+  TEST_ASSERT_EQUAL_STRING(
+      no_reference_message,
+      service.status().measurement_error->message.c_str());
+  TEST_ASSERT_EQUAL_UINT(saves_after_tare, store.save_calls);
+
+  // A real reference in a new session still settles and calibrates.
+  TEST_ASSERT_TRUE(service.begin_measurement(
+      ScaleMeasurementPurpose::calibration, 10000U, 1115.0F).ok());
+  for (std::uint32_t at_ms = 10100U; at_ms <= 15000U; at_ms += 100U) {
+    sample(service, adc, 621200, at_ms);
+  }
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(ScaleMeasurementState::ready),
+      static_cast<int>(service.status().measurement_state));
+  TEST_ASSERT_TRUE(service.calibrate(1115.0F, 5000.0F).ok());
+}
+
+void test_calibration_timeout_on_a_still_platform_asks_for_the_reference() {
+  FakeAdc adc;
+  FakeStore store;
+  ScaleService service(adc, store, calibration_session_config());
+  tare_at_physical_zero(service, adc);
+
+  TEST_ASSERT_TRUE(service.begin_measurement(
+      ScaleMeasurementPurpose::calibration, 1100U).ok());
+  for (std::uint32_t at_ms = 1200U; at_ms <= 9200U; at_ms += 100U) {
+    sample(service, adc, 132000, at_ms);
+  }
+  TEST_ASSERT_TRUE(service.status().sample.raw_stable);
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(ScaleMeasurementState::timed_out),
+      static_cast<int>(service.status().measurement_state));
+  TEST_ASSERT_EQUAL_STRING(
+      no_reference_message,
+      service.status().measurement_error->message.c_str());
+
+  // A platform that really is moving keeps the existing message.
+  TEST_ASSERT_TRUE(service.begin_measurement(
+      ScaleMeasurementPurpose::calibration, 10000U).ok());
+  for (std::uint32_t index = 0U; index <= 82U; ++index) {
+    sample(service, adc,
+           132000 + static_cast<std::int32_t>(index % 2U) * 40000,
+           10100U + index * 100U);
+  }
+  TEST_ASSERT_FALSE(service.status().sample.raw_stable);
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(ScaleMeasurementState::timed_out),
+      static_cast<int>(service.status().measurement_state));
+  TEST_ASSERT_EQUAL_STRING(
+      "Scale is still moving. Leave the spool still and retry.",
+      service.status().measurement_error->message.c_str());
+}
+
 int main(int, char**) {
   UNITY_BEGIN();
   RUN_TEST(test_i2c_scan_result_is_bounded_and_tracks_target);
@@ -1117,5 +1258,8 @@ int main(int, char**) {
   RUN_TEST(test_calibration_waits_for_stable_reference_plateau);
   RUN_TEST(test_reconfiguring_hardware_fails_the_active_measurement_terminally);
   RUN_TEST(test_reconfiguring_hardware_without_a_measurement_stays_idle);
+  RUN_TEST(test_calibration_rejects_drift_mistaken_for_a_reference_weight);
+  RUN_TEST(test_calibration_session_ignores_drift_below_the_reference_floor);
+  RUN_TEST(test_calibration_timeout_on_a_still_platform_asks_for_the_reference);
   return UNITY_END();
 }

@@ -159,7 +159,9 @@ void ScaleCommandQueue::process_one(std::uint32_t now_ms) {
       : command.type == CommandType::tare
           ? services::ScaleMeasurementPurpose::tare
           : services::ScaleMeasurementPurpose::calibration;
-  const auto started = scale_.begin_measurement(purpose, now_ms);
+  // Only a calibration command carries a reference weight; it is 0 otherwise.
+  const auto started =
+      scale_.begin_measurement(purpose, now_ms, command.reference_grams);
   if (!started.ok()) {
     operations_.fail(command.operation_id, now_ms, started.error());
     return;
