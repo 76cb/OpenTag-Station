@@ -314,6 +314,32 @@ void test_conflicting_profile_alias_is_rejected() {
   TEST_ASSERT_TRUE(current.configuration.scale_calibration.has_value());
 }
 
+void test_spoolman_field_key_patch_reports_the_key_rule() {
+  const auto current = configured_snapshot();
+  auto patch = patch_for(current);
+  opentag::web::api::SpoolmanPatch spoolman;
+  spoolman.identity_field = "tag_uid";
+  spoolman.nfc_uid_field = "tag_uid";
+  patch.spoolman = spoolman;
+
+  auto applied = apply_configuration_patch(current, patch);
+  TEST_ASSERT_FALSE(applied.ok());
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(ErrorCategory::configuration),
+      static_cast<int>(applied.error().category));
+  TEST_ASSERT_EQUAL_STRING(
+      "Spoolman field keys must differ and use only a-z, 0-9 and _",
+      applied.error().message.c_str());
+
+  spoolman.identity_field = "Station UUID";
+  patch.spoolman = spoolman;
+  applied = apply_configuration_patch(current, patch);
+  TEST_ASSERT_FALSE(applied.ok());
+  TEST_ASSERT_EQUAL_STRING(
+      "Spoolman field keys must differ and use only a-z, 0-9 and _",
+      applied.error().message.c_str());
+}
+
 int main(int, char**) {
   UNITY_BEGIN();
   RUN_TEST(test_omitted_credentials_and_unrelated_values_are_preserved);
@@ -324,5 +350,6 @@ int main(int, char**) {
   RUN_TEST(test_profile_identity_or_capacity_change_clears_calibration_only_then);
   RUN_TEST(test_all_typed_nonsecret_sections_are_applied);
   RUN_TEST(test_conflicting_profile_alias_is_rejected);
+  RUN_TEST(test_spoolman_field_key_patch_reports_the_key_rule);
   return UNITY_END();
 }

@@ -1147,6 +1147,38 @@ void test_unreadable_document_is_not_reported_as_newer_firmware() {
   TEST_ASSERT_EQUAL_UINT(1U, documents.save_count);
 }
 
+void test_spoolman_field_keys_must_differ_and_match_spoolman_key_rules() {
+  Configuration defaults;
+  TEST_ASSERT_TRUE(defaults.validate().ok());
+
+  Configuration same;
+  same.spoolman.identity_field = "nfc_uid";
+  same.spoolman.nfc_uid_field = "nfc_uid";
+  const auto same_result = same.validate();
+  TEST_ASSERT_FALSE(same_result.ok());
+  TEST_ASSERT_EQUAL_STRING(
+      "Spoolman field keys must differ and use only a-z, 0-9 and _",
+      same_result.error().message.c_str());
+
+  for (const char* invalid :
+       {"Station_UUID", "tag uid", "tag-uid", "a&b=1", "uid/..", "uid.x",
+        "uid#", "\xC3\xA9tiquette"}) {
+    Configuration identity;
+    identity.spoolman.identity_field = invalid;
+    TEST_ASSERT_FALSE_MESSAGE(identity.validate().ok(), invalid);
+    Configuration uid;
+    uid.spoolman.nfc_uid_field = invalid;
+    TEST_ASSERT_FALSE_MESSAGE(uid.validate().ok(), invalid);
+  }
+
+  Configuration longest;
+  longest.spoolman.identity_field = std::string(64U, 'a');
+  longest.spoolman.nfc_uid_field = "tag_uid_2";
+  TEST_ASSERT_TRUE(longest.validate().ok());
+  longest.spoolman.identity_field.push_back('a');
+  TEST_ASSERT_FALSE(longest.validate().ok());
+}
+
 int main(int, char**) {
   UNITY_BEGIN();
   RUN_TEST(test_clear_mapping_preserves_unrelated_and_persists);
@@ -1191,5 +1223,6 @@ int main(int, char**) {
   RUN_TEST(test_newer_schema_document_is_never_overwritten_by_older_firmware);
   RUN_TEST(test_newer_schema_backup_is_not_overwritten_when_primary_is_missing);
   RUN_TEST(test_unreadable_document_is_not_reported_as_newer_firmware);
+  RUN_TEST(test_spoolman_field_keys_must_differ_and_match_spoolman_key_rules);
   return UNITY_END();
 }

@@ -59,6 +59,15 @@ bool valid_web_access_token(const std::string& value) {
   });
 }
 
+// Spoolman accepts extra-field keys matching ^[a-z0-9_]+$, at most 64 bytes.
+bool valid_spoolman_field_key(const std::string& value) {
+  return !value.empty() && value.size() <= 64U &&
+      std::all_of(value.begin(), value.end(), [](char character) {
+        return (character >= 'a' && character <= 'z') ||
+            (character >= '0' && character <= '9') || character == '_';
+      });
+}
+
 bool valid_url(const std::string& value) {
   if (value.empty()) return true;
   if (value.size() > 256U || value.find('@') != std::string::npos ||
@@ -554,6 +563,12 @@ core::Result<void> Configuration::validate() const {
       filabridge.selected_printer_id.size() > 128U) {
     return core::Result<void>::failure(
         configuration_error("backend settings are invalid"));
+  }
+  if (!valid_spoolman_field_key(spoolman.identity_field) ||
+      !valid_spoolman_field_key(spoolman.nfc_uid_field) ||
+      spoolman.identity_field == spoolman.nfc_uid_field) {
+    return core::Result<void>::failure(configuration_error(
+        "Spoolman field keys must differ and use only a-z, 0-9 and _"));
   }
   if (!valid_web_access_token(web.access_token)) {
     return core::Result<void>::failure(
