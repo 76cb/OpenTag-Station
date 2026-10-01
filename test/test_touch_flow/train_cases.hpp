@@ -60,4 +60,26 @@ inline void recovery_prompt_survives_leaving_and_failed_retries() {
   f.leave_page();TEST_ASSERT_FALSE(shows(f.screen(),TagAction::retry));TEST_ASSERT_FALSE(shows(f.screen(),TagAction::skip));
 }
 
+// UI-5: lifting a tag off and setting a different one down restarts the flow
+// exactly as swapping them between two reads does. The same tag coming back,
+// or the reader merely being empty, does not.
+inline void different_tag_after_removal_restarts_the_flow() {
+  const auto started=[](TagFlow& f) {
+    f.observe_tag("E004000000000001",nullptr);f.lifecycle=services::TagLifecycle::linked;f.current_spool=5;
+    f.act(TagAction::sources);TEST_ASSERT_TRUE(f.page==TagPage::sources);TEST_ASSERT_EQUAL(5,f.from_spool);
+  };
+  TagFlow swapped;started(swapped);swapped.observe_tag("E004000000000002",nullptr);
+  TEST_ASSERT_TRUE(swapped.page==TagPage::tag);TEST_ASSERT_EQUAL(0,swapped.from_spool);
+  TagFlow f;started(f);
+  f.observe_tag("",nullptr);TEST_ASSERT_TRUE(f.page==TagPage::sources);TEST_ASSERT_EQUAL(5,f.from_spool);
+  f.observe_tag("E004000000000001",nullptr);TEST_ASSERT_TRUE(f.page==TagPage::sources);TEST_ASSERT_EQUAL(5,f.from_spool);
+  f.observe_tag("",nullptr);f.observe_tag("E004000000000002",nullptr);
+  TEST_ASSERT_TRUE(f.page==swapped.page);TEST_ASSERT_EQUAL(swapped.from_spool,f.from_spool);
+  TEST_ASSERT_EQUAL_STRING(swapped.phase.c_str(),f.phase.c_str());TEST_ASSERT_TRUE(f.selected.isNull());
+  TEST_ASSERT_EQUAL_STRING("E004000000000002",f.uid.c_str());
+  // A request in flight is still never interrupted by the reader.
+  TagFlow busy;started(busy);busy.begin_wait(3,0);busy.observe_tag("",nullptr);busy.observe_tag("E004000000000002",nullptr);
+  TEST_ASSERT_TRUE(busy.page==TagPage::progress);TEST_ASSERT_EQUAL(5,busy.from_spool);
+}
+
 }  // namespace train

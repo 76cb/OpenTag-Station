@@ -63,6 +63,8 @@ class TagFlow {
   std::string working;
   // Why the reader rejected the tag now on it; shown for an unsupported tag.
   std::string tag_error;
+  // The tag most recently on the reader; survives the reader being empty.
+  std::string last_uid;
   // The unfinished write, clear or Spoolman link the writer last reported.
   // Kept until the writer reports it finished, cleared or skipped, so the
   // prompt returns after DONE, a failed retry or BACK from its review.
@@ -121,12 +123,13 @@ class TagFlow {
   void abandon_wait() {waiting=false;operation=0;stalled=false;}
   // Leaving the tag workspace for the home, weigh or printer page.
   void leave_page() {page=TagPage::tag;phase.clear();stalled=false;resume_recovery();}
-  // The reader's current tag: a different tag restarts the flow.
+  // The reader's current tag: a different tag restarts the flow, whether it
+  // replaced the previous one between two reads or after an empty reader.
   void observe_tag(const std::string& incoming_uid,const std::string* error_message) {
-    if(!waiting&&!incoming_uid.empty()&&!uid.empty()&&incoming_uid!=uid&&!recovery_phase(phase)) {
+    if(!waiting&&!incoming_uid.empty()&&!last_uid.empty()&&incoming_uid!=last_uid&&!recovery_phase(phase)) {
       page=TagPage::tag;phase.clear();selected.clear();from_spool=0;resume_recovery();
     }
-    uid=incoming_uid;
+    uid=incoming_uid;if(!incoming_uid.empty())last_uid=incoming_uid;
     // Kept apart from message: that may hold recovery instructions.
     if(error_message)tag_error=*error_message;else tag_error.clear();
   }
