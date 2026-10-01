@@ -2855,3 +2855,14 @@ test('uncertain mutation is still blocked inside the TTL', async () => {
     !/idempotency key/i.test(error.message) && !error.message.includes(firstKey));
   assert.equal(app.fetchCalls.length, 1, 'the identical mutation must not be replayed inside the TTL');
 });
+
+test('clear-open is labelled by one renderer for pending cleanup and for a fresh clear', () => {
+  const a = loadApplication();
+  const label = () => nodeText(a.document.getElementById('clear-open'));
+  a.T.renderClear({ phase: 'unlink_pending', cleanup_stage: 'local_identity', message: 'Local persistence failed' });
+  assert.equal(label(), 'Retry cleanup');
+  a.T.renderClear({ phase: 'clear_preview' });
+  assert.equal(label(), 'Clear / Reuse');
+  a.T.renderCurrentSpool();
+  assert.equal(label(), 'Clear / Reuse');
+});
