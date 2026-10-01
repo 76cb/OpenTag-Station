@@ -251,6 +251,68 @@ void test_stale_assignment_confirmation_aborts_before_mutation() {
       std::string::npos, result.error().message.find("stale"));
 }
 
+namespace {
+
+// Accepts the mapping change but cannot be read back afterwards.
+class UnverifiableBackend final : public IPrinterAssignmentService {
+ public:
+  std::vector<Printer> current_printers{printer(PrinterState::idle)};
+  int assign_calls{0};
+  int unassign_calls{0};
+
+  Result<std::vector<Printer>> list_printers() override {
+    return Result<std::vector<Printer>>::success(current_printers);
+  }
+  Result<std::vector<Toolhead>> get_toolheads(const std::string&) override {
+    return Result<std::vector<Toolhead>>::failure(
+        {ErrorCategory::network, "FilaBridge unreachable", true});
+  }
+  Result<void> assign_spool(const std::string&, int, SpoolId) override {
+    ++assign_calls;
+    return Result<void>::success();
+  }
+  Result<void> unassign_spool(const std::string&, int) override {
+    ++unassign_calls;
+    return Result<void>::success();
+  }
+  BackendCapabilities capabilities() const override { return {}; }
+};
+
+}  // namespace
+
+void test_failed_readback_says_the_change_was_sent_but_not_verified() {
+  UnverifiableBackend backend;
+  ToolheadAssignmentService service(backend);
+
+  const auto assigned = service.assign(request());
+  TEST_ASSERT_FALSE(assigned.ok());
+  TEST_ASSERT_EQUAL_INT(1, backend.assign_calls);
+  TEST_ASSERT_EQUAL_STRING(
+      "Sent to FilaBridge but could not be verified (FilaBridge unreachable). "
+      "Refresh printers before retrying.",
+      assigned.error().message.c_str());
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(ErrorCategory::network),
+      static_cast<int>(assigned.error().category));
+  TEST_ASSERT_TRUE(assigned.error().retryable);
+
+  backend.current_printers = {printer(PrinterState::idle, 147)};
+  UnassignmentRequest unassignment;
+  unassignment.printer_id = "xl-stable-id";
+  unassignment.backend_toolhead_id = 2;
+  const auto unassigned = service.unassign(unassignment);
+  TEST_ASSERT_FALSE(unassigned.ok());
+  TEST_ASSERT_EQUAL_INT(1, backend.unassign_calls);
+  TEST_ASSERT_EQUAL_STRING(
+      "Sent to FilaBridge but could not be verified (FilaBridge unreachable). "
+      "Refresh printers before retrying.",
+      unassigned.error().message.c_str());
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(ErrorCategory::network),
+      static_cast<int>(unassigned.error().category));
+  TEST_ASSERT_TRUE(unassigned.error().retryable);
+}
+
 int main(int, char**) {
   UNITY_BEGIN();
   RUN_TEST(test_occupied_toolhead_requires_explicit_replacement_confirmation);
@@ -262,5 +324,6 @@ int main(int, char**) {
   RUN_TEST(test_unassignment_is_re_read_and_verified_empty);
   RUN_TEST(test_missing_stable_printer_id_aborts_before_mutation);
   RUN_TEST(test_stale_assignment_confirmation_aborts_before_mutation);
+  RUN_TEST(test_failed_readback_says_the_change_was_sent_but_not_verified);
   return UNITY_END();
 }

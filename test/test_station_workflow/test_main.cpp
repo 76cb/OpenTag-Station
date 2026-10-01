@@ -602,6 +602,45 @@ void test_readback_preserves_default_five_and_twenty_gram_tolerances() {
   TEST_ASSERT_EQUAL_FLOAT(20, defaults.warning_grams);
   assert_readback_tolerances(defaults);
 }
+void test_verified_mapping_updates_the_printer_cache_after_tag_removal() {
+  FakeResolver resolver;
+  resolver.next = Result<SpoolResolution>::success({
+      SpoolResolutionStatus::matched, SpoolMatchSource::configured_identity_field,
+      {spool()}});
+  FakePrinterBackend printers;
+  StationWorkflow workflow(resolver, printers);
+  (void)workflow.accept_identified_spool(material(), Uid{}, {900, true}, {}, {});
+  (void)workflow.refresh_printers();
+  const auto revision_before = workflow.snapshot().printer_revision;
+  printers.during_mapping = [&] { workflow.clear(); };
+  const auto assigned = workflow.assign("xl-stable-id", 2, false, false, {});
+  TEST_ASSERT_TRUE(assigned.ok());
+  TEST_ASSERT_TRUE(assigned.value().verified());
+
+  // FilaBridge now maps the toolhead; the cached printer must say so even
+  // though the tag left the station while the request was in flight.
+  auto snapshot = workflow.snapshot();
+  TEST_ASSERT_EQUAL_UINT(1U, snapshot.printers.size());
+  TEST_ASSERT_TRUE(snapshot.printers[0].toolheads[2].assigned_spool.has_value());
+  TEST_ASSERT_EQUAL_INT(147, *snapshot.printers[0].toolheads[2].assigned_spool);
+  TEST_ASSERT_TRUE(snapshot.printer_revision != revision_before);
+  // The removed tag's own result is still not applied.
+  TEST_ASSERT_FALSE(snapshot.last_assignment.has_value());
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(WorkflowStage::awaiting_spool),
+      static_cast<int>(snapshot.stage));
+
+  (void)workflow.accept_identified_spool(material(), Uid{}, {900, true}, {}, {});
+  const auto revision_assigned = workflow.snapshot().printer_revision;
+  printers.during_mapping = [&] { workflow.clear(); };
+  const auto unassigned = workflow.unassign("xl-stable-id", 2, false);
+  TEST_ASSERT_TRUE(unassigned.ok());
+  TEST_ASSERT_TRUE(unassigned.value().verified());
+  snapshot = workflow.snapshot();
+  TEST_ASSERT_FALSE(snapshot.printers[0].toolheads[2].assigned_spool.has_value());
+  TEST_ASSERT_TRUE(snapshot.printer_revision != revision_assigned);
+  TEST_ASSERT_FALSE(snapshot.last_assignment.has_value());
+}
+
 int main(int, char**) {
   UNITY_BEGIN();
   RUN_TEST(test_readback_preserves_custom_two_and_ten_gram_tolerances);
@@ -621,5 +660,6 @@ int main(int, char**) {
   RUN_TEST(test_nfc_handoff_waits_submits_once_and_clears);
   RUN_TEST(test_removed_tag_rejects_queued_and_inflight_resolution);
   RUN_TEST(test_mapping_completion_does_not_restore_removed_or_replaced_tag);
+  RUN_TEST(test_verified_mapping_updates_the_printer_cache_after_tag_removal);
   return UNITY_END();
 }
