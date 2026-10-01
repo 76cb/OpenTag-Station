@@ -745,11 +745,21 @@ core::Result<void> ConfigurationService::initialize() {
 
   if (primary_missing && !load_error.has_value()) {
     const auto legacy = legacy_scale_store_.load_scale_calibration();
+    std::optional<core::Error> legacy_rejected;
     if (legacy.ok()) {
+      const auto default_scale_hardware = configuration_.scale_hardware;
       configuration_.scale_calibration = legacy.value();
       if (legacy.value().has_value()) {
         configuration_.scale_hardware.rated_capacity_grams =
             legacy.value()->load_cell_capacity_grams;
+      }
+      const auto adopted = configuration_.validate();
+      if (!adopted.ok()) {
+        // An unusable legacy calibration must not block startup: run on the
+        // default scale profile and ask for a new calibration instead.
+        configuration_.scale_calibration.reset();
+        configuration_.scale_hardware = default_scale_hardware;
+        legacy_rejected = adopted.error();
       }
     } else {
       status_.last_error = legacy.error();
@@ -759,6 +769,7 @@ core::Result<void> ConfigurationService::initialize() {
     status_.loaded_schema = Configuration::current_schema;
     const auto saved = persist_locked(configuration_, false);
     if (!saved.ok()) return saved;
+    if (legacy_rejected.has_value()) status_.last_error = legacy_rejected;
     ++revision_;
     return core::Result<void>::success();
   }

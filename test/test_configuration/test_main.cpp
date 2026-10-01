@@ -1259,6 +1259,34 @@ void test_full_mapping_store_evicts_the_oldest_verified_mapping() {
       65, reloaded.snapshot().spool_identity_mappings.back().spool_id);
 }
 
+void test_unsupported_legacy_scale_calibration_does_not_block_startup() {
+  MemoryDocumentStore documents;
+  LegacyScaleStore legacy;
+  legacy.calibration = valid_scale(10000.0F);
+  ConfigurationService service(documents, legacy);
+  const Configuration defaults;
+
+  const auto initialized = service.initialize();
+  TEST_ASSERT_TRUE_MESSAGE(
+      initialized.ok(),
+      initialized.ok() ? "" : initialized.error().message.c_str());
+  const auto status = service.status();
+  TEST_ASSERT_TRUE(status.initialized);
+  TEST_ASSERT_TRUE(status.persistence_available);
+  TEST_ASSERT_TRUE(status.last_error.has_value());
+  TEST_ASSERT_FALSE(service.snapshot().scale_calibration.has_value());
+  TEST_ASSERT_FLOAT_WITHIN(
+      0.01F, defaults.scale_hardware.rated_capacity_grams,
+      service.snapshot().scale_hardware.rated_capacity_grams);
+  TEST_ASSERT_TRUE(service.snapshot().validate().ok());
+  TEST_ASSERT_EQUAL_UINT(1U, documents.save_count);
+
+  // The stored document is usable: the next boot loads it normally.
+  ConfigurationService restarted(documents, legacy);
+  TEST_ASSERT_TRUE(restarted.initialize().ok());
+  TEST_ASSERT_FALSE(restarted.snapshot().scale_calibration.has_value());
+}
+
 int main(int, char**) {
   UNITY_BEGIN();
   RUN_TEST(test_clear_mapping_preserves_unrelated_and_persists);
@@ -1306,5 +1334,6 @@ int main(int, char**) {
   RUN_TEST(test_spoolman_field_keys_must_differ_and_match_spoolman_key_rules);
   RUN_TEST(test_backend_tokens_reject_control_characters);
   RUN_TEST(test_full_mapping_store_evicts_the_oldest_verified_mapping);
+  RUN_TEST(test_unsupported_legacy_scale_calibration_does_not_block_startup);
   return UNITY_END();
 }
