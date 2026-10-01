@@ -1221,7 +1221,8 @@ Result TagWriterService::prepare(JsonObjectConst c) {
     return fail("Canonical spool ID mismatch");
   uuid_ = scalar(spool.value()["extra"][identity_key_]);
   if (uuid_.empty() && plan_->current.material.instance_uuid &&
-      scalar(spool.value()["extra"][uid_key_]) == plan_->uid.hex())
+      normalized_uid(scalar(spool.value()["extra"][uid_key_])) ==
+          plan_->uid.hex())
     uuid_ = nfc::openprinttag::instance_uuid_text(
         *plan_->current.material.instance_uuid);
   if (uuid_.empty()) {

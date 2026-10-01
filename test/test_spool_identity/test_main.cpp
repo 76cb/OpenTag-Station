@@ -376,6 +376,28 @@ void test_cached_nfc_uid_still_matches_same_or_unset_spool_uid() {
                               stored.has_value() ? stored->c_str() : "(unset)");
   }
 }
+void test_nfc_uid_owner_with_same_instance_in_other_letter_case_matches() {
+  // Spoolman holds the same UUID in upper case: the instance lookup (exact
+  // spelling) misses, the UID lookup finds the spool. It is the same spool.
+  FakeInventory inventory;
+  MemoryMappings mappings;
+  inventory.find_results.push_back(spool_result({}));
+  auto owner = spool(9);
+  owner.openprinttag_instance_uuid = "AABBCCDD-0011-4233-8455-66778899AABB";
+  inventory.find_results.push_back(spool_result({owner}));
+  SpoolIdentityResolver resolver(inventory, mappings, settings());
+  SpoolIdentity identity;
+  identity.instance_uuid = "aabbccdd-0011-4233-8455-66778899aabb";
+  identity.nfc_uid = "E004010203040506";
+  const auto result = resolver.resolve(identity);
+  TEST_ASSERT_TRUE(result.ok());
+  TEST_ASSERT_EQUAL(static_cast<int>(SpoolResolutionStatus::matched),
+                    static_cast<int>(result.value().status));
+  TEST_ASSERT_EQUAL_UINT(2U, inventory.filters.size());
+  TEST_ASSERT_NOT_NULL(result.value().match());
+  TEST_ASSERT_EQUAL_INT32(9, result.value().match()->id);
+}
+
 int main(int, char**) {
   UNITY_BEGIN();
   RUN_TEST(test_empty_metadata_never_selects_arbitrary_inventory);
@@ -391,5 +413,6 @@ int main(int, char**) {
   RUN_TEST(test_openprinttag_uuid_and_nfc_uid_are_normalized);
   RUN_TEST(test_cached_nfc_uid_for_spool_linked_to_another_tag_is_a_conflict);
   RUN_TEST(test_cached_nfc_uid_still_matches_same_or_unset_spool_uid);
+  RUN_TEST(test_nfc_uid_owner_with_same_instance_in_other_letter_case_matches);
   return UNITY_END();
 }

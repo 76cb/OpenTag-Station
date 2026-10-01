@@ -982,6 +982,27 @@ void partial_recovery_requires_known_blocks() {
   f.reader.bytes[200] = 0x73;
   TEST_ASSERT_FALSE(f.writer.read(next, &f.plan).ok());
 }
+void stored_uid_spelling_does_not_turn_same_tag_into_repurpose() {
+  // The spool is linked to this tag by NFC UID only (no identity yet) and an
+  // external client stored the UID in its own spelling.
+  for (const char *spelling : {"E00401086627D8D4", "e00401086627d8d4",
+                               "e0:04:01:08:66:27:d8:d4",
+                               "E0-04-01-08-66-27-D8-D4"}) {
+    ServiceFixture f;
+    Fixture source;
+    source.prepare();
+    f.reader.bytes = source.plan.target;
+    TEST_ASSERT_EQUAL_STRING("E00401086627D8D4", f.reader.uid.hex().c_str());
+    f.http.spool["extra"]["nfc_uid"] = "\"" + std::string(spelling) + "\"";
+    TEST_ASSERT_TRUE_MESSAGE(
+        f.run(R"({"action":"preview","spool_id":12})").ok(), spelling);
+    TEST_ASSERT_EQUAL_STRING_MESSAGE(
+        nfc::openprinttag::instance_uuid_text(uuid).c_str(),
+        f.view["instance_uuid"].as<const char *>(), spelling);
+    TEST_ASSERT_FALSE_MESSAGE(f.view["repurpose"].as<bool>(), spelling);
+    TEST_ASSERT_EQUAL_MESSAGE(0, f.view["changed_blocks"].size(), spelling);
+  }
+}
 void diameter_current_key_and_legacy_compatibility() {
   Fixture f;
   f.prepare();
@@ -2503,6 +2524,7 @@ int main() {
   RUN_TEST(untouched_clear_failure_leaves_no_recovery_lock);
   RUN_TEST(recovery_snapshot_holds_only_recovery_fields);
   RUN_TEST(pending_clear_with_changed_spoolman_settings_can_be_skipped);
+  RUN_TEST(stored_uid_spelling_does_not_turn_same_tag_into_repurpose);
   RUN_TEST(pending_write_with_changed_spoolman_settings_stays_skippable);
   return UNITY_END();
 }

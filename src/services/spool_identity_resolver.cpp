@@ -243,7 +243,8 @@ core::Result<SpoolResolution> SpoolIdentityResolver::resolve(
     if (result.ok() && result.value().status == SpoolResolutionStatus::matched &&
         identity.instance_uuid.has_value() && result.value().match() != nullptr &&
         result.value().match()->openprinttag_instance_uuid.has_value() &&
-        *result.value().match()->openprinttag_instance_uuid != *identity.instance_uuid) {
+        !equal_text(*result.value().match()->openprinttag_instance_uuid,
+                    *identity.instance_uuid)) {
       return core::Result<SpoolResolution>::success(resolved(
           SpoolResolutionStatus::conflict, SpoolMatchSource::nfc_uid,
           std::move(result.value().candidates)));
