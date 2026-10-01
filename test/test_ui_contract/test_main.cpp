@@ -289,6 +289,29 @@ void test_printer_dialogs_do_not_prefix_the_toolhead_name() {
   TEST_ASSERT_TRUE(source.find("\"This printer is actively printing. Mapping \"") != std::string::npos);
 }
 
+// B2-01: the reader's bus-error counter runs since boot. The fence may only
+// judge errors raised by its own inventory, and must leave the RF field off
+// on every path once it has tried to turn it on.
+void test_weight_fence_counts_only_its_own_bus_errors_and_drops_the_field() {
+  const auto source = read_source("src/application/weigh_commands.cpp");
+  const auto fence = method(source, "BackendWorker::weight_fence",
+                            "BackendWorker::process_weight_update");
+  TEST_ASSERT_TRUE(fence.find("bus_errors() == 0") == std::string::npos);
+  const auto before = fence.find("errors_before = nfc_->reader_.bus_errors()");
+  const auto on = fence.find("reader_.field_on()");
+  const auto inventory = fence.find("reader_.inventory()");
+  const auto after = fence.find("reader_.bus_errors() == errors_before");
+  TEST_ASSERT_NOT_EQUAL(std::string::npos, before);
+  TEST_ASSERT_NOT_EQUAL(std::string::npos, after);
+  TEST_ASSERT_LESS_THAN(on, before);
+  TEST_ASSERT_LESS_THAN(after, inventory);
+  // field_on failing still turns the field off before returning.
+  const auto failed_off = fence.find("reader_.field_off()", on);
+  TEST_ASSERT_LESS_THAN(inventory, failed_off);
+  TEST_ASSERT_NOT_EQUAL(std::string::npos,
+                        fence.find("reader_.field_off()", inventory));
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -306,5 +329,6 @@ int main(int argc, char** argv) {
   RUN_TEST(test_touchscreen_uses_signed_integer_rounded_grams);
   RUN_TEST(test_tags_page_exposes_guarded_writer_and_reader_state);
   RUN_TEST(test_printer_dialogs_do_not_prefix_the_toolhead_name);
+  RUN_TEST(test_weight_fence_counts_only_its_own_bus_errors_and_drops_the_field);
   return UNITY_END();
 }

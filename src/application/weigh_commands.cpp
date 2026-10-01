@@ -72,12 +72,18 @@ BackendWorker::weight_fence(const services::WeighSyncSnapshot &captured) {
     return false;
   // Runs on the existing backend/NFC owner, after canonical GET and before
   // PATCH. Inventory only: no nested decoder, no NFC write, no new task.
-  if (!nfc_->reader_.field_on().ok())
+  // The reader counts bus errors since boot and never resets: only an error
+  // during this check may refuse the update, not one from hours ago.
+  const auto errors_before = nfc_->reader_.bus_errors();
+  if (!nfc_->reader_.field_on().ok()) {
+    (void)nfc_->reader_.field_off();
     return false;
+  }
   auto tags = nfc_->reader_.inventory();
   auto off = nfc_->reader_.field_off();
   return tags.ok() && off.ok() && tags.value().size() == 1 &&
-         tags.value()[0] == captured.uid && nfc_->reader_.bus_errors() == 0;
+         tags.value()[0] == captured.uid &&
+         nfc_->reader_.bus_errors() == errors_before;
 }
 __attribute__((noinline)) void
 BackendWorker::process_weight_update(std::uint64_t id,
