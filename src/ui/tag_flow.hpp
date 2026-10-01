@@ -63,6 +63,10 @@ class TagFlow {
   std::string working;
   // Why the reader rejected the tag now on it; shown for an unsupported tag.
   std::string tag_error;
+  // The unfinished write, clear or Spoolman link the writer last reported.
+  // Kept until the writer reports it finished, cleared or skipped, so the
+  // prompt returns after DONE, a failed retry or BACK from its review.
+  struct Recovery { std::string phase,message; int spool_id{0}; } recovery;
   // Set by the UI when a non-physical request has shown no progress for a
   // long time; offers a way back without abandoning physical work.
   bool stalled{false};
@@ -116,11 +120,11 @@ class TagFlow {
   // BACK TO HOME from a stalled wait: stop following the request.
   void abandon_wait() {waiting=false;operation=0;stalled=false;}
   // Leaving the tag workspace for the home, weigh or printer page.
-  void leave_page() {page=TagPage::tag;phase.clear();stalled=false;}
+  void leave_page() {page=TagPage::tag;phase.clear();stalled=false;resume_recovery();}
   // The reader's current tag: a different tag restarts the flow.
   void observe_tag(const std::string& incoming_uid,const std::string* error_message) {
     if(!waiting&&!incoming_uid.empty()&&!uid.empty()&&incoming_uid!=uid&&!recovery_phase(phase)) {
-      page=TagPage::tag;phase.clear();selected.clear();from_spool=0;
+      page=TagPage::tag;phase.clear();selected.clear();from_spool=0;resume_recovery();
     }
     uid=incoming_uid;
     // Kept apart from message: that may hold recovery instructions.
@@ -144,6 +148,8 @@ class TagFlow {
     if(!operation&&!result_uid.empty()&&result_uid!=uid&&
        (result_phase=="complete"||result_phase=="cleared"||result_phase=="preview"||result_phase=="clear_preview"))return false;
     view.set(incoming); phase=view["phase"]|""; message=view["message"]|"";
+    if(recovery_phase(phase))recovery={phase,message,view["spool_id"]|0};
+    else if(phase=="complete"||phase=="cleared"||phase=="recovery_discarded")recovery={};
     if(phase=="catalog"||phase=="community") {
       if(!view["items"].is<JsonArray>()||view["items"].size()>8){fail("Inventory page exceeds limit");return false;}
       catalog_page.set(view);search_field=view["search_field"]|"name";
@@ -223,7 +229,12 @@ class TagFlow {
       case TagAction::retry:
         if(page==TagPage::error&&catalog_update_request)return request("community_update");
         if(page==TagPage::error&&community_request)return browse();
-        if(phase=="write_recovery"){command["action"]="preview";command["mode"]="rewrite";command["spool_id"]=view["spool_id"];break;}
+        if(phase=="write_recovery") {
+          review_return=TagPage::tag;command["action"]="preview";command["mode"]="rewrite";
+          // The view may since hold the result of a failed retry.
+          if(recovery_phase(view["phase"]|""))command["spool_id"]=view["spool_id"];else command["spool_id"]=recovery.spool_id;
+          break;
+        }
         command["action"]=phase=="association_pending"?"retry_association":phase=="clear_recovery"?"clear_preview":"retry_unlink";break;
       case TagAction::import:command["action"]="import";command["import_token"]=view["import_token"];break;
       case TagAction::community_update:return request("community_update");
@@ -240,6 +251,7 @@ class TagFlow {
         else if(page==TagPage::choose)page=TagPage::tag;
         else if(page==TagPage::import_review)page=TagPage::selected;
         else page=TagPage::tag;
+        if(page==TagPage::tag)resume_recovery();
         return {};
       default:return {};
     }
@@ -247,6 +259,7 @@ class TagFlow {
   }
   TagScreen screen() const;
  private:
+  void resume_recovery() {if(!recovery.phase.empty()){phase=recovery.phase;message=recovery.message;}}
   void weights() {
     initial=selected["weight"]|1000.;if(initial<=0)initial=1000;remaining=initial;
     // Filament empty-reel weight, else the vendor's; otherwise ask the user.
