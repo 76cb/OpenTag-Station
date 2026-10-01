@@ -894,13 +894,20 @@ return new Promise(function (resolve) { window.setTimeout(resolve, Math.max(0, m
 }
 
 async function uncertainMutationSettled(prior) {
-if (!prior.id) return Date.now() - prior.at > UNCERTAIN_MUTATION_TTL_MS;
+if (prior.checking) return false;
+prior.checking = true;
+let settled = false;
 try {
+if (!prior.id) settled = Date.now() - prior.at > UNCERTAIN_MUTATION_TTL_MS;
+else {
 const operation = asObject(await api('/operations/' + prior.id, { priority: PRIORITY.CONTROL, dedupe: false }));
-return TERMINAL_OPERATION_STATES.indexOf(String(operation.state || '').toLowerCase()) >= 0;
-} catch (error) {
-return error instanceof ApiError && Number(error.status) === 404;
+settled = TERMINAL_OPERATION_STATES.indexOf(String(operation.state || '').toLowerCase()) >= 0;
 }
+} catch (error) {
+settled = error instanceof ApiError && Number(error.status) === 404;
+}
+if (!settled) prior.checking = false;
+return settled;
 }
 
 async function submitMutationReceipt(path, options) {

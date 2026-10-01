@@ -2866,3 +2866,28 @@ test('clear-open is labelled by one renderer for pending cleanup and for a fresh
   a.T.renderCurrentSpool();
   assert.equal(label(), 'Clear / Reuse');
 });
+
+test('identical submits racing during the uncertain status check send one replacement mutation', async () => {
+  const status = deferred();
+  let answer = () => jsonResponse(200, { id: 42, state: 'running' });
+  const app = await timedOutTare(() => answer());
+  answer = () => status.promise;
+  const posts = () => app.fetchCalls.filter((call) => call.init.method === 'POST');
+  const submit = () => app.T.submitMutationReceipt('/scale/tare', { method: 'POST', body: {} });
+  const racing = Promise.allSettled([submit(), submit()]);
+  await flushPromises(32);
+  status.resolve(jsonResponse(200, { id: 42, state: 'succeeded' }));
+  const outcomes = await racing;
+  assert.equal(posts().length, 2, 'one original and exactly one replacement mutation');
+  assert.deepEqual(outcomes.map((outcome) => outcome.status).sort(), ['fulfilled', 'rejected']);
+  assert.equal(outcomes.find((outcome) => outcome.status === 'rejected').reason.code, 'mutation_receipt_uncertain');
+});
+
+test('identical submits racing after the uncertain TTL send one replacement mutation', async () => {
+  const { app, clock, submit } = await lostCalibration();
+  clock.now += 600001;
+  const outcomes = await Promise.allSettled([submit(), submit()]);
+  assert.equal(app.fetchCalls.length, 2, 'one lost original and exactly one replacement mutation');
+  assert.deepEqual(outcomes.map((outcome) => outcome.status).sort(), ['fulfilled', 'rejected']);
+  assert.equal(outcomes.find((outcome) => outcome.status === 'rejected').reason.code, 'mutation_receipt_uncertain');
+});
