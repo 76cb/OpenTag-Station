@@ -61,10 +61,16 @@ class EmptyWeightResolver {
     // over a copy written to the tag earlier, which only changes when the tag
     // is rewritten.
     // A Spoolman value of exactly 0 is usually "never set" (rc.9 could create
-    // spools that way); prefer a real value from the tag in that case.
+    // spools that way); prefer a real value from any lower source in that case.
+    const auto real = [&valid](const std::optional<float>& value) {
+      return valid(value) && *value > 0.0F;
+    };
     const bool spoolman_unset_zero = valid(candidates.spoolman_spool_grams) &&
         *candidates.spoolman_spool_grams == 0.0F &&
-        valid(candidates.openprinttag_grams) && *candidates.openprinttag_grams > 0.0F;
+        (real(candidates.openprinttag_grams) ||
+         real(candidates.package_default_grams) ||
+         real(candidates.vendor_default_grams) ||
+         real(candidates.manual_grams));
     if (valid(candidates.spoolman_spool_grams) && !spoolman_unset_zero) {
       return ResolvedEmptyWeight{
           *candidates.spoolman_spool_grams, EmptyWeightSource::spoolman_spool};

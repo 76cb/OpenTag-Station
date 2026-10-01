@@ -90,6 +90,48 @@ void test_empty_weight_resolver_uses_documented_priority_and_exposes_source() {
       static_cast<int>(fallback->source));
 }
 
+void test_unset_zero_spool_empty_weight_yields_to_any_lower_real_value() {
+  const auto resolve_with = [](EmptyWeightCandidates candidates) {
+    candidates.spoolman_spool_grams = 0.0F;
+    return EmptyWeightResolver::resolve(candidates);
+  };
+
+  EmptyWeightCandidates package;
+  package.package_default_grams = 192.0F;
+  auto resolved = resolve_with(package);
+  TEST_ASSERT_TRUE(resolved.has_value());
+  TEST_ASSERT_FLOAT_WITHIN(0.01F, 192.0F, resolved->grams);
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(EmptyWeightSource::package_default),
+      static_cast<int>(resolved->source));
+
+  EmptyWeightCandidates vendor;
+  vendor.vendor_default_grams = 193.0F;
+  resolved = resolve_with(vendor);
+  TEST_ASSERT_FLOAT_WITHIN(0.01F, 193.0F, resolved->grams);
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(EmptyWeightSource::vendor_default),
+      static_cast<int>(resolved->source));
+
+  EmptyWeightCandidates manual;
+  manual.manual_grams = 194.0F;
+  resolved = resolve_with(manual);
+  TEST_ASSERT_FLOAT_WITHIN(0.01F, 194.0F, resolved->grams);
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(EmptyWeightSource::manual),
+      static_cast<int>(resolved->source));
+
+  // With nothing better anywhere, the explicit 0 is still the answer.
+  EmptyWeightCandidates only_zero;
+  only_zero.package_default_grams = 0.0F;
+  resolved = resolve_with(only_zero);
+  TEST_ASSERT_TRUE(resolved.has_value());
+  TEST_ASSERT_FLOAT_WITHIN(0.01F, 0.0F, resolved->grams);
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(EmptyWeightSource::spoolman_spool),
+      static_cast<int>(resolved->source));
+}
+
 void test_weight_model_rejects_negative_net_and_reconciliation_has_three_bands() {
   WeightSnapshot invalid;
   invalid.physical = {100.0F, true};
@@ -208,6 +250,7 @@ int main(int, char**) {
   RUN_TEST(test_unstable_weight_cannot_reconcile);
   RUN_TEST(test_large_weight_difference_requires_confirmation);
   RUN_TEST(test_empty_weight_resolver_uses_documented_priority_and_exposes_source);
+  RUN_TEST(test_unset_zero_spool_empty_weight_yields_to_any_lower_real_value);
   RUN_TEST(test_weight_model_rejects_negative_net_and_reconciliation_has_three_bands);
   RUN_TEST(test_capabilities_are_explicit);
   RUN_TEST(test_event_queue_is_bounded_and_fifo);
