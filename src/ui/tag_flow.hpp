@@ -1,6 +1,7 @@
 #include "config/product_features.hpp"
 #pragma once
 #include <array>
+#include <cstdint>
 #include <cstdio>
 #include <algorithm>
 #include <string>
@@ -80,6 +81,9 @@ class TagFlow {
   bool tare_known{false};
   bool waiting{false},rewrite{false},community_request{false},catalog_update_request{false};
   std::uint64_t operation{0};
+  // When the current touch request was queued, for the "taking longer than
+  // usual" escape on Spoolman-only work.
+  std::uint32_t wait_started_ms{0};
   network::BackendJsonAllocator allocator;
   JsonDocument view{&allocator},selected{&allocator},catalog_page{&allocator};
 
@@ -100,6 +104,32 @@ class TagFlow {
     return encode(command);
   }
   void fail(std::string reason) {waiting=false;message=std::move(reason);page=TagPage::error;}
+  // Wait, leave and tag-observation transitions. UiService supplies the
+  // receipts, reader state and clock; the rules live here so they are
+  // host-tested.
+  std::string search(std::string text) {query=std::move(text);offset=row=0;return browse();}
+  void begin_wait(std::uint64_t operation_id,std::uint32_t now_ms) {
+    waiting=true;operation=operation_id;page=TagPage::progress;phase="queued";message=working;stalled=false;wait_started_ms=now_ms;
+  }
+  // BACK TO HOME from a stalled wait: stop following the request.
+  void abandon_wait() {waiting=false;operation=0;stalled=false;}
+  // Leaving the tag workspace for the home, weigh or printer page.
+  void leave_page() {page=TagPage::tag;phase.clear();stalled=false;}
+  // The reader's current tag: a different tag restarts the flow.
+  void observe_tag(const std::string& incoming_uid,const std::string* error_message) {
+    if(!waiting&&!incoming_uid.empty()&&!uid.empty()&&incoming_uid!=uid&&!recovery_phase(phase)) {
+      page=TagPage::tag;phase.clear();selected.clear();from_spool=0;
+    }
+    uid=incoming_uid;
+    if(error_message&&page==TagPage::tag)message=*error_message;
+  }
+  // The queued request failed without publishing a writer snapshot.
+  void operation_failed(std::string reason) {operation=0;fail(std::move(reason));}
+  // A Spoolman-only request (never a physical write) that shows no result
+  // for 45 s offers a way back instead of an endless wait screen.
+  void update_stall(std::uint32_t now_ms) {
+    stalled=waiting&&!physical_phase(phase)&&static_cast<std::uint32_t>(now_ms-wait_started_ms)>=45000U;
+  }
   bool consume(const network::ResponseBody& body) {
     JsonDocument incoming(&allocator);
     if(body.size()>24576||deserializeJson(incoming,body.data(),body.size(),DeserializationOption::NestingLimit(12))) {
