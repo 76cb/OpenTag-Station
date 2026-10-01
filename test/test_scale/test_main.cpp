@@ -1025,6 +1025,61 @@ void test_i2c_diagnostic_distinguishes_other_devices_from_empty_buses() {
       static_cast<int>(diagnostic.outcome()));
 }
 
+void test_reconfiguring_hardware_fails_the_active_measurement_terminally() {
+  FakeAdc adc;
+  FakeStore store;
+  store.stored = calibration();
+  ScaleService service(adc, store, test_config());
+  TEST_ASSERT_TRUE(service.initialize(10U, 1000U).ok());
+  TEST_ASSERT_TRUE(
+      service.begin_measurement(ScaleMeasurementPurpose::weigh, 20U).ok());
+  TEST_ASSERT_TRUE(service.measurement_active());
+
+  ScaleHardwareSettings settings;
+  settings.rated_capacity_grams = 5000.0F;
+  TEST_ASSERT_TRUE(service.reconfigure_hardware(settings).ok());
+  TEST_ASSERT_FALSE(service.measurement_active());
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(ScaleMeasurementState::failed),
+      static_cast<int>(service.status().measurement_state));
+  TEST_ASSERT_TRUE(service.status().measurement_error.has_value());
+  TEST_ASSERT_EQUAL_STRING(
+      "Scale settings changed during the measurement; weigh again.",
+      service.status().measurement_error->message.c_str());
+
+  // The scale task re-initialises right after reconfiguring; the command
+  // owner must still find the terminal failure, not a silent idle.
+  (void)service.initialize(30U, 1000U);
+  for (std::uint32_t now_ms = 40U; now_ms < 60000U; now_ms += 50U) {
+    (void)service.poll(now_ms);
+  }
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(ScaleMeasurementState::failed),
+      static_cast<int>(service.status().measurement_state));
+  TEST_ASSERT_EQUAL_STRING(
+      "Scale settings changed during the measurement; weigh again.",
+      service.status().measurement_error->message.c_str());
+}
+
+void test_reconfiguring_hardware_without_a_measurement_stays_idle() {
+  FakeAdc adc;
+  FakeStore store;
+  store.stored = calibration();
+  ScaleService service(adc, store, test_config());
+  TEST_ASSERT_TRUE(service.initialize(10U, 1000U).ok());
+  ScaleHardwareSettings settings;
+  settings.rated_capacity_grams = 5000.0F;
+  TEST_ASSERT_TRUE(service.reconfigure_hardware(settings).ok());
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(ScaleMeasurementState::idle),
+      static_cast<int>(service.status().measurement_state));
+  (void)service.initialize(30U, 1000U);
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(ScaleMeasurementState::idle),
+      static_cast<int>(service.status().measurement_state));
+  TEST_ASSERT_FALSE(service.status().measurement_error.has_value());
+}
+
 int main(int, char**) {
   UNITY_BEGIN();
   RUN_TEST(test_i2c_scan_result_is_bounded_and_tracks_target);
@@ -1060,5 +1115,7 @@ int main(int, char**) {
   RUN_TEST(test_outside_zero_window_and_spool_load_are_never_auto_zeroed);
   RUN_TEST(test_runtime_zero_waits_is_bounded_ram_only_and_rebases_on_tare);
   RUN_TEST(test_calibration_waits_for_stable_reference_plateau);
+  RUN_TEST(test_reconfiguring_hardware_fails_the_active_measurement_terminally);
+  RUN_TEST(test_reconfiguring_hardware_without_a_measurement_stays_idle);
   return UNITY_END();
 }

@@ -140,7 +140,17 @@ core::Result<void> ScaleService::configure_hardware(
 
 core::Result<void> ScaleService::reconfigure_hardware(
     const ScaleHardwareSettings& settings) {
+  const auto interrupted_purpose = status_.measurement_purpose;
+  const bool interrupted = measurement_active();
   status_ = {};
+  if (interrupted) {
+    // The owner of the session must see a terminal state, not a silent idle.
+    status_.measurement_purpose = interrupted_purpose;
+    status_.measurement_state = ScaleMeasurementState::failed;
+    status_.measurement_error = unavailable(
+        "Scale settings changed during the measurement; weigh again.");
+    measurement_started_ms_.reset();
+  }
   calibration_.reset();
   pending_zero_offset_counts_.reset();
   reset_runtime_zero();
@@ -167,7 +177,18 @@ void ScaleService::set_error(core::Error error, ScaleState state) {
 core::Result<void> ScaleService::initialize(
     std::uint32_t now_ms,
     std::uint32_t operation_timeout_ms) {
+  // A measurement ended by reconfigure_hardware() stays failed across the
+  // re-initialisation that follows it, until the next session begins.
+  const bool interrupted = status_.state == ScaleState::uninitialized &&
+      status_.measurement_state == ScaleMeasurementState::failed;
+  const auto interrupted_purpose = status_.measurement_purpose;
+  const auto interrupted_error = status_.measurement_error;
   status_ = {};
+  if (interrupted) {
+    status_.measurement_purpose = interrupted_purpose;
+    status_.measurement_state = ScaleMeasurementState::failed;
+    status_.measurement_error = interrupted_error;
+  }
   status_.state = ScaleState::starting;
   calibration_.reset();
   pending_zero_offset_counts_.reset();
