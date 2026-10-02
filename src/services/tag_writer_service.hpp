@@ -68,6 +68,10 @@ private:
   core::Result<std::int32_t> uid_owner();
   core::Result<void> prepare_uid_owner();
   core::Result<void> clear_previous_uid();
+  // Remembers the Spoolman URL and extra-field keys a preview was made under.
+  void capture_settings();
+  // True when any of those differs from the adapter's current settings.
+  bool settings_changed() const;
   void publish(const char *phase, const char *message = "",
                std::size_t done = 0, std::size_t total = 0);
   integrations::spoolman::SpoolmanAdapter &spoolman_;
