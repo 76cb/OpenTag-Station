@@ -154,12 +154,6 @@ JsonObject object_at(JsonDocument& document, const char* key) {
              : document[key].to<JsonObject>();
 }
 
-JsonObject object_at(JsonObject parent, const char* key) {
-  return parent[key].is<JsonObject>()
-             ? parent[key].as<JsonObject>()
-             : parent[key].to<JsonObject>();
-}
-
 bool capacities_match(float left, float right) {
   return std::fabs(left - right) <= 0.01F;
 }
