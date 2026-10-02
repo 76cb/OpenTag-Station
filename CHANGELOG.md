@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.0.0-rc.14
+
+Fixes from the deep-refactor audit (report: issue #47). Touchscreen tag flow; no new features.
+
+- The recovery prompt for an unfinished write or clear stays available after DONE, after leaving the Tag page and after a failed retry. In rc.10/rc.11 it disappeared until restart.
+- A tag reading error no longer replaces the recovery instructions.
+- Taking one tag off the reader and placing a different one starts the tag screen fresh; the previous tag's choices no longer carry over.
+- A progress screen started from the browser always offers BACK TO HOME, except while the tag is being written or linked. Edits made in the browser no longer move the touchscreen.
+- A mistake in the new-spool weights keeps the form and its values. Paging back after a failed page no longer opens later lists on the wrong row.
+- "Taking longer than usual" is timed per step, so linking after a long write is not reported as late.
+- The weigh button reads WEIGH until there is a measurement (it always read WEIGH AGAIN).
+- Printer override dialogs no longer show "TT1".
+- Weight updates no longer stay blocked until restart after a single NFC bus error.
+- Fixed an out-of-bounds read in the diagnostic trace of the update status request.
+
 ## 1.0.0-rc.13
 
 Fixes from the deep-refactor audit (report: issue #47). Configuration, update start-up, scale and backends; no new features.

@@ -658,7 +658,7 @@ void UiService::tag_command(std::string command) {
   if(command.empty()||!tag_flow_)return;
   const auto receipt=backend_worker_.submit_writer(command);
   if(!receipt.accepted)tag_flow_->fail("Station is busy. Please try again.");
-  else {tag_flow_->waiting=true;tag_flow_->operation=receipt.operation_id;tag_flow_->page=TagPage::progress;tag_flow_->phase="queued";tag_flow_->message=tag_flow_->working;tag_flow_->stalled=false;tag_wait_started_ms_=millis();}
+  else tag_flow_->begin_wait(receipt.operation_id,millis());
   draw_tags();
 }
 void UiService::tag_action_callback(lv_event_t* event) {
@@ -673,10 +673,10 @@ void UiService::tag_action(TagAction action) {
   if(tag_flow_->waiting) {
     // Only a stalled Spoolman-only request may be left; physical writes never.
     if(action!=TagAction::home||!tag_flow_->stalled||physical_phase(tag_flow_->phase))return;
-    tag_flow_->waiting=false;tag_flow_->operation=0;tag_flow_->stalled=false;
+    tag_flow_->abandon_wait();
   }
   if(action==TagAction::home||action==TagAction::weigh||action==TagAction::printer) {
-    tag_flow_->page=TagPage::tag;tag_flow_->phase.clear();tag_flow_->stalled=false;
+    tag_flow_->leave_page();
     active_page_=action==TagAction::weigh?ProductPage::scale:action==TagAction::printer?ProductPage::printer:ProductPage::home;
     build_current_screen();
     // "WEIGH" on the tag-ready page means weigh now, not just open the page.
@@ -686,7 +686,7 @@ void UiService::tag_action(TagAction action) {
   if(action==TagAction::search) {
     InputSpec spec;spec.title="Search "+(tag_flow_->entity=="community"?std::string("Community"):tag_flow_->entity=="spool"?"My Spools":"My Filaments");
     spec.initial=tag_flow_->query;spec.action="SEARCH";spec.required=tag_flow_->entity=="community";
-    open_input(spec,[this](const std::string& text){tag_flow_->query=text;tag_flow_->offset=tag_flow_->row=0;tag_command(tag_flow_->browse());});return;
+    open_input(spec,[this](const std::string& text){tag_command(tag_flow_->search(text));});return;
   }
   if(action==TagAction::name) {
     InputSpec spec;spec.title="Spoolman display name";spec.required=true;
@@ -734,12 +734,7 @@ void UiService::refresh_tags() {
   if(!tag_flow_||!nfc_detail_)return;
   auto& flow=*tag_flow_;
   const auto tag=nfc_.snapshot();
-  const std::string incoming_uid=tag.uid?tag.uid->hex():"";
-  if(!flow.waiting&&!incoming_uid.empty()&&!flow.uid.empty()&&incoming_uid!=flow.uid&&
-     flow.phase!="unlink_pending"&&flow.phase!="association_pending"&&flow.phase!="write_recovery"&&flow.phase!="clear_recovery") {
-    flow.page=TagPage::tag;flow.phase.clear();flow.selected.clear();flow.from_spool=0;
-  }
-  flow.uid=incoming_uid;
+  flow.observe_tag(tag.uid?tag.uid->hex():std::string(),tag.error?&tag.error->message:nullptr);
   workflow_.visit([&](const services::WorkflowSnapshot& current) {
     flow.current_spool=tag.tag&&tag.uid&&current.openprinttag_available&&current.uid==*tag.uid&&current.spool?current.spool->id:0;
     // Product/metadata matches must be chosen explicitly (never auto-linked).
@@ -751,7 +746,6 @@ void UiService::refresh_tags() {
   });
   flow.material=tag.tag?tag.tag->decoded.material.material_name.value_or("Filament spool"):"";
   flow.lifecycle=services::tag_lifecycle({tag.present,tag.blank_compatible,bool(tag.tag),flow.current_spool>0,tag.state==nfc::ReadState::unsupported,flow.phase,false});
-  if(tag.error&&flow.page==TagPage::tag)flow.message=tag.error->message;
   auto body=backend_worker_.writer_snapshot();
   const auto checksum=nfc::nfcv::diagnostic_checksum(reinterpret_cast<const std::uint8_t*>(body.data()),body.size());
   if(checksum!=writer_view_checksum_) {
@@ -759,12 +753,9 @@ void UiService::refresh_tags() {
   }
   if(flow.operation) {
     const auto op=backend_worker_.writer_operation(flow.operation);
-    if(op&&op->state==application::OperationState::failed) {flow.operation=0;flow.fail(op->error?op->error->message:op->message);}
+    if(op&&op->state==application::OperationState::failed)flow.operation_failed(op->error?op->error->message:op->message);
   }
-  // A Spoolman-only request (never a physical write) that shows no result
-  // for 45 s offers a way back instead of an endless wait screen.
-  flow.stalled=flow.waiting&&!physical_phase(flow.phase)&&
-      static_cast<std::uint32_t>(millis()-tag_wait_started_ms_)>=45000U;
+  flow.update_stall(millis());
   draw_tags();
 }
 
@@ -1356,8 +1347,8 @@ void UiService::toolhead_callback(lv_event_t* event) {
   std::string message;
   const char** buttons = replacement_buttons;
   if ((active || state_unverified) && occupied) {
-    message = active ? "This printer is actively printing and T"
-                     : "This printer state cannot be verified and T";
+    message = active ? "This printer is actively printing and "
+                     : "This printer state cannot be verified and ";
     message +=
         toolhead->display_name + " contains spool #" +
         std::to_string(*toolhead->assigned_spool) +
@@ -1365,8 +1356,8 @@ void UiService::toolhead_callback(lv_event_t* event) {
     buttons = override_replacement_buttons;
   } else if (active || state_unverified) {
     message = active
-                  ? "This printer is actively printing. Mapping T"
-                  : "This printer state cannot be verified. Mapping T";
+                  ? "This printer is actively printing. Mapping "
+                  : "This printer state cannot be verified. Mapping ";
     message +=
         toolhead->display_name +
         " may corrupt consumption accounting.";
@@ -1893,7 +1884,7 @@ void UiService::refresh_workflow() {
       if(message.size()>150U)message.resize(150U);
       lv_label_set_text(workflow_status_label_,message.c_str());
       // "Again" only once there is a measurement to repeat.
-      lv_label_set_text(lv_obj_get_child(workflow_weigh_button_,0),busy?"WEIGHING...":measured.phase.empty()?"WEIGH":"WEIGH AGAIN");
+      lv_label_set_text(lv_obj_get_child(workflow_weigh_button_,0),busy?"WEIGHING...":services::weigh_button_label(measured));
     }
     bool automatic=false;configuration_.visit([&](const auto& config,auto){automatic=config.reconciliation.auto_update_after_weigh;});
     lv_label_set_text(lv_obj_get_child(weight_policy_,0),automatic?"Auto-update ON":"Auto-update OFF");

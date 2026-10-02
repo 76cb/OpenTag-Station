@@ -1,6 +1,7 @@
 #include "config/product_features.hpp"
 #pragma once
 #include <array>
+#include <cstdint>
 #include <cstdio>
 #include <algorithm>
 #include <string>
@@ -60,6 +61,14 @@ class TagFlow {
   std::string search_field{"name"};
   // Plain-language description of the queued request for the wait screen.
   std::string working;
+  // Why the reader rejected the tag now on it; shown for an unsupported tag.
+  std::string tag_error;
+  // The tag most recently on the reader; survives the reader being empty.
+  std::string last_uid;
+  // The unfinished write, clear or Spoolman link the writer last reported.
+  // Kept until the writer reports it finished, cleared or skipped, so the
+  // prompt returns after DONE, a failed retry or BACK from its review.
+  struct Recovery { std::string phase,message; int spool_id{0}; } recovery;
   // Set by the UI when a non-physical request has shown no progress for a
   // long time; offers a way back without abandoning physical work.
   bool stalled{false};
@@ -80,6 +89,11 @@ class TagFlow {
   bool tare_known{false};
   bool waiting{false},rewrite{false},community_request{false},catalog_update_request{false};
   std::uint64_t operation{0};
+  // When the current touch request was queued, for the "taking longer than
+  // usual" escape on Spoolman-only work.
+  std::uint32_t wait_started_ms{0};
+  // Phase the stall timer is running for; a new phase restarts it.
+  std::string stall_phase;
   network::BackendJsonAllocator allocator;
   JsonDocument view{&allocator},selected{&allocator},catalog_page{&allocator};
 
@@ -99,7 +113,40 @@ class TagFlow {
     if(entity!="community"&&!query.empty()&&offset>0&&search_field=="vendor")command["search_field"]="vendor";
     return encode(command);
   }
-  void fail(std::string reason) {waiting=false;message=std::move(reason);page=TagPage::error;}
+  void fail(std::string reason) {waiting=false;land_on_last_rows=false;message=std::move(reason);page=TagPage::error;}
+  // Wait, leave and tag-observation transitions. UiService supplies the
+  // receipts, reader state and clock; the rules live here so they are
+  // host-tested.
+  std::string search(std::string text) {query=std::move(text);offset=row=0;land_on_last_rows=false;return browse();}
+  void begin_wait(std::uint64_t operation_id,std::uint32_t now_ms) {
+    waiting=true;operation=operation_id;page=TagPage::progress;phase=stall_phase="queued";message=working;stalled=false;wait_started_ms=now_ms;
+  }
+  // BACK TO HOME from a stalled wait: stop following the request.
+  void abandon_wait() {waiting=false;operation=0;stalled=false;}
+  // Leaving the tag workspace for the home, weigh or printer page.
+  void leave_page() {page=TagPage::tag;phase.clear();stalled=false;resume_recovery();}
+  // The reader's current tag: a different tag restarts the flow, whether it
+  // replaced the previous one between two reads or after an empty reader.
+  void observe_tag(const std::string& incoming_uid,const std::string* error_message) {
+    // Never while a tag is being changed or linked, including work another
+    // client started: that progress page must stay until it ends.
+    const bool changing=physical_phase(phase)||phase=="associating"||phase=="unlinking";
+    if(!waiting&&!changing&&!incoming_uid.empty()&&!last_uid.empty()&&incoming_uid!=last_uid&&!recovery_phase(phase)) {
+      page=TagPage::tag;phase.clear();selected.clear();from_spool=0;resume_recovery();
+    }
+    uid=incoming_uid;if(!incoming_uid.empty())last_uid=incoming_uid;
+    // Kept apart from message: that may hold recovery instructions.
+    if(error_message)tag_error=*error_message;else tag_error.clear();
+  }
+  // The queued request failed without publishing a writer snapshot.
+  void operation_failed(std::string reason) {operation=0;fail(std::move(reason));}
+  // A Spoolman-only request (never a physical write) that shows no result
+  // for 45 s offers a way back instead of an endless wait screen. Each step
+  // gets its own 45 s: linking after a long physical write is not "late".
+  void update_stall(std::uint32_t now_ms) {
+    if(phase!=stall_phase){stall_phase=phase;wait_started_ms=now_ms;}
+    stalled=waiting&&!physical_phase(phase)&&static_cast<std::uint32_t>(now_ms-wait_started_ms)>=45000U;
+  }
   bool consume(const network::ResponseBody& body) {
     JsonDocument incoming(&allocator);
     if(body.size()>24576||deserializeJson(incoming,body.data(),body.size(),DeserializationOption::NestingLimit(12))) {
@@ -108,9 +155,15 @@ class TagFlow {
     if(operation && incoming["operation_id"].as<std::uint64_t>()!=operation)return false;
     const std::string result_uid=incoming["uid"]|"";
     const std::string result_phase=incoming["phase"]|"";
+    // The recovery record is station-wide: once the writer reports it ended,
+    // forget it even when that result is for a tag no longer on the reader.
+    if(result_phase=="complete"||result_phase=="cleared"||result_phase=="recovery_discarded")recovery={};
     if(!operation&&!result_uid.empty()&&result_uid!=uid&&
        (result_phase=="complete"||result_phase=="cleared"||result_phase=="preview"||result_phase=="clear_preview"))return false;
+    // A Spoolman edit made in the browser is not part of the touch flow.
+    if(result_phase=="editing"||result_phase=="updated")return true;
     view.set(incoming); phase=view["phase"]|""; message=view["message"]|"";
+    if(recovery_phase(phase))recovery={phase,message,view["spool_id"]|0};
     if(phase=="catalog"||phase=="community") {
       if(!view["items"].is<JsonArray>()||view["items"].size()>8){fail("Inventory page exceeds limit");return false;}
       catalog_page.set(view);search_field=view["search_field"]|"name";
@@ -139,7 +192,7 @@ class TagFlow {
         page=TagPage::sources;return {};
       case TagAction::spools: case TagAction::filaments: case TagAction::community:
         entity=action==TagAction::spools?"spool":action==TagAction::filaments?"filament":"community";
-        offset=row=0;query.clear();search_field="name";page=TagPage::catalog;
+        offset=row=0;land_on_last_rows=false;query.clear();search_field="name";page=TagPage::catalog;
         if(entity=="community"){catalog_page.clear();return request("community_status");}
         return browse();
       case TagAction::previous:
@@ -190,13 +243,20 @@ class TagFlow {
       case TagAction::retry:
         if(page==TagPage::error&&catalog_update_request)return request("community_update");
         if(page==TagPage::error&&community_request)return browse();
-        if(phase=="write_recovery"){command["action"]="preview";command["mode"]="rewrite";command["spool_id"]=view["spool_id"];break;}
+        if(phase=="write_recovery") {
+          review_return=TagPage::tag;command["action"]="preview";command["mode"]="rewrite";
+          // The view may since hold the result of a failed retry.
+          if(recovery_phase(view["phase"]|""))command["spool_id"]=view["spool_id"];else command["spool_id"]=recovery.spool_id;
+          break;
+        }
         command["action"]=phase=="association_pending"?"retry_association":phase=="clear_recovery"?"clear_preview":"retry_unlink";break;
       case TagAction::import:command["action"]="import";command["import_token"]=view["import_token"];break;
       case TagAction::community_update:return request("community_update");
       case TagAction::create:
         if(!tare_known){create_hint="Enter the empty spool weight first (weigh an empty reel of the same type, or use the maker's value).";return {};}
-        if(initial<=0||remaining<0||remaining>initial||tare<0||initial>100000||tare>100000){fail("Check spool weights before creating");return {};}
+        // Stay on the form: the entered values are kept for correction.
+        if(initial<=0||remaining<0||remaining>initial||tare<0||initial>100000||tare>100000){create_hint="Check the spool weights: remaining cannot be more than initial, and none can be above 100000 g.";return {};}
+        create_hint.clear();
         command["action"]="create_spool";command["spool"]["filament_id"]=selected["id"];
         command["spool"]["initial_weight"]=initial;command["spool"]["remaining_weight"]=remaining;command["spool"]["spool_weight"]=tare;break;
       case TagAction::back:
@@ -207,6 +267,7 @@ class TagFlow {
         else if(page==TagPage::choose)page=TagPage::tag;
         else if(page==TagPage::import_review)page=TagPage::selected;
         else page=TagPage::tag;
+        if(page==TagPage::tag)resume_recovery();
         return {};
       default:return {};
     }
@@ -214,6 +275,7 @@ class TagFlow {
   }
   TagScreen screen() const;
  private:
+  void resume_recovery() {if(!recovery.phase.empty()){phase=recovery.phase;message=recovery.message;}}
   void weights() {
     initial=selected["weight"]|1000.;if(initial<=0)initial=1000;remaining=initial;
     // Filament empty-reel weight, else the vendor's; otherwise ask the user.
@@ -274,7 +336,7 @@ inline TagScreen TagFlow::screen() const {
         s.body=material+"\nNot linked to a Spoolman spool yet";
         action(0,"LINK TO A SPOOL",TagAction::sources);
         s.button({16,162,448,44},"CLEAR / REUSE",TagAction::clear,true,true);
-      } else s.body=lifecycle==services::TagLifecycle::no_tag?"PLACE A TAG\nSet an NFC tag on the reader.":lifecycle==services::TagLifecycle::unsupported?"This tag can't be used as it is\n"+message+"\nUse a blank NXP ICODE SLIX2 tag.":"Reading tag...\nKeep the tag on the reader.";
+      } else s.body=lifecycle==services::TagLifecycle::no_tag?"PLACE A TAG\nSet an NFC tag on the reader.":lifecycle==services::TagLifecycle::unsupported?"This tag can't be used as it is\n"+tag_error+"\nUse a blank NXP ICODE SLIX2 tag.":"Reading tag...\nKeep the tag on the reader.";
       s.button({8,266,464,46},"DONE",TagAction::home);break;
     case TagPage::sources:
       s.title=from_spool?"Reassign tag":"Assign tag";s.body="How do you want to choose the filament?";
@@ -345,7 +407,10 @@ inline TagScreen TagFlow::screen() const {
       }
       s.title=phase=="associating"?"Saving link in Spoolman":phase=="unlinking"?"Removing link in Spoolman":phase=="reading"?"Reading tag":phase=="loading_spool"?"Checking Spoolman":"Please wait";
       s.body=phase=="associating"?"The tag is already written.":phase=="unlinking"?"The tag is already erased.":phase=="reading"?"Keep the tag on the reader.":working.empty()?"Working on your request...":working;
-      if(stalled){s.body+="\nThis is taking longer than usual.";s.button({8,266,464,46},"BACK TO HOME",TagAction::home);}
+      if(stalled)s.body+="\nThis is taking longer than usual.";
+      // Another client's request (not waiting) must not strand this screen.
+      // The writer's own link steps always end in a result and stay as is.
+      if(stalled||(!waiting&&phase!="associating"&&phase!="unlinking"))s.button({8,266,464,46},"BACK TO HOME",TagAction::home);
       break;
     case TagPage::reuse:
       s.title="TAG READY TO REUSE";s.body="The old filament information is removed.\nWhat should this tag become?";
