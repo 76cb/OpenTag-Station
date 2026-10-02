@@ -1,42 +1,64 @@
-# Supported tags
+# Which tags work
 
-The supported production writer profile is **NXP ICODE SLIX2**, NFC-V / ISO15693,
-with manufacturer UID prefix `E0:04`, **80 blocks of 4 bytes** (320 bytes total).
-The station modifies only bytes 0–311 (blocks 0–77); bytes 312–319 (blocks 78–79)
-must remain unchanged. Protection/system information must be complete and safe.
+The station works with one kind of tag: **NXP ICODE SLIX2**, blank.
+Buy the right kind and every other page of this manual applies.
+The reader looks only for NFC-V (ISO 15693) tags: other NFC-V tags are read but cannot be written,
+and NTAG or MIFARE tags are not seen at all.
 
-| Tag characteristic | Production requirement |
+## The supported tag
+
+| Property | Required |
 |---|---|
-| RF technology | NFC-V / ISO15693 |
-| Approved family | NXP ICODE SLIX2 profile |
-| Geometry | Exactly 80 × 4 bytes |
-| Manufacturer bytes | E0:04 in normalized UID order |
-| Security | Complete checked security information; no protected target block |
-| Inventory | One stable tag, same UID and generation throughout the operation |
-| Source image | Recognized supported content, blank compatible image, or matching recovery journal |
+| Chip | NXP ICODE SLIX2 |
+| Technology | NFC-V, also called ISO 15693 |
+| Memory | 80 blocks of 4 bytes (320 bytes) |
+| Tag ID (UID) | Starts with `E0:04`, the NXP manufacturer code |
+| Content | Blank, or already an OpenPrintTag |
+| Protection | No locked blocks, no write protection |
 
-!!! warning "Buy blank (unformatted) tags"
-    The station writes only to tags whose data area is empty (all zeros) or that
-    already hold OpenPrintTag data. Many SLIX2 stickers sold for phones come
-    pre-formatted with an empty NDEF record, or carry a URL. The station cannot
-    use or clear those tags; it shows "This tag can't be used as it is". Buy tags
-    described as blank/unformatted, or erase them first with a phone NFC tool.
+The station uses the first 312 bytes (blocks 0–77) and never touches the last two blocks.
+The tag's ID is permanent; writing or clearing does not change it.
 
-NTAG and MIFARE stickers use other technologies/profiles. Other ISO15693 vendors,
-memory sizes, protected tags and malformed images can be detected or rejected
-without being safe write targets. A reader's broad RF capability is not a
-promise of application support. Purchase the approved geometry explicitly.
+## What "blank" means
 
-## Check a tag before use
+For the station, blank means **every byte of the data area is zero**.
+It then shows `BLANK TAG` / `Ready to use` on the touchscreen (browser: **Blank tag**, **Ready to assign**).
 
-1. Place only one tag near the reader. Wait for stable identification.
-2. Open Manage tag and inspect type, UID and geometry. Documentation examples use
-   the synthetic UID `E004000000000028`; do not use it as a physical identity.
-3. For an empty approved tag, open the writer and request a preview for a chosen
-   Spoolman spool. Preview refusal is a safety decision, not a reason to force raw writes.
-4. Review the proposed data and warnings before confirming. Keep power and tag
-   position stable through verification.
+Many NFC stickers are sold for phones and arrive "formatted" or with a web link stored on them.
+Those are not blank. The station shows `This tag can't be used as it is`,
+and it cannot erase them: **CLEAR / REUSE** only works on tags that hold OpenPrintTag data.
 
-Success is a verified OpenPrintTag linked to the intended spool. If unsupported,
-replace it with an approved tag; do not change geometry guards or unlock unknown
-tags as a workaround. See [writing](writing.md) and [recovery](recovery.md).
+!!! warning "Phone apps usually do not make a tag blank"
+    The "erase" or "format" function of a phone NFC app normally writes an empty record to the tag
+    rather than zeros. To the station such a tag is still not blank.
+    Only writing zeros to every block would help, and the project has not tested any app for that.
+    Buy tags that are sold as blank or unformatted.
+
+## Other tag types
+
+| Tag | What happens |
+|---|---|
+| NTAG213 / 215 / 216, MIFARE and other NFC-A, NFC-B or NFC-F tags | The reader does not see them at all. The screen keeps showing `PLACE A TAG`. |
+| ISO 15693 tags that are not SLIX2 (other maker, other memory size) | The station reads them, so OpenPrintTag data on them is shown. A blank one shows `This tag can't be used as it is`. Writing and clearing are refused with `Incompatible tag: this release approves NXP 80 x 4-byte SLIX2 only`. |
+| SLIX2 with phone formatting, a web link or other data | `This tag can't be used as it is` |
+| SLIX2 with locked blocks | `Tag has protected blocks` |
+
+## Buying
+
+- Check that the listing names the chip **ICODE SLIX2**.
+  A listing that names NTAG or MIFARE is the wrong type.
+- Prefer listings that say blank or unformatted.
+- Buy a few first and test them before you order many.
+- The project names no particular sellers, sizes or shapes.
+
+## Test a new tag
+
+1. Place **one** tag on the reader.
+2. Touchscreen: tap **MANAGE TAG**. Browser: the Dashboard shows the tag.
+3. A usable new tag shows `BLANK TAG` / `Ready to use` and the button **ASSIGN TAG**
+   (browser: **Blank tag** and **Assign tag**).
+
+In the browser, **Manage tag → Tag metadata & advanced details** shows the tag ID and memory size.
+
+Next: [Write or update a tag](../daily-use/manage-tags.md).
+If the tag is not found: [Tag is not detected](../troubleshooting/tag.md).

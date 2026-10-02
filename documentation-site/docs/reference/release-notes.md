@@ -1,23 +1,79 @@
 # Release notes
 
-# Changelog
+What changed in each version of OpenTag Station, newest first.
+
+## 1.0.0
+
+Not released yet. This is what the first release contains.
+
+**Identify and weigh**
+- Place a spool with an OpenPrintTag on the station and it reads the tag and finds the spool in
+  Spoolman. Spoolman stays the record of what you own.
+- **Weigh** measures the spool. **Update Spoolman** saves the remaining weight. Nothing is saved
+  until you ask; saving automatically after each Weigh is a setting and is off by default.
+- Scale support for the NAU7802 amplifier with a YZC-133 load cell (5 kg by default, 2 kg
+  selectable), with tare and calibration.
+
+**Tags**
+- Write a blank NXP ICODE SLIX2 tag from a spool in Spoolman, update a tag after the spool
+  changed, or move a tag to another spool. You can pick an existing spool or create one from a
+  filament, on the touchscreen or in the browser.
+- The station checks every block after writing it and reads the whole tag again at the end. If a
+  write or clear is interrupted, it offers to finish it the next time that tag is on the reader,
+  or to skip it if the tag is lost.
+- **Clear / Reuse** erases a tag and removes its link in Spoolman. The spool stays in Spoolman.
+
+**Printer**
+- Assign the spool on the station to a toolhead (T1–T5) through FilaBridge. The station asks
+  before it replaces a loaded spool or changes a printer that is printing, and checks afterwards
+  that FilaBridge accepted the change.
+
+**Station**
+- A touchscreen with Home, Weigh, Assign, Tag and Settings views, and a web page with Dashboard,
+  Inventory, Printer and Settings. Firmware updates, settings export and factory reset are in
+  the browser only.
+- First-time Wi-Fi setup through a password-protected setup network; the password is shown on
+  the touchscreen.
+- An optional access token for the web page, and settings export and import that never include
+  passwords or tokens.
+- Firmware updates from the browser keep your settings. After an update the station checks
+  itself for 30 seconds and returns to the previous firmware if something is wrong.
+- A USB installer for new stations and recovery at <https://76cb.github.io/OpenTag-Station/>.
+  It erases settings and calibration.
+
+**Good to know**
+- The station works on your local network over plain HTTP. Do not expose it to the internet.
+- Firmware files are not signed. Only install files from
+  <https://github.com/76cb/OpenTag-Station/releases>.
+- Supported hardware is the WT32-SC01 Plus with an ST25R3916B NFC reader. Only NXP ICODE SLIX2
+  tags can be written.
+- Saving weights needs Spoolman 0.26.1. Assigning toolheads needs FilaBridge 1.2.1 or 1.2.2.
+- The Community filament catalog is not part of this release.
+
+The manual is at <https://76cb.github.io/OpenTag-Station-Docs/>.
+
+Each release has these files: `opentag-station-<version>-application.bin` (update from the
+browser), `opentag-station-factory.bin` (USB installer image), `manifest.json`,
+`build-metadata.json` and `SHA256SUMS`.
+
+---
+
+The release candidates below were development builds made for testing before 1.0.0.
 
 ## 1.0.0-rc.19
-
-Last car of the deep-refactor audit (report: issue #47). The only one that edits existing tests; each edit is listed in issue #56.
 
 - The USB installer page now names the real update file, `opentag-station-<version>-application.bin`, instead of "firmware.bin".
 - Removed touchscreen code that could never run or show: button positions that were always overwritten, an auto-update button on the Weigh page that was created hidden and never shown (the one in Settings is unchanged), and a gauge update for a widget that only exists on Home. The source checks that required this dead text now check the live code instead.
 
 ## 1.0.0-rc.18
 
-Refactoring from the deep-refactor audit (report: issue #47). No behaviour change.
+Refactoring. No behaviour change.
 
 - Touchscreen code is easier to read: the tag-flow model is formatted one statement per line, the per-page parts of the main refresh routine are separate functions, repeated colours have names, and declarations nothing used are gone.
 
 ## 1.0.0-rc.17
 
-Refactoring from the deep-refactor audit (report: issue #47). No behaviour change.
+Refactoring. No behaviour change.
 
 - Web request helpers (idempotency-key check, SHA-256 decoding, lower-casing) have one definition instead of two or three copies.
 - The tag-writer snapshot limits have names instead of repeated numbers.
@@ -26,7 +82,7 @@ Refactoring from the deep-refactor audit (report: issue #47). No behaviour chang
 
 ## 1.0.0-rc.16
 
-Clean-up from the deep-refactor audit (report: issue #47). No behaviour change.
+Clean-up. No behaviour change.
 
 - Removed code that no build compiled (an unused ESP32 RFAL platform adapter) and functions and constants nothing called.
 - The sanitizer test environment now runs every native suite, not four of them.
@@ -34,7 +90,7 @@ Clean-up from the deep-refactor audit (report: issue #47). No behaviour change.
 
 ## 1.0.0-rc.15
 
-Fixes from the deep-refactor audit (report: issue #47). Browser; no new features.
+Browser fixes; no new features.
 
 - After a lost response, the same action (Weigh, Tare, the same search) is no longer blocked until the page is reloaded. The browser checks the earlier request and lets you repeat it once it has finished, or after 10 minutes if it cannot tell. The message now says what to do.
 - The Clear / Reuse button keeps one label instead of switching between two wordings.
@@ -42,7 +98,7 @@ Fixes from the deep-refactor audit (report: issue #47). Browser; no new features
 
 ## 1.0.0-rc.14
 
-Fixes from the deep-refactor audit (report: issue #47). Touchscreen tag flow; no new features.
+Touchscreen tag flow fixes; no new features.
 
 - The recovery prompt for an unfinished write or clear stays available after DONE, after leaving the Tag page and after a failed retry. In rc.10/rc.11 it disappeared until restart.
 - A tag reading error no longer replaces the recovery instructions.
@@ -57,7 +113,7 @@ Fixes from the deep-refactor audit (report: issue #47). Touchscreen tag flow; no
 
 ## 1.0.0-rc.13
 
-Fixes from the deep-refactor audit (report: issue #47). Configuration, update start-up, scale and backends; no new features.
+Fixes to configuration, update start-up, scale and backends; no new features.
 
 **Updates (OTA)**
 - An update record that could never move on (for example the new image was selected but the bootloader fell back to the old one) is now ended at start-up, so a new update can be uploaded. Before, upload, cancel and restart were all refused until a USB reflash.
@@ -81,7 +137,7 @@ Fixes from the deep-refactor audit (report: issue #47). Configuration, update st
 
 ## 1.0.0-rc.12
 
-Fixes from the deep-refactor audit (report: issue #47). Tag writer and spool identity; no new features.
+Tag writer and spool identity fixes; no new features.
 
 - Clearing a tag, retrying an unlink and retrying a link now check that the two Spool extra fields exist in Spoolman before looking up the owner. Without them Spoolman ignores the lookup filter, and the station could remove the identity of an unrelated spool or loop on "Multiple NFC UID owners".
 - A write or clear that is refused before it starts (for example the tag was lifted after confirming) no longer leaves a recovery record. In rc.10/rc.11 it blocked other tags, and after a refused clear even browsing spools.
@@ -97,7 +153,7 @@ Fixes from the deep-refactor audit (report: issue #47). Tag writer and spool ide
 
 ## 1.0.0-rc.10
 
-Fixes from the rc.9 release review. No new subsystems.
+Safety and usability fixes. No new subsystems.
 
 **Safety**
 - WT32 printer assignment: the dialog's first button is now **Cancel** and only an explicit Assign/Replace confirms. In rc.9 the **Back** button performed the assignment.
@@ -128,8 +184,6 @@ Fixes from the rc.9 release review. No new subsystems.
 - Release candidates can be tagged `v1.0.0-rc.N` and are published as GitHub pre-releases with the OTA application image. The installer is rebuilt from release tags only.
 - The disabled Community catalog is no longer published on Pages or in releases (it also made the release file check fail).
 
-Physical acceptance on hardware is still required; see docs/releasing.md.
-
 ## 1.0.0-rc.9
 
 Community import/search is disabled for 1.0 after physical ESP32-S3 testing demonstrated a miniz inflater-state memory overwrite. The implementation is retained for redesign in 1.1.
@@ -137,61 +191,7 @@ Community import/search is disabled for 1.0 after physical ESP32-S3 testing demo
 - My Spools and My Filaments remain available on WT32 and in the optional browser. Production rejects Community API/import actions and installs no catalog callbacks; no startup download, verify, inflate, or catalog access runs.
 - Failed browser NFC preview retains the reviewed physical spool. Retry Read uses the same spool and mode; Back to Review preserves values; Back to Select reloads the current source and clears stale rows. Busy state ends on completion or failure.
 - Update Existing Station uses application-only A/B OTA, preserving LittleFS configuration, NVS, scale calibration and service/printer settings. Factory Install / Recovery explicitly erases configuration and calibration. Disabled Community is not seeded into factory LittleFS.
-- Final physical acceptance of the core workflow is still required. Community is postponed, not fixed.
-
-## 1.0.0-rc.8
-
-Harden Community decompression after WT32 rc.7 hardware testing showed the
-first catalog block decompressed successfully but corrupted the allocator tail
-of the miniz state object. The authoritative inflater-state size and
-initialization now come from the C translation unit through an opaque bridge.
-Firmware allocates that C-reported state in internal RAM with 64-byte canaries
-on both sides, while compressed and expanded blocks remain in PSRAM. Diagnostics
-report C and C++ state sizes and distinguish buffer from inflater canary failures.
-
-## 1.0.0-rc.7
-
-Remove the ESP-IDF heap integrity walker from the Community decompression hot
-path after WT32 rc.6 hardware testing showed the diagnostic itself could panic
-before miniz was entered. Miniz state remains in internal RAM; compressed and
-expanded blocks remain in PSRAM. Memory-class validation, block bounds,
-canaries, decompressed-size checks, and CRC verification remain in place.
-Regression coverage asserts Community inflate never invokes the heap walker.
-
-## 1.0.0-rc.6
-
-Fix Community local-search crashes on the ESP32-S3 by keeping miniz inflater
-state in internal RAM while compressed and expanded blocks remain in PSRAM.
-Inflation now checks memory placement, block bounds, canaries, and bounded heap
-integrity before parsing, with per-block diagnostics for physical acceptance.
-Native tests cover corrupt, truncated, allocation-failure, placement, and
-repeated-search/detail release paths; native hosts cannot reproduce ESP32-S3
-PSRAM and cache behavior, so WT32 hardware acceptance remains pending.
-
-## 1.0.0-rc.5
-
-Fix Community catalog commands rejected by the production API router. Status,
-search, selection, and catalog update requests now use strict action-specific
-validation before the accepted command reaches the shared tag-writer service.
-Raw NFC and write fields remain forbidden.
-
-## 1.0.0-rc.4
-
-Community search now uses a versioned, block-compressed local catalog shared by
-the WT32 and browser. Fresh Web Flasher installs include the catalog in LittleFS;
-upgraded stations can download it from the pinned OpenTag origin. Downloads stage,
-hash, fully validate, and atomically install the replacement while retaining the
-previous catalog on every failure. Search and detail selection work offline and
-do not call the Community network service. Hardware performance acceptance is pending.
-
-## 1.0.0-rc.3
-
-Fix WT32 Community searches that exhausted the backend deadline or starved
-CPU0's idle task. Pages stop after eight results plus one lookahead match;
-sparse/final scans cooperate every 4 KiB and have a Community-only 60-second
-budget. Full gzip responses retain CRC validation; intentional page completion
-closes the stream without requiring an unread trailer. Search errors provide
-Community-specific timeout guidance and Retry. Hardware acceptance is pending.
+- Community is postponed, not fixed.
 
 ## 1.0.0-rc.2
 
@@ -201,32 +201,4 @@ Community-specific timeout guidance and Retry. Hardware acceptance is pending.
   immediate reuse. Existing remote ownership and NFC safety fences remain mandatory.
 - Full-screen text, numeric, URL and password input with 44 px keys, explicit acceptance,
   cancel, and repeat backspace. Bounded inventory pages and streaming gzip Community search.
-- Explicit production version changes enforced in PR CI. Physical touch comfort,
-  real-network Community timing and complete standalone appliance acceptance remain pending.
-
-# 1.0.0
-
-**Unreleased; acceptance pending.** The current candidate is derived from `VERSION`.
-No final 1.0.0 release or tag has been published by this change.
-
-- Current-spool dashboard, responsive inventory, explicit Weigh, printer assignment,
-  tag management and organized settings in the browser.
-- Five touch views for the WT32-SC01 Plus, with large actions and shared spool state.
-- Guarded NXP ICODE SLIX2 OpenPrintTag writing, readback, recovery journaling,
-  Clear / Reuse, and verified Spoolman identity cleanup.
-- NAU7802/YZC-133 calibration, tare, stability, and explicit measurement receipts.
-  Spoolman auto-update after explicit Weigh is off by default.
-- Spoolman remains canonical; FilaBridge maps Prusa XL T1–T5 with confirmation
-  and exact backend readback. Destructive requests are never silently replayed.
-- Browser Wi-Fi setup, optional local API authentication, configuration backup,
-  and local A/B OTA with recovery safeguards.
-- Production-only USB web installer, reproducible version/provenance checks,
-  tag-triggered release packaging, and a separate hardware/user/developer manual.
-- Sanitized product fixtures and guarded screenshot publication.
-
-Final visual, live integration, physical tag/scale/touch, stability, and recovery
-acceptance remains required. See [the release checklist](../contributing/release.md).
-
-## Development history
-
-Earlier milestones are preserved in [the historical changelog](https://github.com/76cb/OpenTag-Station/blob/main/docs/history/changelog-before-1.0.md).
+- Explicit production version changes enforced in PR CI.

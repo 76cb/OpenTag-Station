@@ -1,24 +1,100 @@
 # Your first spool
 
-Run the normal identify → weigh → assign sequence with a single known spool.
+This is the shortest path from a blank tag and a spool in Spoolman to a written tag, a saved weight
+and, if you use FilaBridge, a toolhead assignment. Each step links to the page with the details.
 
 ## Before you start
 
-Complete hardware validation, network setup and scale calibration. Create or identify a physical spool in Spoolman. Use one approved SLIX2 tag; a filament definition alone is not a physical spool.
+- The station is [on your Wi-Fi](first-boot.md), [connected to Spoolman](initial-setup.md) and the
+  [scale is calibrated](../scale/calibration.md).
+- Spoolman has the two [required extra fields](../inventory/custom-fields.md).
+- The spool exists in Spoolman — or at least its filament does; the station can create the spool.
+- You have a blank NXP ICODE SLIX2 tag. Use one tag at a time.
 
-## Steps
+## 1. Write the tag
 
-1. If the tag is blank, open Inventory, select the physical spool and follow [writing](../openprinttag/writing.md). Confirm its verified association before continuing.
-2. Place the tagged spool in its intended reader/platform position. Wait for Home to show the expected spool number and **Linked to Spoolman**.
-3. Select **Weigh**. Leave the platform still until the receipt shows gross, empty-spool tare, measured filament and canonical Spoolman remaining weight.
-4. With the default auto-update policy off, review the difference and explicitly choose **Update Spoolman** only when intended. Wait for verified readback.
-5. Select **Assign**, review printer and toolhead, and confirm the chosen T1–T5 slot. Replacing an occupied slot requires an explicit replacement confirmation.
-6. Remove the spool and verify Home returns to its empty state. Retain the calibration/setup backup.
+Stick the tag on the spool and put the spool on the station with the tag over the reader.
 
-## Expected result
+**Touchscreen**
 
-The identified spool, measurement receipt and confirmed printer mapping all refer to the intended physical spool. Each completed mutation has explicit confirmation or verified status.
+1. Home shows "COMPATIBLE BLANK TAG — Ready to assign". Tap **ASSIGN TAG**.
+2. Tap **MY SPOOLS**. Find the spool with **PREV** / **NEXT** or **SEARCH**, and tap it.
+3. On "Use this spool?", tap **USE SPOOL**.
+4. On "Ready to write", tap **WRITE TAG**. Keep the tag on the reader until it says done.
+5. The screen shows **TAG READY** with the spool number and "verified".
 
-## If it fails
+No spool in Spoolman yet? Tap **MY FILAMENTS** instead, choose the filament, tap
+**CREATE A SPOOL**, check the three weights, tap **CREATE SPOOL**, then **REVIEW TAG WRITE**.
 
-If identity is ambiguous, confirm the correct canonical spool before mutations. If weight differs unexpectedly, inspect tare and stability. If an operation is pending, inspect its state instead of starting a duplicate. See [troubleshooting](../troubleshooting/index.md).
+**Browser**
+
+1. The Dashboard shows "Blank tag — Ready to assign". Click **Assign tag**.
+2. In the **Create OpenPrintTag** dialog, choose the spool on the **Spools** tab and click
+   **Continue**.
+3. Click **Preview tag**, then **Write this tag**, and confirm.
+4. Wait for "✓ OpenPrintTag written and verified", then click **Done**.
+
+The station has now written the tag, checked it, and stored the link on the spool in Spoolman.
+Details: [Write or update a tag](../daily-use/manage-tags.md).
+
+## 2. Weigh the spool and save the weight
+
+Leave the spool on the station.
+
+**Touchscreen**
+
+1. On the **TAG READY** screen tap **WEIGH** (or tap **WEIGH** on Home).
+2. Keep the spool still until the state reads **STABLE**. The result shows "Empty spool",
+   "Filament now" and "In Spoolman".
+3. Tap **UPDATE SPOOLMAN**. The message changes to "Saved to Spoolman."
+
+**Browser**
+
+1. On the Dashboard click **Weigh**.
+2. When the measurement is stable, compare "Measured filament" with "Spoolman currently".
+3. Click **Update Spoolman**.
+
+Nothing is saved until you press the update button, unless you have turned on automatic saving.
+If the weight looks wrong, tap **WEIGH AGAIN** first.
+Details: [Weigh a spool and save the weight](../daily-use/weigh.md).
+
+## 3. Assign the spool to a toolhead (optional)
+
+This needs FilaBridge and a selected printer.
+
+**Touchscreen**
+
+1. Tap **ASSIGN TO PRINTER** on the **TAG READY** screen.
+   Later you get to the same page with **ASSIGN** on Home or **Assign** in the bottom bar.
+2. Tap the toolhead, **T1** to **T5**.
+3. Confirm with **Assign**. If the toolhead already holds a spool the station asks
+   "Replace spool?"; confirm with **Replace**.
+
+**Browser**
+
+1. On the Dashboard click **Assign**.
+2. Click the toolhead tile, then the **Assign to T…** button.
+3. Wait for "Assigned and verified on the printer."
+
+Details: [Assign a spool to a toolhead](../daily-use/assign.md).
+
+## What you should see
+
+Take the spool off and put it back. The station recognises it by itself:
+
+- Touchscreen Home: the maker, the filament name, "Spool #…" and "… g remaining".
+- Browser Dashboard: "CURRENT SPOOL" with "Tag valid" and "Linked to Spoolman".
+
+## If something goes wrong
+
+| What you see | What it means | What to do |
+|---|---|---|
+| The screen stays on "Place a spool" | The tag is not seen. | Check that it is an ICODE SLIX2 tag and sits over the reader. See [Tag is not detected](../troubleshooting/tag.md). |
+| "This tag can't be used as it is" | The tag is not blank and does not hold filament data the station understands. | Use a blank tag. See [Which tags work](../openprinttag/supported-tags.md). |
+| "Needs attention" with a message about a missing Spool extra field | The extra fields are missing in Spoolman. | [Add the extra fields](../inventory/custom-fields.md). |
+| The Home button reads **CALIBRATE** | The scale is not calibrated. | [Tare and calibrate](../scale/calibration.md). |
+| "The empty spool weight is unknown. Set it on the spool in Spoolman, then weigh again." | Neither Spoolman (spool, filament, vendor) nor the tag holds an empty-spool weight. | Enter it in Spoolman. See [Weigh a spool and save the weight](../daily-use/weigh.md). |
+| The toolhead buttons are greyed out | No linked spool on the station, FilaBridge offline, or no printer chosen. | See [Printer assignment fails](../troubleshooting/assignment.md). |
+| The station asks you to finish writing a tag | A write was interrupted. | [Finish an interrupted tag operation](../troubleshooting/journal.md). |
+
+Other problems: [Find your problem](../troubleshooting/index.md).

@@ -1,25 +1,111 @@
-# Initial setup
+# Connect Spoolman and FilaBridge
 
-Connect canonical inventory and prepare a scale profile before using mutation workflows.
+The station needs to know where your Spoolman is. FilaBridge is optional and only needed to assign
+spools to the toolheads of a Prusa XL. This page also points you to the two remaining one-time
+jobs: choosing the load cell and calibrating the scale.
 
 ## Before you start
 
-The station is reachable from your trusted network. Spoolman must be running and reachable from the station; FilaBridge is optional. Use real service values locally, never in public screenshots.
+- The station is [on your Wi-Fi](first-boot.md).
+- Spoolman is running and reachable from the same network.
+- You have added the two [required extra fields](../inventory/custom-fields.md) in Spoolman.
+  Without them the station cannot write or link a tag.
 
-## Steps
+## Connect Spoolman
 
-1. Open **Settings → Integrations**. Enter the Spoolman URL, for example the documentation-only `http://spoolman.example:7912`, replacing it with your actual service address.
-2. In Spoolman, create the two required **Spool** extra fields `opentag_instance_uuid` and `nfc_uid` (type Text). See [Spoolman extra fields](../inventory/custom-fields.md).
-3. Back on the station, choose **Test** under Settings → Integrations. Spoolman should show as connected with no warning below it. A warning names any missing field or an untested Spoolman version (weights can't be saved to an untested version).
-4. If using printer assignment, configure FilaBridge and choose your printer (on the touchscreen setup, pick it from the list FilaBridge reports). Check that the displayed printer and T1–T5 mapping match the actual printer.
-5. Open **Settings → Scale**, choose the actual YZC-133 5 kg or 2 kg profile, and complete [tare and calibration](../scale/calibration.md).
-6. Review network, display brightness and optional local API authentication. Empty credential fields preserve saved secrets unless you explicitly choose to clear them.
-7. Export a configuration backup from the advanced configuration controls. Keep network credentials separately because the browser export is redacted.
+Use an address that starts with `http://`, for example `http://<spoolman-address>:7912`.
+An `https://` address does not work unless a certificate has been stored through the API; there is
+no field for it in either interface.
 
-## Expected result
+**Browser**
 
-Inventory loads canonical records, the scale reports its matching calibrated profile, and the selected printer is recognizable if configured. Home can now resolve an approved tagged spool.
+1. Open the station's web page and go to **Settings** → **Integrations**.
+2. Open **Edit Spoolman**.
+3. Enter the address in **Base URL**. If your Spoolman needs a token, enter it in **New token**.
+4. Click **Validate and save**.
+5. On the **Integrations** card, click **Test**.
 
-## If it fails
+The card shows the state of **Spoolman**, **FilaBridge** and **Printer**. Any problem appears as a
+warning under the card.
 
-An offline integration disables dependent operations. A saved URL does not prove capability; inspect the connection result. A profile change invalidates old calibration. Reload after a settings conflict instead of overwriting another client’s newer revision.
+**Touchscreen**
+
+1. Tap **Settings** → **Wi-Fi & services**, then **Next** until you reach the **SPOOLMAN** step.
+2. Enter the **Spoolman URL** (and the **Authentication token (optional)**), then tap **Save**.
+
+The status "URL saved" only means the address was stored. The touchscreen has no connection test;
+use **Test** in the browser to be sure.
+
+### The two extra fields
+
+Spoolman must have two extra fields for spools (Spoolman calls this the **Spool** entity), both
+of type **Text**:
+`opentag_instance_uuid` and `nfc_uid`. If they are missing, **Test** shows:
+
+> Spoolman is missing the Spool extra fields 'opentag_instance_uuid', 'nfc_uid'. In Spoolman open
+> Settings > Extra Fields > Spool and add them with type Text.
+
+How to add them: [Required extra fields](../inventory/custom-fields.md).
+
+More about versions and what the station reads and changes: [Connect Spoolman](../inventory/spoolman.md).
+
+## Connect FilaBridge and choose the printer (optional)
+
+**Touchscreen** — the easier way, because it lists the printers for you:
+
+1. **Settings** → **Wi-Fi & services**, then **Next** to the **FILABRIDGE** step.
+2. Enter the **FilaBridge URL**, tap **Save**, then **Next**.
+3. On the **PRINTER** step, choose your printer from the list and tap **Save**.
+   "No printers found yet" means FilaBridge has not answered; check the URL.
+
+**Browser**
+
+1. **Settings** → **Integrations** → **Edit FilaBridge**.
+2. Enter the **Base URL**, for example `http://filabridge.local:5000`.
+3. Type the printer's ID into **Selected stable printer ID**. The ID is the key FilaBridge keeps
+   the printer under, not the printer's name. The browser has no list to pick from, so choose the
+   printer on the touchscreen if you do not know the ID.
+4. Click **Validate and save**, then **Test**.
+
+Details, supported FilaBridge versions and toolhead settings:
+[Set up FilaBridge for a Prusa XL](../printer/prusa-xl.md).
+
+## Choose the load cell and calibrate
+
+1. If your load cell is the 2 kg type, change the profile first — browser only:
+   **Settings** → **Scale** → **Edit Load-cell profile** → **YZC-133 variant** → **2 kg** →
+   **Validate and save**. The default is **5 kg**.
+2. Calibrate the scale with a known weight: [Tare and calibrate](../scale/calibration.md).
+
+!!! warning
+    Changing the load-cell profile deletes the calibration. Choose the profile before you
+    calibrate.
+
+## Set an access token (recommended)
+
+Without a token, anyone on your network can change settings, write tags, update the firmware or
+factory-reset the station from a browser. See
+[Access token and network safety](../configuration/security.md).
+
+## What you should see
+
+- Browser **Settings** → **Integrations**: after **Test**, the **Spoolman** row does not say
+  offline and there is no warning under the card.
+- Touchscreen **Assign** page: a status line with "Spoolman ONLINE" and, if you use it,
+  "FilaBridge ONLINE".
+- The touchscreen Home button reads **WEIGH**, not **CALIBRATE**.
+
+Next: [Your first spool](quick-start.md).
+
+## If something goes wrong
+
+| What you see | What it means | What to do |
+|---|---|---|
+| "Spoolman is missing the Spool extra field …" | One or both extra fields are missing or not of type Text. | [Add the extra fields](../inventory/custom-fields.md), then click **Test** again. |
+| "Spoolman … has not been tested with this firmware, so saving weights to Spoolman is turned off." | Your Spoolman version is not one the station saves weights to. | See [Connect Spoolman](../inventory/spoolman.md). |
+| "HTTPS requires a configured CA certificate" | The address starts with `https://`. | Use the `http://` address. |
+| "DNS resolution failed or is still pending for …" | The station cannot look up that name. | Use Spoolman's IP address instead of its name. |
+| Touchscreen says "URL saved" but nothing loads | The address was stored but may be wrong. | Click **Test** in the browser. |
+
+More cases: [Spoolman problems](../troubleshooting/spoolman.md) and
+[Printer assignment fails](../troubleshooting/assignment.md).

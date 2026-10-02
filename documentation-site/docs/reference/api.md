@@ -1,591 +1,305 @@
-# REST API reference
+# REST API
 
-This technical reference describes implementation contracts. Dated test figures
-below are historical checkpoints, not the current candidate’s acceptance record.
-See the release checklist for outstanding physical checks.
+The station serves a JSON API on its local network. The browser page uses the same API.
 
+- Base URL: `http://<station>/api/v1` (`http://opentag-station.local/api/v1` with the default
+  hostname). Plain HTTP only; there is no HTTPS listener.
+- The route table is `routes` in
+  [`src/web/api_router.hpp`](https://github.com/76cb/OpenTag-Station/blob/main/src/web/api_router.hpp).
+- Paths are exact. A `?` or `#` in the path is rejected with `400 invalid_request`.
 
-The station serves a dependency-free administration UI at `http://<station-ip>/`
-and a transport-neutral JSON API under `/api/v1`. The UI covers device status,
-scale controls and calibration, NFC status, spool resolution, printers and
-toolheads, backend probes, configuration, diagnostics, logs, controlled device
-actions, and the validated A/B firmware-update workflow.
+## Authentication
 
-## Validation status
+| Request | Rule |
+|---|---|
+| `GET` routes, WebSocket | Never need a token. |
+| `POST` / `PATCH` routes | Need `Authorization: Bearer <token>` when `web.access_token` is set. When it is empty, every request on the network is accepted. |
+| `POST /network/scan`, `POST /network/connect` | Also accepted without a token from a client joined to the setup network while setup mode is active. |
 
-The current firmware preserves the Phase 11 routes, adds four bounded
-network provisioning routes, and adds one bounded Weigh route, for 31
-metadata-declared routes. The hardware
-stabilization pass adds bounded browser scheduling, explicit configuration
-state, one managed live connection per tab, fallback polling, and a read-only
-transport self-test. Browser request epochs, payload revision guards, and socket
-identity checks prevent stale REST/WebSocket responses from replacing newer
-state. The grouped contract/security review and physical browser/LAN matrix are in
-[release-validation.md](https://github.com/76cb/OpenTag-Station/blob/main/docs/release-validation.md).
+The token is empty, or 16–128 characters of `A–Z a–z 0–9 - . _ ~`. The header value must be
+`Bearer`, one space, then the token with no further whitespace. A failed check returns
+`401 authentication_required` with `WWW-Authenticate: Bearer`.
 
-The 2026-08-22 pre-commit stabilization gates pass 278/278 native cases across
-twenty-one suites in 00:06:57.037 and 37/37 deterministic browser-transport cases.
-Embedded JavaScript syntax validation passes for the 127,078-byte shipped
-source, and the warning-free WT32 build uses 170,776/327,680 RAM bytes (52.1%)
-and 2,173,233/5,242,880 flash bytes (39.9%). Stack and pre-commit factory-bundle
-measurements are recorded in [release-validation.md](https://github.com/76cb/OpenTag-Station/blob/main/docs/release-validation.md).
-Portable router, parser, patch, and bounded-ledger logic executes in host tests;
-the embedded browser, production context, HTTP/WebSocket transport, and
-device-control integration compile and link but were not executed on target. No
-browser, target-LAN, reset-recovery, NFC, display, touch, scale, or other
-physical-hardware result is claimed here.
+How to set the token: [Access token and network safety](../configuration/security.md).
 
-## Network and security boundary
+## Requests and responses
 
-The local server is plain HTTP and does **not** provide TLS. A bearer token sent
-to it is not encrypted by the station. Use the interface only on an isolated,
-trusted LAN protected by link-layer encryption such as WPA2 or WPA3. Do not
-port-forward it, expose it to the public Internet, or use it on a network where
-untrusted clients can capture or alter traffic.
+Responses carry `Content-Type: application/json; charset=utf-8`, `Cache-Control: no-store` and
+`X-Content-Type-Options: nosniff`.
 
-All read-only `GET` routes are public, including operation status and the
-read-only WebSocket event stream. When the station has a nonempty local API
-token, protected mutations require an exact `Authorization: Bearer <token>`
-value. When the token is blank, local mutations are allowed without bearer
-authentication: **Local API authentication: DISABLED** and **Local browser
-control: ENABLED**. This trusted-LAN mode is healthy and complete; the empty
-optional token does not degrade health, block setup completion, or disable
-scale, configuration, backend, device-control, or update mutations. Even when a
-token is configured, `POST /api/v1/network/scan`
-and `POST /api/v1/network/connect` are also authorized for a socket whose peer
-is verified as an active `192.168.4.0/24` setup-AP client. That authority is
-never accepted from a request header and cannot reach any other mutation.
-Authentication policy is checked before mutation JSON is parsed or work is
-submitted.
+```json
+{"api_version": "v1", "ok": true, "data": {}}
+{"api_version": "v1", "ok": false,
+ "error": {"code": "validation_failed", "message": "…", "retryable": false}}
+```
 
-The optional token may be created through the physically local setup AP or the
-masked touchscreen field. With no saved token, leaving the field blank keeps
-local API authentication disabled without prompting or generating a credential.
-When a token already exists, a blank touchscreen field preserves it. Recovery
-provisioning cannot replace it. Once configured, an
-authenticated `PATCH /api/v1/config` can rotate it or explicitly clear it. The browser prompts
-for the current token only when a mutation needs it, retains it only in
-JavaScript memory for that tab, clears it after HTTP 401, and never stores it in
-local storage, session storage, cookies, a URL, or a prefilled form.
+`error.message` is at most 512 bytes.
 
-A nonempty token is 16–128 ASCII characters drawn from letters, digits, `-`,
-`.`, `_`, and `~`. Static responses apply a restrictive policy for
-self-hosted scripts and styles, `nosniff`, no-referrer, and frame denial. HTML
-revalidates; firmware-versioned CSS/JS are served as build-time gzip with
-immutable caching. The UI connects events to the current `location.host` and inserts
-remote and device text with DOM text nodes rather than HTML parsing.
+### Read requests
 
-## Route catalog
+`GET` requests must not have a body (`400 unexpected_body`).
 
-The router has exactly 31 metadata-declared REST routes. `/api/v1/events` is a
-separate WebSocket transport endpoint and is not included in that count.
+### Change requests
 
-### Station and diagnostics
+Every `POST` and `PATCH` except the firmware upload needs these headers, each exactly once:
 
-| # | Method and path | Purpose |
-| ---: | --- | --- |
-| 1 | `GET /api/v1/status` | Combined system, backend, spool-generation, printer-revision, and operation-revision status. |
-| 2 | `GET /api/v1/device` | Device identity, local address, and firmware/build metadata. |
-| 3 | `GET /api/v1/health` | Local-service health, backend degradation, optional-authentication/control state, and NFC availability. |
-| 3a | `GET /api/v1/network` | Safe connection, setup AP, scan progress/results, hostname, and configuration revision. |
-| 3b | `POST /api/v1/network/scan` | Start one asynchronous bounded scan; setup-AP clients or normal conditional-authentication policy. |
-| 3c | `POST /api/v1/network/connect` | Revision-checked SSID/password/hostname and optional-token provisioning; setup-AP clients or normal conditional-authentication policy. |
-| 3d | `POST /api/v1/network/setup-mode` | Deliberate setup-AP activation under normal conditional-authentication policy. |
-| 4 | `GET /api/v1/diagnostics` | System, memory/stack/transport, scale, backend, queue, operation, and NFC diagnostics. |
-| 5 | `GET /api/v1/logs` | Bounded redacted log history, cursors, drop count, and history-gap state. |
+| Header | Value |
+|---|---|
+| `Content-Type` | `application/json` (optionally `; charset=utf-8`) |
+| `X-OpenTag-Request` | `web` |
+| `Idempotency-Key` | 1–64 characters of `A–Z a–z 0–9 - _ . :` |
+
+The body is one JSON object, nested at most 8 levels. Unknown fields are rejected. Routes that
+take no parameters need the empty object `{}`.
+
+An accepted change returns `202` with a receipt; the work happens afterwards:
+
+```json
+{"api_version": "v1", "ok": true,
+ "data": {"operation_id": 17, "kind": "scale_weigh", "state": "queued"}}
+```
+
+Poll `GET /operations/{id}` until `state` is `succeeded`, `failed` or `confirmation_required`.
+The station keeps the 24 most recent operations in memory; older ones and all operations from
+before a restart return `404 operation_not_found`.
+
+### Idempotency
+
+The station remembers up to 32 keys for ten minutes each, in memory only.
+
+| Situation | Result |
+|---|---|
+| Same key, same method, path and body, within ten minutes | `202` with the original `operation_id`; nothing runs twice. |
+| Same key, different request | `409 state_conflict` |
+| All 32 slots hold live keys | `409 state_conflict`, `retryable: true` |
+
+If a receipt is lost, do not send the request again under a new key. Poll the operation if you
+have its ID, until it finishes or returns `404`. If no ID was received, repeat the identical
+request with the same key, or wait until the ten-minute window has passed.
+
+## Routes
+
+"Token" means the bearer rule above applies. Body limits are in bytes.
+
+### Status and diagnostics
+
+| Method and path | Auth | Response `data` |
+|---|---|---|
+| `GET /status` | – | `system`, `backends.spoolman`, `backends.filabridge`, `spool_generation`, `printer_revision`, `operations_revision` |
+| `GET /device` | – | `device` (`hostname`, `hardware_id`, `ip_address`, `local_url`), `build` (`version`, `git_sha`, `build_date`, …) |
+| `GET /health` | – | `status` (`healthy` / `degraded` / `unhealthy`), `local_services_ready`, `backend_degraded`, `local_api_authentication_enabled`, `local_browser_control_enabled`, `nfc_available` |
+| `GET /diagnostics` | – | `system`, `scale`, `backends`, `queues`, `operations`, `ota_owner_ready`, `nfc_available` |
+| `GET /logs` | – | `logs[]` (`sequence`, `uptime_ms`, `level`, `source`, `message`, `truncated`, `redacted`), `oldest_cursor`, `latest_cursor`, `dropped_count`. At most 32 entries, 192 bytes each, lost on restart. |
+| `GET /operations/{id}` | – | `operation_id`, `kind`, `state`, `created_at_ms`, `updated_at_ms`, `message`, optional `error` (`category`, `message`, `retryable`). `id` is a positive decimal without leading zeros. |
+| `POST /backends/test` | Token | Body `{}` (≤ 256). Re-checks Spoolman and FilaBridge. |
+
+Operation `state` is one of `queued`, `running`, `succeeded`, `failed`, `confirmation_required`.
+The `kind` in an operation record can differ from the `kind` in the receipt (for example
+`weight_update` for a `scale_update` receipt, `firmware_reboot` for `update_reboot`); match
+operations by `operation_id`.
+
+### Network
+
+| Method and path | Auth | Body | Notes |
+|---|---|---|---|
+| `GET /network` | – | – | `system`, `networks[]` (`ssid`, `rssi_dbm`, `secured`), `config_revision`, `hostname`, `access_token_configured`, `local_browser_control_enabled` |
+| `POST /network/scan` | Token or setup network | `{}` (≤ 256) | Results appear in `GET /network`. |
+| `POST /network/connect` | Token or setup network | ≤ 1024, see below | Saves Wi-Fi settings and joins. |
+| `POST /network/setup-mode` | Token | `{}` (≤ 256) | Starts the setup network. |
+
+`POST /network/connect` fields:
+
+| Field | Required | Rule |
+|---|---|---|
+| `expected_revision` | yes | `config_revision` from `GET /network`; a stale value returns `409`. |
+| `ssid` | yes | 1–32 bytes |
+| `password` | no | ≤ 64 bytes. Omitted with a new `ssid`: the saved password is cleared. Omitted with the same `ssid`: kept. |
+| `hostname` | no | 1–63 characters of `a–z 0–9 -`, not starting or ending with `-` |
+| `access_token` | no | 16–128 characters. A setup-network client cannot replace a token that already exists (`422`). |
 
 ### Scale
 
-| # | Method and path | Purpose |
-| ---: | --- | --- |
-| 6 | `GET /api/v1/scale` | Current scale snapshot and command-queue depth. |
-| 7 | `POST /api/v1/scale/weigh` | Start a bounded stable-weight session; body is `{}`. |
-| 7a | `POST /api/v1/scale/tare` | Queue a tare session; body is `{}`. |
-| 8 | `POST /api/v1/scale/calibrate` | Queue calibration with `{"reference_grams": number}` in `(0, 5000]`. |
+| Method and path | Auth | Body | Notes |
+|---|---|---|---|
+| `GET /scale` | – | – | `scale`, `command_queue_depth`, `weigh_sync` (`measurement_id`, `phase`, `message`, `spool_id`, `can_update`, …) |
+| `POST /scale/weigh` | Token | `{}` (≤ 256) | Starts one measurement. |
+| `POST /scale/update` | Token | `{"measurement_id": n}` (≤ 256) | Saves that measurement to Spoolman. `n` is the positive `weigh_sync.measurement_id`; no other field is allowed. Each measurement can be saved once. |
+| `POST /scale/tare` | Token | `{}` (≤ 256) | Sets zero from the empty platform. |
+| `POST /scale/calibrate` | Token | `{"reference_grams": n}` (≤ 512) | `0 < n ≤ 5000`. Tare first. |
 
-### NFC and OpenPrintTag
+Rules and tolerances: [Scale behaviour](scale.md) and [Spoolman integration](spoolman.md).
 
-| # | Method and path | Purpose |
-| ---: | --- | --- |
-| 9 | `GET /api/v1/nfc` | NFC reader status. |
-| 10 | `GET /api/v1/nfc/tag` | Current decoded tag snapshot. |
-| 11 | `POST /api/v1/nfc/read` | Queue an explicit read; body is `{}`. |
+### Tag and spool
 
-### Spool, printers, and toolheads
+| Method and path | Auth | Body | Notes |
+|---|---|---|---|
+| `GET /nfc` | – | – | Reader and tag state. |
+| `GET /nfc/tag` | – | – | The same state under `tag`. |
+| `POST /nfc/read` | Token | `{}` (≤ 256) | Inert. Always fails with `503 nfc_unavailable`: the reader reads a tag when it is placed. Use `GET /nfc`. |
+| `GET /spool` | – | – | `workflow`: `tag_lifecycle`, `stage`, `spool_generation`, `printer_revision`, `tag`, `spoolman`, `filabridge`, `candidates[]`, `spool`, `reconciliation`, optional `error` |
+| `POST /spool/confirm` | Token | ≤ 512 | Exactly `spool_generation` (> 0), `spool_id` (> 0) and `confirmed: true`. Confirms one of `candidates[]` as the spool for the tag on the station. Needs a stable weight on the scale. |
+| `GET /tag-writer` | – | – | Current writer view: `phase`, `message`, `operation_id`, `completed_blocks`, `total_blocks` and the data of the last action. |
+| `POST /tag-writer` | Token | ≤ 4096 | `action` plus the fields of that action, below. |
 
-| # | Method and path | Purpose |
-| ---: | --- | --- |
-| 12 | `GET /api/v1/spool` | Current spool workflow and weight-reconciliation state. |
-| 13 | `GET /api/v1/printers` | FilaBridge printer snapshot and revision. |
-| 14 | `GET /api/v1/toolheads` | Flattened toolhead assignments and local profiles. |
-| 15 | `POST /api/v1/toolheads/{id}/assign` | Queue a guarded assignment to toolhead ID `0`–`4`. |
-| 16 | `POST /api/v1/toolheads/{id}/unassign` | Queue a guarded unassignment from toolhead ID `0`–`4`. |
+`POST /tag-writer` actions:
 
-### Configuration and backends
+| `action` | Fields | Purpose |
+|---|---|---|
+| `catalog` | `entity` (`vendor` / `filament` / `spool`), `offset`, optional `search`, `search_field` (`name` / `vendor`), `material`, `article_number`, `vendor_id`, `filament_id` | One page of the Spoolman catalog. |
+| `create_spool` | `spool`: object with `filament_id` (> 0) and optional `initial_weight`, `remaining_weight` or `used_weight` (not both), `spool_weight`, `price`, `location`, `lot_nr`, `comment` | Create a spool in Spoolman. |
+| `preview` | `spool_id` (> 0), optional `mode` (`update` writes only the consumed weight) | Read the tag on the station and build the content to write for that spool. |
+| `write` | `uid`, `generation`, `target_checksum` (strings), `spool_id` (> 0), `previous_spool_id` (≥ 0) | Write the previewed content to the tag and link it. |
+| `retry_association` | none | Retry the Spoolman link after a completed write. |
+| `clear_preview` | none | Prepare a clear. |
+| `clear` | exactly `uid`, `generation`, `current_checksum`, `target_checksum` (strings) | Clear the tag and unlink it. |
+| `retry_unlink` | none | Retry the Spoolman unlink after a completed clear. |
+| `discard_recovery` | exactly `confirm: "SKIP RECOVERY"` | Abandon an interrupted operation. |
+| `update_spool` | `spool_id` (> 0), `expected`, `changes` (non-empty) | Edit a spool in Spoolman. |
+| `update_filament` | `filament_id` (> 0), `expected`, `changes` (non-empty), optional `spool_id` (> 0) | Edit a filament in Spoolman. |
 
-| # | Method and path | Purpose |
-| ---: | --- | --- |
-| 17 | `GET /api/v1/config` | Read the revisioned, allowlisted, redacted configuration view. |
-| 18 | `PATCH /api/v1/config` | Queue a typed partial configuration update guarded by `expected_revision`. |
-| 19 | `POST /api/v1/backends/test` | Queue Spoolman and FilaBridge probes; body is `{}`. |
+There is no route that writes raw tag memory. The values for `write` and `clear` come from the
+preceding preview in `GET /tag-writer`. Engine details:
+[tag-writer.md](https://github.com/76cb/OpenTag-Station/blob/main/docs/tag-writer.md).
 
-### Update and device control
+### Printer and toolheads
 
-| # | Method and path | Purpose |
-| ---: | --- | --- |
-| 20 | `GET /api/v1/update` | Read update generation, state, partitions, current/candidate build, progress, validation, rollback, capabilities, and the last bounded error. |
-| 21 | `POST /api/v1/update/upload` | Stream one firmware binary to the inactive-slot owner; this route never enters the buffered JSON router. |
-| 22 | `POST /api/v1/update/reboot` | Activate the exact validated candidate and queue its owned reboot. |
-| 23 | `POST /api/v1/update/cancel` | Cancel the exact staged candidate while retaining the running firmware. |
-| 24 | `POST /api/v1/device/reboot` | Queue reboot with exact body `{"confirmation":"REBOOT"}`. |
-| 25 | `POST /api/v1/device/factory-reset` | Queue reset with exact body `{"confirmation":"FACTORY RESET"}`. |
+| Method and path | Auth | Body | Notes |
+|---|---|---|---|
+| `GET /printers` | – | – | `revision`, `printers[]` |
+| `GET /toolheads` | – | – | `revision`, `toolheads[]` (`printer_id`, `printer_state`, `backend_id`, `display_number`, `display_name`, `assigned_spool_id`, `profile_enabled`, `profile_name`) |
+| `POST /toolheads/{id}/assign` | Token | ≤ 2048 | `id` is the 0-based toolhead, 0–4. |
+| `POST /toolheads/{id}/unassign` | Token | ≤ 2048 | Same `id` rule. |
 
-### Operation status
+Assign needs all of these fields and no others. Unassign takes the same set without
+`expected_spool_id` and `replace_occupied_confirmed`.
 
-| # | Method and path | Purpose |
-| ---: | --- | --- |
-| 26 | `GET /api/v1/operations/{id}` | Read one positive, canonical decimal operation ID. |
+| Field | Rule |
+|---|---|
+| `printer_id` | 1–128 bytes, from `GET /printers` |
+| `expected_spool_id` | > 0; the spool to assign |
+| `expected_current_spool_id` | Spool now on the toolhead, or `null` if empty. Unassign: must be > 0. |
+| `expected_printer_state` | `unknown`, `idle`, `printing`, `paused`, `attention`, `finished`, `stopped`, `error`, `offline` or `not_configured` |
+| `spool_generation` | From `GET /spool` |
+| `printer_revision` | From `GET /printers` |
+| `replace_occupied_confirmed` | `true` to replace a spool already on the toolhead |
+| `advanced_override` | `true` to change a toolhead while the printer is printing, paused, needs attention, or its state is unknown |
 
-## JSON protocol and HTTP status
+Behaviour: [FilaBridge integration](filabridge.md).
 
-Every REST response is a versioned JSON envelope. A successful read is:
+### Configuration
 
-```json
-{"api_version":"v1","ok":true,"data":{}}
-```
-
-An error is:
-
-```json
-{
-  "api_version": "v1",
-  "ok": false,
-  "error": {
-    "code": "stable_machine_code",
-    "message": "bounded human-readable detail",
-    "retryable": false
-  }
-}
-```
-
-Clients should branch on the HTTP status and `error.code`, not parse the
-message. The principal statuses are:
-
-| Status | Meaning |
-| ---: | --- |
-| `200` | Read succeeded. |
-| `202` | Mutation was accepted into an owner queue, or an idempotent retry reused the original operation. This is not completion. |
-| `400` | Invalid path shape, headers, JSON, field set, type, value, or operation ID. |
-| `401` | Authentication is enabled and the bearer credential is missing, malformed, or wrong. A blank configured token does not produce 401. |
-| `404` | Route/version is unavailable, or an operation is no longer in bounded history. |
-| `405` | The path exists but does not support that method; `Allow` is returned. |
-| `408` | The complete request body was not received within the bounded transport deadline. |
-| `409` | Stale revision/state, idempotency-key conflict, unstable scale, or another state conflict. |
-| `413` | Global or route-specific body bound was exceeded. |
-| `415` | Firmware upload media type is not `application/octet-stream`. |
-| `422` | A context-level configuration/domain validation or tag validation failed. |
-| `500` | Internal routing, serialization, or snapshot safety failure. |
-| `502` | Backend authentication, API contract, or response failed. |
-| `503` | Network, backend, scale, NFC, or operation queue is unavailable. |
-| `507` | Persistent storage failed. |
-
-Unsupported `/api/<version>/...` requests return HTTP 404 with
-`unsupported_api_version`; only `v1` is defined.
-
-## Mutation headers, operations, and idempotency
-
-Every mutation requires the browser-source header and an idempotency key.
-Bearer authentication is required when a token is configured, except for
-network scan/connect requests whose transport peer was verified on the active
-setup AP. Buffered JSON mutations require all of the following:
-
-- `Authorization: Bearer <current-token>` when a token is configured, except
-  for the two scoped setup-AP routes;
-- `Content-Type: application/json` with optional UTF-8 charset;
-- `X-OpenTag-Request: web`;
-- an `Idempotency-Key` of 1–64 letters, digits, `-`, `_`, `.`, or `:`;
-- one JSON object whose fields exactly match the selected route.
-
-Firmware upload is the deliberate exception to the JSON-body rule. Its exact
-transport contract is documented under **Validated A/B update surface** below.
-
-An accepted mutation returns HTTP 202:
+| Method and path | Auth | Body | Notes |
+|---|---|---|---|
+| `GET /config` | – | – | Settings without secrets, plus `revision`. |
+| `PATCH /config` | Token | ≤ 16384 | `expected_revision` plus at least one section. |
 
 ```json
-{
-  "api_version": "v1",
-  "ok": true,
-  "data": {
-    "operation_id": 42,
-    "kind": "configuration",
-    "state": "queued"
-  }
-}
+{"expected_revision": 12,
+ "spoolman": {"url": "http://192.168.1.20:7912"},
+ "reconciliation": {"auto_update_after_weigh": true}}
 ```
 
-Poll `GET /api/v1/operations/42` until `state` is `succeeded`, `failed`, or
-`confirmation_required`. Intermediate states are `queued` and `running`.
-Operation records include creation/update uptime, a bounded message, and a
-structured error when present. The embedded browser polls only the returned ID
-at about one-second intervals and stops after 45 seconds. Reboot and factory
-reset are receipt-only in the browser: it reports acceptance and enters its
-reconnect flow instead of polling across the intentional restart. A polling
-timeout does not prove that the owner task failed.
+Sections: `device`, `wifi`, `web`, `spoolman`, `filabridge`, `scale_profile`, `toolheads`,
+`reconciliation`. An object section that is present must not be empty. `toolheads` is a list; an
+empty list removes every profile. An omitted field keeps its value.
+A stale `expected_revision` returns `409 state_conflict`. Keys, defaults, bounds and the redaction
+rules: [Configuration keys](configuration.md).
 
-Operation history is a volatile 24-record bounded registry. It never overwrites
-a queued or running record; an empty or terminal slot may be reused, and a
-registry containing 24 nonterminal operations rejects new work with a retryable
-503 instead of losing an active receipt. A missing or reused ID returns 404.
-Reboot clears the history, and reboot/reset operations naturally interrupt the
-connection before a terminal result can be observed.
+### Firmware update
 
-Idempotency is a volatile 32-entry ledger with a ten-minute TTL. The digest
-covers mutation kind, path, and the exact validated request body. Reusing the
-same key for the same payload during retention returns the original operation
-ID; using it for a different payload returns HTTP 409 `state_conflict`. More
-than 32 unique mutations inside the retention window cannot evict a live key:
-the station rejects new work before creating side effects until a slot expires.
-Expired slots are reused deterministically, and restart clears the ledger.
-Clients must not treat it as durable deduplication.
+| Method and path | Auth | Body | Notes |
+|---|---|---|---|
+| `GET /update` | – | – | `state`, `generation`, `revision`, `operation_id`, `upload_operation_id`, `expected_sha256`, `calculated_sha256`, `image_size`, `received_bytes`, `progress`, `partitions`, `current`, `candidate`, `capabilities`, optional `last_error` |
+| `POST /update/upload` | Token | raw image, ≤ 5 MiB | Headers below. Not JSON. |
+| `POST /update/reboot` | Token | ≤ 512 | Restart into the uploaded image. |
+| `POST /update/cancel` | Token | ≤ 512 | Discard an upload in progress or a validated image that has not been started. |
 
-## Browser request and configuration lifecycle
+Upload headers:
 
-Before hardware stabilization, one tab could begin with nine concurrent reads,
-start further phase-two reads, repeat three reads when the WebSocket opened, and
-treat the first heartbeat as an unknown event that requested eight more reads.
-That produced roughly 25 startup REST transactions plus the WebSocket, then
-another eight-read burst on each 15-second heartbeat. It competed against a
-four-socket, two-backlog server with LRU purging and one-second socket waits.
+| Header | Value |
+|---|---|
+| `Content-Type` | `application/octet-stream` |
+| `Content-Length` | 1 to 5,242,880 |
+| `X-OpenTag-Request` | `web` |
+| `Idempotency-Key` | as for other change requests |
+| `X-OpenTag-Image-SHA256` | SHA-256 of the file, 64 lowercase hex characters |
+| `X-OpenTag-Expected-Generation` | `generation` from `GET /update`, decimal without leading zeros |
 
-The embedded client now uses one bounded queue with these priorities:
+The upload answers when the image has been written and checked: `200` with `operation_id`,
+`upload_operation_id`, `kind: "firmware_upload"`, `state: "succeeded"`, `generation`,
+`update_state`, `validated`, `activated`. Repeating the same upload with the same key returns
+`202` with `state: "duplicate"`. The upload fails if no data arrives for 5 seconds or the whole
+transfer exceeds 180 seconds (`408 upload_timeout`).
 
-| Priority | Work |
-| ---: | --- |
-| 1 | Mutation receipts, operation polling, configuration save, scale/device/update controls |
-| 2 | `device`, `network`, `config`, `scale`, and `health` reads |
-| 3 | `status`, `spool`, `printers`, `toolheads`, and `update` reads |
-| 4 | Logs, diagnostics, and unavailable NFC reads |
-
-At most two ordinary REST requests dispatch at once, and at most one background
-request may occupy those slots so priority-one work retains headroom. Identical
-pending GETs share one result; there cannot be concurrent `GET /scale` or
-`GET /config` requests. A newer refresh may supersede its older queued
-background read, but never a mutation. The queue is bounded and dispatch
-timeouts begin only when a request actually leaves it.
-
-Startup is progressive and ordered: load `device`, `network`, `config`, and
-`scale`; establish the WebSocket; then load secondary resources through the
-scheduler. Heartbeats only prove liveness and do not trigger REST. Manual
-refresh is also sequenced rather than issued as a large `Promise.all`.
-
-Configuration has explicit `UNLOADED`, `LOADING`, `READY`, and `ERROR`
-states. Fields, Save, import, and export remain disabled until `READY`.
-Opening Configuration automatically retries a missing/failed load and displays
-the actual transport, HTTP, or API error. Dirty edits are not overwritten by a
-late background response. A successful PATCH is not reported as persisted until
-its operation completes and a forced `GET /config` returns the new revision.
-
-Each mutation creates one idempotency key and one exact body, submits once, and
-polls only a known receipt. An interrupted receipt is treated as uncertain and
-is not blindly replayed; the matching control remains protected from a duplicate
-manual submission. Transient polling GET failures retry without replaying the
-mutation. Priority-one operation work pauses/yields background refresh and
-reports transport, HTTP, API, operation, and domain/precondition failures
-separately. Firmware upload enters a maintenance mode that pauses background
-REST and the live/fallback loop until the upload finishes or aborts.
-
-## Diagnostics local interface self-test
-
-**Run Local Interface Self-Test** performs sequential, read-only checks of
-`/device`, `/health`, `/network`, `/config`, `/scale`, `/spool`,
-`/printers`, `/toolheads`, `/logs`, `/diagnostics`, and `/update`, then
-reports the existing WebSocket's connectivity. Each row shows endpoint, HTTP
-result, latency, API-envelope result, and a bounded error. Response bodies are
-not rendered or retained by the report, it does not open a second WebSocket,
-and it performs no mutation or secret-bearing request.
-
-## Live WebSocket events
-
-Connect to `ws://<station-ip>/api/v1/events`. The endpoint is read-only and is
-not routed through the REST router.
-
-- `{"type":"scale","data":...}` is published at most every 500 ms (2 Hz).
-- `{"type":"heartbeat","data":{"uptime_ms":...}}` is published about every
-  15 seconds.
-- `{"type":"update","data":...}` publishes a bounded update snapshot when
-  update state/progress changes. The browser also reloads update, device, and
-  health state whenever the WebSocket reconnects after a reboot.
-- If a scale snapshot cannot be encoded safely, the server emits a bounded
-  `invalidate` event so the client can refresh the resource.
-- The server permits at most two WebSocket clients within seven total open HTTP
-  sockets. It enumerates current descriptors for each publication and uses one
-  fixed shared asynchronous batch with at most two in-flight sends. Publications
-  coalesce while that batch is busy; queue/send failures and excess sessions are
-  closed. There is no per-client task or unbounded queue.
-- Incoming frames are not an API. Every post-handshake data or control frame is
-  rejected and the session is closed without reading its payload. Outgoing event
-  JSON is at most 4096 bytes.
-
-Each tab owns exactly one WebSocket object and one reconnect timer. Connection
-attempts have an eight-second deadline; a connection with no heartbeat or event
-for 35 seconds is stale and is replaced. Retry delay grows exponentially from
-one to 30 seconds with bounded jitter and resets after verified traffic. The
-client cancels stale timers/sockets across visibility changes, offline/online
-events, page navigation, reload, and station reboot, so an obsolete socket
-cannot update current state.
-
-Scale and update events update only their relevant resource. A heartbeat updates
-liveness only; an invalid/invalidate event requests only the named or required
-resource. If live updates remain unavailable, a single scheduler-driven fallback
-loop polls scale every two seconds and rotates health/network/update reads at a
-lower rate. The UI distinguishes **Connecting**, **Connected**,
-**Disconnected — retrying**, and **Live updates unavailable — using polling**.
-WebSocket loss never disables REST controls or targeted operation polling.
-
-Two simultaneous tabs fit the server's documented WebSocket limit and socket
-budget. Excess live clients are closed and must fall back to REST rather than
-crashing the station; each tab still obeys its own two-request scheduler.
-
-## Revisioned and redacted configuration
-
-`GET /api/v1/config` is built from an explicit allowlist rather than the stored
-JSON document. It returns a boot-local runtime `revision`, nonsecret settings,
-and only these credential-state flags:
-
-- `web.access_token_configured`;
-- `wifi.password_configured`;
-- `spoolman.authentication_token_configured` and `custom_ca_configured`;
-- `filabridge.authentication_token_configured` and `custom_ca_configured`.
-
-It never returns passwords, bearer/backend tokens, authorization values, or CA
-certificate text. The router rejects the entire snapshot if a forbidden secret
-key reaches serialization.
-
-`PATCH /api/v1/config` requires the revision read by the editor as
-`expected_revision`. Both the request-side proposal and the serialized
-configuration worker compare that revision. A stale proposal returns HTTP 409
-without a partial write; reload the configuration and deliberately merge/retry.
-The revision is a boot-local compare-and-swap token, not a persisted sequence.
-
-Sections are typed partial objects for `device`, `wifi`, `web`, `spoolman`,
-`filabridge`, `scale_profile`, `toolheads`, and `reconciliation`. Unknown fields,
-empty section objects, wrong JSON types, unsafe text, invalid ranges, and a
-patch with no changed section are rejected. Omitted fields preserve their
-current values. For Wi-Fi password, backend token/CA material, and
-`web.access_token`, an explicit empty string clears only that credential; a
-valid nonempty value replaces it. Omitting the credential preserves it.
-Including `toolheads` replaces the complete bounded profile list.
-
-## Assignment and unassignment safety
-
-Assignment accepts exactly these eight fields:
+Reboot and cancel take exactly these four fields and act only on the upload they name:
 
 ```json
-{
-  "printer_id": "printer-a",
-  "expected_spool_id": 123,
-  "expected_current_spool_id": 45,
-  "expected_printer_state": "idle",
-  "spool_generation": 9,
-  "printer_revision": 17,
-  "replace_occupied_confirmed": false,
-  "advanced_override": false
-}
+{"upload_operation_id": 21, "expected_generation": 4,
+ "expected_sha256": "<64 lowercase hex>", "confirmation": "REBOOT INTO UPDATE"}
 ```
 
-`expected_current_spool_id` may be `null` for an expected empty toolhead.
-Unassignment accepts exactly six fields: it omits `expected_spool_id` and
-`replace_occupied_confirmed`, and requires a positive
-`expected_current_spool_id`.
+For cancel the confirmation is `CANCEL UPDATE`. A mismatch with the current upload returns
+`409 state_conflict`. States and rollback: [Firmware update internals](ota.md).
 
-The workflow checks spool generation, resolved spool ID, printer revision,
-printer identity/state, and current assignment before acting. The backend is
-then refreshed immediately. Occupied replacement requires an explicit
-confirmation flag; active or unverified printer states require an explicit
-advanced override. A missing confirmation produces the terminal
-`confirmation_required` state instead of performing the mutation. Queued
-assignment/unassignment work expires after 15 seconds rather than applying a
-stale destructive request.
+### Device control
 
-After FilaBridge map/unmap succeeds, the station performs an independent
-readback. Assignment succeeds only when the requested spool is observed (or was
-already present); unassignment succeeds only when the mapping is absent (or was
-already absent). Local workflow state is not advanced on failed verification.
+| Method and path | Auth | Body |
+|---|---|---|
+| `POST /device/reboot` | Token | `{"confirmation": "REBOOT"}` (≤ 256) |
+| `POST /device/factory-reset` | Token | `{"confirmation": "FACTORY RESET"}` (≤ 256) |
 
-## Production read-only NFC
+Factory reset deletes the saved settings, Wi-Fi credentials and scale calibration. It does not
+change the firmware. Reboot, factory reset and update reboot are refused with `409` while a tag
+or Spoolman operation is queued or running.
 
-`GET /api/v1/nfc` and `GET /api/v1/nfc/tag` expose the dedicated worker's
-thread-safe read-only snapshot. UID, geometry, checksum, decode status, nullable
-material fields and transport errors are available without decoding on httpd.
-`/spool` retains the existing StationWorkflow with its identified tag and waiting
-or resolved stage. NFC live invalidations refresh both NFC and spool views.
-An empty valid tag is recognized, not treated as absent. No tag-write endpoint
-exists. The legacy `/nfc/read` command reports that reading is automatic and is
-not exposed as an action on the read-only UI. See [production NFC](https://github.com/76cb/OpenTag-Station/blob/main/docs/production-nfc.md).
+### Static pages
 
-## Reboot and factory reset
+`GET /`, `/assets/app.css`, `/assets/app.js` and `/assets/writer.js` serve the browser page. Any
+other path returns `404 route_not_found`, except for a setup-network client, which is redirected
+(`302`) to `http://192.168.4.1/`.
 
-Both controls require bearer authentication when a token is configured, plus
-normal mutation headers, idempotency, and exact case-sensitive confirmation
-text. Reboot preserves data and schedules an ESP restart after a bounded
-response-flush delay.
+## Live events
 
-Factory reset has deliberately narrow storage scope. It removes only:
+`ws://<station>/api/v1/events` is a WebSocket that only sends. No token is needed. Any data frame
+from the client closes the connection. At most two clients are served at once. Messages are JSON,
+at most 4096 bytes:
 
-- `/configuration.bak`;
-- `/configuration.new`;
-- `/configuration.json`;
-- all key/value state in the station-owned `opentag` NVS namespace, including
-  configuration/calibration mirrors and local boot state.
+| `type` | `data` | When |
+|---|---|---|
+| `scale` | Same object as `scale` in `GET /scale` | During a measurement, at most every 500 ms, and once when it ends |
+| `update` | Same object as `GET /update` | When the update state changes, at most every 500 ms |
+| `invalidate` | `{"resource": "backends" \| "nfc" \| "scale" \| "update"}` | Fetch that resource again |
+| `heartbeat` | `{"uptime_ms": n}` | Every 15 seconds |
 
-It does not format LittleFS, erase firmware/OTA partitions, clear unrelated NVS
-namespaces, or perform a firmware downgrade. Before deletion it persists a
-`resetPending` intent marker in the separate station-owned `opentagCtl`
-control namespace. The marker itself blocks automatic formatting after a mount
-failure. Storage writers remain blocked until restart. The marker stays durable
-until the three documents and the `opentag` application namespace are cleared
-and the `fsProvisioned` no-format guard is restored; only then is the marker
-removed. If any post-marker step is interrupted or fails, the device-control
-owner schedules a reboot and early boot repeats the idempotent recovery path.
-Successful recovery returns to first-run setup. The setup-AP connect route may
-create a missing optional token but cannot replace an existing token; when the
-token remains blank, unrelated local mutations are intentionally tokenless.
+## Status and error codes
 
-Power-loss timing, exact erase scope, marker recovery, restart, and first-run
-return still require physical target validation.
+| HTTP | `error.code` |
+|---:|---|
+| 400 | `invalid_request`, `invalid_request_headers`, `unexpected_body`, `incomplete_request_body`, `invalid_operation_id`, `invalid_firmware_length`, `invalid_upload_headers`, `invalid_upload_precondition`, `incomplete_firmware_upload` |
+| 401 | `authentication_required` |
+| 404 | `route_not_found`, `unsupported_api_version`, `operation_not_found` |
+| 405 | `method_not_allowed` (with an `Allow` header) |
+| 408 | `request_timeout`, `upload_timeout` |
+| 409 | `state_conflict`, `tag_state_conflict`, `scale_unstable` |
+| 413 | `request_too_large`, `firmware_too_large` |
+| 415 | `unsupported_media_type` (upload only) |
+| 422 | `validation_failed`, `invalid_tag`, `firmware_validation_failed` |
+| 500 | `internal_error`, `internal_route_error`, `invalid_snapshot`, `unsafe_configuration_snapshot`, `response_too_large`, `streaming_transport_required` |
+| 502 | `backend_authentication_failed`, `backend_api_changed`, `invalid_backend_response` |
+| 503 | `network_unavailable`, `backend_unavailable`, `nfc_unavailable`, `scale_unavailable`, `update_unavailable`, `operation_not_queued`, `resource_unavailable` |
+| 507 | `persistence_failed` |
 
-## Validated A/B update surface
+A `503 resource_unavailable` with `retryable: true` means the station was briefly out of working
+memory; repeat the request with the same `Idempotency-Key`.
 
-`GET /api/v1/update` is public like the other safe read snapshots. It exposes a
-nonnegative monotonic `generation` (`0` before the first upload and positive
-thereafter), update `state`, the upload operation ID,
-running/boot/inactive partition labels and capacities, current and candidate
-version/Git/build metadata, declared/calculated SHA-256, byte progress,
-validation result, rollback status, capability booleans, and one bounded last
-error. It never exposes a flash address or accepts a client-selected partition.
+## Limits
 
-Capabilities include `owner_ready`; upload, cancel, and reboot are unavailable
-when the sole OTA owner is not ready. `maximum_image_bytes` is `0` when no
-inactive application topology exists, rather than implying a generic 5 MiB
-target.
-
-`POST /api/v1/update/upload` is registered as a streaming-binary route with a
-hard 5 MiB ceiling matching one application slot. It is explicitly rejected by
-the normal 16 KiB buffered router. The dedicated transport requires:
-
-- `Authorization: Bearer <current-token>` when a token is configured;
-- `X-OpenTag-Request: web`;
-- a valid `Idempotency-Key`;
-- `Content-Type: application/octet-stream`;
-- a nonzero explicit `Content-Length` no larger than the inactive slot;
-- `X-OpenTag-Image-SHA256: <64 lowercase hexadecimal characters>`;
-- `X-OpenTag-Expected-Generation: <canonical nonnegative decimal generation>`.
-
-Candidate version, Git SHA, build date, board, and project identity come only
-from the embedded image metadata; request headers and the local filename are
-not trusted or forwarded. The browser calculates SHA-256 before upload, sends
-the `File` object directly with `XMLHttpRequest`, and shows transport progress
-as unvalidated until the station reports validation and inactive-slot install.
-It never stores the bearer token or firmware body.
-
-Reboot and cancel are normal bounded JSON mutations. Each body contains exactly
-four fields:
-
-```json
-{
-  "upload_operation_id": 91,
-  "expected_generation": 7,
-  "expected_sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-  "confirmation": "REBOOT INTO UPDATE"
-}
-```
-
-Cancel uses the exact confirmation `CANCEL UPDATE`. A successful upload reaches
-`ready_to_reboot` only after validation and inactive-slot installation, but the
-boot partition remains unchanged until the explicit reboot mutation accepts the
-exact candidate. If activation was durably selected but the restart response is
-ambiguous, the same exact reboot request may be retried only while the boot
-target still matches the validated inactive target and that target is not yet
-running. The exact request may also retry first-update rollback seeding when
-durable activation intent and the full validated target topology prove that
-boundary. Cancellation remains forbidden after activation intent. Both IDs
-must be positive, the digest must be exactly 64 lowercase hexadecimal
-characters, and every precondition must still match the device-owned candidate.
-This prevents a stale tab, old operation receipt, or replayed reboot from
-activating or cancelling a newer image. Upload abort in the browser closes the
-transfer so the service can abort the incomplete OTA handle; staged-candidate
-cancellation uses the JSON endpoint. Reboot is receipt-only in the UI, which
-reconnects and resumes status through candidate boot, health validation,
-confirmation, or rollback.
-
-## Resource bounds
-
-| Resource | Bound |
-| --- | ---: |
-| Global request body / configuration PATCH | 16 KiB |
-| Firmware streaming upload | 5 MiB maximum; never buffered by the JSON router |
-| Tare, NFC read, backend probe, reboot, factory reset body | 256 bytes each |
-| Calibration body | 512 bytes |
-| Assignment or unassignment body | 2048 bytes |
-| Request path | 256 bytes |
-| Request headers | 16 headers, 1024 bytes total; collected value at most 512 bytes |
-| JSON nesting | 8 levels |
-| Application snapshot / complete response body | 24 KiB / 32 KiB |
-| HTTP sockets / WebSocket clients | 5 / 2; LRU purge disabled |
-| WebSocket post-handshake input / output | rejected / 4096 bytes |
-| HTTP server task stack / backlog | 12,288 bytes / 5 connections; 9,344-byte worst-route budget leaves 2,944 bytes |
-| Receive / send wait; buffered JSON body deadline | 5 seconds / 5 seconds; 5 seconds absolute |
-| Firmware upload buffers / deadlines | one 4096-byte HTTP receive buffer plus four 4096-byte OTA command-slot buffers; 5 seconds without receive progress / 180 seconds absolute through validation |
-| Idempotency / operation / log history | 32 / 24 / 32 entries |
-| Embedded HTML / CSS / JavaScript | Compile-time bounded by `web_assets.hpp`; `tools/check_web_assets.py` syntax-checks JavaScript and reports raw/precompressed CSS and JavaScript sizes |
-
-GET routes accept no body. The transport reads the declared body exactly and
-rejects incomplete, oversized, or over-deadline input. Route limits are enforced
-again by the transport-neutral router. API responses are `no-store`, and no API
-owner allocates an unbounded request queue for browser clients.
-
-## Physical validation and known limitations
-
-Before this stabilization can be called target-validated, exercise the assembled firmware
-on the WT32-SC01 Plus over an isolated encrypted LAN:
-
-1. Verify blank-token health, setup completion, scale/config/backend/device
-   mutations, and the displayed DISABLED/ENABLED authentication state. Then set
-   an optional token and test missing/wrong/correct authentication, rotation,
-   explicit clear, setup-AP recovery, and touchscreen recovery.
-2. Run the Diagnostics local interface self-test; every REST row and the
-   existing WebSocket must pass without exposing a response body or secret.
-3. Inspect wire traffic, configuration snapshots, logs, and browser state for
-   secret leakage; remember that HTTP traffic itself remains plaintext.
-4. Race two configuration editors and stale assignment snapshots; confirm CAS,
-   confirmation, expiry, and exact FilaBridge readback behavior.
-5. With one tab, perform 20 manual refreshes, F5, navigate away/back, transition
-   setup AP to LAN, disconnect/reconnect LAN, and reboot the station. Confirm one
-   WebSocket, bounded REST concurrency, fallback polling, and recovery without
-   stale state or stuck controls.
-6. Run two tabs long enough to cover both WebSockets and simultaneous controls;
-   then attempt an excess client. Confirm graceful fallback/rejection, socket
-   reclamation, and no device reset, watchdog, or task starvation.
-7. Verify on-demand Weigh sessions, final retained results, session-only scale
-   events, tare, and calibration against real hardware without starving
-   LVGL, network, configuration, or backend work.
-8. Confirm all NFC routes stay explicitly unavailable on the wiring-gated build.
-9. Exercise reboot and factory reset, including power interruption at each erase
-   stage, exact-scope retention, durable recovery, and return to first-run.
-10. Confirm responsive/accessibility behavior and safe rendering of backend,
-   printer, spool, and log strings in supported desktop and mobile browsers.
-
-Known limitations include plain HTTP with public reads, small connection and
-history rings, volatile idempotency/operation state, no physical NFC transport,
-unsigned firmware images, and no completed target-browser/LAN/rollback hardware
-validation. Pinned ESP-IDF returns the first matching request-header value but
-does not expose a duplicate count to the upload handler, so duplicate-header
-behavior must be characterized on the target rather than claimed as rejected.
-The legacy NVS calibration mirror and authoritative LittleFS configuration writes
-are safety-ordered but not one power-atomic transaction. ESP-IDF header receipt
-uses bounded socket waits rather than a separate whole-header wall-clock
-deadline.
-
-## Production OpenPrintTag writer
-
-See [writer workflow and contract](https://github.com/76cb/OpenTag-Station/blob/main/docs/openprinttag-writer.md). GET /api/v1/tag-writer returns its bounded snapshot; authenticated POST enqueues only approved high-level catalog/import/spool/preview/write/association operations. Periodic reads never write.
+| Item | Limit |
+|---|---|
+| Request body | 16,384 bytes, or the lower limit given per route |
+| Response body | 32,768 bytes |
+| Path | 256 bytes |
+| Request headers | 16 headers, 1,024 bytes in total, 512 bytes per value |
+| Time to receive a request body | 5 seconds (`408 request_timeout`) |
+| Open HTTP connections | 5, of which at most 2 WebSocket clients |
+| Queued assign, unassign, spool confirmation, tag write or tag clear | Fails if it waits more than 15 seconds before it starts |

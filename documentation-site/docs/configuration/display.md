@@ -1,25 +1,39 @@
-# Display and station settings
+# Display
 
-Adjust readability and station preferences without changing peripheral wiring or task ownership.
+The only display setting you can change is the brightness. The screen dims and switches off by
+itself when nobody touches it.
 
-## Before you start
+## Change the brightness
 
-A powered station or its local browser. Confirm current hardware version in About before comparing it to documentation.
+**Browser** — this is the saved setting:
 
-## Steps
+1. Go to **Settings** → **Display**.
+2. Set **Brightness (%)** between 5 and 100. The default is 80.
+3. Click **Validate and save**.
 
-1. Open Settings → Display in the browser, or Settings on WT32.
-2. Adjust brightness within the offered range and inspect readability under normal room lighting.
-3. Review dim/sleep timing where exposed; sleep must not precede dim. Save the settings and verify persisted feedback.
-4. Use About / Advanced to record VERSION and source SHA when reporting an issue.
-5. Return to Home and exercise navigation with a spool present and absent. Physical clipping, colors and touch targeting require inspection on the actual panel.
+The saved brightness is used the next time the station starts.
 
-## Expected result
+**Touchscreen** — for a quick change:
 
-Brightness/preferences are persisted and normal UI navigation remains responsive. About and browser build data derive from firmware VERSION metadata.
+1. Tap **Settings**.
+2. Move the **Display brightness** slider (5 to 100 %).
 
-## If it fails
+The screen changes at once, but the slider does not save. After a restart the station uses the
+brightness saved in the browser again.
 
-If another client changed configuration, reload before saving. Wrong colors, orientation or touch coordinates are hardware/rendering issues, not fixed by a brightness change. WT32 documentation fixtures use approximate fonts and cannot establish physical acceptance.
+## Dimming and sleep
 
-![WT32 Home layout approximation](../assets/images/touchscreen/wt32-home.png)
+- After 2 minutes without a touch the screen dims to 20 %.
+- After 5 minutes without a touch the screen switches off.
+- Touch the screen to wake it. The first touch only wakes the screen; it does not press a button.
+- To switch the screen off right away: **Settings** → **About / Advanced** → **Sleep**.
+
+There is no control for the two times in either interface. They can only be changed through the
+settings keys `device.dim_after_ms` and `device.sleep_after_ms`; see
+[Configuration keys](../reference/configuration.md).
+
+## The About screen
+
+**Settings** → **About / Advanced** opens "About this station". It shows the firmware version, the
+Wi-Fi state and IP address, and the state of the hardware. It also has a second **Brightness**
+slider and the buttons **Home**, **Setup** and **Sleep**.

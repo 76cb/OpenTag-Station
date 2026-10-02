@@ -1,106 +1,141 @@
-# Format reference
+# OpenPrintTag format
 
-This technical reference describes implementation contracts. Dated test figures
-below are historical checkpoints, not the current candidate’s acceptance record.
-See the release checklist for outstanding physical checks.
+What the station reads from a tag and what it writes to one.
+For which tags to buy, see [Which tags work](../openprinttag/supported-tags.md).
 
+## Tag profile
 
-## Phase 11 release status
+| Property | Value |
+|---|---|
+| Technology | NFC-V (ISO 15693). Other NFC types are never detected. |
+| Writable tag | NXP ICODE SLIX2: UID starts `E0:04`, 80 blocks × 4 bytes |
+| Memory used | Bytes 0–311 (blocks 0–77), 312 bytes |
+| Never written | Blocks 78–79 (bytes 312–319) and the UID |
+| Blank tag | All 312 usable bytes are `0x00` |
+| Protected tag | Refused if any of blocks 0–77 is locked, or the tag data declares write protection |
 
-Host hardening now exercises every truncated prefix and every single-byte
-mutation of the official fixture in addition to the bounded CBOR/NDEF/NFC-V
-tests. ST25R3916B wiring, RFAL binding, RF behavior, and real-tag read/write
-remain UNVERIFIED in [release-validation.md](https://github.com/76cb/OpenTag-Station/blob/main/docs/release-validation.md).
+A tag that is neither blank nor a valid OpenPrintTag is refused for writing and for clearing.
+The station does not overwrite data it cannot identify.
 
-## Authority
+Messages for a refused tag:
 
-The baseline is the official
-[OpenPrintTag repository at `e0dab1a`](https://github.com/prusa3d/OpenPrintTag/commit/e0dab1ae16838d2c342e7cfc509455441b7d8eba),
-inspected 2026-08-17 and rechecked 2026-08-20. The format intentionally has no
-explicit version number:
-compatible fields are added under stable integer keys, deprecated keys are not
-reused, and an incompatible future format would use another MIME type.
+| Message | Cause |
+|---|---|
+| `Incompatible tag: this release approves NXP 80 x 4-byte SLIX2 only` | Wrong chip or memory size |
+| `Place exactly one stable NFC-V tag` | No tag, or more than one |
+| `Tag has protected blocks` | A block in 0–77 is locked |
+| `OpenPrintTag declares write protection` | The tag data marks itself read-only |
+| `Unsupported or incomplete OpenPrintTag; refusing unknown data overwrite` | Other data on the tag |
 
-## Format
+## Memory layout
 
-The current format is NFC-V/ISO15693 memory containing an NDEF TLV. An NDEF
-message contains an unchunked MIME record of
-`application/vnd.openprinttag`. Its payload contains three CBOR maps:
+The tag holds an NDEF message with one MIME record of type `application/vnd.openprinttag`.
+The record payload contains CBOR maps in three regions:
 
-1. meta at payload offset zero, describing region offsets and sizes;
-2. main, for largely static package/material information;
-3. optional auxiliary, for dynamic data such as consumed weight and storage.
+| Region | Content |
+|---|---|
+| Meta | Offsets and sizes of the other regions |
+| Main | Material and package data that rarely changes |
+| Auxiliary | Data that changes during use, such as consumed weight |
 
-Each section is at most 512 bytes. Readers must accept non-canonical map order,
-skip unknown keys and enum values, and preserve unknown raw CBOR during updates.
-The auxiliary region is at least 16 bytes when present and 32 bytes is
-recommended. Its position is defined by metadata; readers must not assume it is
-after the main region.
+Fields are identified by integer keys.
 
-NFC-V UIDs are normalized internally to the eight-byte network-order form with
-`0xE0` first. Display formatting is separate so library-specific byte order
-cannot corrupt UUID derivation.
+Reader limits: tag image at most 4,096 bytes, each CBOR region at most 512 bytes, at most 128
+map entries, nesting depth at most 12. A tag outside these limits is reported as invalid.
 
-## Model and codec boundaries
+## Fields the station writes
 
-The codec is host-testable and independent of NFC hardware:
+A full write builds a new 312-byte image from the Spoolman spool. The mapping lives in
+[`spoolman_mapping.cpp`](https://github.com/76cb/OpenTag-Station/blob/main/src/nfc/formats/openprinttag/spoolman_mapping.cpp).
 
-```text
-raw tag bytes
-  -> Type 5 capability container / TLV parser
-  -> NDEF record parser
-  -> bounded CBOR parser with raw unknown-field retention
-  -> OpenPrintTag normalized model + validation report
-```
+| Region, key | Tag field | Source in Spoolman | Rule |
+|---|---|---|---|
+| Main 0 | Instance UUID (16 bytes) | The spool's `opentag_instance_uuid` extra field | Always written |
+| Main 8 | Material class | Fixed: FFF filament | Always written |
+| Main 9 | Material type | Filament `material` | Only if exactly PLA, PETG, TPU, ABS, ASA, PC, PCTG, PP, PA6, PA11 or PA12 |
+| Main 10 | Material name | Filament `name` | At most 63 bytes |
+| Main 11 | Brand | Vendor `name` | At most 31 bytes |
+| Main 52 | Material abbreviation | Filament `material` | At most 7 bytes |
+| Main 6 | Brand-specific ID | Filament `article_number` | At most 16 bytes |
+| Main 16 | Nominal weight (g) | Filament `weight` | |
+| Main 17 | Actual initial weight (g) | Spool `initial_weight` | |
+| Main 18 | Empty spool weight (g) | Spool `spool_weight`, else filament `spool_weight`, else vendor `empty_spool_weight` | |
+| Main 29 | Density | Filament `density` | |
+| Main 61 | Diameter (µm) | Filament `diameter` × 1000 | Must be a whole number of micrometres, at most 65,535 |
+| Main 19 | Colour | Filament `color_hex` | 6 or 8 hex digits |
+| Auxiliary 0 | Consumed weight (g) | Spool `used_weight` | Required |
 
-Consumed-weight encoding produces a proposed byte image without changing the
-allocated region layout. Untouched CBOR key/value encodings—including unknown
-future fields—remain byte-for-byte intact. The codec decodes the proposed image
-again before returning it. The NFC-V layer then produces a full-block diff,
-rejects locked blocks, checks the one expected UID before each write, rereads
-each affected block, and compares exact bytes. It never reports a transport
-write as verified merely because the write command returned success.
+Rules that apply to every row:
 
-The domain model covers every main and auxiliary field defined at the pinned
-revision: identities, GTIN, class/type/name/abbreviation, brand and origin,
-dates, nominal and actual weights/lengths, container properties, RGB/LAB/RAL
-colors, temperatures, FFF and SLA material properties, write protection,
-consumed weight, workgroup, storage/purchase data, and preserved unknown entries.
-Parsing is capped at a 4096-byte image, 512 bytes per CBOR region, 128 map
-entries, and 12 nesting levels; malformed bounds, duplicate keys, invalid UTF-8,
-non-finite data, and invalid field relationships are rejected or surfaced as
-validation errors.
+- A missing Spoolman value is left out. A real zero is written as zero.
+- Text longer than its limit, or empty, is left out. It is never shortened.
+- Numbers must be finite and not negative.
+- Archived spools are refused: `Canonical active Spoolman spool required`.
 
-## Safe update transaction
+Errors that stop a write before any byte changes:
 
-1. Inventory one tag and freeze its normalized UID.
-2. Read capability container, geometry, required memory, security/write status,
-   and all OpenPrintTag regions.
-3. Decode and validate bounds before allocating or parsing nested CBOR.
-4. Produce an updated representation while retaining unknown fields and bytes.
-5. Confirm record/region offsets and sizes are unchanged for a normal update.
-6. Compute affected tag blocks and reject protected or out-of-range writes.
-7. Write one block at a time with tag-presence and UID checks.
-8. Re-read every affected block and compare exact expected bytes.
-9. Re-read/decode the logical record and verify the intended field.
-10. Report success only after both physical and semantic verification.
+| Message | Cause |
+|---|---|
+| `Canonical used_weight is missing or invalid` | Spool has no valid `used_weight` |
+| `Spoolman diameter is not representable in integer micrometres` | Diameter is not a whole number of µm |
+| `Canonical filament color is malformed` | `color_hex` is not 6 or 8 hex digits |
+| `Canonical metadata does not fit this tag; no bytes written` | The encoded values need more space than the tag has, or a numeric field is negative, not finite or not a number, or a text field is not a string |
 
-Original bytes remain cached through the interaction. A failed verification is
-an explicit retryable/non-retryable error and never becomes a successful
-inventory operation. Routine backend changes do not continuously rewrite tags.
+Not written: print and bed temperatures, price, location, lot number, comment.
+These stay in Spoolman.
 
-Initialization/reuse is a distinct operation because it may alter the complete
-NDEF structure, protection, AFI/DSFID, and allocation. SLIX2 `PROTECT PAGE` and
-password behavior must be implemented only with the exact tag capability and
-vendor command documentation.
+### Consumed-weight update
 
-## Test fixtures
+**Update consumed weight** in the browser writer changes only the consumed weight in the
+auxiliary region. The main region stays byte for byte the same.
+It needs a tag that already carries the same spool's instance UUID and an auxiliary region.
 
-The native suite embeds two 312-byte official fixtures from revision `e0dab1a`:
-the normal FFF example and the two-step unknown-field update result. It verifies
-their documented region layout and fields, safe auxiliary modification, and
-unknown main-field byte preservation. Synthetic fault cases cover truncation,
-oversize images, invalid offsets, duplicate keys, excess nesting, locks, tag
-replacement, multiple tags, and block readback mismatch. Additional official
-minimal/optional/max-payload fixtures and parser fuzzing remain release-hardening
-work rather than a physical-NFC dependency.
+## How a write is carried out
+
+1. The whole tag is read twice. Both reads must match.
+2. Only blocks that differ from the new image are written. Each block is read back and compared
+   right after it is written.
+3. The blocks holding the instance UUID are written second to last and block 0 last.
+4. The whole tag is read again, compared with the new image and decoded.
+5. The station stores the tag UID and instance UUID on the spool in Spoolman.
+
+Clearing writes zeros to every non-zero block in 0–77, block 0 last, then checks that all 312
+bytes read back as zero.
+
+One physical write or clear may take at most 120 seconds.
+Saving a weight to Spoolman never writes to the tag.
+
+## Fields the station reads
+
+The reader decodes the main and auxiliary fields of the pinned specification revision and
+ignores keys it does not know. Filament diameter is read from key 61 (µm) and from the older
+key 30 (mm); if both are present they must agree.
+
+## Link between tag and spool
+
+Two Spoolman extra fields on the Spool entity tie a tag to a spool.
+See [Required extra fields](../inventory/custom-fields.md).
+
+| Default key | Content |
+|---|---|
+| `opentag_instance_uuid` | The UUID written to main key 0 |
+| `nfc_uid` | The tag's UID |
+
+## Specification revisions
+
+| Use | Pinned commit |
+|---|---|
+| Reader field definitions | `e0dab1ae16838d2c342e7cfc509455441b7d8eba` |
+| Writer and blank-image layout | `7e09cc38df1c8e7824a67f5b1ae93071f52519ad` |
+
+CI checks out the writer revision from
+<https://github.com/OpenPrintTag/openprinttag-specification> and compares the station's images with
+the upstream tools.
+
+## Not supported
+
+- Tags other than NXP ICODE SLIX2, and any tag memory size other than 80 × 4 bytes, for writing.
+- NFC-A tags (NTAG, MIFARE). The reader does not see them.
+- Erasing tags that carry other data, such as a URL written by a phone.
+- Locking, password protection or privacy mode.
+- Writing raw blocks. The API accepts only a reviewed write or clear of the tag on the reader.
