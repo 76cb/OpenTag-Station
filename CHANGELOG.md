@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.0-rc.19
+
+Last car of the deep-refactor audit (report: issue #47). The only one that edits existing tests; each edit is listed in issue #56.
+
+- The USB installer page now names the real update file, `opentag-station-<version>-application.bin`, instead of "firmware.bin".
+- Removed touchscreen code that could never run or show: button positions that were always overwritten, an auto-update button on the Weigh page that was created hidden and never shown (the one in Settings is unchanged), and a gauge update for a widget that only exists on Home. The source checks that required this dead text now check the live code instead.
+
 ## 1.0.0-rc.18
 
 Refactoring from the deep-refactor audit (report: issue #47). No behaviour change.

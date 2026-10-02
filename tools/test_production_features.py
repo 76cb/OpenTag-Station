@@ -42,7 +42,7 @@ class ProductionBoundaries(unittest.TestCase):
                         page.index('<esp-web-install-button'))
         self.assertIn('Update Existing Station', page)
         self.assertIn('Factory Install / Recovery', page)
-        self.assertIn('firmware.bin', page)
+        self.assertIn('opentag-station-&lt;version&gt;-application.bin', page)
 
 
 if __name__ == '__main__':

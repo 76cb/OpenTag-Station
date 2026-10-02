@@ -106,22 +106,42 @@ void test_scale_receipt_has_explicit_update_and_collapsed_calibration() {
   TEST_ASSERT_TRUE(build.find("opening_positions") == std::string::npos);
   TEST_ASSERT_TRUE(build.find("filament") == std::string::npos);
   TEST_ASSERT_TRUE(build.find("hub") == std::string::npos);
+  // The auto-update policy is a Settings control; the Scale page has none.
+  TEST_ASSERT_TRUE(build.find("weight_policy_") == std::string::npos);
+  const auto settings = method(
+      source,
+      "void UiService::build_settings_page()",
+      "void UiService::build_workflow_screen()");
   TEST_ASSERT_TRUE(
-      build.find("weight_policy_callback") !=
+      settings.find("weight_policy_=product_button(screen,layout::policy,"
+                    "\"Auto-update weight\",weight_policy_callback,this)") !=
       std::string::npos);
+  const auto settings_refresh = method(
+      source,
+      "void UiService::refresh_settings_page()",
+      "void UiService::refresh_diagnostics");
   TEST_ASSERT_TRUE(
-      build.find("Auto-update OFF") !=
+      settings_refresh.find(
+          "lv_label_set_text(lv_obj_get_child(weight_policy_,0),"
+          "automatic?\"Auto-update ON\":\"Auto-update OFF\")") !=
       std::string::npos);
+  // weight_policy_ is null on the Scale page, so its refresh must not use it.
+  TEST_ASSERT_TRUE(
+      method(
+          source,
+          "void UiService::refresh_workflow()",
+          "bool UiService::track_scale_operation()")
+          .find("weight_policy_") == std::string::npos);
   TEST_ASSERT_TRUE(
       build.find(
           "lv_obj_add_flag(workflow_reference_input_, "
           "LV_OBJ_FLAG_HIDDEN)") != std::string::npos);
   TEST_ASSERT_TRUE(build.find("GROSS WEIGHT") != std::string::npos);
   TEST_ASSERT_TRUE(build.find("workflow_scale_capture_label_") != std::string::npos);
-  TEST_ASSERT_TRUE(build.find("\"WEIGH\", 172") != std::string::npos);
-  TEST_ASSERT_TRUE(build.find("\"TARE EMPTY PLATFORM\", 102") != std::string::npos);
+  TEST_ASSERT_TRUE(build.find("\"WEIGH\"") != std::string::npos);
+  TEST_ASSERT_TRUE(build.find("\"TARE EMPTY PLATFORM\"") != std::string::npos);
   TEST_ASSERT_TRUE(build.find("\"UPDATE SPOOLMAN\"") != std::string::npos);
-  TEST_ASSERT_TRUE(build.find("\"CALIBRATE\", 160") != std::string::npos);
+  TEST_ASSERT_TRUE(build.find("\"CALIBRATE\"") != std::string::npos);
   TEST_ASSERT_TRUE(
       build.find("lv_obj_set_size(button, 216, 48)") != std::string::npos);
   TEST_ASSERT_TRUE(build.find("YZC-133") == std::string::npos);
@@ -138,6 +158,13 @@ void test_scale_receipt_has_explicit_update_and_collapsed_calibration() {
   TEST_ASSERT_TRUE(
       drawer.find("workflow_calibration_close_button_") !=
       std::string::npos);
+  // The drawer, not the constructor, positions the two calibration actions.
+  TEST_ASSERT_TRUE(
+      drawer.find("lv_obj_set_pos(workflow_tare_button_,16,180)") !=
+      std::string::npos);
+  TEST_ASSERT_TRUE(
+      drawer.find("lv_obj_set_pos(\n        workflow_calibrate_button_, 248, 128)") !=
+      std::string::npos);
 }
 
 void test_scale_screen_has_bounded_480x320_layout_and_distinct_states() {
@@ -148,7 +175,7 @@ void test_scale_screen_has_bounded_480x320_layout_and_distinct_states() {
       "void UiService::build_printer_page()");
   TEST_ASSERT_TRUE(build.find("place(workflow_weight_label_,layout::gross)") != std::string::npos);
   TEST_ASSERT_TRUE(build.find("place(weight_update_,layout::update)") != std::string::npos);
-  TEST_ASSERT_TRUE(build.find("lv_obj_set_pos(button, 248, y)") != std::string::npos);
+  TEST_ASSERT_TRUE(build.find("place(workflow_weigh_button_,layout::weigh)") != std::string::npos);
   TEST_ASSERT_TRUE(build.find("lv_obj_set_size(button, 216, 48)") != std::string::npos);
   TEST_ASSERT_TRUE(build.find("place(workflow_status_label_,layout::feedback)") !=
       std::string::npos);
@@ -167,8 +194,9 @@ void test_scale_screen_has_bounded_480x320_layout_and_distinct_states() {
       refresh.find("scale.scale_calibrated ? 0x242C30 : 0x72DFBE") !=
       std::string::npos);
   TEST_ASSERT_TRUE(
-      refresh.find("lv_obj_set_style_border_color(\n          "
-                   "workflow_scale_indicator_") != std::string::npos);
+      refresh.find("lv_obj_set_style_text_color(\n          "
+                   "workflow_scale_quality_label_, "
+                   "lv_color_hex(gauge_color), 0)") != std::string::npos);
 }
 
 void test_repeated_native_navigation_rebuilds_one_bounded_screen() {

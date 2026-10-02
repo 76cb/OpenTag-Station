@@ -501,12 +501,10 @@ void UiService::build_scale_page() {
   const auto make_action = [this, screen](
                                lv_obj_t** output,
                                const char* text,
-                               std::int16_t y,
                                lv_event_cb_t callback,
                                bool primary) {
     auto* button = lv_btn_create(screen);
     *output = button;
-    lv_obj_set_pos(button, 248, y);
     lv_obj_set_size(button, 216, 48);
     lv_obj_set_style_radius(button, 12, 0);
     lv_obj_set_style_bg_color(
@@ -519,10 +517,10 @@ void UiService::build_scale_page() {
     lv_obj_center(label);
   };
   make_action(
-      &workflow_weigh_button_, "WEIGH", 172,
+      &workflow_weigh_button_, "WEIGH",
       weigh_callback, true);
   make_action(
-      &workflow_tare_button_, "TARE EMPTY PLATFORM", 102,
+      &workflow_tare_button_, "TARE EMPTY PLATFORM",
       tare_callback, false);
   lv_obj_add_flag(workflow_tare_button_,LV_OBJ_FLAG_HIDDEN);
   place(workflow_weigh_button_,layout::weigh);
@@ -558,7 +556,7 @@ void UiService::build_scale_page() {
   lv_obj_add_flag(workflow_reference_input_, LV_OBJ_FLAG_HIDDEN);
 
   make_action(
-      &workflow_calibrate_button_, "CALIBRATE", 160,
+      &workflow_calibrate_button_, "CALIBRATE",
       calibrate_callback, false);
   lv_obj_add_flag(workflow_calibrate_button_,LV_OBJ_FLAG_HIDDEN);
 
@@ -581,8 +579,6 @@ void UiService::build_scale_page() {
   weight_update_=lv_btn_create(screen);place(weight_update_,layout::update);lv_obj_set_style_radius(weight_update_,12,0);
   auto* update_label=lv_label_create(weight_update_);lv_label_set_text(update_label,"UPDATE SPOOLMAN");lv_obj_center(update_label);lv_obj_add_event_cb(weight_update_,weight_update_callback,LV_EVENT_CLICKED,this);
   style_action(weight_update_,neutral_fill,neutral_label);
-  weight_policy_=lv_btn_create(screen);place(weight_policy_,layout::update);lv_obj_add_flag(weight_policy_,LV_OBJ_FLAG_HIDDEN);
-  auto* policy_label=lv_label_create(weight_policy_);lv_label_set_text(policy_label,"Auto-update OFF");lv_obj_center(policy_label);lv_obj_add_event_cb(weight_policy_,weight_policy_callback,LV_EVENT_CLICKED,this);
   workflow_status_label_ = lv_label_create(screen);
   lv_label_set_text(
       workflow_status_label_, "Waiting for stable empty platform");
@@ -1704,42 +1700,26 @@ void UiService::refresh_workflow() {
     }
 
     std::uint32_t gauge_color = 0x526B77;
-    std::int32_t gauge_value = 0;
     switch (scale.scale_measurement_state) {
       case services::ScaleMeasurementState::settling:
         gauge_color = scale.scale_samples_in_filter < 3U
             ? 0x72DFBE : 0xF4C95D;
-        gauge_value = scale.scale_samples_in_filter < 3U ? 42 : 72;
         break;
       case services::ScaleMeasurementState::ready:
       case services::ScaleMeasurementState::completed:
         gauge_color = 0x22C55E;
-        gauge_value = 100;
         break;
       case services::ScaleMeasurementState::timed_out:
       case services::ScaleMeasurementState::failed:
         gauge_color = 0xEF4444;
-        gauge_value = 100;
         break;
       case services::ScaleMeasurementState::idle:
         break;
     }
     if (!scale.scale_adc_ready) {
       gauge_color = 0xEF4444;
-      gauge_value = 100;
     } else if (!scale.scale_calibrated && !measurement_active) {
       gauge_color = 0xF4C95D;
-      gauge_value = 28;
-    }
-    if (workflow_scale_gauge_ != nullptr) {
-      lv_arc_set_value(workflow_scale_gauge_, gauge_value);
-      lv_obj_set_style_arc_color(
-          workflow_scale_gauge_, lv_color_hex(gauge_color),
-          LV_PART_INDICATOR);
-    }
-    if (workflow_scale_indicator_ != nullptr) {
-      lv_obj_set_style_border_color(
-          workflow_scale_indicator_, lv_color_hex(gauge_color), 0);
     }
     if (workflow_scale_quality_label_ != nullptr) {
       lv_obj_set_style_text_color(
@@ -1823,10 +1803,7 @@ void UiService::refresh_workflow() {
       // "Again" only once there is a measurement to repeat.
       lv_label_set_text(lv_obj_get_child(workflow_weigh_button_,0),busy?"WEIGHING...":services::weigh_button_label(measured));
     }
-    bool automatic=false;configuration_.visit([&](const auto& config,auto){automatic=config.reconciliation.auto_update_after_weigh;});
-    lv_label_set_text(lv_obj_get_child(weight_policy_,0),automatic?"Auto-update ON":"Auto-update OFF");
     set_enabled(weight_update_,can_save);
-    set_enabled(weight_policy_,!busy&&!configuration_worker_.pending());
     // The next expected step is the highlighted one: save once a weight is
     // ready, otherwise weigh.
     if(scale.scale_calibrated){
