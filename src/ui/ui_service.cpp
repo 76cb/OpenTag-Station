@@ -47,6 +47,15 @@ void style_action(lv_obj_t* button, std::uint32_t fill, std::uint32_t label) {
   if (text != nullptr) lv_obj_set_style_text_color(text, lv_color_hex(label), 0);
 }
 
+void set_enabled(lv_obj_t* button, bool enabled) {
+  if (button == nullptr) return;
+  if (enabled) {
+    lv_obj_clear_state(button, LV_STATE_DISABLED);
+  } else {
+    lv_obj_add_state(button, LV_STATE_DISABLED);
+  }
+}
+
 const char* nfc_status_text(const nfc::ReadSnapshot& tag) {
   switch (tag.state) {
     case nfc::ReadState::deferred:
@@ -1619,43 +1628,8 @@ void UiService::refresh_workflow() {
     return;
   }
 
-  if (weigh_operation_id_.has_value()) {
-    const auto operation = scale_commands_.operation(*weigh_operation_id_);
-    const char* action = scale_action_ == ScaleAction::tare
-        ? "Tare"
-        : scale_action_ == ScaleAction::calibrate ? "Calibration" : "Weigh";
-    if (!operation.has_value()) {
-      workflow_feedback_ = std::string(action) +
-          " status unavailable; retry if needed";
-      weigh_operation_id_.reset();
-      scale_action_ = ScaleAction::none;
-    } else if (operation->state == application::OperationState::queued ||
-               operation->state == application::OperationState::running) {
-      workflow_feedback_ = operation->message.empty()
-          ? std::string(action) + " in progress"
-          : operation->message;
-    } else if (operation->state == application::OperationState::succeeded) {
-      const bool calibration_complete =
-          scale_action_ == ScaleAction::calibrate;
-      workflow_feedback_ = std::string(action) + " complete";
-      weigh_operation_id_.reset();
-      scale_action_ = ScaleAction::none;
-      if (calibration_complete) {
-        set_scale_calibration_panel_open(false);
-        if (return_to_setup_after_calibration_) {
-          return_to_setup_after_calibration_ = false;
-          showing_setup_ = true;
-          build_current_screen();
-          return;
-        }
-      }
-    } else {
-      workflow_feedback_ = operation->error.has_value()
-          ? std::string(action) + " failed: " + operation->error->message
-          : std::string(action) + " did not complete";
-      weigh_operation_id_.reset();
-      scale_action_ = ScaleAction::none;
-    }
+  if (track_scale_operation()) {
+    return;
   }
 
   const auto scale = diagnostics_.scale_snapshot();
@@ -1667,14 +1641,6 @@ void UiService::refresh_workflow() {
   const bool busy = measurement_active ||
       scale_commands_.pending() != 0U ||
       weigh_operation_id_.has_value();
-  const auto set_enabled = [](lv_obj_t* button, bool enabled) {
-    if (button == nullptr) return;
-    if (enabled) {
-      lv_obj_clear_state(button, LV_STATE_DISABLED);
-    } else {
-      lv_obj_add_state(button, LV_STATE_DISABLED);
-    }
-  };
   const auto set_weight = [&](lv_obj_t* label, bool inline_unit) {
     if (label == nullptr) return;
     if (measurement_active && scale.scale_weight_available) {
@@ -1693,32 +1659,7 @@ void UiService::refresh_workflow() {
   };
 
   if (active_page_ == ProductPage::home) {
-    const auto workflow=workflow_.snapshot();
-    const auto tag=nfc_.snapshot();
-    const bool blank=tag.present&&tag.blank_compatible;
-    const bool present=workflow.openprinttag_available;
-    place(workflow_scale_indicator_,present?layout::home_art:layout::empty_art);
-    const auto color=workflow.material.primary_color;
-    lv_obj_set_style_bg_color(workflow_scale_indicator_,color?lv_color_make(color->red,color->green,color->blue):lv_color_hex(0x242C30),0);
-    lv_obj_set_style_text_align(workflow_home_state_label_,present?LV_TEXT_ALIGN_LEFT:LV_TEXT_ALIGN_CENTER,0);
-    lv_obj_set_style_text_align(workflow_material_label_,present?LV_TEXT_ALIGN_LEFT:LV_TEXT_ALIGN_CENTER,0);
-    lv_obj_set_style_text_align(workflow_identity_label_,present?LV_TEXT_ALIGN_LEFT:LV_TEXT_ALIGN_CENTER,0);
-    lv_obj_set_width(workflow_identity_label_,present?348:448);
-    lv_obj_set_width(workflow_weight_label_,348);
-    lv_label_set_text(workflow_home_state_label_,present?workflow.material.brand_name.value_or("Current spool").c_str():"OpenTag Station");
-    lv_label_set_text(workflow_material_label_,present?workflow.material.material_name.value_or("Filament spool").c_str():"Place a spool");
-    const std::string identity=workflow.spool?"Spool #"+std::to_string(workflow.spool->id):
-        !present?"Set a tagged spool on the station":
-        workflow.stage==services::WorkflowStage::spool_selection_required||workflow.stage==services::WorkflowStage::spool_not_found?"Not linked yet: Manage tag > Link to a spool":
-        workflow.stage==services::WorkflowStage::spool_resolution_unavailable?"Spoolman unavailable; spool not looked up":"Finding this spool in Spoolman...";
-    lv_label_set_text(workflow_identity_label_,identity.c_str());
-    const auto remaining=workflow.spool?workflow.spool->remaining_grams:std::optional<float>{};
-    if(remaining)lv_label_set_text_fmt(workflow_weight_label_,"%ld g remaining",static_cast<long>(std::lround(*remaining)));
-    else lv_label_set_text(workflow_weight_label_,present?"Weight not known":"");
-    if(blank){lv_label_set_text(workflow_home_state_label_,"COMPATIBLE BLANK TAG");lv_label_set_text(workflow_material_label_,"Ready to assign");lv_label_set_text(workflow_identity_label_,"Open Manage tag to choose a spool");}
-    set_enabled(workflow_weigh_button_,blank||(scale.scale_adc_ready&&!busy));
-    lv_label_set_text(lv_obj_get_child(workflow_weigh_button_,0),busy?"WEIGHING...":scale.scale_calibrated?"WEIGH":"CALIBRATE");
-    if(blank)lv_label_set_text(lv_obj_get_child(workflow_weigh_button_,0),"ASSIGN TAG");
+    refresh_home_page(scale, busy);
     return;
   }
 
@@ -1892,98 +1833,178 @@ void UiService::refresh_workflow() {
   }
 
   if (active_page_ == ProductPage::printer) {
-    const auto workflow = workflow_.snapshot();
-    const auto printer = std::find_if(
-        workflow.printers.begin(), workflow.printers.end(),
-        [&](const auto& candidate) {
-          return candidate.id == selected_printer_id_;
-        });
-    if (selected_printer_id_.empty() ||
-        printer == workflow.printers.end()) {
-      lv_label_set_text(
-          workflow_material_label_, "No printer configured");
-      lv_label_set_text(
-          workflow_identity_label_, "Choose a printer in Settings.");
-    } else {
-      lv_label_set_text(
-          workflow_material_label_,
-          printer->display_name.empty()
-              ? "Selected printer"
-              : printer->display_name.c_str());
-      lv_label_set_text(
-          workflow_identity_label_,
-          printer->state == domain::PrinterState::offline
-              ? "Offline"
-              : printer->state == domain::PrinterState::unknown
-                  ? "Checking connection"
-                  : "Connected");
-    }
-    for (std::size_t index = 0U;
-         index < workflow_toolhead_buttons_.size(); ++index) {
-      auto* button = workflow_toolhead_buttons_[index];
-      if (button == nullptr) continue;
-      const domain::Toolhead* found = nullptr;
-      if (printer != workflow.printers.end()) {
-        const auto toolhead = std::find_if(
-            printer->toolheads.begin(), printer->toolheads.end(),
-            [&](const auto& candidate) {
-              return candidate.backend_id == static_cast<int>(index);
-            });
-        if (toolhead != printer->toolheads.end()) found = &*toolhead;
-      }
-      auto* label = lv_obj_get_child(button, 0);
-      if (label != nullptr) {
-        // Show which spool is loaded, and mark the one on the station.
-        std::string loaded = "Empty";
-        if (found != nullptr && found->assigned_spool.has_value()) {
-          loaded = "#" + std::to_string(*found->assigned_spool);
-          if (workflow.spool.has_value() && workflow.spool->id == *found->assigned_spool)
-            loaded += " (this spool)";
-        }
-        lv_label_set_text_fmt(
-            label, "T%u\n%s",
-            static_cast<unsigned>(index + 1U), loaded.c_str());
-      }
-      set_enabled(
-          button,
-          workflow.spool.has_value() && found != nullptr &&
-              workflow.filabridge ==
-                  services::BackendAvailability::online &&
-              workflow.filabridge_assignment_available &&
-              workflow_toolhead_enabled_[index] &&
-              backend_worker_.pending() == 0U);
-    }
-    std::string status = "Spoolman ";
-    status += availability_text(workflow.spoolman);
-    status += "   FilaBridge ";
-    status += availability_text(workflow.filabridge);
-    if (!workflow_feedback_.empty()) status += "   " + workflow_feedback_;
-    if (workflow.assignment_error) status = workflow.assignment_error->message;
-    else if (workflow.filabridge_error) status = workflow.filabridge_error->message;
-    else if (workflow.stage == services::WorkflowStage::assignment_complete)
-      status = "Assignment verified by FilaBridge readback";
-    lv_label_set_text(workflow_status_label_, status.c_str());
+    refresh_printer_page();
     return;
   }
 
   if (active_page_ == ProductPage::settings &&
       workflow_status_label_ != nullptr) {
-    const auto system = diagnostics_.snapshot(millis());
-    const auto workflow = workflow_.snapshot();
-    std::string status = system.wifi_connected
-        ? "Connected"
-        : "Wi-Fi not connected";
-    if (system.wifi_connected && !system.ip_address.empty()) {
-      status += " - " + system.ip_address;
-    }
-    if (system.provisioning_active && !system.setup_ap_ssid.empty()) {
-      status = "Setup network " + system.setup_ap_ssid + "  password " +
-          system.setup_ap_password;
-    }
-    bool automatic=false;configuration_.visit([&](const auto& c,auto){automatic=c.reconciliation.auto_update_after_weigh;});
-    lv_label_set_text(lv_obj_get_child(weight_policy_,0),automatic?"Auto-update ON":"Auto-update OFF");
-    lv_label_set_text(workflow_status_label_, status.c_str());
+    refresh_settings_page();
   }
+}
+
+bool UiService::track_scale_operation() {
+  if (weigh_operation_id_.has_value()) {
+    const auto operation = scale_commands_.operation(*weigh_operation_id_);
+    const char* action = scale_action_ == ScaleAction::tare
+        ? "Tare"
+        : scale_action_ == ScaleAction::calibrate ? "Calibration" : "Weigh";
+    if (!operation.has_value()) {
+      workflow_feedback_ = std::string(action) +
+          " status unavailable; retry if needed";
+      weigh_operation_id_.reset();
+      scale_action_ = ScaleAction::none;
+    } else if (operation->state == application::OperationState::queued ||
+               operation->state == application::OperationState::running) {
+      workflow_feedback_ = operation->message.empty()
+          ? std::string(action) + " in progress"
+          : operation->message;
+    } else if (operation->state == application::OperationState::succeeded) {
+      const bool calibration_complete =
+          scale_action_ == ScaleAction::calibrate;
+      workflow_feedback_ = std::string(action) + " complete";
+      weigh_operation_id_.reset();
+      scale_action_ = ScaleAction::none;
+      if (calibration_complete) {
+        set_scale_calibration_panel_open(false);
+        if (return_to_setup_after_calibration_) {
+          return_to_setup_after_calibration_ = false;
+          showing_setup_ = true;
+          build_current_screen();
+          return true;
+        }
+      }
+    } else {
+      workflow_feedback_ = operation->error.has_value()
+          ? std::string(action) + " failed: " + operation->error->message
+          : std::string(action) + " did not complete";
+      weigh_operation_id_.reset();
+      scale_action_ = ScaleAction::none;
+    }
+  }
+  return false;
+}
+
+void UiService::refresh_home_page(
+    const diagnostics::ScaleDiagnosticSnapshot& scale, bool busy) {
+  const auto workflow=workflow_.snapshot();
+  const auto tag=nfc_.snapshot();
+  const bool blank=tag.present&&tag.blank_compatible;
+  const bool present=workflow.openprinttag_available;
+  place(workflow_scale_indicator_,present?layout::home_art:layout::empty_art);
+  const auto color=workflow.material.primary_color;
+  lv_obj_set_style_bg_color(workflow_scale_indicator_,color?lv_color_make(color->red,color->green,color->blue):lv_color_hex(0x242C30),0);
+  lv_obj_set_style_text_align(workflow_home_state_label_,present?LV_TEXT_ALIGN_LEFT:LV_TEXT_ALIGN_CENTER,0);
+  lv_obj_set_style_text_align(workflow_material_label_,present?LV_TEXT_ALIGN_LEFT:LV_TEXT_ALIGN_CENTER,0);
+  lv_obj_set_style_text_align(workflow_identity_label_,present?LV_TEXT_ALIGN_LEFT:LV_TEXT_ALIGN_CENTER,0);
+  lv_obj_set_width(workflow_identity_label_,present?348:448);
+  lv_obj_set_width(workflow_weight_label_,348);
+  lv_label_set_text(workflow_home_state_label_,present?workflow.material.brand_name.value_or("Current spool").c_str():"OpenTag Station");
+  lv_label_set_text(workflow_material_label_,present?workflow.material.material_name.value_or("Filament spool").c_str():"Place a spool");
+  const std::string identity=workflow.spool?"Spool #"+std::to_string(workflow.spool->id):
+      !present?"Set a tagged spool on the station":
+      workflow.stage==services::WorkflowStage::spool_selection_required||workflow.stage==services::WorkflowStage::spool_not_found?"Not linked yet: Manage tag > Link to a spool":
+      workflow.stage==services::WorkflowStage::spool_resolution_unavailable?"Spoolman unavailable; spool not looked up":"Finding this spool in Spoolman...";
+  lv_label_set_text(workflow_identity_label_,identity.c_str());
+  const auto remaining=workflow.spool?workflow.spool->remaining_grams:std::optional<float>{};
+  if(remaining)lv_label_set_text_fmt(workflow_weight_label_,"%ld g remaining",static_cast<long>(std::lround(*remaining)));
+  else lv_label_set_text(workflow_weight_label_,present?"Weight not known":"");
+  if(blank){lv_label_set_text(workflow_home_state_label_,"COMPATIBLE BLANK TAG");lv_label_set_text(workflow_material_label_,"Ready to assign");lv_label_set_text(workflow_identity_label_,"Open Manage tag to choose a spool");}
+  set_enabled(workflow_weigh_button_,blank||(scale.scale_adc_ready&&!busy));
+  lv_label_set_text(lv_obj_get_child(workflow_weigh_button_,0),busy?"WEIGHING...":scale.scale_calibrated?"WEIGH":"CALIBRATE");
+  if(blank)lv_label_set_text(lv_obj_get_child(workflow_weigh_button_,0),"ASSIGN TAG");
+}
+
+void UiService::refresh_printer_page() {
+  const auto workflow = workflow_.snapshot();
+  const auto printer = std::find_if(
+      workflow.printers.begin(), workflow.printers.end(),
+      [&](const auto& candidate) {
+        return candidate.id == selected_printer_id_;
+      });
+  if (selected_printer_id_.empty() ||
+      printer == workflow.printers.end()) {
+    lv_label_set_text(
+        workflow_material_label_, "No printer configured");
+    lv_label_set_text(
+        workflow_identity_label_, "Choose a printer in Settings.");
+  } else {
+    lv_label_set_text(
+        workflow_material_label_,
+        printer->display_name.empty()
+            ? "Selected printer"
+            : printer->display_name.c_str());
+    lv_label_set_text(
+        workflow_identity_label_,
+        printer->state == domain::PrinterState::offline
+            ? "Offline"
+            : printer->state == domain::PrinterState::unknown
+                ? "Checking connection"
+                : "Connected");
+  }
+  for (std::size_t index = 0U;
+       index < workflow_toolhead_buttons_.size(); ++index) {
+    auto* button = workflow_toolhead_buttons_[index];
+    if (button == nullptr) continue;
+    const domain::Toolhead* found = nullptr;
+    if (printer != workflow.printers.end()) {
+      const auto toolhead = std::find_if(
+          printer->toolheads.begin(), printer->toolheads.end(),
+          [&](const auto& candidate) {
+            return candidate.backend_id == static_cast<int>(index);
+          });
+      if (toolhead != printer->toolheads.end()) found = &*toolhead;
+    }
+    auto* label = lv_obj_get_child(button, 0);
+    if (label != nullptr) {
+      // Show which spool is loaded, and mark the one on the station.
+      std::string loaded = "Empty";
+      if (found != nullptr && found->assigned_spool.has_value()) {
+        loaded = "#" + std::to_string(*found->assigned_spool);
+        if (workflow.spool.has_value() && workflow.spool->id == *found->assigned_spool)
+          loaded += " (this spool)";
+      }
+      lv_label_set_text_fmt(
+          label, "T%u\n%s",
+          static_cast<unsigned>(index + 1U), loaded.c_str());
+    }
+    set_enabled(
+        button,
+        workflow.spool.has_value() && found != nullptr &&
+            workflow.filabridge ==
+                services::BackendAvailability::online &&
+            workflow.filabridge_assignment_available &&
+            workflow_toolhead_enabled_[index] &&
+            backend_worker_.pending() == 0U);
+  }
+  std::string status = "Spoolman ";
+  status += availability_text(workflow.spoolman);
+  status += "   FilaBridge ";
+  status += availability_text(workflow.filabridge);
+  if (!workflow_feedback_.empty()) status += "   " + workflow_feedback_;
+  if (workflow.assignment_error) status = workflow.assignment_error->message;
+  else if (workflow.filabridge_error) status = workflow.filabridge_error->message;
+  else if (workflow.stage == services::WorkflowStage::assignment_complete)
+    status = "Assignment verified by FilaBridge readback";
+  lv_label_set_text(workflow_status_label_, status.c_str());
+}
+
+void UiService::refresh_settings_page() {
+  const auto system = diagnostics_.snapshot(millis());
+  const auto workflow = workflow_.snapshot();
+  std::string status = system.wifi_connected
+      ? "Connected"
+      : "Wi-Fi not connected";
+  if (system.wifi_connected && !system.ip_address.empty()) {
+    status += " - " + system.ip_address;
+  }
+  if (system.provisioning_active && !system.setup_ap_ssid.empty()) {
+    status = "Setup network " + system.setup_ap_ssid + "  password " +
+        system.setup_ap_password;
+  }
+  bool automatic=false;configuration_.visit([&](const auto& c,auto){automatic=c.reconciliation.auto_update_after_weigh;});
+  lv_label_set_text(lv_obj_get_child(weight_policy_,0),automatic?"Auto-update ON":"Auto-update OFF");
+  lv_label_set_text(workflow_status_label_, status.c_str());
 }
 
 void UiService::refresh_diagnostics(std::uint32_t now_ms) {

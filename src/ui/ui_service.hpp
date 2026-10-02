@@ -127,6 +127,12 @@ class UiService {
   void build_current_screen();
   void refresh_current(std::uint32_t now_ms);
   void refresh_workflow();
+  // Parts of refresh_workflow(); each returns to it.
+  bool track_scale_operation();
+  void refresh_home_page(
+      const diagnostics::ScaleDiagnosticSnapshot& scale, bool busy);
+  void refresh_printer_page();
+  void refresh_settings_page();
   void refresh_diagnostics(std::uint32_t now_ms);
   void refresh_setup();
   void set_scale_calibration_panel_open(bool open);
