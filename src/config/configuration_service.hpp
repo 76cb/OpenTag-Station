@@ -115,6 +115,10 @@ struct ConfigurationStatus {
   bool persistence_available{true};
   bool migrated{false};
   bool recovered_from_backup{false};
+  // The stored document (or its backup) has a schema this firmware does not
+  // know. It is kept untouched and every save is refused until the firmware
+  // is updated or the station is factory-reset.
+  bool stored_by_newer_firmware{false};
   std::uint32_t loaded_schema{0U};
   std::uint64_t revision{0U};
   std::optional<core::Error> last_error;

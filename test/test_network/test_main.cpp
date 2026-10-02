@@ -411,6 +411,28 @@ void test_wifi_failure_reasons_are_actionable() {
   TEST_ASSERT_NULL(wifi_failure_text(0));
 }
 
+void test_wifi_failure_reasons_match_the_esp_idf_reason_codes() {
+  using opentag::network::wifi_failure_text;
+  const auto text = [](unsigned reason) {
+    const char* value = wifi_failure_text(static_cast<std::uint8_t>(reason));
+    return std::string(value == nullptr ? "" : value);
+  };
+  // 14 MIC_FAILURE and 17 IE_IN_4WAY_DIFFERS: handshake content mismatch.
+  for (unsigned reason : {14U, 17U})
+    TEST_ASSERT_NOT_EQUAL_MESSAGE(std::string::npos,
+        text(reason).find("password or security mismatch"), text(reason).c_str());
+  // 5 ASSOC_TOOMANY, 9 ASSOC_NOT_AUTHED, 13 IE_INVALID, 18-22 cipher/AKM/RSN,
+  // 203 ASSOC_FAIL: the router turned the station away.
+  for (unsigned reason : {5U, 9U, 13U, 18U, 19U, 20U, 21U, 22U, 203U})
+    TEST_ASSERT_NOT_EQUAL_MESSAGE(std::string::npos,
+        text(reason).find("router refused"), text(reason).c_str());
+  // 4 ASSOC_EXPIRE, 200 BEACON_TIMEOUT, 205 CONNECTION_FAIL.
+  for (unsigned reason : {4U, 200U, 205U})
+    TEST_ASSERT_NOT_EQUAL(std::string::npos, text(reason).find("signal"));
+  // 12 BSS_TRANSITION_DISASSOC is roaming steering, not a refusal.
+  TEST_ASSERT_NULL(wifi_failure_text(12));
+}
+
 int main(int, char**) {
   UNITY_BEGIN();
   RUN_TEST(test_backend_operation_budget_bounds_trickling_http);
@@ -435,5 +457,6 @@ int main(int, char**) {
   RUN_TEST(test_async_scan_state_survives_repeated_replacement_cycles);
   RUN_TEST(test_connect_receipt_gate_blocks_reconfigure_until_exact_ack);
   RUN_TEST(test_wifi_failure_reasons_are_actionable);
+  RUN_TEST(test_wifi_failure_reasons_match_the_esp_idf_reason_codes);
   return UNITY_END();
 }

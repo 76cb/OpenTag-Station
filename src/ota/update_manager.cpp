@@ -483,6 +483,15 @@ core::Result<UpdateSnapshot> UpdateManager::initialize_from_boot(
         state_.state == UpdateState::ready_to_reboot ||
         state_.state == UpdateState::reboot_pending ||
         candidate_in_progress(state_.state);
+    if (has_record && state_.activation_intent && !state_.activated &&
+        state_.target.present() &&
+        same_partition(state_.running, state_.target) &&
+        same_partition(state_.boot, state_.target)) {
+      // activate() makes the intent durable before it switches the boot
+      // slot; a cut before the follow-up save leaves "activated" unset. The
+      // bootloader running and selecting the target proves the activation.
+      state_.activated = true;
+    }
     if (!has_record || state_.generation == 0U ||
         state_.operation_id == 0U || !candidate_record_state ||
         !state_.target.present() ||
@@ -547,6 +556,39 @@ core::Result<UpdateSnapshot> UpdateManager::initialize_from_boot(
       return core::Result<UpdateSnapshot>::failure(saved.error());
     }
     return core::Result<UpdateSnapshot>::success(state_);
+  }
+
+  // A record that says the candidate was selected, rebooted into, or being
+  // rolled back, while this boot runs an image that is not awaiting
+  // verification, has no way forward: cancel, activate and a new upload are
+  // all refused in those states. End it so the next upload can start.
+  const bool running_target = has_record && state_.target.present() &&
+      same_partition(state_.running, state_.target);
+  const bool target_confirmed = running_target &&
+      state_.running_image_state == PartitionImageState::valid;
+  const bool target_selected = has_record && state_.target.present() &&
+      state_.activation_intent && !running_target &&
+      same_partition(state_.boot, state_.target);
+  if (has_record &&
+      ((state_.state == UpdateState::reboot_pending && !target_confirmed) ||
+       (state_.state == UpdateState::rollback_pending && !target_confirmed &&
+        !target_selected) ||
+       (state_.state == UpdateState::ready_to_reboot && !target_selected &&
+        (state_.activated ||
+         (state_.activation_intent && running_target))) ||
+       // The record says this boot is the candidate, but another image runs.
+       (candidate_in_progress(state_.state) && !running_target))) {
+    const char* reason =
+        running_target
+            ? "The update record does not match the running firmware; upload it again."
+            : candidate_in_progress(state_.state)
+                  ? "The previous update did not complete; upload it again."
+                  : "The update was selected but never started; upload it again.";
+    // Forget the selection too, or the next boot would read this ended
+    // record as "selected, waiting for reboot" and take the lease again.
+    state_.activation_intent = false;
+    state_.activated = false;
+    return fail_locked(update_error(reason), now_ms, false);
   }
 
   if (has_record && state_.target.present() && state_.activation_intent &&

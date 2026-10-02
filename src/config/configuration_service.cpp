@@ -20,6 +20,8 @@ namespace opentag::config {
 namespace {
 
 constexpr std::size_t maximum_document_bytes = 16384U;
+// Matches the limit Configuration::validate() and the load path enforce.
+constexpr std::size_t maximum_spool_identity_mappings = 64U;
 constexpr std::uint32_t setup_step_mask = 0xFFU;
 
 core::Error configuration_error(const std::string& message) {
@@ -57,6 +59,34 @@ bool valid_web_access_token(const std::string& value) {
         (character >= '0' && character <= '9') || character == '-' ||
         character == '.' || character == '_' || character == '~';
   });
+}
+
+// Spoolman accepts extra-field keys matching ^[a-z0-9_]+$, at most 64 bytes.
+bool valid_spoolman_field_key(const std::string& value) {
+  return !value.empty() && value.size() <= 64U &&
+      std::all_of(value.begin(), value.end(), [](char character) {
+        return (character >= 'a' && character <= 'z') ||
+            (character >= '0' && character <= '9') || character == '_';
+      });
+}
+
+// A token is sent as an HTTP header value; control bytes would corrupt it.
+bool valid_backend_token(const std::string& value) {
+  return std::none_of(value.begin(), value.end(), [](char character) {
+    const auto byte = static_cast<unsigned char>(character);
+    return byte < 0x20U || byte == 0x7FU;
+  });
+}
+
+// The mapping store is a bounded cache of confirmed links; Spoolman stays
+// authoritative. A full store gives up the entry that was added first.
+void append_spool_identity_mapping(
+    std::vector<domain::ConfirmedSpoolMapping>& mappings,
+    domain::ConfirmedSpoolMapping mapping) {
+  if (mappings.size() >= maximum_spool_identity_mappings) {
+    mappings.erase(mappings.begin());
+  }
+  mappings.push_back(std::move(mapping));
 }
 
 bool valid_url(const std::string& value) {
@@ -329,6 +359,24 @@ core::Result<void> read_configuration(
   result.filabridge.url = text_or(filabridge["url"], result.filabridge.url);
   result.filabridge.authentication_token = text_or(
       filabridge["authentication_token"], result.filabridge.authentication_token);
+  // Older firmware stored values the rules below now refuse. Rejecting the
+  // whole document for them would discard Wi-Fi and calibration, so repair
+  // them here: such a key could never have named a Spoolman field, and a
+  // control byte in a token only ever broke the request header.
+  if (!valid_spoolman_field_key(result.spoolman.identity_field) ||
+      !valid_spoolman_field_key(result.spoolman.nfc_uid_field) ||
+      result.spoolman.identity_field == result.spoolman.nfc_uid_field) {
+    const SpoolmanSettings defaults;
+    result.spoolman.identity_field = defaults.identity_field;
+    result.spoolman.nfc_uid_field = defaults.nfc_uid_field;
+  }
+  for (auto* token : {&result.spoolman.authentication_token,
+                      &result.filabridge.authentication_token}) {
+    token->erase(std::remove_if(token->begin(), token->end(), [](char character) {
+      const auto byte = static_cast<unsigned char>(character);
+      return byte < 0x20U || byte == 0x7FU;
+    }), token->end());
+  }
   result.filabridge.selected_printer_id = text_or(
       filabridge["selected_printer_id"], result.filabridge.selected_printer_id);
   result.filabridge.ca_certificate_pem = text_or(
@@ -492,6 +540,27 @@ core::Result<DecodedOwner> decode_document(
       std::move(result));
 }
 
+core::Error newer_firmware_error() {
+  return configuration_error(
+      "Stored configuration was written by newer firmware; update the "
+      "firmware or factory-reset");
+}
+
+// Reads only the schema number, so a document this firmware cannot decode can
+// still be recognised as a newer one rather than as corruption.
+bool written_by_newer_firmware(
+    const std::string& input, ArduinoJson::Allocator* allocator) {
+  JsonDocument filter(allocator);
+  filter["schema_version"] = true;
+  JsonDocument document(allocator);
+  if (deserializeJson(
+          document, input, DeserializationOption::Filter(filter))) {
+    return false;
+  }
+  return document["schema_version"].as<std::uint32_t>() >
+      Configuration::current_schema;
+}
+
 }  // namespace
 
 struct ConfigurationService::Impl {
@@ -533,6 +602,17 @@ core::Result<void> Configuration::validate() const {
       filabridge.selected_printer_id.size() > 128U) {
     return core::Result<void>::failure(
         configuration_error("backend settings are invalid"));
+  }
+  if (!valid_backend_token(spoolman.authentication_token) ||
+      !valid_backend_token(filabridge.authentication_token)) {
+    return core::Result<void>::failure(configuration_error(
+        "backend access tokens must not contain control characters"));
+  }
+  if (!valid_spoolman_field_key(spoolman.identity_field) ||
+      !valid_spoolman_field_key(spoolman.nfc_uid_field) ||
+      spoolman.identity_field == spoolman.nfc_uid_field) {
+    return core::Result<void>::failure(configuration_error(
+        "Spoolman field keys must differ and use only a-z, 0-9 and _"));
   }
   if (!valid_web_access_token(web.access_token)) {
     return core::Result<void>::failure(
@@ -650,21 +730,26 @@ core::Result<void> ConfigurationService::initialize() {
       loaded = std::move(decoded.value());
     } else {
       load_error = decoded.error();
+      status_.stored_by_newer_firmware =
+          written_by_newer_firmware(*stored.value(), &impl_->allocator);
     }
   } else {
     primary_missing = true;
   }
 
   bool recovered_from_backup = false;
-  if (loaded == nullptr) {
+  // An older backup must not replace a primary written by newer firmware.
+  if (loaded == nullptr && !status_.stored_by_newer_firmware) {
     const auto backup = document_store_.load_configuration_backup_document();
     if (backup.ok() && backup.value().has_value()) {
       auto decoded = decode_document(*backup.value(), &impl_->allocator);
       if (decoded.ok()) {
         loaded = std::move(decoded.value());
         recovered_from_backup = true;
-      } else if (!load_error.has_value()) {
-        load_error = decoded.error();
+      } else {
+        if (!load_error.has_value()) load_error = decoded.error();
+        status_.stored_by_newer_firmware =
+            written_by_newer_firmware(*backup.value(), &impl_->allocator);
       }
     } else if (!backup.ok() && !load_error.has_value()) {
       load_error = backup.error();
@@ -689,11 +774,21 @@ core::Result<void> ConfigurationService::initialize() {
 
   if (primary_missing && !load_error.has_value()) {
     const auto legacy = legacy_scale_store_.load_scale_calibration();
+    std::optional<core::Error> legacy_rejected;
     if (legacy.ok()) {
+      const auto default_scale_hardware = configuration_.scale_hardware;
       configuration_.scale_calibration = legacy.value();
       if (legacy.value().has_value()) {
         configuration_.scale_hardware.rated_capacity_grams =
             legacy.value()->load_cell_capacity_grams;
+      }
+      const auto adopted = configuration_.validate();
+      if (!adopted.ok()) {
+        // An unusable legacy calibration must not block startup: run on the
+        // default scale profile and ask for a new calibration instead.
+        configuration_.scale_calibration.reset();
+        configuration_.scale_hardware = default_scale_hardware;
+        legacy_rejected = adopted.error();
       }
     } else {
       status_.last_error = legacy.error();
@@ -703,12 +798,15 @@ core::Result<void> ConfigurationService::initialize() {
     status_.loaded_schema = Configuration::current_schema;
     const auto saved = persist_locked(configuration_, false);
     if (!saved.ok()) return saved;
+    if (legacy_rejected.has_value()) status_.last_error = legacy_rejected;
     ++revision_;
     return core::Result<void>::success();
   }
 
-  const auto error = load_error.value_or(
-      configuration_error("configuration document could not be loaded"));
+  const auto error = status_.stored_by_newer_firmware
+      ? newer_firmware_error()
+      : load_error.value_or(
+            configuration_error("configuration document could not be loaded"));
   write_known(impl_->document, configuration_);
   status_.initialized = true;
   status_.persistence_available = false;
@@ -764,6 +862,11 @@ core::Result<void> ConfigurationService::persist_locked(
     const Configuration& configuration,
     bool advance_revision) {
   network::JsonAllocationTrace allocation_trace(impl_->allocator, "config_persist_psram");
+  if (status_.stored_by_newer_firmware) {
+    const auto error = newer_firmware_error();
+    status_.last_error = error;
+    return core::Result<void>::failure(error);
+  }
   const auto valid = configuration.validate();
   if (!valid.ok()) return valid;
 
@@ -969,6 +1072,9 @@ core::Result<void> ConfigurationService::save_scale_calibration(
   updated.scale_calibration = calibration;
   const auto updated_valid = updated.validate();
   if (!updated_valid.ok()) return updated_valid;
+  if (status_.stored_by_newer_firmware) {
+    return core::Result<void>::failure(newer_firmware_error());
+  }
 
   const auto legacy_saved = legacy_scale_store_.save_scale_calibration(calibration);
   if (!legacy_saved.ok()) {
@@ -1065,7 +1171,7 @@ core::Result<void> ConfigurationService::confirm_spool_identity_mapping(
     }
     if (normalized.nfc_uid.has_value()) same_spool->nfc_uid = normalized.nfc_uid;
   } else {
-    mappings.push_back(normalized);
+    append_spool_identity_mapping(mappings, normalized);
   }
   return persist_locked(updated);
 }
@@ -1167,8 +1273,11 @@ core::Result<void> ConfigurationService::sync_verified_spool_identity_mapping(
                  normalized.nfc_uid->begin(), [](unsigned char c) { return std::toupper(c); });
   std::transform(normalized.instance_uuid->begin(), normalized.instance_uuid->end(),
                  normalized.instance_uuid->begin(), [](unsigned char c) { return std::tolower(c); });
-  if (selected.value() == mappings.size()) mappings.push_back(normalized);
-  else mappings[selected.value()] = normalized;
+  if (selected.value() == mappings.size()) {
+    append_spool_identity_mapping(mappings, normalized);
+  } else {
+    mappings[selected.value()] = normalized;
+  }
   // Validation and transactional persistence retain all unrelated mappings.
   return persist_locked(updated);
 }

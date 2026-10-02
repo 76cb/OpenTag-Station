@@ -501,6 +501,124 @@ void test_extra_fields_reject_large_values_before_normalized_copy() {
   TEST_ASSERT_FALSE(adapter.get_spool(17).ok());
   assert_transport_consumed(transport);
 }
+namespace {
+
+void script_probe_with_info(
+    ScriptedTransport& transport, Result<HttpResponse> info) {
+  transport.expect("GET", "/health", R"json({"status":"healthy"})json");
+  transport.requests.push_back({
+      "GET", "http://spoolman.local/api/v1/info", std::nullopt,
+      std::move(info)});
+  transport.expect(
+      "GET", "/spool?allow_archived=false&limit=1&offset=0", "[]");
+  transport.expect("GET", "/location", "[]");
+  transport.expect("GET", "/field/spool", "[]");
+}
+
+}  // namespace
+
+void test_info_transport_failure_keeps_the_proven_version_and_capabilities() {
+  ScriptedTransport transport;
+  script_probe(transport);
+  SpoolmanAdapter adapter(transport, settings());
+  TEST_ASSERT_TRUE(adapter.probe().ok());
+  TEST_ASSERT_TRUE(adapter.status().version_formally_tested);
+
+  script_probe_with_info(
+      transport,
+      Result<HttpResponse>::failure(
+          {ErrorCategory::network, "read timed out", true}));
+  const auto kept = adapter.probe();
+  TEST_ASSERT_TRUE(kept.ok());
+  TEST_ASSERT_EQUAL_STRING("0.26.1", kept.value().version.c_str());
+  TEST_ASSERT_EQUAL_STRING("8d9eb739", kept.value().git_commit.c_str());
+  TEST_ASSERT_TRUE(kept.value().version_formally_tested);
+  TEST_ASSERT_TRUE(kept.value().capabilities.has(
+      BackendCapability::runtime_version));
+  TEST_ASSERT_TRUE(kept.value().capabilities.has(
+      BackendCapability::update_remaining_weight));
+  TEST_ASSERT_TRUE(kept.value().capabilities.has(
+      BackendCapability::create_spool));
+  assert_transport_consumed(transport);
+
+  // An /info that answers, but not with the proven version, resets as before.
+  script_probe_with_info(
+      transport,
+      Result<HttpResponse>::success({500, "{}", "application/json"}));
+  auto reset = adapter.probe();
+  TEST_ASSERT_TRUE(reset.ok());
+  TEST_ASSERT_EQUAL_STRING("", reset.value().version.c_str());
+  TEST_ASSERT_FALSE(reset.value().version_formally_tested);
+  TEST_ASSERT_FALSE(reset.value().capabilities.has(
+      BackendCapability::update_remaining_weight));
+
+  // Nothing proven is left to keep after that reset.
+  script_probe_with_info(
+      transport,
+      Result<HttpResponse>::failure(
+          {ErrorCategory::network, "read timed out", true}));
+  reset = adapter.probe();
+  TEST_ASSERT_FALSE(reset.value().version_formally_tested);
+  TEST_ASSERT_EQUAL_STRING("", reset.value().version.c_str());
+
+  script_probe(transport);
+  TEST_ASSERT_TRUE(adapter.probe().ok());
+  script_probe_with_info(
+      transport,
+      Result<HttpResponse>::success({200, "not json", "application/json"}));
+  reset = adapter.probe();
+  TEST_ASSERT_FALSE(reset.value().version_formally_tested);
+  TEST_ASSERT_EQUAL_STRING("", reset.value().version.c_str());
+
+  script_probe(transport);
+  TEST_ASSERT_TRUE(adapter.probe().ok());
+  script_probe(transport, "0.27.0");
+  reset = adapter.probe();
+  TEST_ASSERT_FALSE(reset.value().version_formally_tested);
+  TEST_ASSERT_EQUAL_STRING("0.27.0", reset.value().version.c_str());
+
+  // A changed configuration never inherits the old server's version.
+  script_probe(transport);
+  TEST_ASSERT_TRUE(adapter.probe().ok());
+  adapter.configure(settings());
+  script_probe_with_info(
+      transport,
+      Result<HttpResponse>::failure(
+          {ErrorCategory::network, "read timed out", true}));
+  reset = adapter.probe();
+  TEST_ASSERT_FALSE(reset.value().version_formally_tested);
+  TEST_ASSERT_EQUAL_STRING("", reset.value().version.c_str());
+  assert_transport_consumed(transport);
+}
+
+void test_full_probe_keeps_the_error_of_a_failed_read_check() {
+  ScriptedTransport transport;
+  transport.expect("GET", "/health", R"json({"status":"healthy"})json");
+  transport.expect(
+      "GET", "/info", R"json({"version":"0.26.1","git_commit":"8d9eb739"})json");
+  transport.expect(
+      "GET", "/spool?allow_archived=false&limit=1&offset=0", "[]");
+  transport.expect("GET", "/location", "[]");
+  transport.expect("GET", "/field/spool", "{}", 500);
+  SpoolmanAdapter adapter(transport, settings());
+
+  const auto result = adapter.probe();
+  TEST_ASSERT_TRUE(result.ok());
+  TEST_ASSERT_FALSE(result.value().capabilities.has(
+      BackendCapability::list_extra_fields));
+  TEST_ASSERT_TRUE(result.value().last_error.has_value());
+  TEST_ASSERT_EQUAL(
+      static_cast<int>(ErrorCategory::backend_unavailable),
+      static_cast<int>(result.value().last_error->category));
+  assert_transport_consumed(transport);
+
+  // A probe whose read checks all pass still ends without an error.
+  script_probe(transport);
+  const auto clean = adapter.probe();
+  TEST_ASSERT_TRUE(clean.ok());
+  TEST_ASSERT_FALSE(clean.value().last_error.has_value());
+}
+
 int main(int, char**) {
   UNITY_BEGIN();
   RUN_TEST(test_weight_update_checks_presence_after_canonical_get);
@@ -524,5 +642,7 @@ int main(int, char**) {
   RUN_TEST(test_explicit_create_spool_serializes_identity_without_implicit_creation);
   RUN_TEST(test_extra_field_patch_contains_only_intended_key_and_is_verified);
   RUN_TEST(test_location_and_field_shapes_are_bounded_and_typed);
+  RUN_TEST(test_info_transport_failure_keeps_the_proven_version_and_capabilities);
+  RUN_TEST(test_full_probe_keeps_the_error_of_a_failed_read_check);
   return UNITY_END();
 }

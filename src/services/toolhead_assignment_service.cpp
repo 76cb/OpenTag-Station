@@ -27,6 +27,14 @@ bool precondition_matches(
        precondition.expected_printer_state == printer.state);
 }
 
+// The change request was accepted, so FilaBridge may already hold the new
+// mapping; only the confirming read failed.
+core::Error sent_but_unverified(core::Error error) {
+  error.message = "Sent to FilaBridge but could not be verified (" +
+      error.message + "). Refresh printers before retrying.";
+  return error;
+}
+
 bool printer_state_is_unverified(domain::PrinterState state) {
   return state == domain::PrinterState::unknown ||
       state == domain::PrinterState::offline ||
@@ -138,7 +146,8 @@ core::Result<AssignmentResult> ToolheadAssignmentService::assign(
   }
   const auto actual = readback(request.printer_id, request.backend_toolhead_id);
   if (!actual.ok()) {
-    return core::Result<AssignmentResult>::failure(actual.error());
+    return core::Result<AssignmentResult>::failure(
+        sent_but_unverified(actual.error()));
   }
   if (!actual.value().has_value() || *actual.value() != request.spool_id) {
     return core::Result<AssignmentResult>::failure(verification_error(
@@ -188,7 +197,8 @@ core::Result<AssignmentResult> ToolheadAssignmentService::unassign(
   }
   const auto actual = readback(request.printer_id, request.backend_toolhead_id);
   if (!actual.ok()) {
-    return core::Result<AssignmentResult>::failure(actual.error());
+    return core::Result<AssignmentResult>::failure(
+        sent_but_unverified(actual.error()));
   }
   if (actual.value().has_value()) {
     return core::Result<AssignmentResult>::failure(verification_error(

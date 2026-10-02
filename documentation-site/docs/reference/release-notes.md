@@ -2,6 +2,30 @@
 
 # Changelog
 
+## 1.0.0-rc.13
+
+Fixes from the deep-refactor audit (report: issue #47). Configuration, update start-up, scale and backends; no new features.
+
+**Updates (OTA)**
+- An update record that could never move on (for example the new image was selected but the bootloader fell back to the old one) is now ended at start-up, so a new update can be uploaded. Before, upload, cancel and restart were all refused until a USB reflash.
+- A healthy new image is no longer rolled back when power was cut between selecting it and recording that selection.
+- Firmware older than the stored configuration no longer runs on defaults and then overwrites that configuration; it leaves it untouched, refuses to save, and lets the update roll back.
+
+**Configuration**
+- The two Spoolman field keys must differ and use only a–z, 0–9 and `_` (Spoolman's own rule). Backend access tokens may not contain control characters. Stored values that break these rules are repaired when the station starts.
+- Tagging more than 64 spools no longer fails at the last step of a verified write; the local list of confirmed links drops its oldest entry (Spoolman remains the record).
+- An unusable calibration left by very old firmware no longer blocks start-up.
+
+**Scale and weight**
+- Calibration is refused when no reference weight is detected, instead of saving a meaningless factor; the message says so.
+- Changing scale hardware settings during a measurement ends that measurement with a message instead of blocking the scale until restart.
+- A Spoolman empty-spool weight of 0 no longer overrides a real value from the filament, vendor or tag.
+
+**Backends and Wi-Fi**
+- One lost Spoolman version request no longer turns weight saving off for minutes; a failed Spoolman read check stays visible.
+- When a printer mapping was sent but could not be read back, the message says so and the printer list stays current.
+- Wi-Fi failure reasons now match the driver's codes: a handshake mismatch is reported as a password/security problem, "too many clients" as a router refusal.
+
 ## 1.0.0-rc.12
 
 Fixes from the deep-refactor audit (report: issue #47). Tag writer and spool identity; no new features.

@@ -1453,6 +1453,258 @@ void test_framework_confirmed_candidate_does_not_block_later_updates() {
                            next.ok() ? "" : next.error().message.c_str());
 }
 
+UpdateRecord boot_matrix_record(
+    UpdateState recorded_state,
+    std::uint8_t flags,
+    const PartitionDescriptor& target) {
+  UpdateRecord record{};
+  record.record_size = sizeof(UpdateRecord);
+  record.generation = 7U;
+  record.operation_id = 99U;
+  record.state = recorded_state;
+  record.flags = flags;
+  record.target = target;
+  record.expected_length = 1024U;
+  record.bytes_received = 1024U;
+  record.expected_sha256 = digest(1U);
+  record.calculated_sha256 = digest(1U);
+  record.candidate = firmware("1.0.0");
+  record.checksum = opentag::ota::update_record_checksum(record);
+  return record;
+}
+
+void test_selected_candidate_that_never_started_fails_and_accepts_a_new_upload() {
+  const std::uint8_t activated_flags =
+      opentag::ota::record_flag_validation_passed |
+      opentag::ota::record_flag_calculated_sha_available |
+      opentag::ota::record_flag_activation_intent |
+      opentag::ota::record_flag_activated;
+  // boot_is_target: the bootloader fell back to the old slot while otadata
+  // still names the candidate. Otherwise: otadata was reset, the record kept.
+  for (const bool boot_is_target : {true, false}) {
+    for (const auto recorded_state :
+         {UpdateState::reboot_pending, UpdateState::rollback_pending,
+          UpdateState::ready_to_reboot}) {
+      if (boot_is_target && recorded_state != UpdateState::reboot_pending) {
+        // Already has an exit: the selected slot can simply be rebooted into.
+        continue;
+      }
+      Harness harness;
+      const auto candidate = harness.platform.status_value.inactive;
+      if (boot_is_target) harness.platform.status_value.boot = candidate;
+      harness.records.record =
+          boot_matrix_record(recorded_state, activated_flags, candidate);
+      harness.records.generation = 7U;
+
+      const auto result = harness.manager.initialize_from_boot(1000U);
+      TEST_ASSERT_FALSE(result.ok());
+      const auto failed = harness.manager.snapshot();
+      TEST_ASSERT_EQUAL_INT(static_cast<int>(UpdateState::failed),
+                            static_cast<int>(failed.state));
+      TEST_ASSERT_EQUAL_STRING(
+          "The update was selected but never started; upload it again.",
+          failed.last_error.characters.data());
+      TEST_ASSERT_EQUAL_INT(static_cast<int>(UpdateState::failed),
+                            static_cast<int>(harness.records.record->state));
+      TEST_ASSERT_EQUAL_UINT(0U, harness.platform.rollback_calls);
+      TEST_ASSERT_EQUAL_UINT(0U, harness.platform.confirm_calls);
+
+      const auto next = harness.manager.begin_upload(
+          request_for(failed, 8U, digest(1U), 43U), 1100U);
+      TEST_ASSERT_TRUE_MESSAGE(next.ok(),
+                               next.ok() ? "" : next.error().message.c_str());
+    }
+  }
+}
+
+void test_ended_selection_stays_ended_on_the_next_boot() {
+  const std::uint8_t activated_flags =
+      opentag::ota::record_flag_validation_passed |
+      opentag::ota::record_flag_calculated_sha_available |
+      opentag::ota::record_flag_activation_intent |
+      opentag::ota::record_flag_activated;
+  Harness first;
+  const auto candidate = first.platform.status_value.inactive;
+  first.platform.status_value.boot = candidate;  // bootloader fell back
+  first.records.record =
+      boot_matrix_record(UpdateState::reboot_pending, activated_flags, candidate);
+  first.records.generation = 7U;
+  TEST_ASSERT_FALSE(first.manager.initialize_from_boot(1000U).ok());
+
+  Harness second;
+  second.platform.status_value.boot = candidate;
+  second.records.record = first.records.record;
+  second.records.generation = first.records.generation;
+  (void)second.manager.initialize_from_boot(2000U);
+  const auto booted = second.manager.snapshot();
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(UpdateState::failed),
+                        static_cast<int>(booted.state));
+  const auto next = second.manager.begin_upload(
+      request_for(booted, 8U, digest(1U), 43U), 2100U);
+  TEST_ASSERT_TRUE_MESSAGE(next.ok(), next.ok() ? "" : next.error().message.c_str());
+}
+
+void test_candidate_record_while_another_image_runs_is_ended() {
+  const std::uint8_t activated_flags =
+      opentag::ota::record_flag_validation_passed |
+      opentag::ota::record_flag_calculated_sha_available |
+      opentag::ota::record_flag_activation_intent |
+      opentag::ota::record_flag_activated;
+  for (const auto recorded_state :
+       {UpdateState::candidate_boot, UpdateState::validating_candidate}) {
+    Harness harness;  // otadata reset: old slot runs and is selected
+    harness.records.record = boot_matrix_record(
+        recorded_state, activated_flags, harness.platform.status_value.inactive);
+    harness.records.generation = 7U;
+    TEST_ASSERT_FALSE(harness.manager.initialize_from_boot(1000U).ok());
+    const auto failed = harness.manager.snapshot();
+    TEST_ASSERT_EQUAL_INT(static_cast<int>(UpdateState::failed),
+                          static_cast<int>(failed.state));
+    TEST_ASSERT_EQUAL_STRING(
+        "The previous update did not complete; upload it again.",
+        failed.last_error.characters.data());
+    TEST_ASSERT_EQUAL_UINT(0U, harness.platform.rollback_calls);
+    TEST_ASSERT_EQUAL_UINT(0U, harness.platform.confirm_calls);
+    const auto next = harness.manager.begin_upload(
+        request_for(failed, 8U, digest(1U), 43U), 1100U);
+    TEST_ASSERT_TRUE_MESSAGE(next.ok(), next.ok() ? "" : next.error().message.c_str());
+  }
+}
+
+void test_no_persisted_record_traps_a_boot_that_is_not_pending_verification() {
+  const UpdateState states[] = {
+      UpdateState::idle, UpdateState::upload_receiving, UpdateState::writing,
+      UpdateState::validating, UpdateState::ready_to_activate,
+      UpdateState::ready_to_reboot, UpdateState::reboot_pending,
+      UpdateState::confirmed, UpdateState::rollback_pending,
+      UpdateState::rolled_back, UpdateState::failed};
+  const PartitionImageState images[] = {
+      PartitionImageState::unknown, PartitionImageState::valid,
+      PartitionImageState::invalid, PartitionImageState::aborted,
+      PartitionImageState::undefined};
+  const std::uint8_t validated_flags =
+      opentag::ota::record_flag_validation_passed |
+      opentag::ota::record_flag_calculated_sha_available;
+  const std::uint8_t flag_sets[] = {
+      0U, validated_flags,
+      static_cast<std::uint8_t>(
+          validated_flags | opentag::ota::record_flag_activation_intent),
+      static_cast<std::uint8_t>(
+          validated_flags | opentag::ota::record_flag_activation_intent |
+          opentag::ota::record_flag_activated)};
+  std::size_t rows = 0U;
+  std::size_t trapped = 0U;
+  for (const auto recorded_state : states) {
+    for (const bool target_is_running : {false, true}) {
+      for (const bool boot_is_running : {false, true}) {
+        for (const auto image : images) {
+          for (const bool target_is_last_invalid : {false, true}) {
+            if (target_is_last_invalid && target_is_running) continue;
+            for (const auto flags : flag_sets) {
+              Harness harness;
+              const auto running = harness.platform.status_value.running;
+              const auto other = harness.platform.status_value.inactive;
+              const auto target = target_is_running ? running : other;
+              harness.platform.status_value.boot =
+                  boot_is_running ? running : other;
+              harness.platform.status_value.running_state = image;
+              if (target_is_last_invalid) {
+                harness.platform.status_value.last_invalid = target;
+              }
+              harness.records.record =
+                  boot_matrix_record(recorded_state, flags, target);
+              harness.records.generation = 7U;
+              ++rows;
+
+              (void)harness.manager.initialize_from_boot(1000U);
+              const auto booted = harness.manager.snapshot();
+              const OperationPrecondition owner{
+                  booted.operation_id, booted.generation};
+              // The manager must offer at least one way out: cancel the
+              // staged image, start a new upload, or select and reboot.
+              if (harness.manager.cancel(owner, 1100U).ok()) continue;
+              BeginUploadRequest request;
+              request.operation_id = 123U;
+              request.expected_generation = booted.generation;
+              request.expected_length = 8U;
+              request.expected_sha256 = digest(1U);
+              TEST_ASSERT_TRUE(request.declared_version.assign("1.0.0"));
+              TEST_ASSERT_TRUE(request.declared_git_sha.assign("abcdef012345"));
+              if (harness.manager.begin_upload(request, 1200U).ok()) continue;
+              if (harness.manager.activate(owner, 1300U).ok() &&
+                  harness.manager.mark_reboot_pending(owner, 1400U).ok()) {
+                continue;
+              }
+              ++trapped;
+            }
+          }
+        }
+      }
+    }
+  }
+  TEST_ASSERT_EQUAL_UINT(1320U, rows);
+  TEST_ASSERT_EQUAL_UINT(0U, trapped);
+}
+
+void test_candidate_booted_after_activation_record_cut_is_not_rolled_back() {
+  // activate(): the intent record is durable and the boot slot is switched,
+  // but the "activated" save and the reboot_pending save both fail (power
+  // cut). The bootloader then starts the selected candidate.
+  Harness harness;
+  const auto staged = validated(harness);
+  harness.records.fail_save_on_call = harness.records.save_calls + 2U;
+  const auto activated = harness.manager.activate(guard(staged), 60U);
+  TEST_ASSERT_TRUE(activated.ok());
+  harness.records.fail_save = true;
+  TEST_ASSERT_FALSE(
+      harness.manager.mark_reboot_pending(guard(staged), 61U).ok());
+  const auto durable = *harness.records.record;
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(UpdateState::ready_to_reboot),
+                        static_cast<int>(durable.state));
+  TEST_ASSERT_TRUE(
+      (durable.flags & opentag::ota::record_flag_activation_intent) != 0U);
+  TEST_ASSERT_TRUE((durable.flags & opentag::ota::record_flag_activated) == 0U);
+
+  Harness booted;
+  booted.records.record = durable;
+  booted.records.generation = harness.records.generation;
+  const auto app0 = booted.platform.status_value.running;
+  const auto app1 = booted.platform.status_value.inactive;
+  booted.platform.status_value.running = app1;
+  booted.platform.status_value.boot = app1;
+  booted.platform.status_value.inactive = app0;
+  booted.platform.status_value.running_image = firmware("1.0.0");
+  booted.platform.status_value.running_state =
+      PartitionImageState::pending_verify;
+
+  const auto result = booted.manager.initialize_from_boot(1000U);
+  TEST_ASSERT_TRUE_MESSAGE(
+      result.ok(), result.ok() ? "" : result.error().message.c_str());
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(UpdateState::candidate_boot),
+                        static_cast<int>(result.value().state));
+  TEST_ASSERT_TRUE(result.value().activated);
+  TEST_ASSERT_EQUAL_UINT(0U, booted.platform.rollback_calls);
+  TEST_ASSERT_EQUAL_UINT(0U, booted.platform.confirm_calls);
+  TEST_ASSERT_TRUE(
+      (booted.records.record->flags & opentag::ota::record_flag_activated) !=
+      0U);
+}
+
+void test_pending_candidate_with_intent_only_rolls_back_unless_boot_slot_agrees() {
+  // Intent alone is not proof: the bootloader must also name the running
+  // candidate as the boot slot before the missing flag is inferred.
+  Harness harness;
+  configure_candidate_boot(harness, UpdateState::ready_to_reboot);
+  harness.records.record->flags &= static_cast<std::uint8_t>(
+      ~opentag::ota::record_flag_activated);
+  harness.records.record->checksum =
+      opentag::ota::update_record_checksum(*harness.records.record);
+  harness.platform.status_value.boot = harness.platform.status_value.inactive;
+  const auto result = harness.manager.initialize_from_boot(1000U);
+  TEST_ASSERT_FALSE(result.ok());
+  TEST_ASSERT_EQUAL_UINT(1U, harness.platform.rollback_calls);
+}
+
 int main(int, char**) {
   UNITY_BEGIN();
   RUN_TEST(test_boot_initialization_reports_active_boot_and_inactive_slots);
@@ -1498,5 +1750,11 @@ int main(int, char**) {
   RUN_TEST(test_last_invalid_target_reconciles_as_rolled_back);
   RUN_TEST(test_platform_write_failure_aborts_once_and_never_activates);
   RUN_TEST(test_platform_errors_are_bounded_before_snapshot_persistence);
+  RUN_TEST(test_selected_candidate_that_never_started_fails_and_accepts_a_new_upload);
+  RUN_TEST(test_no_persisted_record_traps_a_boot_that_is_not_pending_verification);
+  RUN_TEST(test_candidate_booted_after_activation_record_cut_is_not_rolled_back);
+  RUN_TEST(test_pending_candidate_with_intent_only_rolls_back_unless_boot_slot_agrees);
+  RUN_TEST(test_ended_selection_stays_ended_on_the_next_boot);
+  RUN_TEST(test_candidate_record_while_another_image_runs_is_ended);
   return UNITY_END();
 }

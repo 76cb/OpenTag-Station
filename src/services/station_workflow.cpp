@@ -294,6 +294,20 @@ core::Result<AssignmentResult> StationWorkflow::assign(
   const auto result = assignment_service_.assign(request);
 
   std::lock_guard<std::mutex> lock(mutex_);
+  // The printer cache mirrors FilaBridge, not the tag on the station: a
+  // verified mapping is recorded even if the tag has left meanwhile.
+  const bool verified = result.ok() && result.value().verified();
+  if (verified) {
+    for (auto& printer : state_.printers) {
+      if (printer.id != printer_id) continue;
+      for (auto& toolhead : printer.toolheads) {
+        if (toolhead.backend_id == backend_toolhead_id) {
+          toolhead.assigned_spool = spool_id;
+        }
+      }
+    }
+    state_.printer_revision = next_printer_revision_++;
+  }
   // The operation result still belongs to its original request. Never apply
   // that completion to a tag removed/replaced while the backend was busy.
   if (state_.spool_generation != generation) return result;
@@ -306,18 +320,7 @@ core::Result<AssignmentResult> StationWorkflow::assign(
     return core::Result<AssignmentResult>::failure(result.error());
   }
   state_.last_assignment = result.value();
-  if (result.value().verified()) {
-    for (auto& printer : state_.printers) {
-      if (printer.id != printer_id) continue;
-      for (auto& toolhead : printer.toolheads) {
-        if (toolhead.backend_id == backend_toolhead_id) {
-          toolhead.assigned_spool = spool_id;
-        }
-      }
-    }
-    state_.stage = WorkflowStage::assignment_complete;
-    state_.printer_revision = next_printer_revision_++;
-  }
+  if (verified) state_.stage = WorkflowStage::assignment_complete;
   return result;
 }
 
@@ -363,17 +366,8 @@ core::Result<AssignmentResult> StationWorkflow::unassign(
   const auto result = assignment_service_.unassign(request);
 
   std::lock_guard<std::mutex> lock(mutex_);
-  if (state_.spool_generation != generation) return result;
-  if (!result.ok()) {
-    state_.assignment_error = result.error();
-    if (connection_failure(result.error())) {
-      state_.filabridge = BackendAvailability::offline;
-      state_.filabridge_assignment_available = false;
-    }
-    return core::Result<AssignmentResult>::failure(result.error());
-  }
-  state_.last_assignment = result.value();
-  if (result.value().verified()) {
+  // As in assign(): the printer cache follows FilaBridge regardless of the tag.
+  if (result.ok() && result.value().verified()) {
     for (auto& printer : state_.printers) {
       if (printer.id != printer_id) continue;
       for (auto& toolhead : printer.toolheads) {
@@ -384,6 +378,16 @@ core::Result<AssignmentResult> StationWorkflow::unassign(
     }
     state_.printer_revision = next_printer_revision_++;
   }
+  if (state_.spool_generation != generation) return result;
+  if (!result.ok()) {
+    state_.assignment_error = result.error();
+    if (connection_failure(result.error())) {
+      state_.filabridge = BackendAvailability::offline;
+      state_.filabridge_assignment_available = false;
+    }
+    return core::Result<AssignmentResult>::failure(result.error());
+  }
+  state_.last_assignment = result.value();
   return result;
 }
 

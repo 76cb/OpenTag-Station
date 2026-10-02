@@ -1,5 +1,6 @@
 #include <unity.h>
 
+#include <cstdio>
 #include <optional>
 #include <string>
 
@@ -1068,6 +1069,272 @@ void test_first_run_navigation_allows_tokenless_setup_completion() {
   TEST_ASSERT_FALSE(setup.next().ok());
 }
 
+const char* newer_schema_document = R"json({
+  "schema_version": 4,
+  "hardware_id": "wt32-sc01-plus-rev-a",
+  "device": {"hostname": "future-station"},
+  "wifi": {"ssid": "HomeNet", "password": "secret123"},
+  "new_v4_section": {"x": 1}
+})json";
+
+void test_newer_schema_document_is_never_overwritten_by_older_firmware() {
+  MemoryDocumentStore documents;
+  documents.document = newer_schema_document;
+  documents.backup_document = schema_one_document;
+  LegacyScaleStore legacy;
+  ConfigurationService service(documents, legacy);
+
+  TEST_ASSERT_FALSE(service.initialize().ok());
+  auto status = service.status();
+  TEST_ASSERT_TRUE(status.initialized);
+  TEST_ASSERT_FALSE(status.persistence_available);
+  TEST_ASSERT_TRUE(status.stored_by_newer_firmware);
+  TEST_ASSERT_TRUE(status.last_error.has_value());
+  TEST_ASSERT_EQUAL_STRING(
+      "Stored configuration was written by newer firmware; update the "
+      "firmware or factory-reset",
+      status.last_error->message.c_str());
+  // Neither the older backup nor defaults may replace the newer document.
+  TEST_ASSERT_EQUAL_UINT(0U, documents.save_count);
+
+  auto changed = service.snapshot();
+  changed.wifi.ssid = "Reprovisioned";
+  const auto replaced = service.replace(changed);
+  TEST_ASSERT_FALSE(replaced.ok());
+  TEST_ASSERT_EQUAL_STRING(
+      "Stored configuration was written by newer firmware; update the "
+      "firmware or factory-reset",
+      replaced.error().message.c_str());
+  TEST_ASSERT_FALSE(
+      service.replace_if_revision(changed, service.revision()).ok());
+  TEST_ASSERT_FALSE(service.confirm_browser_setup().ok());
+  TEST_ASSERT_FALSE(service.save_scale_calibration(valid_scale()).ok());
+  TEST_ASSERT_EQUAL_UINT(0U, legacy.save_count);
+  opentag::domain::ConfirmedSpoolMapping mapping;
+  mapping.spool_id = 7;
+  mapping.nfc_uid = "E004010000000001";
+  mapping.instance_uuid = "11111111-2222-4333-8444-555555555555";
+  TEST_ASSERT_FALSE(service.sync_verified_spool_identity_mapping(mapping).ok());
+
+  TEST_ASSERT_EQUAL_UINT(0U, documents.save_count);
+  TEST_ASSERT_EQUAL_STRING(newer_schema_document, documents.document->c_str());
+  TEST_ASSERT_TRUE(service.status().stored_by_newer_firmware);
+  TEST_ASSERT_TRUE(service.snapshot().wifi.ssid != "Reprovisioned");
+}
+
+void test_newer_schema_backup_is_not_overwritten_when_primary_is_missing() {
+  MemoryDocumentStore documents;
+  documents.backup_document = newer_schema_document;
+  LegacyScaleStore legacy;
+  ConfigurationService service(documents, legacy);
+
+  TEST_ASSERT_FALSE(service.initialize().ok());
+  TEST_ASSERT_TRUE(service.status().stored_by_newer_firmware);
+  TEST_ASSERT_FALSE(service.replace(service.snapshot()).ok());
+  TEST_ASSERT_EQUAL_UINT(0U, documents.save_count);
+}
+
+void test_unreadable_document_is_not_reported_as_newer_firmware() {
+  MemoryDocumentStore documents;
+  documents.document = "{corrupt";
+  LegacyScaleStore legacy;
+  ConfigurationService service(documents, legacy);
+
+  TEST_ASSERT_FALSE(service.initialize().ok());
+  TEST_ASSERT_FALSE(service.status().persistence_available);
+  TEST_ASSERT_FALSE(service.status().stored_by_newer_firmware);
+  // The existing safe-degraded recovery still rewrites a corrupt document.
+  TEST_ASSERT_TRUE(service.replace(service.snapshot()).ok());
+  TEST_ASSERT_EQUAL_UINT(1U, documents.save_count);
+}
+
+void test_spoolman_field_keys_must_differ_and_match_spoolman_key_rules() {
+  Configuration defaults;
+  TEST_ASSERT_TRUE(defaults.validate().ok());
+
+  Configuration same;
+  same.spoolman.identity_field = "nfc_uid";
+  same.spoolman.nfc_uid_field = "nfc_uid";
+  const auto same_result = same.validate();
+  TEST_ASSERT_FALSE(same_result.ok());
+  TEST_ASSERT_EQUAL_STRING(
+      "Spoolman field keys must differ and use only a-z, 0-9 and _",
+      same_result.error().message.c_str());
+
+  for (const char* invalid :
+       {"Station_UUID", "tag uid", "tag-uid", "a&b=1", "uid/..", "uid.x",
+        "uid#", "\xC3\xA9tiquette"}) {
+    Configuration identity;
+    identity.spoolman.identity_field = invalid;
+    TEST_ASSERT_FALSE_MESSAGE(identity.validate().ok(), invalid);
+    Configuration uid;
+    uid.spoolman.nfc_uid_field = invalid;
+    TEST_ASSERT_FALSE_MESSAGE(uid.validate().ok(), invalid);
+  }
+
+  Configuration longest;
+  longest.spoolman.identity_field = std::string(64U, 'a');
+  longest.spoolman.nfc_uid_field = "tag_uid_2";
+  TEST_ASSERT_TRUE(longest.validate().ok());
+  longest.spoolman.identity_field.push_back('a');
+  TEST_ASSERT_FALSE(longest.validate().ok());
+}
+
+void test_backend_tokens_reject_control_characters() {
+  for (const char* invalid :
+       {"token\r\nX-Injected: 1", "token\n", "tab\ttoken", "bell\x07",
+        "delete\x7F"}) {
+    Configuration spoolman;
+    spoolman.spoolman.authentication_token = invalid;
+    const auto spoolman_result = spoolman.validate();
+    TEST_ASSERT_FALSE_MESSAGE(spoolman_result.ok(), invalid);
+    TEST_ASSERT_EQUAL_STRING(
+        "backend access tokens must not contain control characters",
+        spoolman_result.error().message.c_str());
+    Configuration filabridge;
+    filabridge.filabridge.authentication_token = invalid;
+    TEST_ASSERT_FALSE_MESSAGE(filabridge.validate().ok(), invalid);
+  }
+
+  Configuration printable;
+  printable.spoolman.authentication_token = "Abc 123+/=~.-_:\xC3\xA9";
+  printable.filabridge.authentication_token = std::string(512U, 'x');
+  TEST_ASSERT_TRUE(printable.validate().ok());
+}
+
+void test_stored_values_older_firmware_accepted_are_repaired_not_discarded() {
+  struct Case { const char* spoolman; const char* identity; const char* uid; const char* token; };
+  const Case cases[] = {
+      {R"("identity_field":"Station_UUID","nfc_uid_field":"nfc_uid")",
+       "opentag_instance_uuid", "nfc_uid", ""},
+      {R"("identity_field":"nfc_uid","nfc_uid_field":"nfc_uid")",
+       "opentag_instance_uuid", "nfc_uid", ""},
+      {R"("identity_field":"my_uuid","nfc_uid_field":"my_uid","authentication_token":"secret\n")",
+       "my_uuid", "my_uid", "secret"}};
+  for (const auto& entry : cases) {
+    MemoryDocumentStore documents;
+    documents.document = std::string(R"({"schema_version":3,"hardware_id":"wt32-sc01-plus-rev-a",)") +
+        R"("wifi":{"ssid":"HomeNet","password":"correct horse"},"spoolman":{)" + entry.spoolman + "}}";
+    LegacyScaleStore legacy;
+    ConfigurationService service(documents, legacy);
+    const auto loaded = service.initialize();
+    TEST_ASSERT_TRUE_MESSAGE(loaded.ok(), entry.spoolman);
+    TEST_ASSERT_TRUE(service.status().persistence_available);
+    const auto snapshot = service.snapshot();
+    TEST_ASSERT_EQUAL_STRING("HomeNet", snapshot.wifi.ssid.c_str());
+    TEST_ASSERT_EQUAL_STRING(entry.identity, snapshot.spoolman.identity_field.c_str());
+    TEST_ASSERT_EQUAL_STRING(entry.uid, snapshot.spoolman.nfc_uid_field.c_str());
+    TEST_ASSERT_EQUAL_STRING(entry.token, snapshot.spoolman.authentication_token.c_str());
+    TEST_ASSERT_TRUE(snapshot.validate().ok());
+  }
+}
+
+void test_full_mapping_store_accepts_a_newly_confirmed_mapping() {
+  MemoryDocumentStore documents;
+  LegacyScaleStore legacy;
+  ConfigurationService service(documents, legacy);
+  TEST_ASSERT_TRUE(service.initialize().ok());
+  for (int index = 1; index <= 65; ++index) {
+    char uid[17];
+    std::snprintf(uid, sizeof(uid), "E0040100000000%02X", index);
+    opentag::domain::ConfirmedSpoolMapping mapping;
+    mapping.spool_id = index;
+    mapping.nfc_uid = uid;
+    const auto confirmed = service.confirm_spool_identity_mapping(mapping);
+    TEST_ASSERT_TRUE_MESSAGE(
+        confirmed.ok(), confirmed.ok() ? "" : confirmed.error().message.c_str());
+  }
+  const auto mappings = service.snapshot().spool_identity_mappings;
+  TEST_ASSERT_EQUAL_UINT(64U, mappings.size());
+  TEST_ASSERT_EQUAL_INT(2, mappings.front().spool_id);
+  TEST_ASSERT_EQUAL_INT(65, mappings.back().spool_id);
+}
+
+void test_full_mapping_store_evicts_the_oldest_verified_mapping() {
+  MemoryDocumentStore documents;
+  LegacyScaleStore legacy;
+  ConfigurationService service(documents, legacy);
+  TEST_ASSERT_TRUE(service.initialize().ok());
+
+  const auto mapping_for = [](int index) {
+    char uid[17];
+    char uuid[37];
+    std::snprintf(uid, sizeof(uid), "E0040100000000%02X", index);
+    std::snprintf(
+        uuid, sizeof(uuid), "11111111-2222-4333-8444-5555555555%02x", index);
+    opentag::domain::ConfirmedSpoolMapping mapping;
+    mapping.spool_id = index;
+    mapping.nfc_uid = uid;
+    mapping.instance_uuid = uuid;
+    return mapping;
+  };
+  for (int index = 1; index <= 64; ++index) {
+    TEST_ASSERT_TRUE(
+        service.sync_verified_spool_identity_mapping(mapping_for(index)).ok());
+  }
+  TEST_ASSERT_EQUAL_UINT(64U, service.snapshot().spool_identity_mappings.size());
+
+  // Re-syncing an entry that is already present never evicts.
+  TEST_ASSERT_TRUE(
+      service.sync_verified_spool_identity_mapping(mapping_for(1)).ok());
+  TEST_ASSERT_EQUAL_UINT(64U, service.snapshot().spool_identity_mappings.size());
+  TEST_ASSERT_EQUAL_INT(
+      1, service.snapshot().spool_identity_mappings.front().spool_id);
+
+  const auto added =
+      service.sync_verified_spool_identity_mapping(mapping_for(65));
+  TEST_ASSERT_TRUE_MESSAGE(
+      added.ok(), added.ok() ? "" : added.error().message.c_str());
+  const auto mappings = service.snapshot().spool_identity_mappings;
+  TEST_ASSERT_EQUAL_UINT(64U, mappings.size());
+  bool first_present = false;
+  bool newest_present = false;
+  for (const auto& mapping : mappings) {
+    if (mapping.spool_id == 1) first_present = true;
+    if (mapping.spool_id == 65) newest_present = true;
+  }
+  TEST_ASSERT_FALSE(first_present);
+  TEST_ASSERT_TRUE(newest_present);
+  TEST_ASSERT_EQUAL_INT(2, mappings.front().spool_id);
+  TEST_ASSERT_EQUAL_INT(65, mappings.back().spool_id);
+
+  // The evicted state is what was persisted.
+  ConfigurationService reloaded(documents, legacy);
+  TEST_ASSERT_TRUE(reloaded.initialize().ok());
+  TEST_ASSERT_EQUAL_UINT(
+      64U, reloaded.snapshot().spool_identity_mappings.size());
+  TEST_ASSERT_EQUAL_INT(
+      65, reloaded.snapshot().spool_identity_mappings.back().spool_id);
+}
+
+void test_unsupported_legacy_scale_calibration_does_not_block_startup() {
+  MemoryDocumentStore documents;
+  LegacyScaleStore legacy;
+  legacy.calibration = valid_scale(10000.0F);
+  ConfigurationService service(documents, legacy);
+  const Configuration defaults;
+
+  const auto initialized = service.initialize();
+  TEST_ASSERT_TRUE_MESSAGE(
+      initialized.ok(),
+      initialized.ok() ? "" : initialized.error().message.c_str());
+  const auto status = service.status();
+  TEST_ASSERT_TRUE(status.initialized);
+  TEST_ASSERT_TRUE(status.persistence_available);
+  TEST_ASSERT_TRUE(status.last_error.has_value());
+  TEST_ASSERT_FALSE(service.snapshot().scale_calibration.has_value());
+  TEST_ASSERT_FLOAT_WITHIN(
+      0.01F, defaults.scale_hardware.rated_capacity_grams,
+      service.snapshot().scale_hardware.rated_capacity_grams);
+  TEST_ASSERT_TRUE(service.snapshot().validate().ok());
+  TEST_ASSERT_EQUAL_UINT(1U, documents.save_count);
+
+  // The stored document is usable: the next boot loads it normally.
+  ConfigurationService restarted(documents, legacy);
+  TEST_ASSERT_TRUE(restarted.initialize().ok());
+  TEST_ASSERT_FALSE(restarted.snapshot().scale_calibration.has_value());
+}
+
 int main(int, char**) {
   UNITY_BEGIN();
   RUN_TEST(test_clear_mapping_preserves_unrelated_and_persists);
@@ -1109,5 +1376,14 @@ int main(int, char**) {
   RUN_TEST(test_confirmed_spool_mapping_round_trips_and_conflicts_are_rejected);
   RUN_TEST(test_browser_setup_completion_is_transactional_and_tokenless);
   RUN_TEST(test_first_run_navigation_allows_tokenless_setup_completion);
+  RUN_TEST(test_newer_schema_document_is_never_overwritten_by_older_firmware);
+  RUN_TEST(test_newer_schema_backup_is_not_overwritten_when_primary_is_missing);
+  RUN_TEST(test_unreadable_document_is_not_reported_as_newer_firmware);
+  RUN_TEST(test_spoolman_field_keys_must_differ_and_match_spoolman_key_rules);
+  RUN_TEST(test_backend_tokens_reject_control_characters);
+  RUN_TEST(test_full_mapping_store_evicts_the_oldest_verified_mapping);
+  RUN_TEST(test_unsupported_legacy_scale_calibration_does_not_block_startup);
+  RUN_TEST(test_stored_values_older_firmware_accepted_are_repaired_not_discarded);
+  RUN_TEST(test_full_mapping_store_accepts_a_newly_confirmed_mapping);
   return UNITY_END();
 }
