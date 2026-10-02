@@ -55,7 +55,6 @@ class UiService {
 
   bool initialize();
   void run_once(std::uint32_t now_ms);
-  [[nodiscard]] bool buffers_in_psram() const { return buffers_in_psram_; }
 
  private:
   enum class ProductPage : std::uint8_t { home, scale, printer, tags, settings };
@@ -81,7 +80,6 @@ class UiService {
   static void setup_scan_callback(lv_event_t* event);
   static void setup_network_callback(lv_event_t* event);
   static void setup_textarea_callback(lv_event_t* event);
-  static void setup_keyboard_callback(lv_event_t* event);
   static void diagnostics_toggle_callback(lv_event_t* event);
   static void navigation_callback(lv_event_t* event);
   static void weigh_callback(lv_event_t* event);
@@ -89,12 +87,8 @@ class UiService {
   static void calibrate_callback(lv_event_t* event);
   static void scale_calibration_close_callback(lv_event_t* event);
   static void scale_textarea_callback(lv_event_t* event);
-  static void scale_keyboard_callback(lv_event_t* event);
   static void toolhead_callback(lv_event_t* event);
   static void assignment_confirmation_callback(lv_event_t* event);
-  static void writer_preview_callback(lv_event_t* event);
-  static void writer_confirm_callback(lv_event_t* event);
-  static void clear_preview_callback(lv_event_t* event);
   static void weight_update_callback(lv_event_t* event);
   static void weight_policy_callback(lv_event_t* event);
 
@@ -154,12 +148,8 @@ class UiService {
   services::StationWorkflow& workflow_;
   application::NfcWorker& nfc_;
   lv_obj_t* nfc_detail_{nullptr};
-  lv_obj_t* writer_preview_{nullptr};
-  lv_obj_t* writer_confirm_{nullptr};
-  lv_obj_t* clear_preview_{nullptr};
   lv_obj_t* weight_update_{nullptr};
   lv_obj_t* weight_policy_{nullptr};
-  std::string writer_confirmation_;
   application::BackendWorker& backend_worker_;
   lv_color_t* buffer_one_{nullptr};
   lv_color_t* buffer_two_{nullptr};
@@ -194,7 +184,6 @@ class UiService {
   lv_obj_t* setup_input_one_{nullptr};
   lv_obj_t* setup_input_two_{nullptr};
   lv_obj_t* setup_network_dropdown_{nullptr};
-  lv_obj_t* setup_keyboard_{nullptr};
   lv_obj_t* workflow_material_label_{nullptr};
   lv_obj_t* workflow_home_state_label_{nullptr};
   lv_obj_t* workflow_weight_label_{nullptr};
@@ -211,7 +200,6 @@ class UiService {
   lv_obj_t* workflow_scale_indicator_{nullptr};
   lv_obj_t* workflow_calibration_label_{nullptr};
   lv_obj_t* workflow_calibration_close_button_{nullptr};
-  lv_obj_t* scale_keyboard_{nullptr};
   lv_obj_t* display_test_touch_marker_{nullptr};
   lv_obj_t* display_test_touch_label_{nullptr};
   std::array<lv_obj_t*, 5> workflow_toolhead_buttons_{};

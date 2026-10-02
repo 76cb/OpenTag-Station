@@ -16,8 +16,7 @@
 #include "boards/wt32_sc01_plus_rev_a.hpp"
 #include "diagnostics/build_info.hpp"
 #include "ui/weight_format.hpp"
-#include "nfc/presentation.hpp"
-#include "services/workflow_presentation.hpp"
+#include "nfc/protocols/nfcv/read_protocol.hpp"
 #include "web/local_access_policy.hpp"
 
 namespace opentag::ui {
@@ -30,7 +29,6 @@ static_assert(
 
 constexpr std::uint32_t screen_background = 0x101416;
 constexpr std::uint32_t primary_text = 0xF8FAFC;
-constexpr std::uint32_t secondary_text = 0xCBD5E1;
 constexpr std::uint32_t accent_text = 0x72DFBE;
 constexpr std::uint32_t warning_text = 0xFDE68A;
 // Destructive actions (erase tag, skip recovery, replace toolhead) use a red
@@ -274,7 +272,6 @@ void UiService::build_current_screen() {
   setup_input_two_ = nullptr;
   setup_network_dropdown_ = nullptr;
   setup_printer_dropdown_ = nullptr;
-  setup_keyboard_ = nullptr;
   workflow_material_label_ = nullptr;
   workflow_home_state_label_ = nullptr;
   workflow_weight_label_ = nullptr;
@@ -293,8 +290,7 @@ void UiService::build_current_screen() {
   workflow_identity_label_ = nullptr;
   workflow_status_label_ = nullptr;
   nfc_detail_ = nullptr;tag_title_=nullptr;tag_buttons_.fill(nullptr);
-  writer_preview_ = nullptr; writer_confirm_ = nullptr; clear_preview_=nullptr;weight_update_=nullptr;weight_policy_=nullptr; writer_confirmation_.clear();
-  scale_keyboard_ = nullptr;
+  weight_update_=nullptr;weight_policy_=nullptr;
   display_test_touch_marker_ = nullptr;
   display_test_touch_label_ = nullptr;
   product_nav_buttons_.fill(nullptr);
@@ -1231,10 +1227,6 @@ void UiService::set_scale_calibration_panel_open(bool open) {
     if (label != nullptr) {
       lv_label_set_text(label, open ? "RUN CALIBRATION" : "CALIBRATE");
     }
-  }
-  if (!open && scale_keyboard_ != nullptr) {
-    lv_keyboard_set_textarea(scale_keyboard_, nullptr);
-    lv_obj_add_flag(scale_keyboard_, LV_OBJ_FLAG_HIDDEN);
   }
 }
 
