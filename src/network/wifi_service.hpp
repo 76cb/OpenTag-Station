@@ -86,8 +86,6 @@ class WifiService {
       std::uint64_t operation_id);
   [[nodiscard]] std::vector<WifiNetwork> scan_results() const;
   [[nodiscard]] const WifiStatus& status() const { return status_; }
-  [[nodiscard]] core::Result<std::string> resolve_hostname(
-      const std::string& hostname);
 
  private:
   void start_connection(std::uint32_t now_ms);

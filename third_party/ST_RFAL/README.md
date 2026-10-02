@@ -12,8 +12,9 @@ No unofficial mirror was imported.
 
 The project will import an exact ST `STSW-ST25RFAL002` release only after its
 version, archive checksum, and SLA0051 redistribution obligations are recorded.
-Vendor files remain unmodified in this directory. The ESP32-S3 adaptation lives
-under `src/platform/rfal/`.
+Vendor files remain unmodified in this directory. Only the port contract
+(`src/platform/rfal/rfal_platform_contract.hpp`) exists so far; no ESP32-S3
+adaptation of it is built or kept in the tree.
 
 Required acquisition record before import:
 

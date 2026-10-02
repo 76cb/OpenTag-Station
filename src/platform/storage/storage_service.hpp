@@ -26,7 +26,6 @@ class StorageService final :
     public services::IScaleCalibrationStore {
  public:
   bool initialize(std::uint32_t now_ms);
-  [[nodiscard]] bool health_window_due(std::uint32_t now_ms) const;
   [[nodiscard]] core::Result<void> confirm_healthy_boot();
   [[nodiscard]] bool boot_confirmation_pending() const {
     return boot_pending_.load(std::memory_order_acquire);
@@ -53,8 +52,6 @@ class StorageService final :
       std::string_view document) override;
 
  private:
-  static constexpr std::uint32_t healthy_boot_after_ms = 30000U;
-
   Preferences preferences_;
   Preferences control_preferences_;
   std::mutex preferences_mutex_;

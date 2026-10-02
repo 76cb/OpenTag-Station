@@ -15,13 +15,6 @@ enum class ReconciliationDecision {
   confirmation_required,
 };
 
-enum class ReconciliationAction {
-  update_spoolman,
-  update_openprinttag,
-  update_both,
-  ignore,
-};
-
 struct ReconciliationTolerances {
   float normal_grams{5.0F};
   float warning_grams{20.0F};

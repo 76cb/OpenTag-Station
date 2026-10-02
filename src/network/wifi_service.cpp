@@ -755,20 +755,4 @@ void WifiService::poll(std::uint32_t now_ms) {
   update_provisioning_status(now_ms);
 }
 
-core::Result<std::string> WifiService::resolve_hostname(
-    const std::string& hostname) {
-  if (!status_.connected || hostname.empty() || hostname.size() > 253U) {
-    return core::Result<std::string>::failure(
-        network_error("DNS lookup requires a connected network and valid hostname"));
-  }
-  IPAddress address;
-  if (!WiFi.hostByName(hostname.c_str(), address)) {
-    const auto error = network_error("DNS resolution failed for " + hostname);
-    status_.last_error = error;
-    return core::Result<std::string>::failure(error);
-  }
-  status_.dns_server = WiFi.dnsIP(0U).toString().c_str();
-  return core::Result<std::string>::success(address.toString().c_str());
-}
-
 }  // namespace opentag::network
