@@ -151,6 +151,26 @@ bool same_partition(
       left.subtype == right.subtype;
 }
 
+bool pending_bootloader_confirmation(PartitionImageState state) {
+  return state == PartitionImageState::pending_verify ||
+      state == PartitionImageState::new_image;
+}
+
+bool rollback_seed_recovery_state(const UpdateSnapshot& state) {
+  const bool recoverable_running =
+      pending_bootloader_confirmation(state.running_image_state) ||
+      state.running_image_state == PartitionImageState::valid;
+  return state.state == UpdateState::ready_to_reboot &&
+      state.validation_passed && state.calculated_sha_available &&
+      state.expected_sha256 == state.calculated_sha256 &&
+      state.image_size != 0U && state.bytes_received == state.image_size &&
+      state.activation_intent && !state.activated && state.target.present() &&
+      same_partition(state.boot, state.running) &&
+      same_partition(state.inactive, state.target) &&
+      !same_partition(state.running, state.target) &&
+      recoverable_running;
+}
+
 std::uint32_t update_record_checksum(const UpdateRecord& record) {
   std::uint32_t crc = 0xFFFFFFFFU;
   crc_unsigned(crc, record.magic);

@@ -1705,6 +1705,93 @@ void test_pending_candidate_with_intent_only_rolls_back_unless_boot_slot_agrees(
   TEST_ASSERT_EQUAL_UINT(1U, harness.platform.rollback_calls);
 }
 
+// A16: the application loop and the OTA owner share these two predicates.
+void test_shared_boot_predicates_classify_confirmation_and_rollback_seed() {
+  using opentag::ota::pending_bootloader_confirmation;
+  using opentag::ota::rollback_seed_recovery_state;
+  TEST_ASSERT_TRUE(pending_bootloader_confirmation(
+      PartitionImageState::pending_verify));
+  TEST_ASSERT_TRUE(pending_bootloader_confirmation(
+      PartitionImageState::new_image));
+  for (const auto state : {
+           PartitionImageState::unknown, PartitionImageState::valid,
+           PartitionImageState::invalid, PartitionImageState::aborted,
+           PartitionImageState::undefined}) {
+    TEST_ASSERT_FALSE(pending_bootloader_confirmation(state));
+  }
+
+  UpdateSnapshot seed;
+  seed.state = UpdateState::ready_to_reboot;
+  seed.validation_passed = true;
+  seed.calculated_sha_available = true;
+  seed.expected_sha256.fill(0x5AU);
+  seed.calculated_sha256 = seed.expected_sha256;
+  seed.image_size = 8U;
+  seed.bytes_received = 8U;
+  seed.activation_intent = true;
+  seed.activated = false;
+  seed.running.address = 0x10000U;
+  seed.running.size = 0x500000U;
+  seed.boot = seed.running;
+  seed.inactive.address = 0x510000U;
+  seed.inactive.size = 0x500000U;
+  seed.target = seed.inactive;
+  for (const auto running : {
+           PartitionImageState::valid, PartitionImageState::pending_verify,
+           PartitionImageState::new_image}) {
+    seed.running_image_state = running;
+    TEST_ASSERT_TRUE(rollback_seed_recovery_state(seed));
+  }
+  seed.running_image_state = PartitionImageState::undefined;
+  TEST_ASSERT_FALSE(rollback_seed_recovery_state(seed));
+  seed.running_image_state = PartitionImageState::valid;
+
+  const auto rejected = [&seed](void (*mutate)(UpdateSnapshot&)) {
+    auto changed = seed;
+    mutate(changed);
+    return !rollback_seed_recovery_state(changed);
+  };
+  // The candidate must be the inactive slot, not merely a present one.
+  TEST_ASSERT_TRUE(rejected([](UpdateSnapshot& value) {
+    value.inactive.address += 0x1000U;
+  }));
+  TEST_ASSERT_TRUE(rejected([](UpdateSnapshot& value) {
+    value.state = UpdateState::ready_to_activate;
+  }));
+  TEST_ASSERT_TRUE(rejected([](UpdateSnapshot& value) {
+    value.validation_passed = false;
+  }));
+  TEST_ASSERT_TRUE(rejected([](UpdateSnapshot& value) {
+    value.calculated_sha_available = false;
+  }));
+  TEST_ASSERT_TRUE(rejected([](UpdateSnapshot& value) {
+    value.calculated_sha256[0] ^= 0x01U;
+  }));
+  TEST_ASSERT_TRUE(rejected([](UpdateSnapshot& value) {
+    value.image_size = 0U;
+    value.bytes_received = 0U;
+  }));
+  TEST_ASSERT_TRUE(rejected([](UpdateSnapshot& value) {
+    value.bytes_received = 7U;
+  }));
+  TEST_ASSERT_TRUE(rejected([](UpdateSnapshot& value) {
+    value.activation_intent = false;
+  }));
+  TEST_ASSERT_TRUE(rejected([](UpdateSnapshot& value) {
+    value.activated = true;
+  }));
+  TEST_ASSERT_TRUE(rejected([](UpdateSnapshot& value) {
+    value.target = PartitionDescriptor{};
+  }));
+  // The boot selection already points at the candidate: nothing to recover.
+  TEST_ASSERT_TRUE(rejected([](UpdateSnapshot& value) {
+    value.boot = value.target;
+  }));
+  TEST_ASSERT_TRUE(rejected([](UpdateSnapshot& value) {
+    value.target = value.running;
+  }));
+}
+
 int main(int, char**) {
   UNITY_BEGIN();
   RUN_TEST(test_boot_initialization_reports_active_boot_and_inactive_slots);
@@ -1756,5 +1843,6 @@ int main(int, char**) {
   RUN_TEST(test_pending_candidate_with_intent_only_rolls_back_unless_boot_slot_agrees);
   RUN_TEST(test_ended_selection_stays_ended_on_the_next_boot);
   RUN_TEST(test_candidate_record_while_another_image_runs_is_ended);
+  RUN_TEST(test_shared_boot_predicates_classify_confirmation_and_rollback_seed);
   return UNITY_END();
 }

@@ -6,6 +6,10 @@
 #include "nfc/writer_journal.hpp"
 #include "services/community_catalog.hpp"
 namespace opentag::services {
+// Bound of one published writer snapshot (and of one Spoolman writer response).
+inline constexpr std::size_t writer_snapshot_maximum_bytes = 24576U;
+// Largest serialized view a writer step accepts before it publishes.
+inline constexpr std::size_t writer_view_maximum_bytes = 24000U;
 class TagWriterService {
 public:
   using Publish = std::function<void(const network::ResponseBody &)>;
@@ -64,6 +68,10 @@ private:
   core::Result<std::int32_t> uid_owner();
   core::Result<void> prepare_uid_owner();
   core::Result<void> clear_previous_uid();
+  // Remembers the Spoolman URL and extra-field keys a preview was made under.
+  void capture_settings();
+  // True when any of those differs from the adapter's current settings.
+  bool settings_changed() const;
   void publish(const char *phase, const char *message = "",
                std::size_t done = 0, std::size_t total = 0);
   integrations::spoolman::SpoolmanAdapter &spoolman_;

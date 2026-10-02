@@ -183,7 +183,7 @@ class BackendWorker final {
   mutable std::mutex status_mutex_;
   BackendWorkerSnapshot status_;
   mutable std::mutex writer_mutex_;
-  network::ResponseBody writer_view_{24576};
+  network::ResponseBody writer_view_{services::writer_snapshot_maximum_bytes};
   std::unique_ptr<services::TagWriterService, network::ExternalDelete<services::TagWriterService>> writer_;
   static constexpr std::uint32_t destructive_command_expiry_ms = 15000U;
 };

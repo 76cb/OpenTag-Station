@@ -1,5 +1,6 @@
 #include "config/product_features.hpp"
 #include "web/api_router.hpp"
+#include "web/idempotency_ledger.hpp"
 #include "network/backend_json.hpp"
 
 #include <ArduinoJson.h>
@@ -35,14 +36,6 @@ std::string bounded_text(std::string value, std::size_t maximum) {
       character = ' ';
     }
   }
-  return value;
-}
-
-std::string lower_ascii(std::string value) {
-  std::transform(value.begin(), value.end(), value.begin(), [](char character) {
-    return static_cast<char>(
-        std::tolower(static_cast<unsigned char>(character)));
-  });
   return value;
 }
 
@@ -378,15 +371,6 @@ bool valid_content_type(std::string value) {
       value.end());
   return value == "application/json" ||
       value == "application/json;charset=utf-8";
-}
-
-bool valid_idempotency_key(const std::string& value) {
-  return !value.empty() && value.size() <= 64U &&
-      std::all_of(value.begin(), value.end(), [](char character) {
-        const auto byte = static_cast<unsigned char>(character);
-        return std::isalnum(byte) != 0 || character == '-' || character == '_' ||
-            character == '.' || character == ':';
-      });
 }
 
 bool read_required_positive_uint64(
@@ -1233,6 +1217,41 @@ bool valid_sha256_hex(std::string_view value) {
         return (character >= '0' && character <= '9') ||
             (character >= 'a' && character <= 'f');
       });
+}
+
+bool valid_idempotency_key(std::string_view value) {
+  return !value.empty() &&
+      value.size() <= IdempotencyLedger::maximum_key_bytes &&
+      std::all_of(value.begin(), value.end(), [](char character) {
+        const auto byte = static_cast<unsigned char>(character);
+        return std::isalnum(byte) != 0 || character == '-' ||
+            character == '_' || character == '.' || character == ':';
+      });
+}
+
+bool decode_sha256(
+    std::string_view encoded,
+    std::array<std::uint8_t, 32U>& digest) {
+  if (!valid_sha256_hex(encoded)) return false;
+  const auto nibble = [](char value) -> std::uint8_t {
+    return value <= '9'
+        ? static_cast<std::uint8_t>(value - '0')
+        : static_cast<std::uint8_t>(value - 'a' + 10);
+  };
+  for (std::size_t index = 0U; index < digest.size(); ++index) {
+    digest[index] = static_cast<std::uint8_t>(
+        (nibble(encoded[index * 2U]) << 4U) |
+        nibble(encoded[index * 2U + 1U]));
+  }
+  return true;
+}
+
+std::string lower_ascii(std::string value) {
+  std::transform(value.begin(), value.end(), value.begin(), [](char character) {
+    return static_cast<char>(
+        std::tolower(static_cast<unsigned char>(character)));
+  });
+  return value;
 }
 
 bool parse_canonical_generation(

@@ -87,6 +87,17 @@ domain::PrinterState parse_printer_state(const std::string& value) {
   return domain::PrinterState::unknown;
 }
 
+services::ToolheadMutationPrecondition toolhead_precondition(
+    const api::ToolheadMutationPreconditions& supplied) {
+  services::ToolheadMutationPrecondition precondition;
+  precondition.supplied = true;
+  precondition.expected_previous_spool_id =
+      supplied.expected_current_spool_id;
+  precondition.expected_printer_state =
+      parse_printer_state(supplied.expected_printer_state);
+  return precondition;
+}
+
 const char* workflow_stage_name(services::WorkflowStage stage) {
   switch (stage) {
     case services::WorkflowStage::awaiting_spool: return "awaiting_spool";
@@ -494,23 +505,6 @@ std::string sha256_text(const opentag::ota::Sha256Digest& digest) {
   return result;
 }
 
-bool decode_sha256(
-    std::string_view encoded,
-    opentag::ota::Sha256Digest& digest) {
-  if (!api::valid_sha256_hex(encoded)) return false;
-  const auto nibble = [](char value) -> std::uint8_t {
-    return value <= '9'
-        ? static_cast<std::uint8_t>(value - '0')
-        : static_cast<std::uint8_t>(value - 'a' + 10);
-  };
-  for (std::size_t index = 0U; index < digest.size(); ++index) {
-    digest[index] = static_cast<std::uint8_t>(
-        (nibble(encoded[index * 2U]) << 4U) |
-        nibble(encoded[index * 2U + 1U]));
-  }
-  return true;
-}
-
 bool same_sha256(
     const opentag::ota::Sha256Digest& left,
     const opentag::ota::Sha256Digest& right) {
@@ -727,16 +721,6 @@ void write_update(
     error["category"] = "firmware_update";
     error["message"] = update.last_error.view();
   }
-}
-
-bool valid_idempotency_key(std::string_view value) {
-  return !value.empty() &&
-      value.size() <= IdempotencyLedger::maximum_key_bytes &&
-      std::all_of(value.begin(), value.end(), [](char character) {
-        const auto byte = static_cast<unsigned char>(character);
-        return std::isalnum(byte) != 0 || character == '-' ||
-            character == '_' || character == '.' || character == ':';
-      });
 }
 
 std::uint64_t streaming_upload_digest(const StreamingUploadRequest& request) {
@@ -1175,12 +1159,7 @@ core::Result<api::OperationReceipt> ApplicationApiContext::submit_fresh(
     case api::MutationKind::toolhead_assignment: {
       const auto& payload =
           std::get<api::ToolheadAssignmentMutation>(mutation.payload);
-      services::ToolheadMutationPrecondition precondition;
-      precondition.supplied = true;
-      precondition.expected_previous_spool_id =
-          payload.preconditions.expected_current_spool_id;
-      precondition.expected_printer_state =
-          parse_printer_state(payload.preconditions.expected_printer_state);
+      auto precondition = toolhead_precondition(payload.preconditions);
       return receipt_result(
           backend_worker_.submit_assignment_operation(
               payload.preconditions.printer_id,
@@ -1196,12 +1175,7 @@ core::Result<api::OperationReceipt> ApplicationApiContext::submit_fresh(
     case api::MutationKind::toolhead_unassignment: {
       const auto& payload =
           std::get<api::ToolheadUnassignmentMutation>(mutation.payload);
-      services::ToolheadMutationPrecondition precondition;
-      precondition.supplied = true;
-      precondition.expected_previous_spool_id =
-          payload.preconditions.expected_current_spool_id;
-      precondition.expected_printer_state =
-          parse_printer_state(payload.preconditions.expected_printer_state);
+      auto precondition = toolhead_precondition(payload.preconditions);
       return receipt_result(
           backend_worker_.submit_unassignment_operation(
               payload.preconditions.printer_id,
@@ -1349,7 +1323,7 @@ core::Result<api::OperationReceipt> ApplicationApiContext::submit_fresh(
       const auto& payload =
           std::get<api::UpdateControlMutation>(mutation.payload);
       opentag::ota::Sha256Digest supplied_sha256{};
-      if (!decode_sha256(payload.expected_sha256, supplied_sha256)) {
+      if (!api::decode_sha256(payload.expected_sha256, supplied_sha256)) {
         return core::Result<api::OperationReceipt>::failure(update_error(
             "OTA control requires a 64-character lowercase SHA-256 digest"));
       }
@@ -1405,7 +1379,7 @@ core::Result<api::OperationReceipt> ApplicationApiContext::submit_fresh(
 
 core::Result<api::OperationReceipt> ApplicationApiContext::submit(
     const api::Mutation& mutation) {
-  if (!valid_idempotency_key(mutation.idempotency_key)) {
+  if (!api::valid_idempotency_key(mutation.idempotency_key)) {
     return core::Result<api::OperationReceipt>::failure(unavailable(
         core::ErrorCategory::configuration,
         "Idempotency-Key is missing or invalid"));
@@ -1453,7 +1427,7 @@ core::Result<api::OperationReceipt> ApplicationApiContext::submit(
 core::Result<StreamingUploadSession>
 ApplicationApiContext::begin_streaming_upload(
     const StreamingUploadRequest& request) {
-  if (!valid_idempotency_key(request.idempotency_key) ||
+  if (!api::valid_idempotency_key(request.idempotency_key) ||
       request.expected_length == 0U ||
       request.expected_length > api::maximum_firmware_image_bytes) {
     return core::Result<StreamingUploadSession>::failure(update_error(

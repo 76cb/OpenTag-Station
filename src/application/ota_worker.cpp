@@ -39,28 +39,8 @@ bool update_lease_state(opentag::ota::UpdateState state) {
       state == opentag::ota::UpdateState::reboot_pending;
 }
 
-bool pending_bootloader_confirmation(
-    opentag::ota::PartitionImageState state) {
-  return state == opentag::ota::PartitionImageState::pending_verify ||
-      state == opentag::ota::PartitionImageState::new_image;
-}
-
-bool rollback_seed_recovery_state(
-    const opentag::ota::UpdateSnapshot& state) {
-  const bool recoverable_running =
-      pending_bootloader_confirmation(state.running_image_state) ||
-      state.running_image_state ==
-          opentag::ota::PartitionImageState::valid;
-  return state.state == opentag::ota::UpdateState::ready_to_reboot &&
-      state.validation_passed && state.calculated_sha_available &&
-      state.expected_sha256 == state.calculated_sha256 &&
-      state.image_size != 0U && state.bytes_received == state.image_size &&
-      state.activation_intent && !state.activated && state.target.present() &&
-      opentag::ota::same_partition(state.boot, state.running) &&
-      opentag::ota::same_partition(state.inactive, state.target) &&
-      !opentag::ota::same_partition(state.running, state.target) &&
-      recoverable_running;
-}
+using opentag::ota::pending_bootloader_confirmation;
+using opentag::ota::rollback_seed_recovery_state;
 
 bool same_precondition(
     opentag::ota::OperationPrecondition left,

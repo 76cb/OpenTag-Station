@@ -244,41 +244,6 @@ bool read_required_header(
   return true;
 }
 
-bool valid_idempotency_key(std::string_view value) {
-  return !value.empty() &&
-      value.size() <= IdempotencyLedger::maximum_key_bytes &&
-      std::all_of(value.begin(), value.end(), [](char character) {
-        const auto byte = static_cast<unsigned char>(character);
-        return std::isalnum(byte) != 0 || character == '-' ||
-            character == '_' || character == '.' || character == ':';
-      });
-}
-
-bool decode_sha256(
-    std::string_view encoded,
-    opentag::ota::Sha256Digest& digest) {
-  if (!api::valid_sha256_hex(encoded)) return false;
-  const auto nibble = [](char value) -> std::uint8_t {
-    return value <= '9'
-        ? static_cast<std::uint8_t>(value - '0')
-        : static_cast<std::uint8_t>(value - 'a' + 10);
-  };
-  for (std::size_t index = 0U; index < digest.size(); ++index) {
-    digest[index] = static_cast<std::uint8_t>(
-        (nibble(encoded[index * 2U]) << 4U) |
-        nibble(encoded[index * 2U + 1U]));
-  }
-  return true;
-}
-
-std::string lower_ascii(std::string value) {
-  std::transform(value.begin(), value.end(), value.begin(), [](char character) {
-    return static_cast<char>(
-        std::tolower(static_cast<unsigned char>(character)));
-  });
-  return value;
-}
-
 api::Response upload_receipt(
     const StreamingUploadSession& session,
     const opentag::ota::UpdateSnapshot* update = nullptr) {
@@ -335,7 +300,7 @@ bool due(
 bool provisioning_peer(
     httpd_req_t* request,
     ApplicationApiContext& context) {
-  if (request == nullptr || !context.authorize_provisioning()) return false;
+  if (request == nullptr) return false;
   const auto socket = httpd_req_to_sockfd(request);
   sockaddr_storage peer{};
   socklen_t peer_length = sizeof(peer);
@@ -351,9 +316,12 @@ bool provisioning_peer(
   }
   const auto& peer_ipv4 = reinterpret_cast<const sockaddr_in&>(peer);
   const auto& local_ipv4 = reinterpret_cast<const sockaddr_in&>(local);
+  // The address test is cheap; only a setup-AP peer pays for the system
+  // snapshot behind authorize_provisioning().
   return network::is_setup_ap_transport(
       ntohl(peer_ipv4.sin_addr.s_addr),
-      ntohl(local_ipv4.sin_addr.s_addr));
+      ntohl(local_ipv4.sin_addr.s_addr)) &&
+      context.authorize_provisioning();
 }
 
 }  // namespace
@@ -783,7 +751,7 @@ esp_err_t LocalWebServer::handle_update_upload(httpd_req_t* request) {
           "Idempotency-Key",
           idempotency_key,
           collected_header_bytes) ||
-      !valid_idempotency_key(idempotency_key) ||
+      !api::valid_idempotency_key(idempotency_key) ||
       !read_required_header(
           request,
           "Content-Type",
@@ -804,7 +772,7 @@ esp_err_t LocalWebServer::handle_update_upload(httpd_req_t* request) {
         "invalid_upload_headers",
         "Firmware upload headers are missing, malformed, or too large");
   }
-  if (lower_ascii(content_type) != "application/octet-stream") {
+  if (api::lower_ascii(content_type) != "application/octet-stream") {
     return reject_unread(
         415,
         "unsupported_media_type",
@@ -818,7 +786,7 @@ esp_err_t LocalWebServer::handle_update_upload(httpd_req_t* request) {
   if (!api::parse_canonical_generation(
           expected_generation,
           upload_request.expected_generation) ||
-      !decode_sha256(expected_sha256, upload_request.expected_sha256)) {
+      !api::decode_sha256(expected_sha256, upload_request.expected_sha256)) {
     return reject_unread(
         400,
         "invalid_upload_precondition",
@@ -1020,14 +988,17 @@ esp_err_t LocalWebServer::handle_api(httpd_req_t* request) {
   api_request.provisioning_transport =
       provisioning_peer(request, api_context_);
   std::size_t received = 0U;
+  const auto reject_timed_out = [&]() {
+    const auto sent = send_json_error(
+        request,
+        408,
+        "request_timeout",
+        "The complete request body was not received within five seconds");
+    return finish_response_without_purging(request, received, sent);
+  };
   while (received < request->content_len) {
     if (receive_expired()) {
-      const auto sent = send_json_error(
-          request,
-          408,
-          "request_timeout",
-          "The complete request body was not received within five seconds");
-      return finish_response_without_purging(request, received, sent);
+      return reject_timed_out();
     }
     const auto count = httpd_req_recv(
         request,
@@ -1044,12 +1015,7 @@ esp_err_t LocalWebServer::handle_api(httpd_req_t* request) {
     }
     received += static_cast<std::size_t>(count);
     if (receive_expired()) {
-      const auto sent = send_json_error(
-          request,
-          408,
-          "request_timeout",
-          "The complete request body was not received within five seconds");
-      return finish_response_without_purging(request, received, sent);
+      return reject_timed_out();
     }
   }
 

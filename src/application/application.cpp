@@ -77,30 +77,6 @@ bool candidate_validation_pending(opentag::ota::UpdateState state) {
       state == opentag::ota::UpdateState::validating_candidate;
 }
 
-bool pending_bootloader_confirmation(
-    opentag::ota::PartitionImageState state) {
-  return state == opentag::ota::PartitionImageState::pending_verify ||
-      state == opentag::ota::PartitionImageState::new_image;
-}
-
-bool rollback_seed_recovery_pending(
-    const opentag::ota::UpdateSnapshot& update) {
-  const bool recoverable_running =
-      pending_bootloader_confirmation(update.running_image_state) ||
-      update.running_image_state ==
-          opentag::ota::PartitionImageState::valid;
-  return update.state == opentag::ota::UpdateState::ready_to_reboot &&
-      update.validation_passed && update.calculated_sha_available &&
-      update.expected_sha256 == update.calculated_sha256 &&
-      update.image_size != 0U && update.bytes_received == update.image_size &&
-      update.activation_intent && !update.activated &&
-      update.target.present() &&
-      opentag::ota::same_partition(update.boot, update.running) &&
-      opentag::ota::same_partition(update.inactive, update.target) &&
-      !opentag::ota::same_partition(update.running, update.target) &&
-      recoverable_running;
-}
-
 }  // namespace
 
 void Application::setup() {
@@ -322,6 +298,14 @@ BootHealthSignals Application::boot_health_signals(
 }
 
 void Application::process_boot_health(std::uint32_t now_ms) {
+  // Once a decision is recorded, nothing below acts more often than the
+  // retry interval, so skip gathering the (read-only) signals until it is due.
+  const bool retry_due = static_cast<std::uint32_t>(
+      now_ms - last_boot_health_attempt_ms_) >=
+      boot_health_retry_interval_ms;
+  if (boot_health_decision_initialized_ && !retry_due) {
+    return;
+  }
   const auto evaluation = boot_health_policy_.evaluate(
       now_ms, boot_health_signals(now_ms));
   auto decision = opentag::ota::CandidateHealthDecision::stabilizing;
@@ -344,7 +328,7 @@ void Application::process_boot_health(std::uint32_t now_ms) {
   const auto update = ota_worker_.snapshot();
   const bool candidate_pending = candidate_validation_pending(update.state);
   const bool rollback_seed_pending =
-      rollback_seed_recovery_pending(update);
+      opentag::ota::rollback_seed_recovery_state(update);
   bool action_still_pending = false;
   switch (decision) {
     case opentag::ota::CandidateHealthDecision::stabilizing:
@@ -361,7 +345,7 @@ void Application::process_boot_health(std::uint32_t now_ms) {
       break;
     case opentag::ota::CandidateHealthDecision::factory_reset_recovery:
       // Recovery remains pending until a reset owner restarts the device. The
-      // one-second retry below coalesces with an accepted device-control
+      // one-second retry gate coalesces with an accepted device-control
       // operation instead of allocating a new operation on every loop.
       action_still_pending = true;
       break;
@@ -369,12 +353,6 @@ void Application::process_boot_health(std::uint32_t now_ms) {
 
   const bool decision_changed = !boot_health_decision_initialized_ ||
       decision != last_boot_health_decision_;
-  const bool retry_due = static_cast<std::uint32_t>(
-      now_ms - last_boot_health_attempt_ms_) >=
-      boot_health_retry_interval_ms;
-  if (boot_health_decision_initialized_ && !retry_due) {
-    return;
-  }
   if (!decision_changed && boot_health_submit_accepted_ &&
       !action_still_pending) {
     return;

@@ -152,10 +152,21 @@ TagWriterService::api(const char *method, const std::string &path,
     return core::Result<network::BackendDocument>::failure(
         {core::ErrorCategory::configuration,
          "Writer backend payload exceeds bound", false});
-  auto response = spoolman_.request(method, path, bytes, 24576);
+  auto response = spoolman_.request(method, path, bytes,
+                                    writer_snapshot_maximum_bytes);
   if (!response.ok())
     return core::Result<network::BackendDocument>::failure(response.error());
   return network::parse_backend_json(response.value().body, "Spoolman writer");
+}
+void TagWriterService::capture_settings() {
+  settings_url_ = spoolman_.settings_.url;
+  identity_key_ = spoolman_.settings_.identity_field;
+  uid_key_ = spoolman_.settings_.nfc_uid_field;
+}
+bool TagWriterService::settings_changed() const {
+  return settings_url_ != spoolman_.settings_.url ||
+         identity_key_ != spoolman_.settings_.identity_field ||
+         uid_key_ != spoolman_.settings_.nfc_uid_field;
 }
 void TagWriterService::publish(const char *phase, const char *message,
                                std::size_t done, std::size_t total) {
@@ -164,7 +175,7 @@ void TagWriterService::publish(const char *phase, const char *message,
   view_["message"] = message;
   view_["completed_blocks"] = done;
   view_["total_blocks"] = total;
-  network::ResponseBody out(24576);
+  network::ResponseBody out(writer_snapshot_maximum_bytes);
   if (!view_.overflowed())
     serializeJson(view_, out);
   if (view_.overflowed() || out.failed() || out.overflowed()) {
@@ -282,7 +293,7 @@ Result TagWriterService::catalog(JsonObjectConst c) {
   view_["has_more"] = page.value().size() == 8;
   view_["search_field"] = search_field;
   view_["items"].set(page.value());
-  if (view_.overflowed() || measureJson(view_) > 24000) {
+  if (view_.overflowed() || measureJson(view_) > writer_view_maximum_bytes) {
     view_.clear();
     return fail(catalog_page_too_large);
   }
@@ -676,7 +687,7 @@ Result TagWriterService::edit_record(JsonObjectConst c, bool filament) {
       }
     view_["spool"].set(selected.value());
   }
-  if (view_.overflowed() || measureJson(view_) > 24000) {
+  if (view_.overflowed() || measureJson(view_) > writer_view_maximum_bytes) {
     view_.clear();
     return fail("Edit readback exceeds workspace; refresh before previewing");
   }
@@ -832,9 +843,7 @@ TagWriterService::restore_cleanup(const std::string &reason) {
   plan_ = std::move(saved);
   spool_id_ = owner;
   unlink_pending_ = true;
-  settings_url_ = spoolman_.settings_.url;
-  identity_key_ = spoolman_.settings_.identity_field;
-  uid_key_ = spoolman_.settings_.nfc_uid_field;
+  capture_settings();
   uuid_ = plan_->cleared_instance
               ? nfc::openprinttag::instance_uuid_text(*plan_->cleared_instance)
               : "";
@@ -947,9 +956,7 @@ __attribute__((noinline)) Result TagWriterService::prepare_clear() {
   auto planned = writer_.plan_clear(*plan_, previous.get());
   if (!planned.ok())
     return planned;
-  settings_url_ = spoolman_.settings_.url;
-  identity_key_ = spoolman_.settings_.identity_field;
-  uid_key_ = spoolman_.settings_.nfc_uid_field;
+  capture_settings();
   spool_id_ = 0;
   uuid_ = plan_->cleared_instance
               ? nfc::openprinttag::instance_uuid_text(*plan_->cleared_instance)
@@ -1001,9 +1008,7 @@ TagWriterService::commit_clear(JsonObjectConst c) {
       c["target_checksum"].as<std::string>() !=
           nfc::nfcv::format_diagnostic_checksum(plan_->target_checksum).data())
     return fail("Clear confirmation does not match this exact preview");
-  if (settings_url_ != spoolman_.settings_.url ||
-      identity_key_ != spoolman_.settings_.identity_field ||
-      uid_key_ != spoolman_.settings_.nfc_uid_field)
+  if (settings_changed())
     return fail("Spoolman settings changed; preview clear again");
   auto saved = persist_clear();
   if (!saved.ok())
@@ -1030,9 +1035,7 @@ __attribute__((noinline)) Result TagWriterService::unlink() {
   view_["cleanup_stage"] = "spoolman";
   if (!plan_ || !plan_->verified || !unlink_pending_)
     return fail("No verified blank tag awaiting cleanup");
-  if (settings_url_ != spoolman_.settings_.url ||
-      identity_key_ != spoolman_.settings_.identity_field ||
-      uid_key_ != spoolman_.settings_.nfc_uid_field)
+  if (settings_changed())
     return fail(
         "Spoolman settings changed; restore settings before retrying unlink");
   view_["cleanup_stage"] = "checkpoint";
@@ -1198,9 +1201,7 @@ Result TagWriterService::prepare(JsonObjectConst c) {
     spool_id_ = journal_spool;
     uuid_ = nfc::openprinttag::instance_uuid_text(
         *plan_->current.material.instance_uuid);
-    settings_url_ = spoolman_.settings_.url;
-    identity_key_ = spoolman_.settings_.identity_field;
-    uid_key_ = spoolman_.settings_.nfc_uid_field;
+    capture_settings();
     plan_->previous_spool_id = previous->previous_spool_id;
     auto valid = writer_.plan(*plan_);
     if (!valid.ok())
@@ -1218,9 +1219,7 @@ Result TagWriterService::prepare(JsonObjectConst c) {
   spool_id_ = c["spool_id"].as<int>();
   if (spool_id_ <= 0)
     return fail("Select a Spoolman spool");
-  settings_url_ = spoolman_.settings_.url;
-  identity_key_ = spoolman_.settings_.identity_field;
-  uid_key_ = spoolman_.settings_.nfc_uid_field;
+  capture_settings();
   if (identity_key_.empty() || uid_key_.empty() || identity_key_ == uid_key_)
     return fail(
         "Configure distinct Spoolman identity and NFC UID extra fields");
@@ -1309,7 +1308,7 @@ Result TagWriterService::prepare(JsonObjectConst c) {
                  "update preserves other fields.");
   for (const auto &warning : m.validation.warnings)
     warnings.add(warning);
-  if (view_.overflowed() || measureJson(view_) > 24000)
+  if (view_.overflowed() || measureJson(view_) > writer_view_maximum_bytes)
     return fail("Preview workspace unavailable; no write authorized");
   publish("preview", "Review exact target and confirm this tag", 0,
           plan_->count);
@@ -1318,9 +1317,7 @@ Result TagWriterService::prepare(JsonObjectConst c) {
 Result TagWriterService::associate() {
   if (!plan_ || !plan_->verified)
     return fail("Physical verification has not passed");
-  if (settings_url_ != spoolman_.settings_.url ||
-      identity_key_ != spoolman_.settings_.identity_field ||
-      uid_key_ != spoolman_.settings_.nfc_uid_field)
+  if (settings_changed())
     return fail("Spoolman settings changed; restore settings before retrying "
                 "association");
   publish("associating", "Physical tag verified; associating Spoolman",
@@ -1405,9 +1402,7 @@ TagWriterService::commit_write(JsonObjectConst c) {
       c["target_checksum"].as<std::string>() !=
           nfc::nfcv::format_diagnostic_checksum(plan_->target_checksum).data())
     result = fail("Specific confirmation does not match the current preview");
-  else if (settings_url_ != spoolman_.settings_.url ||
-           identity_key_ != spoolman_.settings_.identity_field ||
-           uid_key_ != spoolman_.settings_.nfc_uid_field)
+  else if (settings_changed())
     result = fail("Spoolman settings changed; preview again before writing");
   else if (auto other = journaled_other_uid(); !other.empty())
     // Saving this write's journal would overwrite the only recovery record

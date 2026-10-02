@@ -34,7 +34,7 @@ CommandReceipt BackendWorker::submit_writer(std::string_view payload) {
 }
 network::ResponseBody BackendWorker::writer_snapshot() const {
   std::lock_guard<std::mutex> lock(writer_mutex_);
-  network::ResponseBody body(24576);
+  network::ResponseBody body(services::writer_snapshot_maximum_bytes);
   if (writer_view_.empty())
     body.append("{\"phase\":\"idle\"}", 16);
   else
