@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.0-rc.18
+
+Refactoring from the deep-refactor audit (report: issue #47). No behaviour change.
+
+- Touchscreen code is easier to read: the tag-flow model is formatted one statement per line, the per-page parts of the main refresh routine are separate functions, repeated colours have names, and declarations nothing used are gone.
+
 ## 1.0.0-rc.17
 
 Refactoring from the deep-refactor audit (report: issue #47). No behaviour change.

@@ -15,15 +15,15 @@
     "src/web/writer_assets.cpp": "34745557328c193bd8a2870b85a19646bb0f595ccf0379496f91ef013929ff84",
     "src/web/writer_layout.inc": "1ec1363e9226429755d89b80b809c1b7b6124d405a23b0524fae66b9dc87326e",
     "src/ui/product_layout.hpp": "eb7a64be7103503a2874909c49727d0d53b7140d8f8dc92fd27dc10c80433446",
-    "src/ui/tag_flow.hpp": "6bbb2e4fdc0787710256a082d7aa7638d4c4990c449158f030388556f3eb9288",
+    "src/ui/tag_flow.hpp": "862122ec03621805379f63302ebf764bd1b9f7608b144cfffce9dd1122a5a10c",
     "src/ui/touch_input.hpp": "80fa15c718726adbbd3c35173479826f2c1bc0b8ff9a63133e737b17b3998eed",
     "test/test_touch_flow/fixtures.hpp": "861a462a78ae45bf61e49435f5a2e62badeba5afc518e03299d891c054542f5f"
   },
   "images": {
-    "docs/images/dashboard.png": "fdf1e6db0fb8f0dac5def766b5788dbbcc5d218eca6beaf74cd38025911dcf73",
-    "docs/images/weigh.png": "6da0dbdafb5c0c1557c38370f7fa46edaa2942dd63ee83d1e1f5d4814d3bf52b",
-    "docs/images/assignment.png": "ff64bcd24f843cddaf169cde191379c60ab1e1dc0884c17eaa35a433c607776f",
-    "docs/images/tag-management.png": "ace0ccea35ce7ac28eb66e035b4be6de7073dafa64e19018b3d020501ecf76b4",
+    "docs/images/dashboard.png": "7af48caddc40a54cf7eabb68dec4af19464b9072aae82ebd519f222aa7a9f19b",
+    "docs/images/weigh.png": "19a7a0cdce7447da1899005c47d6dc3f89eaff980f93b6efb98b4e3a3fe61faf",
+    "docs/images/assignment.png": "7a0310e25041d05e95446c78badf4d3cfaecd5d417204fb7c8b391da7e3143a8",
+    "docs/images/tag-management.png": "2ed0436169bae0b0e8356aeb31a59d9b833fd8b01e7481d57c8abe302a8464ca",
     "docs/images/wt32-home.png": "c768e1b3be568f2563bdf0a368f2cf5b4aab2e2e6efb8a98c8a996ff4dcdc7e3"
   }
 }
