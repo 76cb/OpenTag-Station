@@ -2,6 +2,14 @@
 
 # Changelog
 
+## 1.0.0-rc.15
+
+Fixes from the deep-refactor audit (report: issue #47). Browser; no new features.
+
+- After a lost response, the same action (Weigh, Tare, the same search) is no longer blocked until the page is reloaded. The browser checks the earlier request and lets you repeat it once it has finished, or after 10 minutes if it cannot tell. The message now says what to do.
+- The Clear / Reuse button keeps one label instead of switching between two wordings.
+- Removed unused fallbacks for fields the station never sends.
+
 ## 1.0.0-rc.14
 
 Fixes from the deep-refactor audit (report: issue #47). Touchscreen tag flow; no new features.

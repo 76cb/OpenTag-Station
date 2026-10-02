@@ -283,7 +283,9 @@ its operation completes and a forced `GET /config` returns the new revision.
 Each mutation creates one idempotency key and one exact body, submits once, and
 polls only a known receipt. An interrupted receipt is treated as uncertain and
 is not blindly replayed; the matching control remains protected from a duplicate
-manual submission. Transient polling GET failures retry without replaying the
+manual submission until the known operation is observed finished (or forgotten,
+HTTP 404) or, when no operation ID was received, the station's ten-minute
+idempotency window has passed. Transient polling GET failures retry without replaying the
 mutation. Priority-one operation work pauses/yields background refresh and
 reports transport, HTTP, API, operation, and domain/precondition failures
 separately. Firmware upload enters a maintenance mode that pauses background

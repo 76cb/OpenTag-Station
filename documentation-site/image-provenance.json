@@ -11,7 +11,7 @@
     "tools/capture_product_review.cjs": "23d6c11b616ac2c271e980410b162d71cf69b72575a452926794bf4838fe22d0",
     "tools/render_touch_review.py": "993a5a7b26e726d6dfa8c9984dd051f7db2e9120b46ee90f4dc9ac73270eb396",
     "tools/check_public_privacy.py": "b5b3fc8482b8e9692e1524002b911cbcace8c213fd180454469f7c4963ebacd9",
-    "src/web/web_assets.cpp": "854d04ce112348373fcaf862c1e2fdefe43e9661c2c95d4a438b755d5381be22",
+    "src/web/web_assets.cpp": "53fcc5224bb49ea2e40d67b991f3512e9bddcb748d8ae67f0efeed622952dfa4",
     "src/web/writer_assets.cpp": "34745557328c193bd8a2870b85a19646bb0f595ccf0379496f91ef013929ff84",
     "src/web/writer_layout.inc": "1ec1363e9226429755d89b80b809c1b7b6124d405a23b0524fae66b9dc87326e",
     "src/ui/product_layout.hpp": "eb7a64be7103503a2874909c49727d0d53b7140d8f8dc92fd27dc10c80433446",
@@ -20,10 +20,10 @@
     "test/test_touch_flow/fixtures.hpp": "861a462a78ae45bf61e49435f5a2e62badeba5afc518e03299d891c054542f5f"
   },
   "images": {
-    "docs/assets/images/browser/dashboard.png": "ca4eb61b7902c61c54edd2fa05d754403354e55d3fa99e33a959427df2681332",
-    "docs/assets/images/browser/weigh.png": "c1bf9917a4bb2db29f8d804658fa2287ef67aaa4d904eb9b4918b80ec2725a99",
-    "docs/assets/images/browser/assignment.png": "f2b048b7b0e223ac7a2fcea40b84fbd8b0a54764cd7d71b65e92039baeaacff0",
-    "docs/assets/images/browser/tag-management.png": "c51cd1c51167113040ad4e16909eeec247e37b1a9a20a4ad4b5a989baff115ee",
+    "docs/assets/images/browser/dashboard.png": "fdf1e6db0fb8f0dac5def766b5788dbbcc5d218eca6beaf74cd38025911dcf73",
+    "docs/assets/images/browser/weigh.png": "6da0dbdafb5c0c1557c38370f7fa46edaa2942dd63ee83d1e1f5d4814d3bf52b",
+    "docs/assets/images/browser/assignment.png": "ff64bcd24f843cddaf169cde191379c60ab1e1dc0884c17eaa35a433c607776f",
+    "docs/assets/images/browser/tag-management.png": "ace0ccea35ce7ac28eb66e035b4be6de7073dafa64e19018b3d020501ecf76b4",
     "docs/assets/images/touchscreen/wt32-home.png": "c768e1b3be568f2563bdf0a368f2cf5b4aab2e2e6efb8a98c8a996ff4dcdc7e3"
   }
 }

@@ -309,6 +309,8 @@ const REQUEST_TIMEOUT_MS = 8000;
 const OPERATION_WAIT_MS = 45000;
 const NETWORK_OPERATION_WAIT_MS = 90000;
 const BACKEND_OPERATION_WAIT_MS = 120000;
+const UNCERTAIN_MUTATION_TTL_MS = 600000;
+const TERMINAL_OPERATION_STATES = ['succeeded', 'failed', 'confirmation_required'];
 const MAX_IMPORT_BYTES = 16384;
 const MAX_FIRMWARE_IMAGE_BYTES = 0x500000;
 const UPDATE_UPLOAD_TIMEOUT_MS = 190000;
@@ -891,6 +893,25 @@ function sleep(milliseconds) {
 return new Promise(function (resolve) { window.setTimeout(resolve, Math.max(0, milliseconds)); });
 }
 
+async function uncertainMutationSettled(prior) {
+if (prior.checking) return false;
+prior.checking = true;
+let settled = false;
+try {
+if (!prior.id) settled = Date.now() - prior.at > UNCERTAIN_MUTATION_TTL_MS;
+else {
+const operation = asObject(await api('/operations/' + prior.id, { priority: PRIORITY.CONTROL, dedupe: false }));
+settled = TERMINAL_OPERATION_STATES.indexOf(String(operation.state || '').toLowerCase()) >= 0;
+}
+} catch (error) {
+// Only the station's own answer counts; a 404 from anything else at this
+// address must not release a repeat.
+settled = error instanceof ApiError && Number(error.status) === 404 && error.code === 'operation_not_found';
+}
+if (!settled) prior.checking = false;
+return settled;
+}
+
 async function submitMutationReceipt(path, options) {
 const setting = Object.assign({ method: 'POST' }, options || {});
 setting.method = String(setting.method).toUpperCase();
@@ -899,15 +920,15 @@ setting.body === undefined ? undefined :
 typeof setting.body === 'string' ? setting.body : JSON.stringify(setting.body);
 const signature = setting.method + ' ' + path + '\n' + String(serializedBody || '');
 const prior = state.uncertainMutations[signature];
-if (prior) {
-const operation = prior.id ? ' as operation #' + prior.id : '';
-throw new ApiError('The prior request may already have been accepted' + operation +
-' as idempotency key ' + prior.key +
-'. Check operation and station status before trying a different action.', {
+if (prior && !(await uncertainMutationSettled(prior))) {
+throw new ApiError(prior.id ?
+'The station is still working on this (operation #' + prior.id + '). Try again once it finishes.' :
+'The station may already have received this. Check the station, or wait 10 minutes before sending it again.', {
 kind: 'uncertain', code: 'mutation_receipt_uncertain', retryable: false,
 uncertain: true, idempotencyKey: prior.key
 });
 }
+delete state.uncertainMutations[signature];
 const key = setting.idempotencyKey || requestId();
 try {
 const receipt = asObject(await api(path, Object.assign({}, setting, {
@@ -923,7 +944,6 @@ kind: 'envelope', code: 'invalid_operation_receipt',
 uncertain: true, idempotencyKey: key
 });
 }
-delete state.uncertainMutations[signature];
 return { receipt: receipt, id: id, key: key, signature: signature };
 } catch (error) {
 if (error instanceof ApiError && error.uncertain) {
@@ -985,7 +1005,7 @@ const status = String(operation.state || '').toLowerCase();
 if (setting.onProgress) {
 setting.onProgress({ id: id, state: status || 'running', message: operationMessage(operation, 'Operation ' + normalizeState(status) + '.') });
 }
-if (['succeeded', 'failed', 'confirmation_required'].indexOf(status) < 0) continue;
+if (TERMINAL_OPERATION_STATES.indexOf(status) < 0) continue;
 terminal = true;
 if (status !== 'succeeded') {
 const domain = asObject(operation.error);
@@ -1170,7 +1190,7 @@ const device = asObject(payload.device);
 const build = asObject(payload.build);
 setText('device-name', first(device.hostname, payload.hostname, payload.name), 'OpenTag Station');
 setText('device-address', first(device.local_url, payload.local_url, payload.ip_address), 'Address unavailable');
-setText('firmware-version', first(build.version, payload.version, payload.firmware_version));
+setText('firmware-version', first(build.version, payload.version));
 setText('git-sha', first(build.git_sha, payload.git_sha, payload.commit));
 setText('build-date', first(build.build_date, payload.build_date));
 setText('hardware-id', first(device.hardware_id, payload.hardware_id, payload.board));
@@ -1189,14 +1209,14 @@ function renderStatus(payload) {
 const system = asObject(first(payload.system, payload.device, payload));
 const network = asObject(first(payload.network, system.network, {}));
 setText('uptime', formatDuration(first(system.uptime_ms, payload.uptime_ms)));
-setText('wifi-state', normalizeState(first(network.state, network.wifi_state, system.wifi_state)));
+setText('wifi-state', normalizeState(network.state));
 setText('heap-free', formatBytes(first(system.free_heap_bytes, payload.free_heap_bytes)));
 setText('psram-free', formatBytes(first(system.psram_free_bytes, payload.psram_free_bytes)));
 const backends = asObject(payload.backends);
 renderBackend('spoolman', asObject(first(backends.spoolman, payload.spoolman, {})));
 renderBackend('filabridge', asObject(first(backends.filabridge, payload.filabridge, {})));
-state.spoolGeneration = first(payload.spool_generation, payload.workflow_generation, state.spoolGeneration);
-state.printerRevision = first(payload.printer_revision, payload.printers_revision, state.printerRevision);
+state.spoolGeneration = first(payload.spool_generation, state.spoolGeneration);
+state.printerRevision = first(payload.printer_revision, state.printerRevision);
 }
 
 function populateNetworks(id, networks) {
@@ -1278,7 +1298,7 @@ function renderBackend(prefix, value) {
 const availability = normalizeState(first(value.availability, value.state, value.connected === true ? 'connected' : value.connected === false ? 'offline' : null));
 setText(prefix + '-state', availability);
 setText(prefix + '-version', 'Version ' + String(first(value.version, '—')));
-const capabilities = first(value.capabilities, value.capabilities_bits, value.capability_names);
+const capabilities = first(value.capabilities, value.capabilities_bits);
 setText(prefix + '-capabilities', 'Capabilities ' + (Array.isArray(capabilities) ? capabilities.join(', ') : first(capabilities, '—')));
 setText('footer-' + prefix, availability);
 if (prefix === 'spoolman') {
@@ -1439,8 +1459,7 @@ const measurement = asObject(scale.measurement);
 const measurementActive = measurement.active === true;
 const samplesInFilter = Number(first(scale.samples_in_filter, sample.samples_in_filter, 0));
 const stable = first(sample.stable, scale.stable, false) === true;
-const gross = first(sample.gross_grams, scale.gross_grams,
-Number.isFinite(Number(scale.gross_milligrams)) ? Number(scale.gross_milligrams) / 1000 : null);
+const gross = first(sample.gross_grams, scale.gross_grams);
 const completed = Number(measurement.last_completed_grams);
 const displayed = measurementActive && Number.isFinite(Number(gross))
 ? Math.round(Number(gross))
@@ -1498,8 +1517,7 @@ measurementActive ? activeLabel.replace('…', '') : normalizeState(measurementS
 visualState === 'error' || visualState === 'timed_out' || visualState === 'failed' ? 'bad' :
 visualState === 'completed' || visualState === 'stable' ? 'good' :
 visualState === 'settling' ? 'warning' : 'neutral');
-setText('scale-profile', first(profile.display_name, profile.id,
-scale.load_cell_profile, scale.load_cell_model));
+setText('scale-profile', first(profile.display_name, profile.id, scale.load_cell_model));
 setText('scale-capacity', formatGrams(first(profile.rated_capacity_grams,
 scale.rated_capacity_grams, scale.load_cell_capacity_grams)));
 setText('scale-calibration', calibrated ? 'Calibrated' : 'Calibration required');
@@ -1652,13 +1670,13 @@ state.spoolGeneration = first(workflow.spool_generation, payload.spool_generatio
 setText('spool-id', first(spool.id, spool.spool_id));
 setText('spool-name', first(spool.display_name, spool.name, recognizedTag.material_name,
 recognizedTag.decode === 'pass' ? 'OpenPrintTag recognized' : null));
-setText('spool-material', first(spool.material, spool.filament_material, recognizedTag.material_abbreviation));
-setText('spool-remaining', formatGrams(first(spool.remaining_grams, reconciliation.spoolman_remaining_grams)));
+setText('spool-material', first(spool.material, recognizedTag.material_abbreviation));
+setText('spool-remaining', formatGrams(spool.remaining_grams));
 const stage = normalizeState(first(workflow.stage, payload.stage, 'awaiting spool'));
 setText('workflow-stage', stage);
 setText('measured-remaining', formatGrams(first(reconciliation.measured_remaining_grams, workflow.measured_remaining_grams)));
 setText('reconciliation-state', normalizeState(first(reconciliation.decision, reconciliation.status)));
-setText('reconciliation-difference', formatGrams(first(reconciliation.maximum_absolute_difference_grams, reconciliation.difference_grams)));
+setText('reconciliation-difference', formatGrams(reconciliation.maximum_absolute_difference_grams));
 setBadge('spool-badge', state.spool ? 'Spool ready' : stage, state.spool ? 'good' : 'neutral');
 const guidance = {
 waiting_for_stable_weight: 'OpenPrintTag recognized. Waiting for a stable weight; calibrate the scale if required.',
@@ -1765,11 +1783,10 @@ const name = document.createElement('div');
 name.className = 'toolhead-name';
 name.textContent = String(first(toolhead.display_name,
 Number.isInteger(backendId) ? 'T' + (backendId + 1) : null, 'Toolhead'));
-const mapped = first(toolhead.assigned_spool_id,
-toolhead.assigned_spool, toolhead.spool_id);
+const mapped = first(toolhead.assigned_spool_id, toolhead.spool_id);
 const spoolText = document.createElement('div');
 spoolText.className = 'toolhead-spool';
-spoolText.textContent = mapped === null ? 'Empty' : (toolhead.filament_name || toolhead.spool_name || 'Spool #'+mapped);
+spoolText.textContent = mapped === null ? 'Empty' : 'Spool #'+mapped;
 const actions = document.createElement('div');
 actions.className = 'toolhead-actions';
 const revision = first(printer.revision,
@@ -1800,7 +1817,7 @@ container.appendChild(card);
 async function assignToolhead(printer, toolhead, revision) {
 const backendId = Number(first(toolhead.backend_id, toolhead.id));
 const expectedSpool = Number(first(state.spool && state.spool.id, state.spool && state.spool.spool_id));
-const current = first(toolhead.assigned_spool_id, toolhead.assigned_spool, toolhead.spool_id);
+const current = first(toolhead.assigned_spool_id, toolhead.spool_id);
 const printerState = String(first(printer.state, 'unknown'));
 const generation = Number(state.spoolGeneration);
 let replace = false;
@@ -1833,7 +1850,7 @@ return true;
 
 async function unassignToolhead(printer, toolhead, revision) {
 const backendId = Number(first(toolhead.backend_id, toolhead.id));
-const current = first(toolhead.assigned_spool_id, toolhead.assigned_spool, toolhead.spool_id);
+const current = first(toolhead.assigned_spool_id, toolhead.spool_id);
 const printerState = String(first(printer.state, 'unknown'));
 const generation = Number(state.spoolGeneration);
 if (!window.confirm('Unassign spool #' + current + ' from ' + String(first(toolhead.display_name, 'this toolhead')) + '?')) return;
@@ -1910,7 +1927,7 @@ return first(section[key + '_configured'], asObject(section[key]).configured, se
 }
 
 function renderConfig(payload) {
-const revisionValue = first(payload.revision, payload.configuration_revision, 0);
+const revisionValue = first(payload.revision, 0);
 const numericRevision = Number(revisionValue);
 if (Number.isSafeInteger(numericRevision) && state.configRevision !== null &&
 numericRevision < Number(state.configRevision)) return false;
@@ -2174,7 +2191,7 @@ state.updateRevision = numericRevision;
 }
 state.update = payload;
 const status = String(first(payload.state, payload.status, 'unknown')).toLowerCase();
-const current = asObject(first(payload.current, payload.running_firmware, {}));
+const current = asObject(payload.current);
 const candidate = asObject(payload.candidate);
 const partitions = asObject(payload.partitions);
 const progress = asObject(payload.progress);
@@ -2190,15 +2207,15 @@ setBadge('update-badge', normalizeState(status), statusKind);
 setText('update-state', normalizeState(status), 'Unknown');
 setText('update-detail', first(payload.message, payload.detail),
 'Select a firmware image to validate and install it to the inactive slot.');
-setText('update-current-version', first(current.version, payload.current_version), '—');
-setText('update-current-sha', first(current.git_sha, payload.current_git_sha), '');
-setText('update-active-slot', partitionLabel(first(partitions.running, payload.running_partition)), '—');
-setText('update-inactive-slot', partitionLabel(first(partitions.inactive, payload.inactive_partition)), '—');
+setText('update-current-version', current.version, '—');
+setText('update-current-sha', current.git_sha, '');
+setText('update-active-slot', partitionLabel(partitions.running), '—');
+setText('update-inactive-slot', partitionLabel(partitions.inactive), '—');
 setText('update-candidate', candidate.version
 ? candidate.version + (candidate.git_sha ? ' (' + candidate.git_sha + ')' : '')
 : 'None');
-setText('update-validation', first(validation.result, validation.state, payload.validation_result), 'Not started');
-setText('update-rollback', first(rollback.last_result, rollback.state,
+setText('update-validation', first(validation.result, validation.state), 'Not started');
+setText('update-rollback', first(rollback.state,
 rollback.supported === true ? 'Available' : rollback.supported === false ? 'Unavailable' : null), '—');
 setText('update-error', first(failure.message, typeof payload.last_error === 'string' ? payload.last_error : null), '');
 const received = Number(first(progress.received_bytes, payload.received_bytes, 0));
@@ -3294,7 +3311,7 @@ const list=byId('clear-summary');list.replaceChildren();[['Tag',clearView.uid],[
 byId('clear-confirm').hidden=p!=='clear_preview';byId('clear-confirm').disabled=locked||p!=='clear_preview';byId('clear-retry').hidden=p!=='unlink_pending';byId('clear-retry').disabled=locked;byId('clear-skip').hidden=p!=='unlink_pending';byId('clear-skip').disabled=locked;
 ['close','cancel'].forEach(k=>byId('clear-'+k).disabled=locked);setText('clear-cancel',p==='cleared'?'Done':'Cancel');byId('clear-assign').hidden=p!=='cleared';
 byId('clear-effects').hidden=p!=='clear_preview';const meter=byId('clear-meter');meter.hidden=!locked;if(clearView.total_blocks){meter.max=clearView.total_blocks;meter.value=clearView.completed_blocks||0;if(p==='clearing')setText('clear-message',meter.value+' / '+meter.max+' changed blocks verified. Keep tag on reader. Do not remove power.');}else meter.removeAttribute('value');
-setText('clear-open',p==='unlink_pending'?'Retry unlink':'Clear / Reuse Tag');tagStatus();}
+tagStatus();}
 async function clearCommand(action){if(clearLocked())return;const p=clearView,body={action};if(action==='discard_recovery')body.confirm='SKIP RECOVERY';if(action==='clear'){if(p.phase!=='clear_preview')return;['uid','generation','current_checksum','target_checksum'].forEach(k=>body[k]=p[k]);}
 window.OpenTagWriter?.writerState&&(window.OpenTagWriter.writerState.invalidated=true);clearBusy=true;renderClear({...p,phase:action==='clear_preview'?'reading':action==='clear'?'clearing':action==='discard_recovery'?'stopping':'unlinking',message:action==='clear_preview'?'Reading complete tag and protection state…':action==='clear'?'Keep tag on reader. Do not remove power.':action==='discard_recovery'?'Stopping cleanup. Nothing is written to the tag.':'Removing the link in Spoolman. The tag is not written again.'});let fetching=false,accepting=true;
 try{await submitMutation('/tag-writer',{body,operationTimeoutMs:180000,onProgress:()=>{if(fetching)return;fetching=true;api('/tag-writer',{priority:PRIORITY.CONTROL}).then(v=>{if(accepting)renderClear(v);}).catch(()=>{}).finally(()=>fetching=false);}});}catch(e){setText('clear-message',e.message);}finally{accepting=false;clearBusy=false;try{renderClear(await api('/tag-writer',{priority:PRIORITY.CONTROL}));}catch(e){renderClear({phase:'failed',message:e.message});}}}
@@ -3378,7 +3395,7 @@ function renderCurrentSpool() {
   setText('current-tag',t.blank_compatible?'Blank tag':t.decode==='pass'?'Tag valid':t.decode==='fail'?'Tag needs attention':'Reading tag…');
   byId('current-tag').dataset.valid=String(t.decode==='pass');
   setText('current-link',s.id?'Linked to Spoolman':w.stage==='resolving_spool'?'Looking up spool…':'Not linked to Spoolman');
-  const assignments=state.printers.flatMap(p=>asArray(p.toolheads).filter(h=>s.id&&Number(first(h.assigned_spool_id,h.assigned_spool,h.spool_id))===Number(s.id)).map(h=>(p.display_name||p.name||'Printer')+' · T'+(Number(first(h.backend_id,h.id))+1)));
+  const assignments=state.printers.flatMap(p=>asArray(p.toolheads).filter(h=>s.id&&Number(first(h.assigned_spool_id,h.spool_id))===Number(s.id)).map(h=>(p.display_name||p.name||'Printer')+' · T'+(Number(first(h.backend_id,h.id))+1)));
   setText('current-assignment',assignments.length?assignments.join(', '):'Not assigned');
   setText('dashboard-printer',assignments.length?assignments.join(', '):'Choose a toolhead to assign this spool.');
   const v=state.weighSync||{}, sameWeight=s.id&&Number(v.spool_id)===Number(s.id);
@@ -3462,7 +3479,7 @@ function openAssignment() {
     list.append(productElement('h3',printer.display_name||printer.name||'Printer'));
     const grid=productElement('div',null,'toolhead-grid');
     asArray(printer.toolheads).forEach(tool=>{
-      const id=Number(first(tool.backend_id,tool.id)),mapped=first(tool.assigned_spool_id,tool.assigned_spool,tool.spool_id);
+      const id=Number(first(tool.backend_id,tool.id)),mapped=first(tool.assigned_spool_id,tool.spool_id);
       const b=makeButton('', 'tool-choice',()=>{
         choice={printer:structuredClone(printer),tool:structuredClone(tool),revision:first(printer.revision,printer.printer_revision,state.printerRevision)};
         list.querySelectorAll('button').forEach(n=>n.setAttribute('aria-pressed',String(n===b)));

@@ -73,7 +73,7 @@ function renderCurrentSpool() {
   setText('current-tag',t.blank_compatible?'Blank tag':t.decode==='pass'?'Tag valid':t.decode==='fail'?'Tag needs attention':'Reading tag…');
   byId('current-tag').dataset.valid=String(t.decode==='pass');
   setText('current-link',s.id?'Linked to Spoolman':w.stage==='resolving_spool'?'Looking up spool…':'Not linked to Spoolman');
-  const assignments=state.printers.flatMap(p=>asArray(p.toolheads).filter(h=>s.id&&Number(first(h.assigned_spool_id,h.assigned_spool,h.spool_id))===Number(s.id)).map(h=>(p.display_name||p.name||'Printer')+' · T'+(Number(first(h.backend_id,h.id))+1)));
+  const assignments=state.printers.flatMap(p=>asArray(p.toolheads).filter(h=>s.id&&Number(first(h.assigned_spool_id,h.spool_id))===Number(s.id)).map(h=>(p.display_name||p.name||'Printer')+' · T'+(Number(first(h.backend_id,h.id))+1)));
   setText('current-assignment',assignments.length?assignments.join(', '):'Not assigned');
   setText('dashboard-printer',assignments.length?assignments.join(', '):'Choose a toolhead to assign this spool.');
   const v=state.weighSync||{}, sameWeight=s.id&&Number(v.spool_id)===Number(s.id);
@@ -157,7 +157,7 @@ function openAssignment() {
     list.append(productElement('h3',printer.display_name||printer.name||'Printer'));
     const grid=productElement('div',null,'toolhead-grid');
     asArray(printer.toolheads).forEach(tool=>{
-      const id=Number(first(tool.backend_id,tool.id)),mapped=first(tool.assigned_spool_id,tool.assigned_spool,tool.spool_id);
+      const id=Number(first(tool.backend_id,tool.id)),mapped=first(tool.assigned_spool_id,tool.spool_id);
       const b=makeButton('', 'tool-choice',()=>{
         choice={printer:structuredClone(printer),tool:structuredClone(tool),revision:first(printer.revision,printer.printer_revision,state.printerRevision)};
         list.querySelectorAll('button').forEach(n=>n.setAttribute('aria-pressed',String(n===b)));
