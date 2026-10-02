@@ -300,7 +300,7 @@ bool due(
 bool provisioning_peer(
     httpd_req_t* request,
     ApplicationApiContext& context) {
-  if (request == nullptr || !context.authorize_provisioning()) return false;
+  if (request == nullptr) return false;
   const auto socket = httpd_req_to_sockfd(request);
   sockaddr_storage peer{};
   socklen_t peer_length = sizeof(peer);
@@ -316,9 +316,12 @@ bool provisioning_peer(
   }
   const auto& peer_ipv4 = reinterpret_cast<const sockaddr_in&>(peer);
   const auto& local_ipv4 = reinterpret_cast<const sockaddr_in&>(local);
+  // The address test is cheap; only a setup-AP peer pays for the system
+  // snapshot behind authorize_provisioning().
   return network::is_setup_ap_transport(
       ntohl(peer_ipv4.sin_addr.s_addr),
-      ntohl(local_ipv4.sin_addr.s_addr));
+      ntohl(local_ipv4.sin_addr.s_addr)) &&
+      context.authorize_provisioning();
 }
 
 }  // namespace
