@@ -2,6 +2,15 @@
 
 # Changelog
 
+## 1.0.0-rc.17
+
+Refactoring from the deep-refactor audit (report: issue #47). No behaviour change.
+
+- Web request helpers (idempotency-key check, SHA-256 decoding, lower-casing) have one definition instead of two or three copies.
+- The tag-writer snapshot limits have names instead of repeated numbers.
+- The update start-up checks shared by the update worker and the application have one definition.
+- The station no longer builds a full diagnostic snapshot for every web request, or re-evaluates start-up health fifty times a second, when the result is not used.
+
 ## 1.0.0-rc.16
 
 Clean-up from the deep-refactor audit (report: issue #47). No behaviour change.
