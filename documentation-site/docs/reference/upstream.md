@@ -1,86 +1,88 @@
-# Upstream compatibility
+# Supported versions
 
-This technical reference describes implementation contracts. Dated test figures
-below are historical checkpoints, not the current candidate’s acceptance record.
-See the release checklist for outstanding physical checks.
+Which versions of Spoolman, FilaBridge and the OpenPrintTag specification this firmware accepts,
+and what it switches off when it meets a different one.
 
+## Spoolman
 
-Research baseline established **2026-08-17**, OpenPrintTag rechecked
-**2026-08-20**, and the ELECHOUSE diagnostic RFAL baseline pinned
-**2026-09-12**. Source/API inspection and host-fixture success are not physical
-RF-interoperability claims.
-
-## Application integrations
-
-| Upstream | Revision/version | Status | Dependency boundary |
-|---|---|---|---|
-| OpenPrintTag | [`e0dab1a`](https://github.com/prusa3d/OpenPrintTag/commit/e0dab1ae16838d2c342e7cfc509455441b7d8eba), 2026-07-02 | Rechecked 2026-08-20; implemented and host-tested against official fixtures; one-time physical initialization and checksum readback PASS, read-only browser preview soak pending | MIME record, regions, field maps, transaction rules |
-| Spoolman | v0.26.1 / current `master` [`8d9eb73`](https://github.com/Donkie/Spoolman/commit/8d9eb7395da9553bdbf14b21231afe4e153f0a79), 2026-08-20 | Source contract revalidated and host fixtures pass; no live instance tested | `integrations/spoolman` only |
-| FilaBridge | latest tag v1.2.2; main [`f35cde8`](https://github.com/sargonas/filabridge/commit/f35cde87505e7a617307527b8e8431dd2dc65f62), 2026-08-11 | Correct maintained repository revalidated; adapter and host contract fixtures pass; no live instance tested | `integrations/filabridge` only |
-| SpoolmanScale | [`ea0515a`](https://github.com/Niko11111/SpoolmanScale/commit/ea0515ad92ec2fcb65af8c5f0e2bc1a4d01d305b), 2026-08-16 | Hardware facts inspected only | No code/architecture dependency |
-
-OpenPrintTag intentionally avoids an explicit format version. Compatibility is
-therefore recorded by Git revision, MIME type, and fixture corpus revision.
-The opt-in blank-tag initializer is independently pinned to
-[`openprinttag-specification` `7e09cc3`](https://github.com/OpenPrintTag/openprinttag-specification/commit/7e09cc38df1c8e7824a67f5b1ae93071f52519ad).
-CI generates the canonical 312-byte image with that revision's Python
-initializer using `--aux-region=32` and compares it byte-for-byte with the
-embedded C++ golden vector. The initializer therefore reserves the mutable
-auxiliary area used by fields such as consumed weight and workgroup.
-This diagnostic-only pin does not change the production decoder baseline.
-
-## NFC/RFAL
-
-| Component | Baseline | Status |
-|---|---|---|
-| ST25R3916B | [DS13541 Rev 11](https://www.st.com/resource/en/datasheet/st25r3916b.pdf) | Dedicated `Wire1` transport, direct identity, IRQ, NFC-V inventory, stable UID, system information, geometry, and repeated full-memory reads physically PASS on GPIO13/14/12 |
-| ELECHOUSE RFAL for ESP32 | [`wilson-elechouse/ST25R3916` `16eb6c7`](https://github.com/wilson-elechouse/ST25R3916/commit/16eb6c7fb13e502d320924040d768a9e564209b2) | `ST25R3916_ELECHOUSE` 1.1.1 and `NFC-RFAL` 1.0.2 vendored unchanged for the opt-in diagnostic; object API runs over injected `Wire1`; physical NFC-V inventory, read-only memory, and one-time guarded blank initialization PASS; write control retired |
-| ST RFAL | [STSW-ST25RFAL002](https://www.st.com/en/embedded-software/stsw-st25rfal002.html) and [UM2890 Rev 7](https://www.st.com/resource/en/user_manual/um2890-rfnfc-abstraction-layer-rfal-stmicroelectronics.pdf) | Remains the production architecture reference; no production NFC binding is enabled |
-| X-CUBE-NFC6 | [ST product package](https://www.st.com/en/embedded-software/x-cube-nfc6.html) | Port/reference source only, not a build dependency |
-
-The diagnostic pin is reproducible and isolated under
-`third_party/ELECHOUSE_ST25R3916`; its provenance and licenses are recorded in
-that directory. It does not silently replace the still-gated production RFAL
-binding. The production enable flag remains false until the RF diagnostic and a
-separate production-integration review pass.
-
-## Build dependencies
-
-| Component | Pin |
+| | |
 |---|---|
-| PlatformIO Core | 6.1.19 |
-| PlatformIO Espressif 32 | 6.13.0 |
-| Arduino-ESP32 framework | 2.0.17 (provided by platform 6.13.0) |
-| LVGL | 8.3.11 |
-| LovyanGFX | 1.2.27 |
-| Adafruit NAU7802 | 1.0.8 |
-| Adafruit BusIO | 1.17.4 |
-| ArduinoJson | 7.4.3 |
-| Native PlatformIO platform | 1.2.1 |
-| Configuration schema | 3 |
+| Accepted version | `0.26.1` |
+| Rule | The `version` string from Spoolman's `/api/v1/info` must be exactly `0.26.1`. |
+| On any other version | The station stays connected and can still read. Saving weights is off. |
 
-## Required Spoolman capabilities
+What you see on another version:
 
-- runtime info and health;
-- list/filter/retrieve spool;
-- set or measure remaining weight with read-after-write verification;
-- locations;
-- configurable extra-field discovery and merge-safe values;
-- optional spool WebSocket updates.
+- Browser, **Settings → Integrations**: `Spoolman <version> has not been tested with this
+  firmware, so saving weights to Spoolman is turned off.`
+- After **Update Spoolman**: `Saving weights is turned off: this Spoolman version has not been
+  tested with this firmware, or Spoolman is offline. See Settings.`
 
-## Required FilaBridge capabilities
+The check is repeated while the station runs. Changing the Spoolman version takes effect without
+a restart.
 
-- health/runtime version;
-- configured printers and stable printer IDs;
-- complete toolhead list/mappings;
-- map and unmap through zero-based IDs;
-- re-read mapping verification;
-- printer state for remapping warnings;
-- optional WebSocket status.
+## FilaBridge
 
-An unknown upstream version is reported as untested rather than disconnected.
-Read capabilities remain available when their concrete probes succeed; mapping
-writes remain guarded unless the response contract and an explicitly supported
-runtime line both pass. Current-main development builds report `dev`, so that
-compatibility lane is source-pinned to the commit recorded above and is not a
-formal release-support claim.
+| | |
+|---|---|
+| Accepted versions | `v1.2.2`, `1.2.2`, `v1.2.1`, `1.2.1`, and development builds that report `dev` |
+| Rule | The `version` string from FilaBridge's `/healthz` must be exactly one of the above. |
+| On any other version | Printers and toolheads are still shown. Assigning and unassigning are off. |
+
+What you see on another version when you try to assign in the browser:
+`FilaBridge is connected read-only; mapping capability is unavailable and no assignment was queued`.
+On the touchscreen the toolhead buttons stay grey.
+
+If FilaBridge reports a different version than at the last full check, assignment is paused
+with `FilaBridge version changed; use Test backends to verify capabilities`.
+Press **Test** on the Integrations card in the browser to check again.
+
+FilaBridge is optional. Without it everything except toolhead assignment works.
+
+## OpenPrintTag specification
+
+| Use | Pinned commit |
+|---|---|
+| Reader field definitions | `e0dab1ae16838d2c342e7cfc509455441b7d8eba` |
+| Writer and blank-image layout | `7e09cc38df1c8e7824a67f5b1ae93071f52519ad` |
+
+CI checks out the writer revision of
+<https://github.com/OpenPrintTag/openprinttag-specification> and compares the images the station
+produces with the upstream tools. See [OpenPrintTag format](openprinttag.md).
+
+## Hardware
+
+One board is supported: WT32-SC01 Plus (ESP32-S3, 16 MB flash), hardware ID
+`wt32-sc01-plus-rev-a`. A firmware file built for another board is refused by the updater.
+
+## Build toolchain
+
+| Component | Version | Pinned in |
+|---|---|---|
+| PlatformIO Core | 6.1.19 | `requirements-dev.txt` |
+| PlatformIO platform `espressif32` | 6.13.0 | `platformio.ini` |
+| PlatformIO platform `native` (host tests) | 1.2.1 | `platformio.ini` |
+| `tool-mklittlefs` | 1.203.210628 | `platformio.ini` |
+| LVGL | 8.3.11 | `platformio.ini` |
+| LovyanGFX | 1.2.27 | `platformio.ini` |
+| ArduinoJson | 7.4.3 | `platformio.ini` |
+| Adafruit NAU7802 Library | 1.0.8 | `platformio.ini` |
+| Adafruit BusIO | 1.17.4 | `platformio.ini` |
+| ELECHOUSE NFC-RFAL / ST25R3916 | 1.0.2 / 1.1.1, commit `16eb6c7fb13e502d320924040d768a9e564209b2` | `third_party/ELECHOUSE_ST25R3916/` (copied into the repository) |
+| ESP Web Tools (USB installer page) | 10.4.0 | `web-flasher/index.html` |
+| MkDocs / Material for MkDocs (this manual) | 1.6.1 / 9.7.7 | `documentation-site/requirements.txt` |
+| Python (CI) | 3.12 | `.github/workflows/ci.yml` |
+| Node.js (CI) | 24.16.0 | `.github/workflows/ci.yml` |
+| Pillow / Playwright (CI screenshots) | 11.3.0 / 1.62.1 | `.github/workflows/ci.yml` |
+
+The firmware is built with C++17 on the Arduino framework.
+
+## Changing a pinned version
+
+Change the version in the file named above.
+A change to `platformio.ini`, `third_party/` or `web-flasher/` needs a version bump;
+see [Contributing changes](../contributing/pull-requests.md).
+The accepted Spoolman version is the constant `tested_version` in
+`src/integrations/spoolman/spoolman_adapter.cpp`.
+The accepted FilaBridge versions are `tested_version` plus the literals compared in
+`FilaBridgeAdapter::probe()` in `src/integrations/filabridge/filabridge_adapter.cpp`.

@@ -1,135 +1,160 @@
-# Complete wiring
+# Wiring
 
-This procedure connects the supported controller, scale and NFC reader. You need
-the [BOM](bill-of-materials.md), a multimeter, insulated wiring, the actual board
-pin labels and a disconnected power supply. Use the normal OpenTag Station firmware
-for validation.
+The scale and the NFC reader both plug into the 8-pin expansion connector (EXT) of the WT32-SC01 Plus.
+The pins are fixed in the firmware; you cannot choose others.
 
 ![Complete station wiring](../assets/images/wiring/system.svg)
 
-The scale owns hardware `Wire` / controller 0. NFC owns `Wire1` / controller 1.
-They are physically separate buses. Built-in touch uses LovyanGFX software I²C on
-GPIO6/5, port −1, and must not be joined to either EXT bus.
+## Before you start
 
-## Orientation and pin 1
+- All parts from the [parts list](bill-of-materials.md).
+- A multimeter with a continuity (beeper) setting.
+- USB and every other power source **unplugged**.
 
-All numbers below refer to **board connector contacts**, not the loose cable's
-wire-side view. The drawings are electrical connection diagrams, not mirrored
-photographs. Identify WT32 EXT pin 1 by the board's `5V`/pin-1 marking and the
-manufacturer's Hardware Interface figure; pin 2 is GND. On the documented NFC
-connector, pin 1 is IRQ and the opposite end, pin 7, is GND.
+!!! warning "Find pin 1 on the board, not on the cable"
+    EXT pin 1 carries 5 V. The signal pins work at 3.3 V.
+    A cable that is plugged in or read mirror-wise puts 5 V on a signal pin.
+    Find pin 1 from the marking printed on the board, then check every wire with the multimeter
+    from the board pin to the far end of the cable. Do not rely on wire colours.
 
-View the board's component/connector side when matching labels. A cable held with
-contacts toward you can reverse the apparent left-to-right order. Do not infer
-pin 1 from red wire, latch direction, or a photo of another revision. With power
-disconnected, use continuity from the **labeled board pad** to each harness end,
-and label those ends before plugging in. If a revision lacks readable marks,
-use its manufacturer's connector drawing and ground continuity to establish the
-orientation; do not apply power until that mapping is unambiguous.
+The pin numbers below are board contacts, as numbered in the
+[WT32-SC01 Plus datasheet](https://docs.makehub.tw/wt32-sc01plus/WT32-SC01%2BPLUS%2BDatasheet-V1.5%2BEN.pdf).
+On the NFC module, pin 1 is IRQ and pin 7, at the other end, is GND.
 
-!!! warning "Power contacts are not GPIO"
-    EXT pin 1 carries 5 V. GPIO signals are 3.3 V logic. A mirrored harness can put
-    5 V on a data line. Verify contacts individually before first power.
+## The EXT connector
 
-## Master connection table
+| EXT pin | Label on board | GPIO | Goes to |
+|---:|---|---|---|
+| 1 | +5V | — | NFC module pin 6 (+5V). Also NAU7802 VIN, only if your breakout accepts 5 V. |
+| 2 | GND | — | NFC module pin 7 (GND) and NAU7802 GND |
+| 3 | EXT_IO1 | GPIO10 | NAU7802 SDA |
+| 4 | EXT_IO2 | GPIO11 | NAU7802 SCL |
+| 5 | EXT_IO3 | GPIO12 | NFC module pin 1 (IRQ) |
+| 6 | EXT_IO4 | GPIO13 | NFC module pin 5 (MISO / SDA) |
+| 7 | EXT_IO5 | GPIO14 | NFC module pin 3 (SCLK / SCL) |
+| 8 | EXT_IO6 | GPIO21 | **DISCONNECTED** — the station does not use it |
 
-| Device | Pin / label | Connects to | WT32 EXT pin / GPIO | Notes |
-|---|---|---|---|---|
-| NAU7802 | VIN / VCC | Appropriate regulated supply for this breakout | EXT 1 / 5 V **only if breakout explicitly accepts 5 V** | Otherwise use a suitable regulated supply; verify pull-up voltage, see [power](power.md) |
-| NAU7802 | GND | Common ground | EXT 2 / GND | Also reference for NFC and any separate regulator |
-| NAU7802 | SDA | Scale data | EXT 3 / GPIO10 | `Wire`, 400 kHz normal operation |
-| NAU7802 | SCL | Scale clock | EXT 4 / GPIO11 | Address `0x2A` |
-| Load cell | Excitation + | NAU7802 E+ | None | Excitation from ADC breakout, not directly from 5 V |
-| Load cell | Excitation − | NAU7802 E− | None | Bridge excitation return |
-| Load cell | Signal + | NAU7802 A+ | None | Differential signal input |
-| Load cell | Signal − | NAU7802 A− | None | Differential signal input |
-| NFC | 1 IRQ | NFC interrupt | EXT 5 / GPIO12 | Required; not the onboard touch IRQ |
-| NFC | 2 CS / BSS | **DISCONNECTED** | None | SPI-only chip select in this hookup |
-| NFC | 3 SCLK / SCL | NFC clock | EXT 7 / GPIO14 | `Wire1`, 100 kHz |
-| NFC | 4 MOSI | **DISCONNECTED** | None | SPI-only data line |
-| NFC | 5 MISO / SDA | NFC data | EXT 6 / GPIO13 | I²C address `0x50` |
-| NFC | 6 +5V | 5 V supply | EXT 1 / 5 V | Module power, not signal voltage |
-| NFC | 7 GND | Common ground | EXT 2 / GND | Required |
-| WT32 | EXT 8 / GPIO21 | **DISCONNECTED** | EXT 8 | Not used by this product profile |
+The scale and the NFC reader each have their own pair of data wires. Do not join them.
+The touchscreen uses pins inside the board; nothing on the EXT connector goes to it.
 
-The NFC module exposes no reset or power-enable pin. Do not add an invented GPIO
-for either. The table does not authorize wiring a bare NAU7802 chip to 5 V; the
-breakout supply and logic specification must be known.
+| Device | I2C address | Speed |
+|---|---|---|
+| NAU7802 (scale) | `0x2A` | 400 kHz |
+| NFC reader | `0x50` | 100 kHz |
 
-## Assemble the scale
-
-1. Disconnect USB and any external power. Mount the load cell as described in
-   [mechanical setup](mechanical.md), leaving the platform free to move.
-2. Identify the breakout's VIN, GND, SDA, SCL, E+, E−, A+ and A− labels.
-   Confirm its VIN range and I²C pull-up voltage before selecting the power lead.
-3. Connect common ground, scale SDA to EXT 3 and scale SCL to EXT 4.
-4. Wire the bridge excitation pair to E+/E− and signal pair to A+/A−.
-   A common YZC-133 example is red E+, black E−, white A+, green A−;
-   **colors are not universal**. Prefer the supplied cell's wiring sheet.
-5. If colors differ, disconnect the cell and measure pair resistances to check
-   the full-bridge topology against its datasheet. Resistance alone does not
-   establish signal polarity or distinguish every symmetrical bridge. Identify
-   excitation/signal pairs from the supplier drawing; do not guess from color.
-6. Secure the cable to the fixed structure with slack at the cell. Check no lead
-   can pull on the moving platform. Recheck continuity and polarity.
+## Wire the scale
 
 ![Scale wiring](../assets/images/wiring/scale.svg)
 
-The normal driver configures gain 128, internal 3.0 V LDO and 10 samples/second.
-The I²C clock is 400 kHz; the sample rate is a different quantity. Startup scans
-GPIO10/11 once and reports `NAU7802: PRESENT at 0x2A`. If no device responds it
-also checks reversed SDA/SCL once, then restores the production mapping. A hint
-about reversed leads means correct the harness; firmware does not adopt it.
+| NAU7802 terminal | Connects to |
+|---|---|
+| VIN (or VCC) | A supply your breakout accepts. EXT pin 1 (5 V) only if the breakout is rated for it. See [Power](power.md). |
+| GND | EXT pin 2 |
+| SDA | EXT pin 3 (GPIO10) |
+| SCL | EXT pin 4 (GPIO11) |
+| E+ | Load cell excitation + |
+| E− | Load cell excitation − |
+| A+ | Load cell signal + |
+| A− | Load cell signal − |
 
-## Assemble NFC
+1. Mount the load cell first. See [Scale platform and enclosure](mechanical.md).
+2. Connect GND, SDA and SCL as in the table. Connect VIN according to your breakout's rating.
+3. Connect the four load-cell wires to E+, E−, A+ and A−.
+   The load cell is powered from the NAU7802 terminals, never directly from 5 V.
+4. Use the load cell seller's wiring sheet to tell the four wires apart.
+   Wire colours differ between sellers.
+5. Fix the load-cell cable to the base, with a little slack at the cell,
+   so it cannot pull on the platform.
 
-1. Confirm the module is the supported ELECHOUSE `NFC_ST25R3916B` connector type.
-2. With power disconnected, close the module's **I2C** solder bridge as shown in
-   the [manufacturer guide](https://www.elechouse.com/st25r3916-esp32-i2c-quick-start/).
-   Inspect for unintended shorts. Default SPI mode will not work on these wires.
-3. Identify pin 1/IRQ and continuity-test each of the seven harness positions.
-4. Connect 7/GND and 6/+5V, then 5/MISO-SDA to EXT 6/GPIO13,
-   3/SCLK-SCL to EXT 7/GPIO14 and 1/IRQ to EXT 5/GPIO12.
-5. Individually insulate and leave 2/CS-BSS and 4/MOSI **DISCONNECTED**.
-6. Keep the antenna away from metal and the load-cell body. Begin validation with
-   one approved tag near the antenna, not a stack of tagged spools.
+## Wire the NFC reader
 
-![NFC wiring](../assets/images/wiring/nfc.svg)
+![NFC reader wiring](../assets/images/wiring/nfc.svg)
 
-## Before power
+The station talks to the module over I2C, so the module must be in I2C mode:
+**close the solder bridge marked I2C** on the module, as shown in the
+[ELECHOUSE guide](https://www.elechouse.com/st25r3916-esp32-i2c-quick-start/).
+With the bridge open the reader is not found.
+Ignore the GPIO numbers in that guide; use the table below.
 
-- Verify EXT 1 goes only to approved supply inputs; no short between power and ground.
-- Verify all grounds are common and no independent supply back-feeds USB.
-- Check scale and NFC SDA/SCL stay on their own buses and touch pins are untouched.
-- Verify NFC IRQ, I²C bridge and both disconnected SPI-only contacts.
-- Verify load-cell pairs, insulation, strain relief and platform clearance.
+| NFC module pin | Connects to |
+|---|---|
+| 1 IRQ | EXT pin 5 (GPIO12) |
+| 2 CS / BSS | **DISCONNECTED** |
+| 3 SCLK / SCL | EXT pin 7 (GPIO14) |
+| 4 MOSI | **DISCONNECTED** |
+| 5 MISO / SDA | EXT pin 6 (GPIO13) |
+| 6 +5V | EXT pin 1 (5 V) |
+| 7 GND | EXT pin 2 (GND) |
 
-## After power: normal production firmware
+1. Close the I2C solder bridge and check that the solder touches nothing else.
+2. Connect the five wires in the table. The IRQ wire is required.
+3. Insulate the two unused wires (pins 2 and 4) so they cannot touch anything.
 
-1. Boot OpenTag Station. Observe the boot version and normal Home view; touch each
-   navigation action to confirm the panel remains responsive.
-2. In Settings → Scale, confirm the ADC is ready; serial at 115200 baud should
-   report address `0x2A`. Apply a small safe load: raw counts must change.
-3. Complete network/setup configuration if required. Inspect NFC status in the
-   browser's advanced diagnostics; confirm the reader is ready on address `0x50`
-   and NFC bus error counters remain zero during repeated checks.
-4. Present one [approved tag](../openprinttag/supported-tags.md). Confirm detection
-   and stable identity. A blank compatible tag is not yet a linked spool.
-5. Remove/reinsert the tag, exercise touch and scale together, then perform
-   [tare and calibration](../scale/calibration.md) with the platform unloaded first.
-6. Record firmware SHA, result and observed faults. A successful device scan alone
-   does not establish weighing accuracy or final physical release acceptance.
+The module has no reset or enable pin. Do not add extra wires.
 
-## Fault isolation
+## Pins that stay DISCONNECTED
 
-| Symptom | Likely cause | Check / expected result |
+- NFC module pin 2 (CS / BSS)
+- NFC module pin 4 (MOSI)
+- EXT pin 8 (GPIO21)
+
+## Check before first power
+
+- EXT pin 1 (5 V) goes only to NFC pin 6 and, if rated for it, NAU7802 VIN.
+- No connection between 5 V and GND (multimeter shows no continuity).
+- Every GND is connected to EXT pin 2.
+- Scale wires are on GPIO10 and GPIO11; NFC wires are on GPIO13, GPIO14 and GPIO12.
+- The I2C solder bridge on the NFC module is closed.
+- NFC pins 2 and 4 are insulated and not connected.
+- The platform moves freely and no cable pulls on it.
+
+## Check after first power
+
+Install the firmware first: [Install the firmware over USB](../installation/web-flasher.md).
+
+1. **Touchscreen.** The screen shows the first-run setup. Tapping works.
+2. **Scale.** On the touchscreen open **Settings → About / Advanced**.
+   The **HARDWARE** block shows the scale state and two **ADC** numbers.
+   Press lightly on the platform: the numbers change.
+3. **NFC reader.** The reader starts only after the station is connected to Wi-Fi,
+   so finish [First boot and Wi-Fi](../getting-started/first-boot.md) first.
+   Then open **Settings → Wi-Fi & services** and tap **Next** until the step **NFC READER**.
+   It shows `NFC reader ready. Place a tag on it to test.`
+   Place a tag: `Blank tag found. The reader works.` or `OpenPrintTag found. The reader works.`
+4. [Tare and calibrate](../scale/calibration.md) the scale.
+
+If you connect a computer to the USB port and open a serial monitor at 115200 baud,
+the station prints one of these lines about the scale while it starts:
+
+| Serial output | Meaning |
+|---|---|
+| `NAU7802: PRESENT at 0x2A` | The scale converter is found. |
+| `NAU7802: FOUND WITH SDA/SCL REVERSED` and `Check/swap SDA and SCL wiring` | SDA and SCL are swapped. Swap the two wires; the station does not adapt to it. |
+| `NAU7802 0x2A not present` | Something answers on GPIO10/GPIO11, but not the scale converter. Check that these wires go to the NAU7802. |
+| `NAU7802: NOT DETECTED` and `Check NAU7802 power, harness, connector orientation, SDA/SCL wiring, or module` | Nothing answers on GPIO10/GPIO11. Check power and all four wires. |
+
+## If something goes wrong
+
+| What you see | What it means | What to do |
 |---|---|---|
-| NAU7802 absent | Supply, reversed SDA/SCL, wrong connector view | Voltage at breakout; EXT 3→SDA, 4→SCL; `0x2A` on scale bus |
-| NFC reader absent | Open I²C bridge, wrong bus, power/ground | 5 V module supply, EXT 6→SDA, 7→SCL, bridge; `0x50` on NFC bus |
-| NFC ready, no tag | Wrong tag family, antenna shielding, missing IRQ | Approved SLIX2, one tag close to antenna; EXT 5→IRQ; no SPI-only leads |
-| Fixed/saturated counts | Open bridge, wrong excitation/signal pair | Inspect all four cell leads, ADC terminals and mechanical load; do not calibrate a saturated input |
-| Backwards weight | Signal polarity or stale calibration | Confirm mapping; signed calibration supports orientation; recalibrate after any wire change |
-| Drifting/noisy weight | Platform binding, loose terminals, cable force | Clear moving platform, relieve cables, stable base, repeat zero and known mass |
-| Touch fails after NFC wiring | Shared bus/pin conflict or mode error | Restore GPIO6/5 touch software bus; NFC only GPIO13/14/12; inspect shorts |
+| In the **NFC READER** setup step: `NFC reader problem. Check the NFC wiring.` | The reader does not answer at `0x50`, or reading the tag on it failed. | Remove the tag. If the message stays, check 5 V and GND at the module, the I2C solder bridge, and the wires to GPIO13, GPIO14 and GPIO12. |
+| In the **NFC READER** setup step: `NFC reader starting...` and it stays | The station is not connected to Wi-Fi yet. | Connect Wi-Fi. See [Tag is not detected](../troubleshooting/tag.md). |
+| Reader is ready but no tag is found | Wrong tag type, or metal near the antenna. | See [Tag is not detected](../troubleshooting/tag.md). |
+| ADC numbers never change | A load-cell wire is open or the pairs are mixed up. | Check all four cell wires against the cell's wiring sheet. |
+| Weight goes down when you add load | The wiring or the cell direction changed after the last calibration. | Calibrate again. Calibration works with the cell in either direction. |
+| Weight drifts or jumps | The platform touches something or a cable pulls on it. | See [Weight looks wrong](../troubleshooting/weight.md). |
 
-See [pinout](pinout.md) for source checks and [power](power.md) for supply constraints.
+## For the curious: pins inside the board
+
+You do not wire these. They are listed so you know which GPIOs are taken.
+
+| Built-in part | Pins |
+|---|---|
+| Touch | SDA GPIO6, SCL GPIO5, interrupt GPIO7, address `0x38` |
+| Display data D0–D7 | GPIO 9, 46, 3, 8, 18, 17, 16, 15 |
+| Display control | write GPIO47, command GPIO0, reset GPIO4, backlight GPIO45 |
+
+The pin numbers on this page come from the firmware's board definition
+[`wt32_sc01_plus_rev_a.hpp`](https://github.com/76cb/OpenTag-Station/blob/main/src/boards/wt32_sc01_plus_rev_a.hpp)
+and the scale driver
+[`nau7802_device.hpp`](https://github.com/76cb/OpenTag-Station/blob/main/src/hardware/scale/nau7802_device.hpp).

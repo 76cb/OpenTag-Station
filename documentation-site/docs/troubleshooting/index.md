@@ -1,26 +1,24 @@
-# Troubleshooting by symptom
+# Find your problem
 
-Start with the last known good state and change one thing at a time. Record
-firmware VERSION/SHA, operation phase, safe error text and the affected workflow.
-Never post tokens, real tag identifiers, private addresses or personal printer
-names in a public screenshot.
+Look for what you see in the left column and open the page on the right.
 
-| Symptom | Guide |
+| What you see | Go to |
 |---|---|
-| No reader / scale after assembly | [Wiring faults and validation](../hardware/wiring.md) |
-| Reader ready but no tag | [Tag detection](tag.md) |
-| Unsupported tag or failed write | [Tag writing](write.md) |
-| Spoolman unavailable | [Spoolman connection](spoolman.md) |
-| "Spoolman is missing the Spool extra field…" | [Spoolman extra fields](../inventory/custom-fields.md) |
-| Tag stuck on "Finish writing/clearing" or "Link not saved yet" | [Recovery states](journal.md) |
-| Weight differs or is unstable | [Weight and mechanics](weight.md) |
-| FilaBridge offline / assignment fails | [Printer assignment](assignment.md) |
-| Cannot reach station | [Wi-Fi recovery](wifi.md) |
-| Pending journal after interruption | [Recovery states](journal.md) |
-| Station does not boot | [Factory recovery](recovery.md) |
-
-Success is the intended verified state, not the absence of an error banner. A
-network failure after a mutation can leave uncertainty; inspect canonical state
-before any new operation. Do not erase a recovery journal or lower safety checks
-to make an action button available. Preserve a private diagnostic record and share
-only sanitized excerpts for engineering investigation.
+| A tag is on the reader but the screen still says `PLACE A TAG` | [Tag is not detected](tag.md) |
+| In the **NFC READER** setup step, `NFC reader starting...` does not go away | [Tag is not detected](tag.md) |
+| In the **NFC READER** setup step, `NFC reader problem. Check the NFC wiring.` | [Tag is not detected](tag.md), then [Wiring](../hardware/wiring.md) |
+| `This tag can't be used as it is` | [Which tags work](../openprinttag/supported-tags.md) |
+| **Needs attention** after trying to write or clear a tag | [Tag write or clear fails](write.md) |
+| **Finish writing this tag**, **Finish clearing this tag**, **Link not saved yet**, **Unlink not finished** | [Finish an interrupted tag operation](journal.md) |
+| `Another tag (…) has an unfinished write or clear` | [Finish an interrupted tag operation](journal.md) |
+| `Spoolman is missing the Spool extra field…` | [Required extra fields](../inventory/custom-fields.md) |
+| Spoolman is offline, or a spool does not show up in search | [Spoolman problems](spoolman.md) |
+| `Saving weights is turned off…` | [Spoolman problems](spoolman.md#saving-weights-is-turned-off) |
+| The weight is wrong, jumps, or does not settle | [Weight looks wrong](weight.md) |
+| A weight cannot be saved to Spoolman | [Weight looks wrong](weight.md#the-weight-cannot-be-saved) |
+| The toolhead buttons are greyed out, or assigning fails | [Printer assignment fails](assignment.md) |
+| You cannot open the station's web page, or Wi-Fi does not connect | [Wi-Fi and reaching the station](wifi.md) |
+| A firmware update fails or `Update was not kept` | [Update the firmware](../installation/ota.md) |
+| You forgot the access token | [Access token and network safety](../configuration/security.md) |
+| The station does not start, or you want to start over | [Factory reset and USB recovery](recovery.md) |
+| The scale or reader does not work right after building | [Wiring](../hardware/wiring.md) |

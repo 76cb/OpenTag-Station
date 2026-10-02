@@ -1,37 +1,68 @@
-# Bill of materials
+# Parts list
 
-Build the production WT32-SC01 Plus station described here. Similar-looking ESP32
-display boards and arbitrary NFC stickers are not substitutes for the supported
-profile. The firmware does not autodetect alternate GPIO layouts.
+This is everything you need to build one station.
+The firmware supports exactly one controller board and one NFC reader module, with fixed pins,
+so buy these parts and not look-alikes.
 
-| Component | Qty | Role | Required? | Specification | Interface / connector | Compatibility and sourcing |
-|---|---:|---|---|---|---|---|
-| WT32-SC01 Plus | 1 | Controller, display, touch, Wi-Fi | Yes | ESP32-S3, 16 MiB flash; 480 × 320 landscape UI | USB data/power; 8-pin EXT IO | Exact supported board family; non-Plus WT32-SC01 is not equivalent |
-| NAU7802 breakout | 1 | Differential bridge ADC | Yes | Address `0x2A`, 3.3 V-compatible I²C, usable E+/E− and A+/A− terminals | VIN, GND, SDA, SCL and load-cell terminals | Seller not pinned. Choose a breakout whose documented VIN accepts the selected supply and whose I²C pull-ups are 3.3 V; see [power](power.md) |
-| YZC-133 5 kg load cell | 1 | Measures spool/platform force | Yes, default | Four-wire full bridge, 5,000 g rated capacity | E+/E− excitation, A+/A− differential output | Supported default. Verify the supplied cell's wire mapping and mounting drawing |
-| YZC-133 2 kg load cell | 1 alternative | Lower-capacity scale | Optional alternative | 2,000 g rated capacity | Same bridge interface | Select matching firmware profile and recalibrate; not an additional parallel cell |
-| ELECHOUSE `NFC_ST25R3916B` module | 1 | NFC reader and antenna | Yes | 5 V module supply, I²C mode, IRQ exposed, integrated antenna | 7-pin 1.25 mm connector | Known-compatible exact module type; do not assume Mini/external-antenna boards share connector order |
-| NXP ICODE SLIX2 tags | As needed | OpenPrintTag spool consumables | Yes for tag workflows | NFC-V / ISO15693, NXP UID prefix `E0:04`, 80 blocks × 4 bytes | RF, no electrical cable | Approved production profile. Buy **blank/unformatted** tags: phone-formatted (NDEF) or URL tags can't be used. [Supported tags](../openprinttag/supported-tags.md) explains why |
-| USB data cable | 1 | First install and controller power | Yes | Compatible with the board's USB socket; data-capable, sound conductors | USB | Charge-only cables cannot flash firmware |
-| Regulated 5 V supply | 1 | Powers station | Yes | Maintain 5 V ±5% at EXT under load; allow controller, reader and ADC headroom | USB or verified EXT supply path | Complete-station current is not characterized; no measured current rating is claimed |
-| WT32 EXT mating harness | 1 | Peripheral connections | Yes | Match the actual 8-pin board connector housing/pitch/key | EXT pins 1–8 | Check board revision and manufacturer drawing before buying; generic Dupont ends are not a substitute for the mating connector |
-| NFC mating harness | 1 | Reader power/data/IRQ | Yes | 7-pin, 1.25 mm, matches module keying | Module pins 1–7 | Continuity-test each lead; wire color and cable viewpoint do not establish pin order |
-| Scale headers / terminal wires | 1 set | Connects breakout and bridge | Yes | Correct breakout headers, insulated short conductors | Breakout-specific | No universal connector pitch is assumed |
-| Base, platform, fasteners, spacers | 1 set | Mounts load cell without binding | Yes | Match the cell drawing and actual hardware | Mechanical | No enclosure STL, hole pattern, screw length or platform dimensions are defined by this project |
-| Enclosure / cable restraint | As needed | Insulates electronics, relieves cables | Optional | Nonbinding platform clearance; antenna clearance | Mechanical | Design locally using [mechanical guidance](mechanical.md); no reference enclosure is claimed |
-| Reference mass and multimeter | 1 each | Calibration and wiring validation tools | Required for setup | Known mass within capacity; continuity/voltage capability | Tools | These are setup tools, not station accessories |
+## What to buy
 
-Reader hardware and tags are different purchases. A multi-protocol reader does
-not make all of its supported RF tag families writable by this application.
-NTAG213/215/216, MIFARE, unknown vendors, other block geometries and locked tags
-are outside the approved production writer profile.
+| Part | Qty | Exactly what | Check before buying |
+|---|---:|---|---|
+| Controller with touchscreen | 1 | **WT32-SC01 Plus** (ESP32-S3, 16 MB flash, 480 × 320 touchscreen) | It must be the **Plus**. The older WT32-SC01 (without "Plus") is a different board and does not work. |
+| Scale converter | 1 | **NAU7802** breakout board | See [Choosing a NAU7802 board](#choosing-a-nau7802-board) below. |
+| Load cell | 1 | **YZC-133**, **5 kg** (default) or **2 kg** | A four-wire bar-type cell. Get the seller's wiring sheet and mounting drawing. Use one cell, not two. |
+| NFC reader | 1 | **ELECHOUSE NFC_ST25R3916B** module (ST25R3916B chip, antenna on the board) | The module must be switched to I2C mode with its solder bridge (see [Wiring](wiring.md)). The pin order in this manual is for this module only. |
+| NFC tags | one per spool | **NXP ICODE SLIX2** (NFC-V / ISO 15693), blank | NTAG and MIFARE tags are not seen by the reader at all. Other ISO 15693 tags are seen but cannot be written. See [Which tags work](../openprinttag/supported-tags.md). |
+| USB cable | 1 | A data cable that fits the board's USB socket | Charge-only cables cannot install the firmware. |
+| 5 V power supply | 1 | A regulated 5 V USB supply | See [Power](power.md). |
+| Cable for the expansion connector | 1 | An 8-wire cable that fits the board's EXT connector | Match the connector on your board. |
+| Cable for the NFC module | 1 | A 7-wire cable that fits the module's connector | Match the connector on your module. |
+| Hook-up wire, pin headers | as needed | For the NAU7802 board and the load cell | Depends on your breakout board. |
+| Base, platform, screws, spacers | 1 set | To mount the load cell | You design this yourself. See [Scale platform and enclosure](mechanical.md). |
 
-## Reference sources
+### Choosing a NAU7802 board
 
-- [WT32 manufacturer datasheet, mirrored PDF](https://docs.makehub.tw/wt32-sc01plus/WT32-SC01%2BPLUS%2BDatasheet-V1.5%2BEN.pdf): reference for EXT numbering and voltage; not a purchase endorsement.
-- [ELECHOUSE I²C configuration guide](https://www.elechouse.com/st25r3916-esp32-i2c-quick-start/): manufacturer reference for the solder bridge, 5 V supply and host signals. Its generic ESP32 GPIO examples do **not** apply to this station.
-- Firmware board profile and writer geometry are linked in [pinout](pinout.md).
+- It has labelled **VIN**, **GND**, **SDA** and **SCL** pins.
+- It has four load-cell terminals: **E+**, **E−**, **A+**, **A−**.
+- Its documentation says which supply voltage it accepts.
+- Its SDA and SCL lines work at 3.3 V. See [Power](power.md).
 
-Before ordering, confirm the exact breakout and harness documentation. Before
-assembly, read the [complete wiring guide](wiring.md); a connector that fits can
-still have reversed power leads.
+You also need two tools for setup: a **multimeter** to check the cables before first power,
+and an **object of known weight** (no heavier than the load cell's capacity) to calibrate the scale.
+
+## What the project does not recommend
+
+The project has not tested or measured any of these, so it names none:
+
+- **Sellers and prices.**
+- **A specific NAU7802 board.** Any breakout that meets the checks above should work.
+- **An enclosure.** There is no reference case, no printable model and no drawing with dimensions.
+- **A current rating for the power supply.**
+
+## For the curious: how the parts fit the firmware
+
+You do not need this to buy or build. It shows what the firmware expects from each part.
+
+| Part | What the firmware expects |
+|---|---|
+| WT32-SC01 Plus | ST7796 display and FT6336 touch, both built into the board. The expansion connector carries the scale and the NFC reader. |
+| NAU7802 | Address `0x2A`. The station sets it to gain 128, 3.0 V internal regulator, 10 readings per second. |
+| YZC-133 | Capacity 5000 g or 2000 g. You choose **5 kg** or **2 kg** in the browser under **Settings → Scale → Edit Load-cell profile → YZC-133 variant**. The default is 5 kg. Changing it deletes the scale calibration. |
+| NFC_ST25R3916B | Address `0x50`, I2C mode, with the interrupt (IRQ) wire connected. |
+| ICODE SLIX2 tag | 80 blocks of 4 bytes, tag ID starting `E0:04`. |
+
+## Reference documents
+
+These come from the manufacturers, not from this project.
+The connector pin numbers in [Wiring](wiring.md) follow the first one.
+
+- [WT32-SC01 Plus datasheet (PDF)](https://docs.makehub.tw/wt32-sc01plus/WT32-SC01%2BPLUS%2BDatasheet-V1.5%2BEN.pdf)
+- [ELECHOUSE guide to I2C mode](https://www.elechouse.com/st25r3916-esp32-i2c-quick-start/) —
+  use it for the solder bridge only.
+  The GPIO numbers in its examples are for a generic ESP32 and do **not** apply to the station.
+
+## Related
+
+- [Wiring](wiring.md)
+- [Power](power.md)
+- [Scale platform and enclosure](mechanical.md)
