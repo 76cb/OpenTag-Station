@@ -1751,6 +1751,10 @@ void test_shared_boot_predicates_classify_confirmation_and_rollback_seed() {
     mutate(changed);
     return !rollback_seed_recovery_state(changed);
   };
+  // The candidate must be the inactive slot, not merely a present one.
+  TEST_ASSERT_TRUE(rejected([](UpdateSnapshot& value) {
+    value.inactive.address += 0x1000U;
+  }));
   TEST_ASSERT_TRUE(rejected([](UpdateSnapshot& value) {
     value.state = UpdateState::ready_to_activate;
   }));
