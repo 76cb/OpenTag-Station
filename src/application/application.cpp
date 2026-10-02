@@ -77,30 +77,6 @@ bool candidate_validation_pending(opentag::ota::UpdateState state) {
       state == opentag::ota::UpdateState::validating_candidate;
 }
 
-bool pending_bootloader_confirmation(
-    opentag::ota::PartitionImageState state) {
-  return state == opentag::ota::PartitionImageState::pending_verify ||
-      state == opentag::ota::PartitionImageState::new_image;
-}
-
-bool rollback_seed_recovery_pending(
-    const opentag::ota::UpdateSnapshot& update) {
-  const bool recoverable_running =
-      pending_bootloader_confirmation(update.running_image_state) ||
-      update.running_image_state ==
-          opentag::ota::PartitionImageState::valid;
-  return update.state == opentag::ota::UpdateState::ready_to_reboot &&
-      update.validation_passed && update.calculated_sha_available &&
-      update.expected_sha256 == update.calculated_sha256 &&
-      update.image_size != 0U && update.bytes_received == update.image_size &&
-      update.activation_intent && !update.activated &&
-      update.target.present() &&
-      opentag::ota::same_partition(update.boot, update.running) &&
-      opentag::ota::same_partition(update.inactive, update.target) &&
-      !opentag::ota::same_partition(update.running, update.target) &&
-      recoverable_running;
-}
-
 }  // namespace
 
 void Application::setup() {
@@ -344,7 +320,7 @@ void Application::process_boot_health(std::uint32_t now_ms) {
   const auto update = ota_worker_.snapshot();
   const bool candidate_pending = candidate_validation_pending(update.state);
   const bool rollback_seed_pending =
-      rollback_seed_recovery_pending(update);
+      opentag::ota::rollback_seed_recovery_state(update);
   bool action_still_pending = false;
   switch (decision) {
     case opentag::ota::CandidateHealthDecision::stabilizing:

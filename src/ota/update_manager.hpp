@@ -261,6 +261,12 @@ struct UpdateSnapshot {
   std::uint32_t candidate_started_at_ms{0U};
 };
 
+// The bootloader has not yet confirmed (or rolled back) this image.
+[[nodiscard]] bool pending_bootloader_confirmation(PartitionImageState state);
+// A fully validated image with recorded activation intent that the boot
+// selection does not yet point at: the rollback seed must be recovered.
+[[nodiscard]] bool rollback_seed_recovery_state(const UpdateSnapshot& state);
+
 class UpdateManager final {
  public:
   UpdateManager(
