@@ -152,7 +152,8 @@ TagWriterService::api(const char *method, const std::string &path,
     return core::Result<network::BackendDocument>::failure(
         {core::ErrorCategory::configuration,
          "Writer backend payload exceeds bound", false});
-  auto response = spoolman_.request(method, path, bytes, 24576);
+  auto response = spoolman_.request(method, path, bytes,
+                                    writer_snapshot_maximum_bytes);
   if (!response.ok())
     return core::Result<network::BackendDocument>::failure(response.error());
   return network::parse_backend_json(response.value().body, "Spoolman writer");
@@ -164,7 +165,7 @@ void TagWriterService::publish(const char *phase, const char *message,
   view_["message"] = message;
   view_["completed_blocks"] = done;
   view_["total_blocks"] = total;
-  network::ResponseBody out(24576);
+  network::ResponseBody out(writer_snapshot_maximum_bytes);
   if (!view_.overflowed())
     serializeJson(view_, out);
   if (view_.overflowed() || out.failed() || out.overflowed()) {
@@ -282,7 +283,7 @@ Result TagWriterService::catalog(JsonObjectConst c) {
   view_["has_more"] = page.value().size() == 8;
   view_["search_field"] = search_field;
   view_["items"].set(page.value());
-  if (view_.overflowed() || measureJson(view_) > 24000) {
+  if (view_.overflowed() || measureJson(view_) > writer_view_maximum_bytes) {
     view_.clear();
     return fail(catalog_page_too_large);
   }
@@ -676,7 +677,7 @@ Result TagWriterService::edit_record(JsonObjectConst c, bool filament) {
       }
     view_["spool"].set(selected.value());
   }
-  if (view_.overflowed() || measureJson(view_) > 24000) {
+  if (view_.overflowed() || measureJson(view_) > writer_view_maximum_bytes) {
     view_.clear();
     return fail("Edit readback exceeds workspace; refresh before previewing");
   }
@@ -1309,7 +1310,7 @@ Result TagWriterService::prepare(JsonObjectConst c) {
                  "update preserves other fields.");
   for (const auto &warning : m.validation.warnings)
     warnings.add(warning);
-  if (view_.overflowed() || measureJson(view_) > 24000)
+  if (view_.overflowed() || measureJson(view_) > writer_view_maximum_bytes)
     return fail("Preview workspace unavailable; no write authorized");
   publish("preview", "Review exact target and confirm this tag", 0,
           plan_->count);

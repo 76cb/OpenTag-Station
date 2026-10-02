@@ -6,6 +6,10 @@
 #include "nfc/writer_journal.hpp"
 #include "services/community_catalog.hpp"
 namespace opentag::services {
+// Bound of one published writer snapshot (and of one Spoolman writer response).
+inline constexpr std::size_t writer_snapshot_maximum_bytes = 24576U;
+// Largest serialized view a writer step accepts before it publishes.
+inline constexpr std::size_t writer_view_maximum_bytes = 24000U;
 class TagWriterService {
 public:
   using Publish = std::function<void(const network::ResponseBody &)>;
