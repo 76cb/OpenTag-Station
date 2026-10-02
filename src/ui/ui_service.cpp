@@ -1700,42 +1700,26 @@ void UiService::refresh_workflow() {
     }
 
     std::uint32_t gauge_color = 0x526B77;
-    std::int32_t gauge_value = 0;
     switch (scale.scale_measurement_state) {
       case services::ScaleMeasurementState::settling:
         gauge_color = scale.scale_samples_in_filter < 3U
             ? 0x72DFBE : 0xF4C95D;
-        gauge_value = scale.scale_samples_in_filter < 3U ? 42 : 72;
         break;
       case services::ScaleMeasurementState::ready:
       case services::ScaleMeasurementState::completed:
         gauge_color = 0x22C55E;
-        gauge_value = 100;
         break;
       case services::ScaleMeasurementState::timed_out:
       case services::ScaleMeasurementState::failed:
         gauge_color = 0xEF4444;
-        gauge_value = 100;
         break;
       case services::ScaleMeasurementState::idle:
         break;
     }
     if (!scale.scale_adc_ready) {
       gauge_color = 0xEF4444;
-      gauge_value = 100;
     } else if (!scale.scale_calibrated && !measurement_active) {
       gauge_color = 0xF4C95D;
-      gauge_value = 28;
-    }
-    if (workflow_scale_gauge_ != nullptr) {
-      lv_arc_set_value(workflow_scale_gauge_, gauge_value);
-      lv_obj_set_style_arc_color(
-          workflow_scale_gauge_, lv_color_hex(gauge_color),
-          LV_PART_INDICATOR);
-    }
-    if (workflow_scale_indicator_ != nullptr) {
-      lv_obj_set_style_border_color(
-          workflow_scale_indicator_, lv_color_hex(gauge_color), 0);
     }
     if (workflow_scale_quality_label_ != nullptr) {
       lv_obj_set_style_text_color(

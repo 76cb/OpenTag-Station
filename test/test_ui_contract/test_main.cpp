@@ -194,8 +194,9 @@ void test_scale_screen_has_bounded_480x320_layout_and_distinct_states() {
       refresh.find("scale.scale_calibrated ? 0x242C30 : 0x72DFBE") !=
       std::string::npos);
   TEST_ASSERT_TRUE(
-      refresh.find("lv_obj_set_style_border_color(\n          "
-                   "workflow_scale_indicator_") != std::string::npos);
+      refresh.find("lv_obj_set_style_text_color(\n          "
+                   "workflow_scale_quality_label_, "
+                   "lv_color_hex(gauge_color), 0)") != std::string::npos);
 }
 
 void test_repeated_native_navigation_rebuilds_one_bounded_screen() {
