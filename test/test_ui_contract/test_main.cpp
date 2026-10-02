@@ -106,12 +106,32 @@ void test_scale_receipt_has_explicit_update_and_collapsed_calibration() {
   TEST_ASSERT_TRUE(build.find("opening_positions") == std::string::npos);
   TEST_ASSERT_TRUE(build.find("filament") == std::string::npos);
   TEST_ASSERT_TRUE(build.find("hub") == std::string::npos);
+  // The auto-update policy is a Settings control; the Scale page has none.
+  TEST_ASSERT_TRUE(build.find("weight_policy_") == std::string::npos);
+  const auto settings = method(
+      source,
+      "void UiService::build_settings_page()",
+      "void UiService::build_workflow_screen()");
   TEST_ASSERT_TRUE(
-      build.find("weight_policy_callback") !=
+      settings.find("weight_policy_=product_button(screen,layout::policy,"
+                    "\"Auto-update weight\",weight_policy_callback,this)") !=
       std::string::npos);
+  const auto settings_refresh = method(
+      source,
+      "void UiService::refresh_settings_page()",
+      "void UiService::refresh_diagnostics");
   TEST_ASSERT_TRUE(
-      build.find("Auto-update OFF") !=
+      settings_refresh.find(
+          "lv_label_set_text(lv_obj_get_child(weight_policy_,0),"
+          "automatic?\"Auto-update ON\":\"Auto-update OFF\")") !=
       std::string::npos);
+  // weight_policy_ is null on the Scale page, so its refresh must not use it.
+  TEST_ASSERT_TRUE(
+      method(
+          source,
+          "void UiService::refresh_workflow()",
+          "bool UiService::track_scale_operation()")
+          .find("weight_policy_") == std::string::npos);
   TEST_ASSERT_TRUE(
       build.find(
           "lv_obj_add_flag(workflow_reference_input_, "

@@ -579,8 +579,6 @@ void UiService::build_scale_page() {
   weight_update_=lv_btn_create(screen);place(weight_update_,layout::update);lv_obj_set_style_radius(weight_update_,12,0);
   auto* update_label=lv_label_create(weight_update_);lv_label_set_text(update_label,"UPDATE SPOOLMAN");lv_obj_center(update_label);lv_obj_add_event_cb(weight_update_,weight_update_callback,LV_EVENT_CLICKED,this);
   style_action(weight_update_,neutral_fill,neutral_label);
-  weight_policy_=lv_btn_create(screen);place(weight_policy_,layout::update);lv_obj_add_flag(weight_policy_,LV_OBJ_FLAG_HIDDEN);
-  auto* policy_label=lv_label_create(weight_policy_);lv_label_set_text(policy_label,"Auto-update OFF");lv_obj_center(policy_label);lv_obj_add_event_cb(weight_policy_,weight_policy_callback,LV_EVENT_CLICKED,this);
   workflow_status_label_ = lv_label_create(screen);
   lv_label_set_text(
       workflow_status_label_, "Waiting for stable empty platform");
@@ -1821,10 +1819,7 @@ void UiService::refresh_workflow() {
       // "Again" only once there is a measurement to repeat.
       lv_label_set_text(lv_obj_get_child(workflow_weigh_button_,0),busy?"WEIGHING...":services::weigh_button_label(measured));
     }
-    bool automatic=false;configuration_.visit([&](const auto& config,auto){automatic=config.reconciliation.auto_update_after_weigh;});
-    lv_label_set_text(lv_obj_get_child(weight_policy_,0),automatic?"Auto-update ON":"Auto-update OFF");
     set_enabled(weight_update_,can_save);
-    set_enabled(weight_policy_,!busy&&!configuration_worker_.pending());
     // The next expected step is the highlighted one: save once a weight is
     // ready, otherwise weigh.
     if(scale.scale_calibrated){
