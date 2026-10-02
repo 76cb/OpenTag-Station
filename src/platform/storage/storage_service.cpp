@@ -246,12 +246,6 @@ bool StorageService::initialize(std::uint32_t now_ms) {
   return status_.nvs_ready && status_.filesystem_ready;
 }
 
-bool StorageService::health_window_due(std::uint32_t now_ms) const {
-  return boot_pending_.load(std::memory_order_acquire) &&
-      static_cast<std::uint32_t>(now_ms - boot_started_ms_) >=
-          healthy_boot_after_ms;
-}
-
 core::Result<void> StorageService::confirm_healthy_boot() {
   if (!status().nvs_ready) {
     return core::Result<void>::failure(
