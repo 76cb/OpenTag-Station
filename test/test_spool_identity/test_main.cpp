@@ -331,6 +331,73 @@ void test_empty_metadata_never_selects_arbitrary_inventory() {
   TEST_ASSERT_EQUAL(static_cast<int>(SpoolResolutionStatus::not_found), static_cast<int>(result.value().status));
   TEST_ASSERT_TRUE(inventory.filters.empty());
 }
+SpoolResolutionStatus resolve_cached_uid(const std::optional<std::string>& stored_uid) {
+  FakeInventory inventory;
+  MemoryMappings mappings;
+  inventory.find_results.push_back(spool_result({}));
+  ConfirmedSpoolMapping mapping;
+  mapping.spool_id = 17;
+  mapping.nfc_uid = "E004010203040506";
+  mappings.values.push_back(mapping);
+  auto cached = spool(17);
+  cached.nfc_uid = stored_uid;
+  inventory.by_id.emplace(17, cached);
+  SpoolIdentityResolver resolver(inventory, mappings, settings());
+  SpoolIdentity identity;
+  identity.nfc_uid = "E004010203040506";
+  const auto result = resolver.resolve(identity);
+  TEST_ASSERT_TRUE(result.ok());
+  TEST_ASSERT_EQUAL(static_cast<int>(SpoolMatchSource::nfc_uid),
+                    static_cast<int>(result.value().source));
+  TEST_ASSERT_EQUAL_UINT(1U, result.value().candidates.size());
+  if (result.value().status == SpoolResolutionStatus::matched) {
+    TEST_ASSERT_EQUAL_INT32(17, result.value().match()->id);
+  } else {
+    TEST_ASSERT_NULL(result.value().match());
+  }
+  return result.value().status;
+}
+
+void test_cached_nfc_uid_for_spool_linked_to_another_tag_is_a_conflict() {
+  // The local cache still maps this tag to spool 17, but Spoolman now links
+  // spool 17 to a different tag: it must not receive this tag's updates.
+  TEST_ASSERT_EQUAL(static_cast<int>(SpoolResolutionStatus::conflict),
+                    static_cast<int>(resolve_cached_uid("E0040102030405FF")));
+}
+
+void test_cached_nfc_uid_still_matches_same_or_unset_spool_uid() {
+  for (const auto& stored : {std::optional<std::string>{},
+                             std::optional<std::string>{""},
+                             std::optional<std::string>{"E004010203040506"},
+                             std::optional<std::string>{"e004010203040506"},
+                             std::optional<std::string>{"e0:04:01:02:03:04:05:06"}}) {
+    TEST_ASSERT_EQUAL_MESSAGE(static_cast<int>(SpoolResolutionStatus::matched),
+                              static_cast<int>(resolve_cached_uid(stored)),
+                              stored.has_value() ? stored->c_str() : "(unset)");
+  }
+}
+void test_nfc_uid_owner_with_same_instance_in_other_letter_case_matches() {
+  // Spoolman holds the same UUID in upper case: the instance lookup (exact
+  // spelling) misses, the UID lookup finds the spool. It is the same spool.
+  FakeInventory inventory;
+  MemoryMappings mappings;
+  inventory.find_results.push_back(spool_result({}));
+  auto owner = spool(9);
+  owner.openprinttag_instance_uuid = "AABBCCDD-0011-4233-8455-66778899AABB";
+  inventory.find_results.push_back(spool_result({owner}));
+  SpoolIdentityResolver resolver(inventory, mappings, settings());
+  SpoolIdentity identity;
+  identity.instance_uuid = "aabbccdd-0011-4233-8455-66778899aabb";
+  identity.nfc_uid = "E004010203040506";
+  const auto result = resolver.resolve(identity);
+  TEST_ASSERT_TRUE(result.ok());
+  TEST_ASSERT_EQUAL(static_cast<int>(SpoolResolutionStatus::matched),
+                    static_cast<int>(result.value().status));
+  TEST_ASSERT_EQUAL_UINT(2U, inventory.filters.size());
+  TEST_ASSERT_NOT_NULL(result.value().match());
+  TEST_ASSERT_EQUAL_INT32(9, result.value().match()->id);
+}
+
 int main(int, char**) {
   UNITY_BEGIN();
   RUN_TEST(test_empty_metadata_never_selects_arbitrary_inventory);
@@ -344,5 +411,8 @@ int main(int, char**) {
   RUN_TEST(test_stale_nfc_uid_owner_with_other_instance_is_a_conflict);
   RUN_TEST(test_confirmation_persists_both_stable_identities);
   RUN_TEST(test_openprinttag_uuid_and_nfc_uid_are_normalized);
+  RUN_TEST(test_cached_nfc_uid_for_spool_linked_to_another_tag_is_a_conflict);
+  RUN_TEST(test_cached_nfc_uid_still_matches_same_or_unset_spool_uid);
+  RUN_TEST(test_nfc_uid_owner_with_same_instance_in_other_letter_case_matches);
   return UNITY_END();
 }

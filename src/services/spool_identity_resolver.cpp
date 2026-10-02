@@ -60,6 +60,17 @@ bool equal_text(const std::string& left, const std::string& right) {
   return lowercase(left) == lowercase(right);
 }
 
+// Spoolman may hold a hand-typed NFC UID ("e0:04:..."); it is the same tag.
+bool same_nfc_uid(const std::string& left, const std::string& right) {
+  const auto plain = [](std::string value) {
+    value.erase(std::remove_if(value.begin(), value.end(), [](char character) {
+      return character == ':' || character == '-';
+    }), value.end());
+    return value;
+  };
+  return equal_text(plain(left), plain(right));
+}
+
 void add_identifier(std::set<std::string>& output, const std::optional<std::string>& value) {
   if (value.has_value() && !value->empty()) output.insert(lowercase(*value));
 }
@@ -195,6 +206,14 @@ core::Result<SpoolResolution> SpoolIdentityResolver::cached_match(
     return core::Result<SpoolResolution>::success(resolved(
         SpoolResolutionStatus::conflict, source, std::move(candidates)));
   }
+  // The cached link is stale when Spoolman now links this spool to another
+  // physical tag: it must not receive this tag's updates.
+  if (by_nfc_uid && candidates.front().nfc_uid.has_value() &&
+      !candidates.front().nfc_uid->empty() &&
+      !same_nfc_uid(*candidates.front().nfc_uid, *identity.nfc_uid)) {
+    return core::Result<SpoolResolution>::success(resolved(
+        SpoolResolutionStatus::conflict, source, std::move(candidates)));
+  }
   return core::Result<SpoolResolution>::success(resolved(
       SpoolResolutionStatus::matched, source, std::move(candidates)));
 }
@@ -224,7 +243,8 @@ core::Result<SpoolResolution> SpoolIdentityResolver::resolve(
     if (result.ok() && result.value().status == SpoolResolutionStatus::matched &&
         identity.instance_uuid.has_value() && result.value().match() != nullptr &&
         result.value().match()->openprinttag_instance_uuid.has_value() &&
-        *result.value().match()->openprinttag_instance_uuid != *identity.instance_uuid) {
+        !equal_text(*result.value().match()->openprinttag_instance_uuid,
+                    *identity.instance_uuid)) {
       return core::Result<SpoolResolution>::success(resolved(
           SpoolResolutionStatus::conflict, SpoolMatchSource::nfc_uid,
           std::move(result.value().candidates)));

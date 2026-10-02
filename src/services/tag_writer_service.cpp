@@ -135,6 +135,12 @@ std::uint32_t backend_identity(const config::SpoolmanSettings &s) {
   return nfc::nfcv::diagnostic_checksum(
       reinterpret_cast<const std::uint8_t *>(identity.data()), identity.size());
 }
+const char *const catalog_page_too_large =
+    "This page is too large to show; narrow the search.";
+const char *const clear_settings_changed =
+    "Clearing this tag was interrupted and the Spoolman settings have changed "
+    "since. Restore the earlier Spoolman settings to finish, or choose Skip "
+    "recovery on the station's Tag screen.";
 } // namespace
 core::Result<network::BackendDocument>
 TagWriterService::api(const char *method, const std::string &path,
@@ -244,16 +250,23 @@ Result TagWriterService::catalog(JsonObjectConst c) {
   }
   return path;
   };
+  // One verbose page can exceed what the station can hold; say so instead of
+  // reporting a transport fault that no retry can clear.
+  const auto unavailable = [](const core::Error &error) {
+    return error.message == "HTTP response exceeds configured limit"
+               ? fail(catalog_page_too_large)
+               : Result::failure(error);
+  };
   auto page = api("GET", build(search_field));
   if (!page.ok())
-    return Result::failure(page.error());
+    return unavailable(page.error());
   if (!page.value().is<JsonArray>() || page.value().size() > 8)
     return fail("Spoolman pagination contract changed");
   if (page.value().size() == 0 && !search.empty() && offset == 0 &&
       entity != "vendor" && search_field == "name") {
     auto by_vendor = api("GET", build("vendor"));
     if (!by_vendor.ok())
-      return Result::failure(by_vendor.error());
+      return unavailable(by_vendor.error());
     if (!by_vendor.value().is<JsonArray>() || by_vendor.value().size() > 8)
       return fail("Spoolman pagination contract changed");
     search_field = "vendor";
@@ -269,6 +282,10 @@ Result TagWriterService::catalog(JsonObjectConst c) {
   view_["has_more"] = page.value().size() == 8;
   view_["search_field"] = search_field;
   view_["items"].set(page.value());
+  if (view_.overflowed() || measureJson(view_) > 24000) {
+    view_.clear();
+    return fail(catalog_page_too_large);
+  }
   publish("catalog");
   return Result::success();
 }
@@ -777,6 +794,7 @@ __attribute__((noinline)) Result
 TagWriterService::restore_cleanup(const std::string &reason) {
   if (plan_ || !journal_)
     return Result::success();
+  clear_settings_changed_ = false;
   const auto explained = [&](const char *base) {
     return reason.empty() ? std::string(base) : reason + " " + base;
   };
@@ -787,17 +805,24 @@ TagWriterService::restore_cleanup(const std::string &reason) {
   std::int32_t owner = 0;
   std::uint32_t backend = 0;
   if (!journal_->load(*saved, owner, backend)) return Result::success();
+  // The recovery prompt replaces whatever preview was on screen; none of that
+  // preview is valid any more.
+  view_.clear();
   if (saved->operation != nfc::WriterPlan::Operation::clear) {
     view_["uid"]=saved->uid.hex(); view_["spool_id"]=owner;
     publish("write_recovery",
             explained("Place the same tag on the reader to finish writing it.").c_str());
     return Result::success();
   }
-  if (backend != backend_identity(spoolman_.settings_))
-    return fail("Pending clear belongs to different Spoolman settings; restore "
-                "settings first");
   view_["uid"]=saved->uid.hex();view_["spool_id"]=owner;view_["mode"]="clear";
   clear_recovery_required_ = true;
+  if (backend != backend_identity(spoolman_.settings_)) {
+    // The clear cannot be finished against a different Spoolman, but the
+    // prompt (and with it Skip recovery) must stay reachable.
+    clear_settings_changed_ = true;
+    publish("clear_recovery", explained(clear_settings_changed).c_str());
+    return Result::success();
+  }
   if (!saved->cleanup_pending) {
     publish("clear_recovery",
             explained("Clearing this tag was interrupted. Place the same tag "
@@ -850,6 +875,7 @@ Result TagWriterService::discard_recovery() {
     return fail("The recovery record could not be removed; try again");
   plan_.reset();
   association_pending_ = unlink_pending_ = clear_recovery_required_ = false;
+  clear_settings_changed_ = false;
   spool_id_ = 0;
   uuid_.clear();
   view_.clear();
@@ -987,8 +1013,15 @@ TagWriterService::commit_clear(JsonObjectConst c) {
       *plan_, [&](const char *phase, std::size_t done, std::size_t total) {
         publish(phase, "Keep tag on reader. Do not remove power.", done, total);
       });
-  if (!physical.ok())
+  if (!physical.ok()) {
+    // Refused before any block was written (for example the tag was lifted):
+    // the tag is unchanged, so no recovery is owed and none must be demanded.
+    if (!plan_->attempted &&
+        plan_->journal_state == nfc::WriterPlan::JournalState::none &&
+        journal_->clear())
+      clear_recovery_required_ = false;
     return physical;
+  }
   plan_->cleanup_pending = true;
   unlink_pending_ = true;
   return unlink();
@@ -1009,6 +1042,10 @@ __attribute__((noinline)) Result TagWriterService::unlink() {
     return saved;
   view_["cleanup_stage"] = "spoolman";
   publish("unlinking", "Tag blank and verified; checking exact Spoolman owner");
+  // Spoolman ignores an extra.<key> filter whose field is not defined, so an
+  // ownership lookup could then name an unrelated spool.
+  if (auto defined = require_identity_fields(); !defined.ok())
+    return defined;
   auto owner = uid_owner();
   if (!owner.ok())
     return Result::failure(owner.error());
@@ -1197,7 +1234,8 @@ Result TagWriterService::prepare(JsonObjectConst c) {
     return fail("Canonical spool ID mismatch");
   uuid_ = scalar(spool.value()["extra"][identity_key_]);
   if (uuid_.empty() && plan_->current.material.instance_uuid &&
-      scalar(spool.value()["extra"][uid_key_]) == plan_->uid.hex())
+      normalized_uid(scalar(spool.value()["extra"][uid_key_])) ==
+          plan_->uid.hex())
     uuid_ = nfc::openprinttag::instance_uuid_text(
         *plan_->current.material.instance_uuid);
   if (uuid_.empty()) {
@@ -1287,6 +1325,10 @@ Result TagWriterService::associate() {
                 "association");
   publish("associating", "Physical tag verified; associating Spoolman",
           plan_->completed, plan_->count);
+  // After the publish: the "associating" phase is what gives these requests
+  // a fresh network budget.
+  if (auto defined = require_identity_fields(); !defined.ok())
+    return defined;
   auto unique = unique_identity();
   if (!unique.ok())
     return unique;
@@ -1389,7 +1431,11 @@ TagWriterService::commit_write(JsonObjectConst c) {
     if (result.ok()) {
       association_pending_ = true;
       result = associate();
-    }
+    } else if (journal_ && !plan_->attempted &&
+               plan_->journal_state == nfc::WriterPlan::JournalState::none)
+      // Refused before any block was written: the tag is unchanged, so the
+      // record saved above must not block other tags.
+      (void)journal_->clear();
   }
 
   return result;
@@ -1403,6 +1449,8 @@ Result TagWriterService::process(JsonObjectConst c) {
     return discard_recovery();
   if (!restore_ready())
     return fail("Writer recovery unavailable; see status before continuing");
+  if (clear_settings_changed_)
+    return fail(clear_settings_changed);
   if (clear_recovery_required_ && action != "clear_preview" &&
       action != "clear" && action != "retry_unlink")
     return fail("Finish Clear / Reuse recovery before another operation");

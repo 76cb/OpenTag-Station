@@ -1,6 +1,6 @@
 """Advance VERSION and every file that mirrors it, in one step.
 
-Usage: python tools/bump_version.py 1.0.0-rc.12
+Usage: python tools/bump_version.py <new-version>
 
 VERSION stays authoritative. This script only removes the manual part of a
 bump: it refuses a version that is not semantically greater, rewrites the

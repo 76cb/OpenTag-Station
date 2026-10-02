@@ -340,6 +340,7 @@ void repeated_plans_release_workspace() {
 struct Http : network::IHttpTransport {
   std::function<std::string(const network::HttpRequest &)> custom;
   int custom_status = 200;
+  bool enforce_response_limit = false;
   network::BackendDocument spool;
   network::BackendDocument previous;
   int patches = 0;
@@ -452,6 +453,11 @@ struct Http : network::IHttpTransport {
     }
     network::ResponseBody body;
     const auto replacement = custom ? custom(request) : std::string{};
+    if (enforce_response_limit &&
+        replacement.size() > request.maximum_response_bytes)
+      return core::Result<network::HttpResponse>::failure(
+          {core::ErrorCategory::network,
+           "HTTP response exceeds configured limit", false});
     if (replacement.empty())
       serializeJson(result, body);
     else
@@ -981,6 +987,65 @@ void partial_recovery_requires_known_blocks() {
   TEST_ASSERT_TRUE(next.recovery);
   f.reader.bytes[200] = 0x73;
   TEST_ASSERT_FALSE(f.writer.read(next, &f.plan).ok());
+}
+void stored_uid_spelling_does_not_turn_same_tag_into_repurpose() {
+  // The spool is linked to this tag by NFC UID only (no identity yet) and an
+  // external client stored the UID in its own spelling.
+  for (const char *spelling : {"E00401086627D8D4", "e00401086627d8d4",
+                               "e0:04:01:08:66:27:d8:d4",
+                               "E0-04-01-08-66-27-D8-D4"}) {
+    ServiceFixture f;
+    Fixture source;
+    source.prepare();
+    f.reader.bytes = source.plan.target;
+    TEST_ASSERT_EQUAL_STRING("E00401086627D8D4", f.reader.uid.hex().c_str());
+    f.http.spool["extra"]["nfc_uid"] = "\"" + std::string(spelling) + "\"";
+    TEST_ASSERT_TRUE_MESSAGE(
+        f.run(R"({"action":"preview","spool_id":12})").ok(), spelling);
+    TEST_ASSERT_EQUAL_STRING_MESSAGE(
+        nfc::openprinttag::instance_uuid_text(uuid).c_str(),
+        f.view["instance_uuid"].as<const char *>(), spelling);
+    TEST_ASSERT_FALSE_MESSAGE(f.view["repurpose"].as<bool>(), spelling);
+    TEST_ASSERT_EQUAL_MESSAGE(0, f.view["changed_blocks"].size(), spelling);
+  }
+}
+void oversized_catalog_page_fails_with_a_specific_message() {
+  ServiceFixture f;
+  // Eight valid rows that fit the 24576-byte HTTP limit but not the snapshot.
+  f.http.custom = [](const network::HttpRequest &) {
+    std::string page = "[";
+    for (int i = 1; i <= 8; ++i)
+      page += std::string(i > 1 ? "," : "") + "{\"id\":" + std::to_string(i) +
+              ",\"comment\":\"" + std::string(3040, 'x') + "\"}";
+    return page + "]";
+  };
+  const auto result =
+      f.run(R"({"action":"catalog","entity":"spool","offset":0})");
+  TEST_ASSERT_FALSE(result.ok());
+  TEST_ASSERT_EQUAL_STRING("This page is too large to show; narrow the search.",
+                           result.error().message.c_str());
+  TEST_ASSERT_EQUAL_STRING("failed", f.view["phase"].as<const char *>());
+  TEST_ASSERT_EQUAL_STRING("This page is too large to show; narrow the search.",
+                           f.view["message"].as<const char *>());
+  TEST_ASSERT_TRUE(f.view["items"].isNull());
+  // An ordinary page is still shown afterwards.
+  f.http.custom = nullptr;
+  TEST_ASSERT_TRUE(
+      f.run(R"({"action":"catalog","entity":"spool","offset":0})").ok());
+  TEST_ASSERT_EQUAL_STRING("catalog", f.view["phase"].as<const char *>());
+  TEST_ASSERT_EQUAL(8, f.view["items"].size());
+}
+void catalog_page_over_the_transport_limit_says_narrow_the_search() {
+  ServiceFixture f;
+  f.http.enforce_response_limit = true;
+  f.http.custom = [](const network::HttpRequest &) {
+    return "[{\"id\":1,\"comment\":\"" + std::string(30000, 'x') + "\"}]";
+  };
+  const auto result =
+      f.run(R"({"action":"catalog","entity":"spool","offset":0})");
+  TEST_ASSERT_FALSE(result.ok());
+  TEST_ASSERT_EQUAL_STRING("This page is too large to show; narrow the search.",
+                           result.error().message.c_str());
 }
 void diameter_current_key_and_legacy_compatibility() {
   Fixture f;
@@ -2082,6 +2147,294 @@ void association_failure_reports_reason_and_can_be_skipped() {
   TEST_ASSERT_EQUAL_STRING("preview", f.view["phase"].as<const char *>());
 }
 
+// ---- rc.12 bug batch: tag writer and spool identity (C-D1..C-D7) ----
+// Spoolman ignores an `extra.<key>` filter whose Spool extra field is not
+// defined, so an ownership query then returns unrelated spools.
+std::string undefined_identity_fields(const network::HttpRequest &request) {
+  if (request.url.find("/field/spool") != std::string::npos)
+    return "[]";
+  if (request.url.find("/spool?") != std::string::npos &&
+      request.url.find("extra.") != std::string::npos)
+    return R"([{"id":12}])";
+  return {};
+}
+int patch_requests(const Http &http) {
+  int count = 0;
+  for (const auto &event : http.events)
+    count += event.compare(0, 6, "PATCH ") == 0;
+  return count;
+}
+void clear_with_missing_extra_fields_patches_nothing() {
+  ClearFixture f;
+  // An initialized tag without an instance UUID, and one inventory spool that
+  // is linked to a different tag.
+  auto image = nfc::openprinttag::Initializer::generate({312, 4, 32, {}});
+  TEST_ASSERT_TRUE(image.ok());
+  std::copy(image.value().bytes.begin(), image.value().bytes.end(),
+            f.reader.bytes.begin());
+  const std::string other = "\"12345678-1234-4234-9234-123456789012\"";
+  f.http.spool["extra"].remove("nfc_uid");
+  f.http.spool["extra"]["opentag_instance_uuid"] = other;
+  f.http.custom = undefined_identity_fields;
+  f.preview();
+  auto result = f.confirm();
+  TEST_ASSERT_EQUAL(0, f.http.patches);
+  TEST_ASSERT_EQUAL(0, patch_requests(f.http));
+  TEST_ASSERT_EQUAL_STRING(
+      other.c_str(),
+      f.http.spool["extra"]["opentag_instance_uuid"].as<const char *>());
+  TEST_ASSERT_FALSE(result.ok());
+  TEST_ASSERT_NOT_EQUAL(
+      std::string::npos,
+      result.error().message.find("missing the Spool extra fields "
+                                  "'opentag_instance_uuid', 'nfc_uid'"));
+  // The tag itself was cleared; only the Spoolman half is outstanding.
+  TEST_ASSERT_TRUE(std::all_of(f.reader.bytes.begin(),
+                               f.reader.bytes.begin() + 312,
+                               [](auto b) { return !b; }));
+  TEST_ASSERT_TRUE(f.journal.present);
+  TEST_ASSERT_TRUE(f.journal.saved.cleanup_pending);
+  TEST_ASSERT_EQUAL_STRING("unlink_pending",
+                           f.view["phase"].as<const char *>());
+  TEST_ASSERT_NOT_EQUAL(
+      std::string::npos,
+      std::string(f.view["message"] | "").find("missing the Spool extra field"));
+  const auto writes = f.reader.writes;
+  result = f.run("retry_unlink");
+  TEST_ASSERT_FALSE(result.ok());
+  TEST_ASSERT_NOT_EQUAL(
+      std::string::npos,
+      result.error().message.find("missing the Spool extra field"));
+  TEST_ASSERT_EQUAL(0, patch_requests(f.http));
+  TEST_ASSERT_EQUAL(writes, f.reader.writes);
+  TEST_ASSERT_EQUAL(0, f.mappings);
+  TEST_ASSERT_EQUAL_STRING("unlink_pending",
+                           f.view["phase"].as<const char *>());
+}
+void association_with_missing_extra_fields_patches_nothing() {
+  JournalServiceFixture f;
+  TEST_ASSERT_TRUE(f.run(R"({"action":"preview","spool_id":12})").ok());
+  // The fields are deleted in Spoolman after the preview was shown.
+  f.http.custom = undefined_identity_fields;
+  auto result = f.confirm();
+  TEST_ASSERT_EQUAL(0, patch_requests(f.http));
+  TEST_ASSERT_FALSE(result.ok());
+  TEST_ASSERT_NOT_EQUAL(
+      std::string::npos,
+      result.error().message.find("missing the Spool extra fields "
+                                  "'opentag_instance_uuid', 'nfc_uid'"));
+  TEST_ASSERT_TRUE(f.service.physical_pass());
+  TEST_ASSERT_EQUAL_STRING("association_pending",
+                           f.view["phase"].as<const char *>());
+  TEST_ASSERT_NOT_EQUAL(
+      std::string::npos,
+      std::string(f.view["message"] | "").find("missing the Spool extra field"));
+  const auto writes = f.reader.writes;
+  result = f.run(R"({"action":"retry_association"})");
+  TEST_ASSERT_FALSE(result.ok());
+  TEST_ASSERT_NOT_EQUAL(
+      std::string::npos,
+      result.error().message.find("missing the Spool extra field"));
+  TEST_ASSERT_EQUAL(0, patch_requests(f.http));
+  TEST_ASSERT_EQUAL_STRING("association_pending",
+                           f.view["phase"].as<const char *>());
+  // Once the fields exist again the retry links the spool without rewriting.
+  f.http.custom = nullptr;
+  TEST_ASSERT_TRUE(f.run(R"({"action":"retry_association"})").ok());
+  TEST_ASSERT_EQUAL(1, patch_requests(f.http));
+  TEST_ASSERT_EQUAL(writes, f.reader.writes);
+  TEST_ASSERT_FALSE(f.journal.present);
+  TEST_ASSERT_EQUAL_STRING("complete", f.view["phase"].as<const char *>());
+}
+
+void untouched_write_failure_leaves_no_recovery_record() {
+  JournalServiceFixture f;
+  TEST_ASSERT_TRUE(f.run(R"({"action":"preview","spool_id":12})").ok());
+  f.reader.count = 0; // tag lifted after Confirm, before any block is written
+  TEST_ASSERT_FALSE(f.confirm().ok());
+  TEST_ASSERT_EQUAL(0, f.reader.writes);
+  TEST_ASSERT_FALSE(f.journal.present);
+  TEST_ASSERT_EQUAL_STRING("failed", f.view["phase"].as<const char *>());
+  // Nothing was written, so a different healthy tag is not held hostage.
+  f.reader.count = 1;
+  f.reader.uid.bytes[7] ^= 1;
+  TEST_ASSERT_TRUE(
+      f.run(R"({"action":"catalog","entity":"spool","offset":0})").ok());
+  TEST_ASSERT_EQUAL_STRING("catalog", f.view["phase"].as<const char *>());
+  TEST_ASSERT_TRUE(f.run(R"({"action":"preview","spool_id":12})").ok());
+  TEST_ASSERT_EQUAL_STRING("preview", f.view["phase"].as<const char *>());
+  const auto written = f.confirm();
+  TEST_ASSERT_TRUE_MESSAGE(written.ok(),
+                           written.ok() ? "" : written.error().message.c_str());
+  TEST_ASSERT_GREATER_THAN(0, f.reader.writes);
+  TEST_ASSERT_FALSE(f.journal.present);
+  TEST_ASSERT_EQUAL_STRING("complete", f.view["phase"].as<const char *>());
+}
+void untouched_clear_failure_leaves_no_recovery_lock() {
+  ClearFixture f;
+  f.preview();
+  f.reader.count = 0; // tag lifted after Confirm, before any block is cleared
+  TEST_ASSERT_FALSE(f.confirm().ok());
+  TEST_ASSERT_EQUAL(0, f.reader.writes);
+  TEST_ASSERT_FALSE(f.journal.present);
+  TEST_ASSERT_EQUAL_STRING("failed", f.view["phase"].as<const char *>());
+  TEST_ASSERT_EQUAL(0, f.http.patches);
+  // No Clear / Reuse recovery is owed: browsing and other actions still work.
+  f.reader.count = 1;
+  network::BackendDocument c;
+  c["action"] = "catalog";
+  c["entity"] = "spool";
+  c["offset"] = 0;
+  const auto browsed = f.service->process(c.as<JsonObjectConst>());
+  TEST_ASSERT_TRUE_MESSAGE(browsed.ok(),
+                           browsed.ok() ? "" : browsed.error().message.c_str());
+  TEST_ASSERT_EQUAL_STRING("catalog", f.view["phase"].as<const char *>());
+  f.preview();
+  TEST_ASSERT_TRUE(f.confirm().ok());
+  TEST_ASSERT_FALSE(f.journal.present);
+  TEST_ASSERT_EQUAL_STRING("cleared", f.view["phase"].as<const char *>());
+}
+
+void recovery_snapshot_holds_only_recovery_fields() {
+  JournalServiceFixture f;
+  TEST_ASSERT_TRUE(f.run(R"({"action":"preview","spool_id":12})").ok());
+  TEST_ASSERT_FALSE(f.view["proposed"].isNull());
+  f.reader.fail_write = 2;
+  TEST_ASSERT_FALSE(f.confirm().ok());
+  TEST_ASSERT_EQUAL_STRING("write_recovery", f.view["phase"].as<const char *>());
+  // The interrupted preview must not ride along as if it were still valid.
+  for (const auto *stale :
+       {"proposed", "current", "changed_blocks", "target_checksum",
+        "current_checksum", "generation", "warnings", "spool", "instance_uuid",
+        "semantic_no_change", "repurpose"})
+    TEST_ASSERT_TRUE_MESSAGE(f.view[stale].isNull(), stale);
+  TEST_ASSERT_EQUAL_STRING(f.reader.uid.hex().c_str(),
+                           f.view["uid"].as<const char *>());
+  TEST_ASSERT_EQUAL(12, f.view["spool_id"].as<int>());
+
+  ClearFixture clear;
+  clear.preview();
+  TEST_ASSERT_FALSE(clear.view["changed_blocks"].isNull());
+  clear.reader.fail_write = 5;
+  TEST_ASSERT_FALSE(clear.confirm().ok());
+  TEST_ASSERT_EQUAL_STRING("clear_recovery",
+                           clear.view["phase"].as<const char *>());
+  for (const auto *stale :
+       {"changed_blocks", "target_checksum", "current_checksum", "generation",
+        "material_name", "recovering_interrupted_write"})
+    TEST_ASSERT_TRUE_MESSAGE(clear.view[stale].isNull(), stale);
+  TEST_ASSERT_EQUAL_STRING(clear.reader.uid.hex().c_str(),
+                           clear.view["uid"].as<const char *>());
+  TEST_ASSERT_EQUAL_STRING("clear", clear.view["mode"].as<const char *>());
+}
+
+void pending_clear_with_changed_spoolman_settings_can_be_skipped() {
+  for (bool restore_settings : {false, true}) {
+    ClearFixture f;
+    f.preview();
+    f.reader.fail_write = 5;
+    TEST_ASSERT_FALSE(f.confirm().ok());
+    TEST_ASSERT_TRUE(f.journal.present);
+    f.reader.fail_write = -1;
+    const auto writes = f.reader.writes;
+    f.adapter.configure({"http://moved-spoolman.test"});
+    f.restart();
+    // Boot: the caller ignores the result; the published prompt is what counts.
+    f.view.clear();
+    (void)f.service->restore_cleanup();
+    TEST_ASSERT_EQUAL_STRING("clear_recovery",
+                             f.view["phase"].as<const char *>());
+    TEST_ASSERT_NOT_EQUAL(
+        std::string::npos,
+        std::string(f.view["message"] | "").find("Spoolman settings"));
+    TEST_ASSERT_EQUAL_STRING(f.reader.uid.hex().c_str(),
+                             f.view["uid"].as<const char *>());
+    TEST_ASSERT_EQUAL_STRING("clear", f.view["mode"].as<const char *>());
+    for (const auto *action :
+         {"catalog", "clear_preview", "clear", "retry_unlink", "preview"}) {
+      network::BackendDocument c;
+      c["action"] = action;
+      c["entity"] = "spool";
+      c["offset"] = 0;
+      c["spool_id"] = 12;
+      const auto refused = f.service->process(c.as<JsonObjectConst>());
+      TEST_ASSERT_FALSE_MESSAGE(refused.ok(), action);
+      TEST_ASSERT_NOT_EQUAL_MESSAGE(
+          std::string::npos,
+          refused.error().message.find("Spoolman settings"), action);
+      // Never the dead end "failed": Skip is only offered on the prompt.
+      TEST_ASSERT_EQUAL_STRING_MESSAGE(
+          "clear_recovery", f.view["phase"].as<const char *>(), action);
+      TEST_ASSERT_NOT_EQUAL_MESSAGE(
+          std::string::npos,
+          std::string(f.view["message"] | "").find("Spoolman settings"),
+          action);
+    }
+    TEST_ASSERT_TRUE(f.journal.present);
+    TEST_ASSERT_EQUAL(writes, f.reader.writes);
+    TEST_ASSERT_EQUAL(0, f.http.patches);
+    if (restore_settings) {
+      // With the earlier settings back, the interrupted clear can finish.
+      f.adapter.configure({"http://spoolman.test"});
+      f.preview();
+      TEST_ASSERT_TRUE(f.confirm().ok());
+      TEST_ASSERT_EQUAL_STRING("cleared", f.view["phase"].as<const char *>());
+    } else {
+      TEST_ASSERT_TRUE(f.run("discard_recovery").ok());
+      TEST_ASSERT_EQUAL_STRING("recovery_discarded",
+                               f.view["phase"].as<const char *>());
+      network::BackendDocument c;
+      c["action"] = "catalog";
+      c["entity"] = "spool";
+      c["offset"] = 0;
+      TEST_ASSERT_TRUE(f.service->process(c.as<JsonObjectConst>()).ok());
+      TEST_ASSERT_EQUAL_STRING("catalog", f.view["phase"].as<const char *>());
+    }
+    TEST_ASSERT_FALSE(f.journal.present);
+  }
+}
+// The write journal has no such dead end: its prompt is published without a
+// settings check, and a refused recovery returns to that prompt with the
+// reason, so Skip stays reachable. This pins that behaviour.
+void pending_write_with_changed_spoolman_settings_stays_skippable() {
+  JournalServiceFixture f;
+  TEST_ASSERT_TRUE(f.run(R"({"action":"preview","spool_id":12})").ok());
+  f.http.offline = true; // tag fully written, association outstanding
+  TEST_ASSERT_FALSE(f.confirm().ok());
+  f.http.offline = false;
+  TEST_ASSERT_TRUE(f.journal.present);
+  const auto writes = f.reader.writes;
+  f.adapter.configure({"http://moved-spoolman.test"});
+  network::BackendDocument view;
+  services::TagWriterService restarted{
+      f.adapter, f.reader, [&] { return f.reader.generation; },
+      [](std::uint8_t *p, std::size_t n) { std::memset(p, 0x33, n); },
+      [&](const auto &b) { deserializeJson(view, b.data(), b.size()); },
+      &f.journal, {}, accept_verified_association};
+  TEST_ASSERT_TRUE(restarted.restore_cleanup().ok());
+  TEST_ASSERT_EQUAL_STRING("write_recovery", view["phase"].as<const char *>());
+  network::BackendDocument c;
+  c["action"] = "preview";
+  c["mode"] = "rewrite";
+  c["spool_id"] = 12;
+  const auto refused = restarted.process(c.as<JsonObjectConst>());
+  TEST_ASSERT_FALSE(refused.ok());
+  TEST_ASSERT_NOT_EQUAL(std::string::npos,
+                        refused.error().message.find("Spoolman settings"));
+  TEST_ASSERT_EQUAL_STRING("write_recovery", view["phase"].as<const char *>());
+  TEST_ASSERT_NOT_EQUAL(
+      std::string::npos,
+      std::string(view["message"] | "").find("Spoolman settings"));
+  TEST_ASSERT_TRUE(f.journal.present);
+  TEST_ASSERT_EQUAL(writes, f.reader.writes);
+  c.clear();
+  c["action"] = "discard_recovery";
+  TEST_ASSERT_TRUE(restarted.process(c.as<JsonObjectConst>()).ok());
+  TEST_ASSERT_EQUAL_STRING("recovery_discarded",
+                           view["phase"].as<const char *>());
+  TEST_ASSERT_FALSE(f.journal.present);
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(verified_association_repairs_stale_cache_after_remote_checks);
@@ -2209,5 +2562,15 @@ int main() {
   RUN_TEST(uid_final_uniqueness_recheck_blocks_success);
   RUN_TEST(uid_move_recovery_after_reboot_without_write);
   RUN_TEST(uid_formatted_queries_and_cross_format_conflicts);
+  RUN_TEST(clear_with_missing_extra_fields_patches_nothing);
+  RUN_TEST(association_with_missing_extra_fields_patches_nothing);
+  RUN_TEST(untouched_write_failure_leaves_no_recovery_record);
+  RUN_TEST(untouched_clear_failure_leaves_no_recovery_lock);
+  RUN_TEST(recovery_snapshot_holds_only_recovery_fields);
+  RUN_TEST(pending_clear_with_changed_spoolman_settings_can_be_skipped);
+  RUN_TEST(stored_uid_spelling_does_not_turn_same_tag_into_repurpose);
+  RUN_TEST(oversized_catalog_page_fails_with_a_specific_message);
+  RUN_TEST(catalog_page_over_the_transport_limit_says_narrow_the_search);
+  RUN_TEST(pending_write_with_changed_spoolman_settings_stays_skippable);
   return UNITY_END();
 }
