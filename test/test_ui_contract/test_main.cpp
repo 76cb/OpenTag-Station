@@ -118,10 +118,10 @@ void test_scale_receipt_has_explicit_update_and_collapsed_calibration() {
           "LV_OBJ_FLAG_HIDDEN)") != std::string::npos);
   TEST_ASSERT_TRUE(build.find("GROSS WEIGHT") != std::string::npos);
   TEST_ASSERT_TRUE(build.find("workflow_scale_capture_label_") != std::string::npos);
-  TEST_ASSERT_TRUE(build.find("\"WEIGH\", 172") != std::string::npos);
-  TEST_ASSERT_TRUE(build.find("\"TARE EMPTY PLATFORM\", 102") != std::string::npos);
+  TEST_ASSERT_TRUE(build.find("\"WEIGH\"") != std::string::npos);
+  TEST_ASSERT_TRUE(build.find("\"TARE EMPTY PLATFORM\"") != std::string::npos);
   TEST_ASSERT_TRUE(build.find("\"UPDATE SPOOLMAN\"") != std::string::npos);
-  TEST_ASSERT_TRUE(build.find("\"CALIBRATE\", 160") != std::string::npos);
+  TEST_ASSERT_TRUE(build.find("\"CALIBRATE\"") != std::string::npos);
   TEST_ASSERT_TRUE(
       build.find("lv_obj_set_size(button, 216, 48)") != std::string::npos);
   TEST_ASSERT_TRUE(build.find("YZC-133") == std::string::npos);
@@ -138,6 +138,13 @@ void test_scale_receipt_has_explicit_update_and_collapsed_calibration() {
   TEST_ASSERT_TRUE(
       drawer.find("workflow_calibration_close_button_") !=
       std::string::npos);
+  // The drawer, not the constructor, positions the two calibration actions.
+  TEST_ASSERT_TRUE(
+      drawer.find("lv_obj_set_pos(workflow_tare_button_,16,180)") !=
+      std::string::npos);
+  TEST_ASSERT_TRUE(
+      drawer.find("lv_obj_set_pos(\n        workflow_calibrate_button_, 248, 128)") !=
+      std::string::npos);
 }
 
 void test_scale_screen_has_bounded_480x320_layout_and_distinct_states() {
@@ -148,7 +155,7 @@ void test_scale_screen_has_bounded_480x320_layout_and_distinct_states() {
       "void UiService::build_printer_page()");
   TEST_ASSERT_TRUE(build.find("place(workflow_weight_label_,layout::gross)") != std::string::npos);
   TEST_ASSERT_TRUE(build.find("place(weight_update_,layout::update)") != std::string::npos);
-  TEST_ASSERT_TRUE(build.find("lv_obj_set_pos(button, 248, y)") != std::string::npos);
+  TEST_ASSERT_TRUE(build.find("place(workflow_weigh_button_,layout::weigh)") != std::string::npos);
   TEST_ASSERT_TRUE(build.find("lv_obj_set_size(button, 216, 48)") != std::string::npos);
   TEST_ASSERT_TRUE(build.find("place(workflow_status_label_,layout::feedback)") !=
       std::string::npos);
