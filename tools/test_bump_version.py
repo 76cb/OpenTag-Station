@@ -7,6 +7,9 @@ from pathlib import Path
 from bump_version import bump
 
 ROOT = Path(__file__).resolve().parents[1]
+# Assembled so that this file never contains a full synthetic version itself.
+SYNTHETIC = '9998.0.0'
+SYNTHETIC_RC = SYNTHETIC + '-rc.'
 HISTORY = {'CHANGELOG.md', 'documentation-site/docs/reference/release-notes.md'}
 
 
@@ -41,14 +44,24 @@ class BumpVersion(unittest.TestCase):
         return found
 
     def test_every_mirror_is_rewritten(self):
-        old = (self.root / 'VERSION').read_text().strip()
-        # A version no committed prose can already mention.
-        new = old.split('-')[0] + '-rc.9999' if '-' in old else '9999.0.0'
+        # Start from a version no committed prose can mention. The real one
+        # may be a final release such as 1.0.0, which licences, examples and
+        # documentation legitimately contain.
+        old, new = SYNTHETIC_RC + '1', SYNTHETIC_RC + '2'
+        bump(self.root, old)
         self.assertTrue(self.mentions(old), 'fixture must start with mirrors of the old version')
         missing = bump(self.root, new)
         self.assertEqual(set(), self.mentions(old), 'a mirror of the old version was left behind')
         self.assertIn('VERSION', self.mentions(new))
         self.assertEqual(set(HISTORY), set(missing))
+
+    def test_final_release_still_asks_for_its_own_changelog_entry(self):
+        # "## 1.0.0-rc.19" must not count as the entry for "1.0.0".
+        bump(self.root, SYNTHETIC_RC + '1')
+        for relative in HISTORY:
+            path = self.root / relative
+            path.write_text('## ' + SYNTHETIC_RC + '1\n\n' + path.read_text(encoding='utf-8'), encoding='utf-8')
+        self.assertEqual(set(HISTORY), set(bump(self.root, SYNTHETIC)))
 
     def test_refuses_non_increasing_and_build_metadata(self):
         old = (self.root / 'VERSION').read_text().strip()

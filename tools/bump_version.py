@@ -44,7 +44,9 @@ def bump(root, new):
         if count != 1:
             raise ValueError(f'{relative}: expected exactly one "The candidate is" line')
         path.write_text(text, encoding='utf-8')
-    return [p for p in PROSE if f'## {new}' not in (root / p).read_text(encoding='utf-8')]
+    # Whole-line match: "## 1.0.0" must not be satisfied by "## 1.0.0-rc.19".
+    heading = re.compile(rf'^## {re.escape(new)}$', re.MULTILINE)
+    return [p for p in PROSE if not heading.search((root / p).read_text(encoding='utf-8'))]
 
 
 def main():
