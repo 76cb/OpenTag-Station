@@ -6,7 +6,7 @@ Clean-up from the deep-refactor audit (report: issue #47). No behaviour change.
 
 - Removed code that no build compiled (an unused ESP32 RFAL platform adapter) and functions and constants nothing called.
 - The sanitizer test environment now runs every native suite, not four of them.
-- CI no longer runs twice for each pull-request commit and caches PlatformIO packages.
+- CI no longer runs twice for each pull-request commit and caches PlatformIO packages. A branch without an open pull request is no longer built until one is opened.
 
 ## 1.0.0-rc.15
 
