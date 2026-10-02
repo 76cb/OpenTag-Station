@@ -340,6 +340,7 @@ void repeated_plans_release_workspace() {
 struct Http : network::IHttpTransport {
   std::function<std::string(const network::HttpRequest &)> custom;
   int custom_status = 200;
+  bool enforce_response_limit = false;
   network::BackendDocument spool;
   network::BackendDocument previous;
   int patches = 0;
@@ -452,6 +453,11 @@ struct Http : network::IHttpTransport {
     }
     network::ResponseBody body;
     const auto replacement = custom ? custom(request) : std::string{};
+    if (enforce_response_limit &&
+        replacement.size() > request.maximum_response_bytes)
+      return core::Result<network::HttpResponse>::failure(
+          {core::ErrorCategory::network,
+           "HTTP response exceeds configured limit", false});
     if (replacement.empty())
       serializeJson(result, body);
     else
@@ -1028,6 +1034,18 @@ void oversized_catalog_page_fails_with_a_specific_message() {
       f.run(R"({"action":"catalog","entity":"spool","offset":0})").ok());
   TEST_ASSERT_EQUAL_STRING("catalog", f.view["phase"].as<const char *>());
   TEST_ASSERT_EQUAL(8, f.view["items"].size());
+}
+void catalog_page_over_the_transport_limit_says_narrow_the_search() {
+  ServiceFixture f;
+  f.http.enforce_response_limit = true;
+  f.http.custom = [](const network::HttpRequest &) {
+    return "[{\"id\":1,\"comment\":\"" + std::string(30000, 'x') + "\"}]";
+  };
+  const auto result =
+      f.run(R"({"action":"catalog","entity":"spool","offset":0})");
+  TEST_ASSERT_FALSE(result.ok());
+  TEST_ASSERT_EQUAL_STRING("This page is too large to show; narrow the search.",
+                           result.error().message.c_str());
 }
 void diameter_current_key_and_legacy_compatibility() {
   Fixture f;
@@ -2552,6 +2570,7 @@ int main() {
   RUN_TEST(pending_clear_with_changed_spoolman_settings_can_be_skipped);
   RUN_TEST(stored_uid_spelling_does_not_turn_same_tag_into_repurpose);
   RUN_TEST(oversized_catalog_page_fails_with_a_specific_message);
+  RUN_TEST(catalog_page_over_the_transport_limit_says_narrow_the_search);
   RUN_TEST(pending_write_with_changed_spoolman_settings_stays_skippable);
   return UNITY_END();
 }

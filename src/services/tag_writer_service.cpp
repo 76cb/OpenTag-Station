@@ -135,10 +135,12 @@ std::uint32_t backend_identity(const config::SpoolmanSettings &s) {
   return nfc::nfcv::diagnostic_checksum(
       reinterpret_cast<const std::uint8_t *>(identity.data()), identity.size());
 }
+const char *const catalog_page_too_large =
+    "This page is too large to show; narrow the search.";
 const char *const clear_settings_changed =
     "Clearing this tag was interrupted and the Spoolman settings have changed "
-    "since. Restore the earlier Spoolman settings to finish clearing it, or "
-    "choose Skip recovery.";
+    "since. Restore the earlier Spoolman settings to finish, or choose Skip "
+    "recovery on the station's Tag screen.";
 } // namespace
 core::Result<network::BackendDocument>
 TagWriterService::api(const char *method, const std::string &path,
@@ -248,16 +250,23 @@ Result TagWriterService::catalog(JsonObjectConst c) {
   }
   return path;
   };
+  // One verbose page can exceed what the station can hold; say so instead of
+  // reporting a transport fault that no retry can clear.
+  const auto unavailable = [](const core::Error &error) {
+    return error.message == "HTTP response exceeds configured limit"
+               ? fail(catalog_page_too_large)
+               : Result::failure(error);
+  };
   auto page = api("GET", build(search_field));
   if (!page.ok())
-    return Result::failure(page.error());
+    return unavailable(page.error());
   if (!page.value().is<JsonArray>() || page.value().size() > 8)
     return fail("Spoolman pagination contract changed");
   if (page.value().size() == 0 && !search.empty() && offset == 0 &&
       entity != "vendor" && search_field == "name") {
     auto by_vendor = api("GET", build("vendor"));
     if (!by_vendor.ok())
-      return Result::failure(by_vendor.error());
+      return unavailable(by_vendor.error());
     if (!by_vendor.value().is<JsonArray>() || by_vendor.value().size() > 8)
       return fail("Spoolman pagination contract changed");
     search_field = "vendor";
@@ -275,7 +284,7 @@ Result TagWriterService::catalog(JsonObjectConst c) {
   view_["items"].set(page.value());
   if (view_.overflowed() || measureJson(view_) > 24000) {
     view_.clear();
-    return fail("This page is too large to show; narrow the search.");
+    return fail(catalog_page_too_large);
   }
   publish("catalog");
   return Result::success();
@@ -1314,10 +1323,12 @@ Result TagWriterService::associate() {
       uid_key_ != spoolman_.settings_.nfc_uid_field)
     return fail("Spoolman settings changed; restore settings before retrying "
                 "association");
-  if (auto defined = require_identity_fields(); !defined.ok())
-    return defined;
   publish("associating", "Physical tag verified; associating Spoolman",
           plan_->completed, plan_->count);
+  // After the publish: the "associating" phase is what gives these requests
+  // a fresh network budget.
+  if (auto defined = require_identity_fields(); !defined.ok())
+    return defined;
   auto unique = unique_identity();
   if (!unique.ok())
     return unique;

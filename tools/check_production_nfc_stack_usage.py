@@ -90,6 +90,9 @@ def main():
     writer_uid_http = max(
         writer_prepare + frame("services/tag_writer_service", "TagWriterService::prepare_uid_owner("),
         writer_commit + frame("services/tag_writer_service", "TagWriterService::associate(") + frame("services/tag_writer_service", "TagWriterService::clear_previous_uid(")) + frame("services/tag_writer_service", "TagWriterService::uid_owner(") + frame("services/tag_writer_service", "TagWriterService::api(")
+    # associate() and unlink() first confirm the Spool extra fields exist.
+    identity_fields_http = frame("services/tag_writer_service", "TagWriterService::require_identity_fields(") + frame(spoolman, "SpoolmanAdapter::list_extra_fields(")
+    writer_uid_http = max(writer_uid_http, writer_commit + frame("services/tag_writer_service", "TagWriterService::associate(") + identity_fields_http)
     writer_edit_http = frame("services/tag_writer_service", "TagWriterService::edit_and_report(") + frame("services/tag_writer_service", "TagWriterService::edit_record(") + frame("services/tag_writer_service", "TagWriterService::api(")
     writer_http = writer_controller + max(2 * largest("services/tag_writer_service"), writer_uid_http, writer_edit_http) + frame(spoolman, "SpoolmanAdapter::request(") + frame("network/http_transport", "HttpTransport::perform(") + 2048
     writer_storage = writer_controller + max(writer_prepare, writer_commit) + largest("platform/storage/writer_journal") + 2048
@@ -100,7 +103,7 @@ def main():
     clear_decode = writer_controller + clear_prepare + max(frame(writer_path, "OpenPrintTagWriter::read("), frame(writer_path, "OpenPrintTagWriter::plan_clear(")) + decode + max(
         frame(codec, "parse_envelope(opentag::core::ByteView)"), frame(codec, "decode_material(opentag::core::ByteView")) + recursive
     clear_transport = writer_controller + max(clear_prepare + frame(writer_path, "OpenPrintTagWriter::read("), clear_commit + frame(writer_path, "OpenPrintTagWriter::execute(")) + frame(writer_path, "OpenPrintTagWriter::full_read(") + frame(writer_path, "OpenPrintTagWriter::fence(") + max(largest("hardware/nfc/st25r3916b/i2c_reader"), largest("hardware/nfc/st25r3916b/openprinttag_write_binding")) + 2048
-    clear_http = writer_controller + clear_commit + clear_unlink + max(frame(service, "TagWriterService::uid_owner("), frame(service, "TagWriterService::unique_identity(")) + frame(service, "TagWriterService::api(") + frame(spoolman, "SpoolmanAdapter::request(") + frame("network/http_transport", "HttpTransport::perform(") + 2048
+    clear_http = writer_controller + clear_commit + clear_unlink + max(max(frame(service, "TagWriterService::uid_owner("), frame(service, "TagWriterService::unique_identity(")) + frame(service, "TagWriterService::api("), identity_fields_http) + frame(spoolman, "SpoolmanAdapter::request(") + frame("network/http_transport", "HttpTransport::perform(") + 2048
     clear_storage = writer_controller + clear_commit + clear_unlink + max(
         frame(service, "TagWriterService::persist_clear(") + 2 * largest("platform/storage/writer_journal"),
         frame("config/configuration_service", "ConfigurationService::clear_verified_spool_identity_mapping(") + frame("config/configuration_service", "ConfigurationService::persist_locked(") + 2 * largest("config/configuration_service")) + 2048
