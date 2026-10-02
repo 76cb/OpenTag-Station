@@ -298,6 +298,14 @@ BootHealthSignals Application::boot_health_signals(
 }
 
 void Application::process_boot_health(std::uint32_t now_ms) {
+  // Once a decision is recorded, nothing below acts more often than the
+  // retry interval, so skip gathering the (read-only) signals until it is due.
+  const bool retry_due = static_cast<std::uint32_t>(
+      now_ms - last_boot_health_attempt_ms_) >=
+      boot_health_retry_interval_ms;
+  if (boot_health_decision_initialized_ && !retry_due) {
+    return;
+  }
   const auto evaluation = boot_health_policy_.evaluate(
       now_ms, boot_health_signals(now_ms));
   auto decision = opentag::ota::CandidateHealthDecision::stabilizing;
@@ -337,7 +345,7 @@ void Application::process_boot_health(std::uint32_t now_ms) {
       break;
     case opentag::ota::CandidateHealthDecision::factory_reset_recovery:
       // Recovery remains pending until a reset owner restarts the device. The
-      // one-second retry below coalesces with an accepted device-control
+      // one-second retry gate coalesces with an accepted device-control
       // operation instead of allocating a new operation on every loop.
       action_still_pending = true;
       break;
@@ -345,12 +353,6 @@ void Application::process_boot_health(std::uint32_t now_ms) {
 
   const bool decision_changed = !boot_health_decision_initialized_ ||
       decision != last_boot_health_decision_;
-  const bool retry_due = static_cast<std::uint32_t>(
-      now_ms - last_boot_health_attempt_ms_) >=
-      boot_health_retry_interval_ms;
-  if (boot_health_decision_initialized_ && !retry_due) {
-    return;
-  }
   if (!decision_changed && boot_health_submit_accepted_ &&
       !action_still_pending) {
     return;
