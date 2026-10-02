@@ -40,6 +40,12 @@ enum class Method : std::uint8_t {
 
 [[nodiscard]] const char* to_string(Method method);
 [[nodiscard]] bool valid_sha256_hex(std::string_view value);
+[[nodiscard]] bool valid_idempotency_key(std::string_view value);
+// Decodes 64 lowercase hexadecimal characters; false leaves digest untouched.
+[[nodiscard]] bool decode_sha256(
+    std::string_view encoded,
+    std::array<std::uint8_t, 32U>& digest);
+[[nodiscard]] std::string lower_ascii(std::string value);
 [[nodiscard]] bool parse_canonical_generation(
     std::string_view value,
     std::uint64_t& generation);
@@ -147,9 +153,6 @@ enum class Resource : std::uint8_t {
   diagnostics,
   logs,
   update,
-  // Compatibility name retained while the Phase 9 application context is
-  // replaced by the Phase 10 update-service snapshot.
-  update_boundary = update,
 };
 
 struct EmptyMutation {};

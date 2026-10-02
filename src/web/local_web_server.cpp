@@ -244,41 +244,6 @@ bool read_required_header(
   return true;
 }
 
-bool valid_idempotency_key(std::string_view value) {
-  return !value.empty() &&
-      value.size() <= IdempotencyLedger::maximum_key_bytes &&
-      std::all_of(value.begin(), value.end(), [](char character) {
-        const auto byte = static_cast<unsigned char>(character);
-        return std::isalnum(byte) != 0 || character == '-' ||
-            character == '_' || character == '.' || character == ':';
-      });
-}
-
-bool decode_sha256(
-    std::string_view encoded,
-    opentag::ota::Sha256Digest& digest) {
-  if (!api::valid_sha256_hex(encoded)) return false;
-  const auto nibble = [](char value) -> std::uint8_t {
-    return value <= '9'
-        ? static_cast<std::uint8_t>(value - '0')
-        : static_cast<std::uint8_t>(value - 'a' + 10);
-  };
-  for (std::size_t index = 0U; index < digest.size(); ++index) {
-    digest[index] = static_cast<std::uint8_t>(
-        (nibble(encoded[index * 2U]) << 4U) |
-        nibble(encoded[index * 2U + 1U]));
-  }
-  return true;
-}
-
-std::string lower_ascii(std::string value) {
-  std::transform(value.begin(), value.end(), value.begin(), [](char character) {
-    return static_cast<char>(
-        std::tolower(static_cast<unsigned char>(character)));
-  });
-  return value;
-}
-
 api::Response upload_receipt(
     const StreamingUploadSession& session,
     const opentag::ota::UpdateSnapshot* update = nullptr) {
@@ -783,7 +748,7 @@ esp_err_t LocalWebServer::handle_update_upload(httpd_req_t* request) {
           "Idempotency-Key",
           idempotency_key,
           collected_header_bytes) ||
-      !valid_idempotency_key(idempotency_key) ||
+      !api::valid_idempotency_key(idempotency_key) ||
       !read_required_header(
           request,
           "Content-Type",
@@ -804,7 +769,7 @@ esp_err_t LocalWebServer::handle_update_upload(httpd_req_t* request) {
         "invalid_upload_headers",
         "Firmware upload headers are missing, malformed, or too large");
   }
-  if (lower_ascii(content_type) != "application/octet-stream") {
+  if (api::lower_ascii(content_type) != "application/octet-stream") {
     return reject_unread(
         415,
         "unsupported_media_type",
@@ -818,7 +783,7 @@ esp_err_t LocalWebServer::handle_update_upload(httpd_req_t* request) {
   if (!api::parse_canonical_generation(
           expected_generation,
           upload_request.expected_generation) ||
-      !decode_sha256(expected_sha256, upload_request.expected_sha256)) {
+      !api::decode_sha256(expected_sha256, upload_request.expected_sha256)) {
     return reject_unread(
         400,
         "invalid_upload_precondition",
