@@ -157,12 +157,12 @@ inline void failed_paging_and_create_mistakes_leave_no_trace() {
   TEST_ASSERT_TRUE(c.act(TagAction::create).empty());
   TEST_ASSERT_TRUE(c.page==TagPage::create);
   TEST_ASSERT_TRUE(mentions(c.screen(),"Check the spool weights"));
-  TEST_ASSERT_EQUAL_DOUBLE(1200,c.remaining);TEST_ASSERT_EQUAL_DOUBLE(180,c.tare);
+  TEST_ASSERT_TRUE(c.remaining==1200);TEST_ASSERT_TRUE(c.tare==180);
   TEST_ASSERT_TRUE(shows(c.screen(),TagAction::remaining));
   // Corrected: the request goes out and the hint is gone.
   c.remaining=800;
   JsonDocument command;deserializeJson(command,c.act(TagAction::create));
-  TEST_ASSERT_EQUAL_STRING("create_spool",command["action"]|"");TEST_ASSERT_EQUAL_DOUBLE(180,command["spool"]["spool_weight"].as<double>());
+  TEST_ASSERT_EQUAL_STRING("create_spool",command["action"]|"");TEST_ASSERT_TRUE(command["spool"]["spool_weight"].as<double>()==180);
   TEST_ASSERT_TRUE(c.create_hint.empty());
 }
 
