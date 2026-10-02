@@ -904,7 +904,9 @@ const operation = asObject(await api('/operations/' + prior.id, { priority: PRIO
 settled = TERMINAL_OPERATION_STATES.indexOf(String(operation.state || '').toLowerCase()) >= 0;
 }
 } catch (error) {
-settled = error instanceof ApiError && Number(error.status) === 404;
+// Only the station's own answer counts; a 404 from anything else at this
+// address must not release a repeat.
+settled = error instanceof ApiError && Number(error.status) === 404 && error.code === 'operation_not_found';
 }
 if (!settled) prior.checking = false;
 return settled;
@@ -919,8 +921,9 @@ typeof setting.body === 'string' ? setting.body : JSON.stringify(setting.body);
 const signature = setting.method + ' ' + path + '\n' + String(serializedBody || '');
 const prior = state.uncertainMutations[signature];
 if (prior && !(await uncertainMutationSettled(prior))) {
-throw new ApiError('The station may already have received this' +
-(prior.id ? ' as operation #' + prior.id : '') + '. Check its status, then try again.', {
+throw new ApiError(prior.id ?
+'The station is still working on this (operation #' + prior.id + '). Try again once it finishes.' :
+'The station may already have received this. Check the station, or wait 10 minutes before sending it again.', {
 kind: 'uncertain', code: 'mutation_receipt_uncertain', retryable: false,
 uncertain: true, idempotencyKey: prior.key
 });

@@ -2785,7 +2785,7 @@ async function timedOutTare(operations) {
 for (const [label, settled] of [
   ['succeeded', () => jsonResponse(200, { id: 42, state: 'succeeded' })],
   ['failed', () => jsonResponse(200, { id: 42, state: 'failed' })],
-  ['forgotten (HTTP 404)', () => jsonResponse(404, null, { code: 'not_found' })],
+  ['forgotten (HTTP 404)', () => jsonResponse(404, null, { code: 'operation_not_found' })],
 ]) {
   test('uncertain mutation unblocks after its operation is observed terminal: ' + label, async () => {
     let answer = () => jsonResponse(200, { id: 42, state: 'running' });
@@ -2808,6 +2808,14 @@ for (const [label, settled] of [
     assert.equal(T.state.uncertainMutations[signature], undefined);
   });
 }
+
+test('uncertain mutation stays blocked on a 404 that is not the station forgetting the operation', async () => {
+  const app = await timedOutTare(() => jsonResponse(404, null, { code: 'route_not_found' }));
+  const posts = () => app.fetchCalls.filter((call) => call.init.method === 'POST');
+  await assert.rejects(app.T.submitMutationReceipt('/scale/tare', { method: 'POST', body: {} }),
+    (error) => error.code === 'mutation_receipt_uncertain' && /still working on this/.test(error.message));
+  assert.equal(posts().length, 1);
+});
 
 test('uncertain mutation stays blocked while its operation status cannot be read', async () => {
   const app = await timedOutTare(() => { throw new TypeError('connection reset'); });
