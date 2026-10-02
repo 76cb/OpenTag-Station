@@ -2,6 +2,7 @@
 
 #include <cmath>
 #include <optional>
+#include <utility>
 
 namespace opentag::domain {
 
@@ -60,36 +61,23 @@ class EmptyWeightResolver {
     // Spoolman is canonical: a value corrected on the Spoolman spool must win
     // over a copy written to the tag earlier, which only changes when the tag
     // is rewritten.
-    // A Spoolman value of exactly 0 is usually "never set" (rc.9 could create
-    // spools that way); prefer a real value from any lower source in that case.
+    // A value of exactly 0 is usually "never set" (rc.9 could create spools
+    // that way, and a tag written from one copies it), so a zero only wins
+    // when no source at all holds a real weight.
     const auto real = [&valid](const std::optional<float>& value) {
       return valid(value) && *value > 0.0F;
     };
-    const bool spoolman_unset_zero = valid(candidates.spoolman_spool_grams) &&
-        *candidates.spoolman_spool_grams == 0.0F &&
-        (real(candidates.openprinttag_grams) ||
-         real(candidates.package_default_grams) ||
-         real(candidates.vendor_default_grams) ||
-         real(candidates.manual_grams));
-    if (valid(candidates.spoolman_spool_grams) && !spoolman_unset_zero) {
-      return ResolvedEmptyWeight{
-          *candidates.spoolman_spool_grams, EmptyWeightSource::spoolman_spool};
+    const std::pair<const std::optional<float>*, EmptyWeightSource> sources[] = {
+        {&candidates.spoolman_spool_grams, EmptyWeightSource::spoolman_spool},
+        {&candidates.openprinttag_grams, EmptyWeightSource::openprinttag},
+        {&candidates.package_default_grams, EmptyWeightSource::package_default},
+        {&candidates.vendor_default_grams, EmptyWeightSource::vendor_default},
+        {&candidates.manual_grams, EmptyWeightSource::manual}};
+    for (const auto& [grams, source] : sources) {
+      if (real(*grams)) return ResolvedEmptyWeight{**grams, source};
     }
-    if (valid(candidates.openprinttag_grams)) {
-      return ResolvedEmptyWeight{
-          *candidates.openprinttag_grams, EmptyWeightSource::openprinttag};
-    }
-    if (valid(candidates.package_default_grams)) {
-      return ResolvedEmptyWeight{
-          *candidates.package_default_grams, EmptyWeightSource::package_default};
-    }
-    if (valid(candidates.vendor_default_grams)) {
-      return ResolvedEmptyWeight{
-          *candidates.vendor_default_grams, EmptyWeightSource::vendor_default};
-    }
-    if (valid(candidates.manual_grams)) {
-      return ResolvedEmptyWeight{
-          *candidates.manual_grams, EmptyWeightSource::manual};
+    for (const auto& [grams, source] : sources) {
+      if (valid(*grams)) return ResolvedEmptyWeight{**grams, source};
     }
     return std::nullopt;
   }

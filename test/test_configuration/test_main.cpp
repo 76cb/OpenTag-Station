@@ -1202,6 +1202,54 @@ void test_backend_tokens_reject_control_characters() {
   TEST_ASSERT_TRUE(printable.validate().ok());
 }
 
+void test_stored_values_older_firmware_accepted_are_repaired_not_discarded() {
+  struct Case { const char* spoolman; const char* identity; const char* uid; const char* token; };
+  const Case cases[] = {
+      {R"("identity_field":"Station_UUID","nfc_uid_field":"nfc_uid")",
+       "opentag_instance_uuid", "nfc_uid", ""},
+      {R"("identity_field":"nfc_uid","nfc_uid_field":"nfc_uid")",
+       "opentag_instance_uuid", "nfc_uid", ""},
+      {R"("identity_field":"my_uuid","nfc_uid_field":"my_uid","authentication_token":"secret\n")",
+       "my_uuid", "my_uid", "secret"}};
+  for (const auto& entry : cases) {
+    MemoryDocumentStore documents;
+    documents.document = std::string(R"({"schema_version":3,"hardware_id":"wt32-sc01-plus-rev-a",)") +
+        R"("wifi":{"ssid":"HomeNet","password":"correct horse"},"spoolman":{)" + entry.spoolman + "}}";
+    LegacyScaleStore legacy;
+    ConfigurationService service(documents, legacy);
+    const auto loaded = service.initialize();
+    TEST_ASSERT_TRUE_MESSAGE(loaded.ok(), entry.spoolman);
+    TEST_ASSERT_TRUE(service.status().persistence_available);
+    const auto snapshot = service.snapshot();
+    TEST_ASSERT_EQUAL_STRING("HomeNet", snapshot.wifi.ssid.c_str());
+    TEST_ASSERT_EQUAL_STRING(entry.identity, snapshot.spoolman.identity_field.c_str());
+    TEST_ASSERT_EQUAL_STRING(entry.uid, snapshot.spoolman.nfc_uid_field.c_str());
+    TEST_ASSERT_EQUAL_STRING(entry.token, snapshot.spoolman.authentication_token.c_str());
+    TEST_ASSERT_TRUE(snapshot.validate().ok());
+  }
+}
+
+void test_full_mapping_store_accepts_a_newly_confirmed_mapping() {
+  MemoryDocumentStore documents;
+  LegacyScaleStore legacy;
+  ConfigurationService service(documents, legacy);
+  TEST_ASSERT_TRUE(service.initialize().ok());
+  for (int index = 1; index <= 65; ++index) {
+    char uid[17];
+    std::snprintf(uid, sizeof(uid), "E0040100000000%02X", index);
+    opentag::domain::ConfirmedSpoolMapping mapping;
+    mapping.spool_id = index;
+    mapping.nfc_uid = uid;
+    const auto confirmed = service.confirm_spool_identity_mapping(mapping);
+    TEST_ASSERT_TRUE_MESSAGE(
+        confirmed.ok(), confirmed.ok() ? "" : confirmed.error().message.c_str());
+  }
+  const auto mappings = service.snapshot().spool_identity_mappings;
+  TEST_ASSERT_EQUAL_UINT(64U, mappings.size());
+  TEST_ASSERT_EQUAL_INT(2, mappings.front().spool_id);
+  TEST_ASSERT_EQUAL_INT(65, mappings.back().spool_id);
+}
+
 void test_full_mapping_store_evicts_the_oldest_verified_mapping() {
   MemoryDocumentStore documents;
   LegacyScaleStore legacy;
@@ -1335,5 +1383,7 @@ int main(int, char**) {
   RUN_TEST(test_backend_tokens_reject_control_characters);
   RUN_TEST(test_full_mapping_store_evicts_the_oldest_verified_mapping);
   RUN_TEST(test_unsupported_legacy_scale_calibration_does_not_block_startup);
+  RUN_TEST(test_stored_values_older_firmware_accepted_are_repaired_not_discarded);
+  RUN_TEST(test_full_mapping_store_accepts_a_newly_confirmed_mapping);
   return UNITY_END();
 }

@@ -78,6 +78,17 @@ bool valid_backend_token(const std::string& value) {
   });
 }
 
+// The mapping store is a bounded cache of confirmed links; Spoolman stays
+// authoritative. A full store gives up the entry that was added first.
+void append_spool_identity_mapping(
+    std::vector<domain::ConfirmedSpoolMapping>& mappings,
+    domain::ConfirmedSpoolMapping mapping) {
+  if (mappings.size() >= maximum_spool_identity_mappings) {
+    mappings.erase(mappings.begin());
+  }
+  mappings.push_back(std::move(mapping));
+}
+
 bool valid_url(const std::string& value) {
   if (value.empty()) return true;
   if (value.size() > 256U || value.find('@') != std::string::npos ||
@@ -348,6 +359,24 @@ core::Result<void> read_configuration(
   result.filabridge.url = text_or(filabridge["url"], result.filabridge.url);
   result.filabridge.authentication_token = text_or(
       filabridge["authentication_token"], result.filabridge.authentication_token);
+  // Older firmware stored values the rules below now refuse. Rejecting the
+  // whole document for them would discard Wi-Fi and calibration, so repair
+  // them here: such a key could never have named a Spoolman field, and a
+  // control byte in a token only ever broke the request header.
+  if (!valid_spoolman_field_key(result.spoolman.identity_field) ||
+      !valid_spoolman_field_key(result.spoolman.nfc_uid_field) ||
+      result.spoolman.identity_field == result.spoolman.nfc_uid_field) {
+    const SpoolmanSettings defaults;
+    result.spoolman.identity_field = defaults.identity_field;
+    result.spoolman.nfc_uid_field = defaults.nfc_uid_field;
+  }
+  for (auto* token : {&result.spoolman.authentication_token,
+                      &result.filabridge.authentication_token}) {
+    token->erase(std::remove_if(token->begin(), token->end(), [](char character) {
+      const auto byte = static_cast<unsigned char>(character);
+      return byte < 0x20U || byte == 0x7FU;
+    }), token->end());
+  }
   result.filabridge.selected_printer_id = text_or(
       filabridge["selected_printer_id"], result.filabridge.selected_printer_id);
   result.filabridge.ca_certificate_pem = text_or(
@@ -1142,7 +1171,7 @@ core::Result<void> ConfigurationService::confirm_spool_identity_mapping(
     }
     if (normalized.nfc_uid.has_value()) same_spool->nfc_uid = normalized.nfc_uid;
   } else {
-    mappings.push_back(normalized);
+    append_spool_identity_mapping(mappings, normalized);
   }
   return persist_locked(updated);
 }
@@ -1245,12 +1274,7 @@ core::Result<void> ConfigurationService::sync_verified_spool_identity_mapping(
   std::transform(normalized.instance_uuid->begin(), normalized.instance_uuid->end(),
                  normalized.instance_uuid->begin(), [](unsigned char c) { return std::tolower(c); });
   if (selected.value() == mappings.size()) {
-    // The store is a bounded cache of verified links and Spoolman stays
-    // authoritative, so a full store gives up its oldest entry.
-    if (mappings.size() >= maximum_spool_identity_mappings) {
-      mappings.erase(mappings.begin());
-    }
-    mappings.push_back(normalized);
+    append_spool_identity_mapping(mappings, normalized);
   } else {
     mappings[selected.value()] = normalized;
   }

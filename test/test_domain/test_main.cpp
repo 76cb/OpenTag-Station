@@ -90,6 +90,36 @@ void test_empty_weight_resolver_uses_documented_priority_and_exposes_source() {
       static_cast<int>(fallback->source));
 }
 
+void test_zero_empty_weight_never_hides_a_real_value_further_down() {
+  EmptyWeightCandidates copied_zero;
+  copied_zero.spoolman_spool_grams = 0.0F;
+  copied_zero.openprinttag_grams = 0.0F;
+  copied_zero.package_default_grams = 250.0F;
+  auto resolved = EmptyWeightResolver::resolve(copied_zero);
+  TEST_ASSERT_TRUE(resolved.has_value());
+  TEST_ASSERT_FLOAT_WITHIN(0.01F, 250.0F, resolved->grams);
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(EmptyWeightSource::package_default),
+                        static_cast<int>(resolved->source));
+
+  EmptyWeightCandidates zero_package;
+  zero_package.spoolman_spool_grams = 0.0F;
+  zero_package.package_default_grams = 0.0F;
+  zero_package.vendor_default_grams = 200.0F;
+  resolved = EmptyWeightResolver::resolve(zero_package);
+  TEST_ASSERT_FLOAT_WITHIN(0.01F, 200.0F, resolved->grams);
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(EmptyWeightSource::vendor_default),
+                        static_cast<int>(resolved->source));
+
+  // With no real value anywhere, the highest-priority zero still stands.
+  EmptyWeightCandidates only_zero;
+  only_zero.spoolman_spool_grams = 0.0F;
+  only_zero.openprinttag_grams = 0.0F;
+  resolved = EmptyWeightResolver::resolve(only_zero);
+  TEST_ASSERT_FLOAT_WITHIN(0.01F, 0.0F, resolved->grams);
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(EmptyWeightSource::spoolman_spool),
+                        static_cast<int>(resolved->source));
+}
+
 void test_unset_zero_spool_empty_weight_yields_to_any_lower_real_value() {
   const auto resolve_with = [](EmptyWeightCandidates candidates) {
     candidates.spoolman_spool_grams = 0.0F;
@@ -259,5 +289,6 @@ int main(int, char**) {
   RUN_TEST(test_application_state_machine_rejects_skipped_workflow_steps);
   RUN_TEST(test_stationary_tag_triggers_exactly_once_until_removed);
   RUN_TEST(test_every_runtime_owner_has_bounded_queue_and_deadline);
+  RUN_TEST(test_zero_empty_weight_never_hides_a_real_value_further_down);
   return UNITY_END();
 }

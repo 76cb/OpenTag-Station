@@ -575,14 +575,20 @@ core::Result<UpdateSnapshot> UpdateManager::initialize_from_boot(
         !target_selected) ||
        (state_.state == UpdateState::ready_to_reboot && !target_selected &&
         (state_.activated ||
-         (state_.activation_intent && running_target))))) {
-    return fail_locked(
-        update_error(
-            running_target
-                ? "The update record does not match the running firmware; upload it again."
-                : "The update was selected but never started; upload it again."),
-        now_ms,
-        false);
+         (state_.activation_intent && running_target))) ||
+       // The record says this boot is the candidate, but another image runs.
+       (candidate_in_progress(state_.state) && !running_target))) {
+    const char* reason =
+        running_target
+            ? "The update record does not match the running firmware; upload it again."
+            : candidate_in_progress(state_.state)
+                  ? "The previous update did not complete; upload it again."
+                  : "The update was selected but never started; upload it again.";
+    // Forget the selection too, or the next boot would read this ended
+    // record as "selected, waiting for reboot" and take the lease again.
+    state_.activation_intent = false;
+    state_.activated = false;
+    return fail_locked(update_error(reason), now_ms, false);
   }
 
   if (has_record && state_.target.present() && state_.activation_intent &&
