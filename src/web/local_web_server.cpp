@@ -988,14 +988,17 @@ esp_err_t LocalWebServer::handle_api(httpd_req_t* request) {
   api_request.provisioning_transport =
       provisioning_peer(request, api_context_);
   std::size_t received = 0U;
+  const auto reject_timed_out = [&]() {
+    const auto sent = send_json_error(
+        request,
+        408,
+        "request_timeout",
+        "The complete request body was not received within five seconds");
+    return finish_response_without_purging(request, received, sent);
+  };
   while (received < request->content_len) {
     if (receive_expired()) {
-      const auto sent = send_json_error(
-          request,
-          408,
-          "request_timeout",
-          "The complete request body was not received within five seconds");
-      return finish_response_without_purging(request, received, sent);
+      return reject_timed_out();
     }
     const auto count = httpd_req_recv(
         request,
@@ -1012,12 +1015,7 @@ esp_err_t LocalWebServer::handle_api(httpd_req_t* request) {
     }
     received += static_cast<std::size_t>(count);
     if (receive_expired()) {
-      const auto sent = send_json_error(
-          request,
-          408,
-          "request_timeout",
-          "The complete request body was not received within five seconds");
-      return finish_response_without_purging(request, received, sent);
+      return reject_timed_out();
     }
   }
 

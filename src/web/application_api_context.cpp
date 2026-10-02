@@ -87,6 +87,17 @@ domain::PrinterState parse_printer_state(const std::string& value) {
   return domain::PrinterState::unknown;
 }
 
+services::ToolheadMutationPrecondition toolhead_precondition(
+    const api::ToolheadMutationPreconditions& supplied) {
+  services::ToolheadMutationPrecondition precondition;
+  precondition.supplied = true;
+  precondition.expected_previous_spool_id =
+      supplied.expected_current_spool_id;
+  precondition.expected_printer_state =
+      parse_printer_state(supplied.expected_printer_state);
+  return precondition;
+}
+
 const char* workflow_stage_name(services::WorkflowStage stage) {
   switch (stage) {
     case services::WorkflowStage::awaiting_spool: return "awaiting_spool";
@@ -1148,12 +1159,7 @@ core::Result<api::OperationReceipt> ApplicationApiContext::submit_fresh(
     case api::MutationKind::toolhead_assignment: {
       const auto& payload =
           std::get<api::ToolheadAssignmentMutation>(mutation.payload);
-      services::ToolheadMutationPrecondition precondition;
-      precondition.supplied = true;
-      precondition.expected_previous_spool_id =
-          payload.preconditions.expected_current_spool_id;
-      precondition.expected_printer_state =
-          parse_printer_state(payload.preconditions.expected_printer_state);
+      auto precondition = toolhead_precondition(payload.preconditions);
       return receipt_result(
           backend_worker_.submit_assignment_operation(
               payload.preconditions.printer_id,
@@ -1169,12 +1175,7 @@ core::Result<api::OperationReceipt> ApplicationApiContext::submit_fresh(
     case api::MutationKind::toolhead_unassignment: {
       const auto& payload =
           std::get<api::ToolheadUnassignmentMutation>(mutation.payload);
-      services::ToolheadMutationPrecondition precondition;
-      precondition.supplied = true;
-      precondition.expected_previous_spool_id =
-          payload.preconditions.expected_current_spool_id;
-      precondition.expected_printer_state =
-          parse_printer_state(payload.preconditions.expected_printer_state);
+      auto precondition = toolhead_precondition(payload.preconditions);
       return receipt_result(
           backend_worker_.submit_unassignment_operation(
               payload.preconditions.printer_id,
