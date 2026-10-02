@@ -39,6 +39,8 @@ constexpr std::uint32_t primary_fill = 0x72DFBE;
 constexpr std::uint32_t primary_label = 0x112C25;
 constexpr std::uint32_t neutral_fill = 0x242C30;
 constexpr std::uint32_t neutral_label = 0xF3F5F3;
+constexpr std::uint32_t muted_text = 0xA4AFB0;
+constexpr std::uint32_t recessed_fill = 0x191F22;
 
 void style_action(lv_obj_t* button, std::uint32_t fill, std::uint32_t label) {
   if (button == nullptr) return;
@@ -94,8 +96,8 @@ lv_obj_t* product_label(lv_obj_t* parent, layout::Box box, const char* text, con
 }
 lv_obj_t* product_button(lv_obj_t* parent, layout::Box box, const char* text, lv_event_cb_t callback, void* user, bool primary=false) {
   auto* button=lv_btn_create(parent);place(button,box);lv_obj_set_style_radius(button,8,0);
-  lv_obj_set_style_shadow_width(button,0,0);lv_obj_set_style_bg_color(button,lv_color_hex(primary?0x72DFBE:0x242C30),0);
-  lv_obj_set_style_text_color(button,lv_color_hex(primary?0x112C25:0xF3F5F3),0);
+  lv_obj_set_style_shadow_width(button,0,0);lv_obj_set_style_bg_color(button,lv_color_hex(primary?primary_fill:neutral_fill),0);
+  lv_obj_set_style_text_color(button,lv_color_hex(primary?primary_label:neutral_label),0);
   lv_obj_set_style_pad_all(button,4,0);lv_obj_add_event_cb(button,callback,LV_EVENT_CLICKED,user);
   auto* label=lv_label_create(button);lv_label_set_text(label,text);lv_obj_set_style_text_font(label,&lv_font_montserrat_16,0);lv_obj_center(label);return button;
 }
@@ -122,6 +124,16 @@ const char* availability_text(services::BackendAvailability availability) {
     case services::BackendAvailability::unknown: return "WAITING";
   }
   return "WAITING";
+}
+
+// Dropdown text for the Wi-Fi scan results, one network name per line.
+std::string wifi_options(const std::vector<network::WifiNetwork>& networks) {
+  std::string options = networks.empty() ? "Scan results" : "";
+  for (const auto& candidate : networks) {
+    if (!options.empty()) options += '\n';
+    options += candidate.ssid;
+  }
+  return options;
 }
 
 static const char* assignment_buttons[] = {
@@ -419,7 +431,7 @@ void UiService::build_display_self_test_screen() {
   display_test_touch_label_ = make_label(
       "Touch panel to plot a point", LV_ALIGN_BOTTOM_MID, 0, -7);
   lv_obj_set_style_text_color(
-      display_test_touch_label_, lv_color_hex(0xFDE68A), 0);
+      display_test_touch_label_, lv_color_hex(warning_text), 0);
 }
 
 void UiService::update_display_self_test_touch(
@@ -448,8 +460,8 @@ void UiService::build_product_rail() {
     const bool selected=i==static_cast<std::size_t>(active_page_);
     product_nav_buttons_[i]=product_button(screen,{static_cast<std::int16_t>(i*96),layout::nav.y,96,48},labels[i],navigation_callback,this);
     lv_obj_set_style_radius(product_nav_buttons_[i],0,0);
-    lv_obj_set_style_bg_color(product_nav_buttons_[i],lv_color_hex(selected?0x303A3F:0x191F22),0);
-    lv_obj_set_style_text_color(product_nav_buttons_[i],lv_color_hex(selected?0x72DFBE:0xA4AFB0),0);
+    lv_obj_set_style_bg_color(product_nav_buttons_[i],lv_color_hex(selected?0x303A3F:recessed_fill),0);
+    lv_obj_set_style_text_color(product_nav_buttons_[i],lv_color_hex(selected?accent_text:muted_text),0);
   }
 }
 
@@ -459,7 +471,7 @@ void UiService::build_home_page() {
   lv_obj_set_style_text_color(workflow_home_state_label_,lv_color_hex(accent_text),0);
   workflow_material_label_=product_label(screen,layout::home_material,"Place a spool",&lv_font_montserrat_20);
   workflow_identity_label_=product_label(screen,layout::home_identity,"Set a tagged spool on the station");
-  lv_obj_set_style_text_color(workflow_identity_label_,lv_color_hex(0xA4AFB0),0);
+  lv_obj_set_style_text_color(workflow_identity_label_,lv_color_hex(muted_text),0);
   workflow_weight_label_=product_label(screen,layout::home_weight,"",&lv_font_montserrat_32);
   workflow_scale_indicator_=lv_obj_create(screen);place(workflow_scale_indicator_,layout::home_art);
   lv_obj_set_style_radius(workflow_scale_indicator_,LV_RADIUS_CIRCLE,0);
@@ -467,7 +479,7 @@ void UiService::build_home_page() {
   lv_obj_set_style_border_width(workflow_scale_indicator_,6,0);
   lv_obj_clear_flag(workflow_scale_indicator_,LV_OBJ_FLAG_SCROLLABLE);
   workflow_scale_gauge_=lv_obj_create(workflow_scale_indicator_);lv_obj_set_size(workflow_scale_gauge_,18,18);lv_obj_center(workflow_scale_gauge_);
-  lv_obj_set_style_radius(workflow_scale_gauge_,LV_RADIUS_CIRCLE,0);lv_obj_set_style_bg_color(workflow_scale_gauge_,lv_color_hex(0x101416),0);
+  lv_obj_set_style_radius(workflow_scale_gauge_,LV_RADIUS_CIRCLE,0);lv_obj_set_style_bg_color(workflow_scale_gauge_,lv_color_hex(screen_background),0);
   workflow_weigh_button_=product_button(screen,layout::home_weigh,"WEIGH",weigh_callback,this,true);
   product_button(screen,layout::home_assign,"ASSIGN",forward_navigation,product_nav_buttons_[2]);
   product_button(screen,layout::home_tag,"MANAGE TAG",forward_navigation,product_nav_buttons_[3]);
@@ -498,7 +510,7 @@ void UiService::build_scale_page() {
     lv_obj_set_size(button, 216, 48);
     lv_obj_set_style_radius(button, 12, 0);
     lv_obj_set_style_bg_color(
-        button, lv_color_hex(primary ? 0x72DFBE : 0x242C30), 0);
+        button, lv_color_hex(primary ? primary_fill : neutral_fill), 0);
     lv_obj_add_event_cb(button, callback, LV_EVENT_CLICKED, this);
     auto* label = lv_label_create(button);
     lv_label_set_text(label, text);
@@ -519,7 +531,7 @@ void UiService::build_scale_page() {
   lv_label_set_text(workflow_calibration_label_, "CALIBRATION");
   lv_obj_set_pos(workflow_calibration_label_, 248, 46);
   lv_obj_set_style_text_color(
-      workflow_calibration_label_, lv_color_hex(0x72DFBE), 0);
+      workflow_calibration_label_, lv_color_hex(accent_text), 0);
   lv_obj_add_flag(workflow_calibration_label_, LV_OBJ_FLAG_HIDDEN);
 
   workflow_reference_input_ = lv_textarea_create(screen);
@@ -555,7 +567,7 @@ void UiService::build_scale_page() {
   lv_obj_set_size(workflow_calibration_close_button_, 216, 48);
   lv_obj_set_style_radius(workflow_calibration_close_button_, 12, 0);
   lv_obj_set_style_bg_color(
-      workflow_calibration_close_button_, lv_color_hex(0x191F22), 0);
+      workflow_calibration_close_button_, lv_color_hex(recessed_fill), 0);
   lv_obj_add_event_cb(
       workflow_calibration_close_button_,
       scale_calibration_close_callback, LV_EVENT_CLICKED, this);
@@ -613,7 +625,7 @@ void UiService::build_printer_page() {
       workflow_identity_label_, "Choose a printer in Settings.");
   lv_obj_set_width(workflow_identity_label_, 448);
   lv_obj_set_style_text_color(
-      workflow_identity_label_, lv_color_hex(0xA4AFB0), 0);
+      workflow_identity_label_, lv_color_hex(muted_text), 0);
   place(workflow_identity_label_,layout::printer_spool);
 
   static constexpr std::array<layout::Box,5> boxes{layout::tool1,layout::tool2,layout::tool3,layout::tool4,layout::tool5};
@@ -623,7 +635,7 @@ void UiService::build_printer_page() {
     workflow_toolhead_buttons_[index] = button;
     place(button,boxes[index]);
     lv_obj_set_style_radius(button, 12, 0);
-    lv_obj_set_style_bg_color(button, lv_color_hex(0x242C30), 0);
+    lv_obj_set_style_bg_color(button, lv_color_hex(neutral_fill), 0);
     lv_obj_add_event_cb(
         button, toolhead_callback, LV_EVENT_CLICKED, this);
     auto* label = lv_label_create(button);
@@ -636,7 +648,7 @@ void UiService::build_printer_page() {
   workflow_status_label_ = lv_label_create(screen);
   lv_obj_set_width(workflow_status_label_, 350);
   lv_obj_set_style_text_color(
-      workflow_status_label_, lv_color_hex(0xA4AFB0), 0);
+      workflow_status_label_, lv_color_hex(muted_text), 0);
   place(workflow_status_label_,layout::feedback);
 }
 
@@ -797,7 +809,7 @@ void UiService::build_settings_page() {
 void UiService::build_workflow_screen() {
   auto* screen = lv_scr_act();
   style_screen(screen);
-  lv_obj_set_style_bg_color(screen, lv_color_hex(0x101416), 0);
+  lv_obj_set_style_bg_color(screen, lv_color_hex(screen_background), 0);
   if(active_page_!=ProductPage::tags)build_product_rail();
   switch (active_page_) {
     case ProductPage::home: build_home_page(); break;
@@ -936,11 +948,7 @@ void UiService::build_setup_screen() {
     const auto networks = network_.scan_results();
     setup_scan_generation_ =
         diagnostics_.snapshot(millis()).wifi_scan_generation;
-    std::string options = networks.empty() ? "Scan results" : "";
-    for (const auto& network : networks) {
-      if (!options.empty()) options += '\n';
-      options += network.ssid;
-    }
+    const std::string options = wifi_options(networks);
     lv_dropdown_set_options(setup_network_dropdown_, options.c_str());
     lv_obj_add_event_cb(
         setup_network_dropdown_, setup_network_callback, LV_EVENT_VALUE_CHANGED, this);
@@ -1541,11 +1549,7 @@ void UiService::refresh_setup() {
   if (setup_network_dropdown_ != nullptr &&
       setup_scan_generation_ != network.wifi_scan_generation) {
     const auto networks = network_.scan_results();
-    std::string options = networks.empty() ? "Scan results" : "";
-    for (const auto& candidate : networks) {
-      if (!options.empty()) options += '\n';
-      options += candidate.ssid;
-    }
+    const std::string options = wifi_options(networks);
     lv_dropdown_set_options(setup_network_dropdown_, options.c_str());
     setup_scan_generation_ = network.wifi_scan_generation;
   }
@@ -1893,7 +1897,7 @@ void UiService::refresh_home_page(
   const bool present=workflow.openprinttag_available;
   place(workflow_scale_indicator_,present?layout::home_art:layout::empty_art);
   const auto color=workflow.material.primary_color;
-  lv_obj_set_style_bg_color(workflow_scale_indicator_,color?lv_color_make(color->red,color->green,color->blue):lv_color_hex(0x242C30),0);
+  lv_obj_set_style_bg_color(workflow_scale_indicator_,color?lv_color_make(color->red,color->green,color->blue):lv_color_hex(neutral_fill),0);
   lv_obj_set_style_text_align(workflow_home_state_label_,present?LV_TEXT_ALIGN_LEFT:LV_TEXT_ALIGN_CENTER,0);
   lv_obj_set_style_text_align(workflow_material_label_,present?LV_TEXT_ALIGN_LEFT:LV_TEXT_ALIGN_CENTER,0);
   lv_obj_set_style_text_align(workflow_identity_label_,present?LV_TEXT_ALIGN_LEFT:LV_TEXT_ALIGN_CENTER,0);
