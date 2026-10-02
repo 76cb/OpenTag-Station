@@ -221,7 +221,7 @@ the existing core asset budgets remain unchanged.
 
 Software validation includes deterministic failure/recovery tests and an
 independent upstream schema/decode check of a populated production-writer image.
-The `native-writer-sanitized` environment repeats the writer suite under AddressSanitizer,
+The `native-writer-sanitized` environment repeats every native suite under AddressSanitizer,
 UndefinedBehaviorSanitizer and leak detection. Repeated lifecycle tests cover
 successful writes, failed writes, preview replacement, association retry and
 journal recovery/clear; parser allocations return to their starting count.
