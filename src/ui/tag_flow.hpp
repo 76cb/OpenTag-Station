@@ -128,7 +128,10 @@ class TagFlow {
   // The reader's current tag: a different tag restarts the flow, whether it
   // replaced the previous one between two reads or after an empty reader.
   void observe_tag(const std::string& incoming_uid,const std::string* error_message) {
-    if(!waiting&&!incoming_uid.empty()&&!last_uid.empty()&&incoming_uid!=last_uid&&!recovery_phase(phase)) {
+    // Never while a tag is being changed or linked, including work another
+    // client started: that progress page must stay until it ends.
+    const bool changing=physical_phase(phase)||phase=="associating"||phase=="unlinking";
+    if(!waiting&&!changing&&!incoming_uid.empty()&&!last_uid.empty()&&incoming_uid!=last_uid&&!recovery_phase(phase)) {
       page=TagPage::tag;phase.clear();selected.clear();from_spool=0;resume_recovery();
     }
     uid=incoming_uid;if(!incoming_uid.empty())last_uid=incoming_uid;
@@ -152,13 +155,15 @@ class TagFlow {
     if(operation && incoming["operation_id"].as<std::uint64_t>()!=operation)return false;
     const std::string result_uid=incoming["uid"]|"";
     const std::string result_phase=incoming["phase"]|"";
+    // The recovery record is station-wide: once the writer reports it ended,
+    // forget it even when that result is for a tag no longer on the reader.
+    if(result_phase=="complete"||result_phase=="cleared"||result_phase=="recovery_discarded")recovery={};
     if(!operation&&!result_uid.empty()&&result_uid!=uid&&
        (result_phase=="complete"||result_phase=="cleared"||result_phase=="preview"||result_phase=="clear_preview"))return false;
     // A Spoolman edit made in the browser is not part of the touch flow.
     if(result_phase=="editing"||result_phase=="updated")return true;
     view.set(incoming); phase=view["phase"]|""; message=view["message"]|"";
     if(recovery_phase(phase))recovery={phase,message,view["spool_id"]|0};
-    else if(phase=="complete"||phase=="cleared"||phase=="recovery_discarded")recovery={};
     if(phase=="catalog"||phase=="community") {
       if(!view["items"].is<JsonArray>()||view["items"].size()>8){fail("Inventory page exceeds limit");return false;}
       catalog_page.set(view);search_field=view["search_field"]|"name";

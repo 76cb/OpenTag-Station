@@ -82,6 +82,25 @@ inline void different_tag_after_removal_restarts_the_flow() {
   TEST_ASSERT_TRUE(busy.page==TagPage::progress);TEST_ASSERT_EQUAL(5,busy.from_spool);
 }
 
+// Review: a recovery finished from the browser after the tag left the reader
+// must not leave the touchscreen offering it; and a different tag never pulls
+// the screen off a write or link another client is running.
+inline void recovery_ended_elsewhere_and_foreign_writes_are_respected() {
+  TagFlow f;f.observe_tag("E004000000000001",nullptr);
+  feed(f,R"({"phase":"write_recovery","uid":"E004000000000001","spool_id":7,"message":"Place the same tag on the reader to finish writing it."})");
+  TEST_ASSERT_FALSE(f.recovery.phase.empty());
+  f.observe_tag("",nullptr);
+  network::ResponseBody ended(R"({"phase":"complete","uid":"E004000000000001","spool_id":7})");
+  TEST_ASSERT_FALSE(f.consume(ended));  // not this reader's tag, so not shown
+  TEST_ASSERT_TRUE(f.recovery.phase.empty());
+  f.leave_page();TEST_ASSERT_FALSE(shows(f.screen(),TagAction::retry));
+  for(const char* phase:{"validating","writing","verifying","clearing","decoding","associating","unlinking"}) {
+    TagFlow g;g.observe_tag("E004000000000001",nullptr);g.page=TagPage::progress;g.phase=phase;
+    g.observe_tag("",nullptr);g.observe_tag("E004000000000002",nullptr);
+    TEST_ASSERT_TRUE_MESSAGE(g.page==TagPage::progress,phase);
+  }
+}
+
 // UI-3: work started from the browser must not strand the touchscreen. An
 // edit there does not move the touch flow at all, and any other progress the
 // flow is not itself waiting for offers a way out - except while the tag is
