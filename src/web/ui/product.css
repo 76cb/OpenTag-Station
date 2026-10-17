@@ -38,3 +38,5 @@
 
 @media(max-width:520px){.settings-nav{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));overflow:visible;margin-inline:0;padding:0}.settings-nav button{padding:10px 4px;font-size:13px}}
 .warning-text{color:var(--warning)}
+[data-reading=true]::before{width:9px!important;height:9px!important;border:2px solid var(--accent);border-right-color:transparent;background:none!important;animation:spin .8s linear infinite}.status-chip[data-reading=true]::before{content:'';border-radius:50%}
+.writer-spool{width:96px;float:right;margin:0 0 8px 16px;filter:none}.writer-spool .spool-flange{border-width:6px}.writer-spool .spool-center{border-width:5px}

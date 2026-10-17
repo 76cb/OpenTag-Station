@@ -388,6 +388,14 @@ void write_spool(JsonObject object, const domain::Spool& spool) {
   object["vendor"] = spool.vendor;
   object["material"] = spool.material;
   object["subtype"] = spool.subtype;
+  if (spool.primary_color) {
+    // Same [r, g, b, a] shape as the NFC tag's "color" so the browser can paint the spool.
+    auto color = object["primary_color"].to<JsonArray>();
+    color.add(spool.primary_color->red);
+    color.add(spool.primary_color->green);
+    color.add(spool.primary_color->blue);
+    color.add(spool.primary_color->alpha);
+  }
   add_optional(object, "remaining_grams", spool.remaining_grams);
   add_optional(object, "initial_grams", spool.initial_grams);
   object["used_grams"] = spool.used_grams;
