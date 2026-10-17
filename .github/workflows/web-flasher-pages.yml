@@ -1,8 +1,10 @@
 name: Web flasher Pages
 
 # The public installer is rebuilt from release tags (final releases and
-# release candidates), never from every merge to main. (The github-pages environment
-# must allow deployments from tags matching v*.)
+# release candidates) or when someone starts this workflow by hand from main
+# (Actions -> Web flasher Pages -> Run workflow). It is never rebuilt
+# automatically on every merge to main. (The github-pages environment must allow
+# deployments from main and from tags matching v*.)
 on:
   push:
     tags:
@@ -57,7 +59,7 @@ jobs:
           path: .pio/build/web-flasher-pages
 
   deploy:
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
     needs: build
     runs-on: ubuntu-24.04
     timeout-minutes: 10
