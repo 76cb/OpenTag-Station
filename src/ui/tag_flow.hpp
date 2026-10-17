@@ -5,6 +5,7 @@
 #include <cstdio>
 #include <algorithm>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 #include "network/backend_json.hpp"
@@ -84,6 +85,10 @@ inline std::uint32_t parse_spool_rgb(const char* text, std::uint32_t fallback = 
   }
   return n == 6 || n == 8 ? rgb : fallback;
 }
+// What Spoolman currently says about the tag on the reader when no spool is
+// linked: checked (really not linked), still being looked up, or not
+// reachable (the lookup failed; it is retried when Spoolman is back).
+enum class SpoolLookup : std::uint8_t { checked, resolving, unavailable };
 // Destructive buttons (clear, skip recovery) are drawn in a distinct colour.
 struct TagButton {
   layout::Box box{};
@@ -178,6 +183,9 @@ class TagFlow {
   bool land_on_last_rows{false};
   // More than one tag in the field: nothing can be read until one is removed.
   bool multiple_tags{false};
+  // Only meaningful for an unlinked OpenPrintTag: "not linked" is claimed
+  // only once Spoolman actually answered.
+  SpoolLookup lookup{SpoolLookup::checked};
   // Set when this station's own create_spool returned the new spool; the UI
   // sends its tag preview once (take_auto_preview), with no extra stop.
   bool auto_preview{false};
@@ -658,6 +666,73 @@ inline std::uint32_t view_spool_rgb(JsonVariantConst view) {
            std::uint32_t(color[2].as<unsigned>() & 0xFFU);
   return neutral_spool_rgb;
 }
+// Writer and station errors in plain words. Known internal messages are
+// replaced by what the user can do; anything unknown is shown as it is.
+inline std::string plain_error(const std::string& raw) {
+  const auto has = [&](const char* part) { return raw.find(part) != std::string::npos; };
+  if (has("unlink refused") || has("acquired an owner during unlink") ||
+      has("owner changed after confirmation"))
+    return "Spoolman's record for this tag changed while the station was working on it. Check the spool in Spoolman, then try again.";
+  if (has("Multiple NFC UID owners") || has("NFC UID ownership") || has("instance UUID conflict") ||
+      has("Conflicting instance UUID") || has("belongs to another Spoolman spool") ||
+      has("not uniquely the target spool"))
+    return "More than one Spoolman spool claims this tag. Remove it from the extra spools in Spoolman, then try again.";
+  if (has("identity and NFC UID extra fields") || has("distinct identity fields"))
+    return "Spoolman is missing the extra fields this station needs. Set them up in the browser (Settings), then try again.";
+  if (has("workspace unavailable") || has("allocation failed"))
+    return "The station ran short of working memory for this step. Try again; restart the station if it keeps happening.";
+  if (has("queue is full") || has("queue unavailable") || has("queue is unavailable"))
+    return "The station is busy. Try again in a moment.";
+  if (has("HTTP response exceeds"))
+    return "Spoolman sent more data than the station can handle. Try a narrower search.";
+  if (has("does not match this exact preview") || has("preview again") || has("stale") ||
+      has("refresh selection") || has("refresh before"))
+    return "Something changed since the review. Go back and review it again.";
+  if (has("readback mismatch") || has("ID mismatch"))
+    return "Spoolman returned different data than expected. Check the spool in Spoolman, then try again.";
+  if (has("Malformed"))
+    return "Spoolman returned data the station could not read. Check the record in Spoolman.";
+  return raw;
+}
+// "Not written: material, name" for the data a tag write leaves out
+// (writer preview dropped_fields). Empty when nothing is dropped.
+inline std::string dropped_fields_text(JsonVariantConst dropped) {
+  if (!dropped.is<JsonArrayConst>() || dropped.size() == 0)
+    return {};
+  static constexpr std::array<std::pair<const char*, const char*>, 6> names{{
+      {"name", "name"}, {"vendor", "maker"}, {"material", "material"},
+      {"material_type", "material type"}, {"article_number", "article number"},
+      {"color", "color"}}};
+  std::string text = "Not written: ";
+  std::size_t shown = 0, total = 0;
+  std::array<const char*, 6> seen{};
+  for (JsonVariantConst item : dropped.as<JsonArrayConst>()) {
+    const char* field = item.is<JsonObjectConst>() ? item["field"].as<const char*>()
+                                                    : item.as<const char*>();
+    if (!field)
+      continue;
+    const char* plain = nullptr;
+    for (const auto& entry : names)
+      if (std::string_view(field) == entry.first)
+        plain = entry.second;
+    if (!plain)
+      plain = "other data";
+    if (std::find(seen.begin(), seen.begin() + total, plain) != seen.begin() + total)
+      continue;
+    if (total < seen.size())
+      seen[total] = plain;
+    ++total;
+    if (shown < 3) {
+      text += (shown ? ", " : "") + std::string(plain);
+      ++shown;
+    }
+  }
+  if (total == 0)
+    return {};
+  if (total > shown)
+    text += " and " + std::to_string(total - shown) + " more";
+  return text;
+}
 inline std::string diameter_text(JsonVariantConst value) {
   char buffer[16];
   std::snprintf(buffer, sizeof(buffer), "%.2f mm", value | 1.75);
@@ -697,16 +772,24 @@ inline TagScreen TagFlow::screen() const {
         s.body = "Two tags on the reader. Remove one.";
       } else if (lifecycle == services::TagLifecycle::blank_compatible) {
         s.body = "BLANK TAG\nReady to use\n" + uid;
-        action(0, "ASSIGN TAG", TagAction::sources);
+        action(0, "WRITE TAG", TagAction::sources);
       } else if (lifecycle == services::TagLifecycle::linked) {
         s.body = material + "\nLinked to spool #" + std::to_string(current_spool);
         action(0, "UPDATE TAG", TagAction::update);
-        action(1, "REASSIGN", TagAction::sources);
+        action(1, "USE FOR ANOTHER SPOOL", TagAction::sources);
         s.button({16, 212, 448, 44}, "CLEAR / REUSE", TagAction::clear, true, true);
       } else if (lifecycle == services::TagLifecycle::unlinked && !candidates.empty()) {
         s.body = material + "\nThis may be one of your Spoolman spools.";
         action(0, "CHOOSE WHICH SPOOL", TagAction::choose);
         action(1, "LINK TO A SPOOL", TagAction::sources);
+        s.button({16, 212, 448, 44}, "CLEAR / REUSE", TagAction::clear, true, true);
+      } else if (lifecycle == services::TagLifecycle::unlinked &&
+                 lookup != SpoolLookup::checked) {
+        // Not "not linked": Spoolman has not answered. Linking needs
+        // Spoolman, so it is not offered until it does.
+        s.body = material + (lookup == SpoolLookup::resolving
+                                 ? "\nLooking up this spool in Spoolman..."
+                                 : "\nSpoolman is not reachable. The tag's link cannot be checked right now.\nIt will be looked up again when Spoolman is back.");
         s.button({16, 212, 448, 44}, "CLEAR / REUSE", TagAction::clear, true, true);
       } else if (lifecycle == services::TagLifecycle::unlinked) {
         s.body = material + "\nNot linked to a Spoolman spool yet";
@@ -725,7 +808,7 @@ inline TagScreen TagFlow::screen() const {
       s.button({8, 266, 464, 46}, "DONE", TagAction::home);
       break;
     case TagPage::sources:
-      s.title = from_spool ? "Reassign tag" : "Assign tag";
+      s.title = from_spool ? "Use for another spool" : "Write tag";
       s.body = "How do you want to choose the filament?";
       action(0, "MY SPOOLS", TagAction::spools);
       action(1, "MY FILAMENTS", TagAction::filaments);
@@ -825,7 +908,8 @@ inline TagScreen TagFlow::screen() const {
       const int target = view["spool_id"] | 0;
       // The writer's own reading of the tag decides the warning: another
       // spool owns this UID (previous_spool_id), or the tag holds another
-      // spool's data (repurpose). The screen's own REASSIGN start adds to it.
+      // spool's data (repurpose). The screen's own USE FOR ANOTHER SPOOL
+      // start adds to it.
       const int owner = view["previous_spool_id"] | 0;
       const int moving_from =
           owner > 0 ? owner : (from_spool > 0 && from_spool != target ? from_spool : 0);
@@ -850,6 +934,9 @@ inline TagScreen TagFlow::screen() const {
           s.body += "\nThis tag holds another spool's data. Writing replaces it.";
         else
           s.body += "\nReplaces the filament data on the tag.";
+        const auto dropped = dropped_fields_text(view["dropped_fields"]);
+        if (!dropped.empty())
+          s.body += "\n" + dropped;
       }
       if (!clearing) {
         s.art = true;
@@ -962,7 +1049,7 @@ inline TagScreen TagFlow::screen() const {
       break;
     case TagPage::error:
       s.title = phase == "recovery_discarded" ? "Recovery skipped" : "Needs attention";
-      s.body = message;
+      s.body = plain_error(message);
       back();
       if (community_request || catalog_update_request)
         primary("RETRY", TagAction::retry);

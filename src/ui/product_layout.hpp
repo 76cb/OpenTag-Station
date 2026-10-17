@@ -45,6 +45,7 @@ inline constexpr Box policy{16, 118, 216, 48};
 inline constexpr Box calibration{248, 118, 216, 48};
 inline constexpr Box about{248, 180, 216, 48};
 inline constexpr Box network{16, 180, 216, 48};
-inline constexpr Box wifi{16, 232, 448, 36};
+// Two lines: the setup Wi-Fi name and when it closes.
+inline constexpr Box wifi{16, 232, 448, 40};
 inline constexpr Box nav{0, 272, 480, 48};
 }
