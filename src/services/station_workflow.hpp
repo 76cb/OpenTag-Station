@@ -43,6 +43,9 @@ struct WorkflowSnapshot {
   std::uint64_t printer_revision{0U};
   WorkflowStage stage{WorkflowStage::awaiting_spool};
   bool openprinttag_available{false};
+  // The tag has no OpenPrintTag data and is being identified by UID alone.
+  // It stays hidden (openprinttag_available false) unless a spool matches.
+  bool uid_only{false};
   nfc::openprinttag::MaterialRecord material;
   nfc::nfcv::Uid uid;
   domain::WeightReading physical_weight;
@@ -75,7 +78,7 @@ class StationWorkflow final {
                             std::optional<float> gross, ReconciliationTolerances tolerances);
   // Publishes identification immediately; resolution runs on the backend owner.
   std::uint64_t begin_identified_spool(const nfc::openprinttag::MaterialRecord&,
-      const nfc::nfcv::Uid&);
+      const nfc::nfcv::Uid&, bool uid_only = false);
   [[nodiscard]] WorkflowSnapshot accept_identified_spool(
       const nfc::openprinttag::MaterialRecord& material,
       const nfc::nfcv::Uid& uid,

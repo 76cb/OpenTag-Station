@@ -517,6 +517,10 @@ void BackendWorker::process(Command& command) {
         command.expected_spool_generation); });
     if (!state) workflow_.set_spoolman_probe(false, core::Error{
         core::ErrorCategory::backend_unavailable, "Spool resolution workspace unavailable; retry", true});
+    // Spoolman 0.27+: a Spoolman page paired with this station jumps to the
+    // tag's spool. Once per placement; best effort.
+    spoolman_.report_tag_scan(command.uid.hex(), configured.device.hostname,
+                              "OpenTag Station");
     return;
   }
   if (command.type == CommandType::assign) {

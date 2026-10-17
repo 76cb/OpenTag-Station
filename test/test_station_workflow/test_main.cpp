@@ -641,9 +641,107 @@ void test_verified_mapping_updates_the_printer_cache_after_tag_removal() {
   TEST_ASSERT_FALSE(snapshot.last_assignment.has_value());
 }
 
+void test_blank_tag_linked_in_spoolman_is_shown_as_its_spool() {
+  FakeResolver resolver;
+  FakePrinterBackend printers;
+  StationWorkflow workflow(resolver, printers);
+  Spool linked;
+  linked.id = 31;
+  linked.filament_id = 4;
+  linked.display_name = "Acme PLA Blue";
+  linked.remaining_grams = 640.0F;
+  resolver.next = Result<SpoolResolution>::success(
+      {SpoolResolutionStatus::matched, opentag::services::SpoolMatchSource::native_tag, {linked}});
+  int submissions = 0;
+  opentag::services::NfcWorkflowHandoff handoff(workflow,
+      [&](const opentag::nfc::IdentifiedTag& tag, opentag::domain::WeightReading weight, std::uint64_t generation) {
+        ++submissions;
+        TEST_ASSERT_FALSE(tag.decoded.material.material_name.has_value());
+        (void)workflow.accept_identified_spool(tag.decoded.material, tag.uid, weight, {}, {}, generation);
+        return true;
+      });
+  opentag::nfc::ReadSnapshot s;
+  s.state = opentag::nfc::ReadState::blank;
+  s.present = true;
+  s.blank_compatible = true;
+  s.uid = Uid{{0xE0, 0x04, 1, 2, 3, 4, 5, 6}};
+  s.generation = 4;
+  handoff.observe(s, std::nullopt);
+  // While it is looked up the tag stays shown as blank.
+  TEST_ASSERT_FALSE(workflow.snapshot().openprinttag_available);
+  TEST_ASSERT_TRUE(workflow.snapshot().uid_only);
+  handoff.observe(s, opentag::domain::WeightReading{900, true});
+  TEST_ASSERT_EQUAL(1, submissions);
+  const auto snapshot = workflow.snapshot();
+  TEST_ASSERT_TRUE(snapshot.openprinttag_available);
+  TEST_ASSERT_TRUE(snapshot.spool.has_value());
+  TEST_ASSERT_EQUAL(31, snapshot.spool->id);
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(WorkflowStage::spool_ready), static_cast<int>(snapshot.stage));
+  // Removal clears it like any other tag.
+  s.present = false;
+  s.uid.reset();
+  handoff.observe(s, std::nullopt);
+  TEST_ASSERT_FALSE(workflow.snapshot().openprinttag_available);
+  TEST_ASSERT_FALSE(workflow.snapshot().spool.has_value());
+}
+
+void test_unlinked_blank_or_other_tag_stays_hidden() {
+  for (auto status : {SpoolResolutionStatus::not_found, SpoolResolutionStatus::ambiguous,
+                      SpoolResolutionStatus::conflict}) {
+    FakeResolver resolver;
+    FakePrinterBackend printers;
+    StationWorkflow workflow(resolver, printers);
+    Spool candidate;
+    candidate.id = 8;
+    resolver.next = Result<SpoolResolution>::success(
+        {status, opentag::services::SpoolMatchSource::native_tag, {candidate, candidate}});
+    const Uid uid{{0xE0, 0x04, 9, 9, 9, 9, 9, 9}};
+    const auto generation = workflow.begin_identified_spool(material(), uid, true);
+    const auto result = workflow.accept_identified_spool(material(), uid, {900, true}, {}, {}, generation);
+    TEST_ASSERT_EQUAL(1, resolver.calls);
+    TEST_ASSERT_FALSE(result.openprinttag_available);
+    TEST_ASSERT_FALSE(result.spool.has_value());
+    TEST_ASSERT_TRUE(result.spool_candidates.empty());
+    TEST_ASSERT_EQUAL_INT(static_cast<int>(WorkflowStage::spool_not_found), static_cast<int>(result.stage));
+  }
+  // A tag with other (non-OpenPrintTag) data is looked up the same way.
+  FakeResolver resolver;
+  FakePrinterBackend printers;
+  StationWorkflow workflow(resolver, printers);
+  int submissions = 0;
+  opentag::services::NfcWorkflowHandoff handoff(workflow,
+      [&](const opentag::nfc::IdentifiedTag&, opentag::domain::WeightReading, std::uint64_t) {
+        ++submissions;
+        return true;
+      });
+  opentag::nfc::ReadSnapshot s;
+  s.state = opentag::nfc::ReadState::unsupported;
+  s.present = true;
+  s.uid = Uid{{0xE0, 0x04, 1, 2, 3, 4, 5, 6}};
+  s.generation = 2;
+  handoff.observe(s, opentag::domain::WeightReading{900, true});
+  TEST_ASSERT_EQUAL(1, submissions);
+  // Still being read: nothing is looked up yet.
+  opentag::nfc::ReadSnapshot reading;
+  reading.state = opentag::nfc::ReadState::stabilizing;
+  reading.present = true;
+  reading.uid = s.uid;
+  StationWorkflow quiet(resolver, printers);
+  int quiet_submissions = 0;
+  opentag::services::NfcWorkflowHandoff idle(quiet,
+      [&](const opentag::nfc::IdentifiedTag&, opentag::domain::WeightReading, std::uint64_t) {
+        ++quiet_submissions;
+        return true;
+      });
+  idle.observe(reading, opentag::domain::WeightReading{900, true});
+  TEST_ASSERT_EQUAL(0, quiet_submissions);
+}
+
 int main(int, char**) {
   UNITY_BEGIN();
   RUN_TEST(test_readback_preserves_custom_two_and_ten_gram_tolerances);
+  RUN_TEST(test_blank_tag_linked_in_spoolman_is_shown_as_its_spool);
+  RUN_TEST(test_unlinked_blank_or_other_tag_stays_hidden);
   RUN_TEST(test_readback_preserves_default_five_and_twenty_gram_tolerances);
   RUN_TEST(test_removal_preserves_discovery_and_reinsertion_can_assign);
   RUN_TEST(test_explicit_spool_confirmation_is_generation_fenced);

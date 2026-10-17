@@ -129,6 +129,8 @@ class UiService {
   void refresh_workflow();
   // Parts of refresh_workflow(); each returns to it.
   bool track_scale_operation();
+  // True when Home shows the compatible-blank-tag prompt (ASSIGN TAG).
+  bool home_shows_blank_tag() const;
   void refresh_home_page(
       const diagnostics::ScaleDiagnosticSnapshot& scale, bool busy);
   void refresh_printer_page();

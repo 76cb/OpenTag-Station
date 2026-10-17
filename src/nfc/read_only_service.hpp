@@ -68,6 +68,15 @@ struct ReadSnapshot {
   std::shared_ptr<const IdentifiedTag> tag;
 };
 
+// A present tag without OpenPrintTag data (blank, or other data) can still be
+// identified by its UID alone, through Spoolman. Its read generation, else 0.
+inline std::uint64_t uid_only_generation(const ReadSnapshot& s) {
+  return !s.tag && s.present && s.uid &&
+                 (s.state == ReadState::blank || s.state == ReadState::unsupported)
+             ? s.generation
+             : 0U;
+}
+
 class ReadOnlyService {
  public:
   explicit ReadOnlyService(IReadOnlyReader& reader) : reader_(reader) {}
