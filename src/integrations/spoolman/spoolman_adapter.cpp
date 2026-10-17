@@ -416,7 +416,8 @@ network::HttpRequest SpoolmanAdapter::build_request(
   return request;
 }
 
-core::Result<network::HttpResponse> SpoolmanAdapter::request_any_status(
+__attribute__((noinline)) core::Result<network::HttpResponse>
+SpoolmanAdapter::request_any_status(
     const std::string& method,
     const std::string& path,
     const std::string& body,
@@ -437,7 +438,7 @@ core::Result<network::HttpResponse> SpoolmanAdapter::request_any_status(
   return response;
 }
 
-void SpoolmanAdapter::report_tag_scan(const std::string& uid,
+__attribute__((noinline)) void SpoolmanAdapter::report_tag_scan(const std::string& uid,
                                       const std::string& reader_id,
                                       const std::string& reader_name) {
   if (settings_.url.empty() ||
@@ -449,11 +450,11 @@ void SpoolmanAdapter::report_tag_scan(const std::string& uid,
   body["name"] = reader_name;
   std::string bytes;
   serializeJson(body, bytes);
-  // Informational only. The answer embeds the whole spool, so it may exceed
-  // the response bound; neither that nor any failure says anything about
-  // Spoolman's health, so status_ is left untouched.
-  (void)transport_.perform(
-      build_request("POST", "/tag/scan", bytes, maximum_json_bytes));
+  // Informational only. The answer embeds the whole spool and is not read:
+  // it exceeds the small bound, which ends the request as soon as its size is
+  // known. Neither that nor any failure says anything about Spoolman's
+  // health, so status_ is left untouched.
+  (void)transport_.perform(build_request("POST", "/tag/scan", bytes, 1024U));
 }
 
 core::Result<network::HttpResponse> SpoolmanAdapter::request(

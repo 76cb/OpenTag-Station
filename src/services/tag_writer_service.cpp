@@ -925,8 +925,9 @@ Result TagWriterService::discard_recovery() {
   uuid_.clear();
   view_.clear();
   publish("recovery_discarded",
-          "Stopped. The tag keeps its current contents and Spoolman was not "
-          "changed. Read the tag again before using it.");
+          "Stopped. The tag keeps its current contents. Spoolman may already "
+          "be partly updated; check the spool there. Read the tag again before "
+          "using it.");
   return Result::success();
 }
 __attribute__((noinline)) Result TagWriterService::persist_clear() {
@@ -940,6 +941,16 @@ Result TagWriterService::require_identity_fields() {
   // Right after start-up the version may not be known yet; without it a tag
   // would be linked only through the extra fields.
   spoolman_.refresh_capabilities();
+  // Without the version the station cannot tell whether Spoolman keeps a tag
+  // list; guessing "no" would finish a move or clear without it and delete
+  // the recovery record. Stay pending instead.
+  if (!spoolman_.status_.capabilities.has(
+          integrations::BackendCapability::runtime_version))
+    return Result::failure(
+        {core::ErrorCategory::backend_unavailable,
+         "Could not read Spoolman's version. Check that Spoolman is "
+         "reachable, then try again.",
+         true});
   native_ = spoolman_.status_.capabilities.has(
       integrations::BackendCapability::native_tags);
   auto definitions = spoolman_.list_extra_fields();
@@ -953,7 +964,7 @@ Result TagWriterService::require_identity_fields() {
   extras_ = problem.empty();
   return extras_ || native_ ? Result::success() : fail(problem.c_str());
 }
-core::Result<std::vector<TagWriterService::NativeHold>>
+__attribute__((noinline)) core::Result<std::vector<TagWriterService::NativeHold>>
 TagWriterService::native_holders() {
   using Holds = core::Result<std::vector<NativeHold>>;
   std::vector<NativeHold> holds;
@@ -980,7 +991,8 @@ TagWriterService::native_holders() {
             .error());
   return Holds::success(std::move(holds));
 }
-core::Result<std::int32_t> TagWriterService::native_filament_holder() {
+__attribute__((noinline)) core::Result<std::int32_t>
+TagWriterService::native_filament_holder() {
   const auto canonical = plan_->uid.hex();
   for (const auto &form : {canonical, reversed_uid(canonical)}) {
     auto matches = api("GET", "/filament?tag=" + form + "&limit=1&offset=0");
@@ -992,7 +1004,7 @@ core::Result<std::int32_t> TagWriterService::native_filament_holder() {
   }
   return core::Result<std::int32_t>::success(0);
 }
-Result TagWriterService::native_unlink(const NativeHold &hold) {
+__attribute__((noinline)) Result TagWriterService::native_unlink(const NativeHold &hold) {
   auto response = spoolman_.request_any_status(
       "DELETE", "/spool/" + std::to_string(hold.spool) + "/tag/" + hold.uid,
       {}, 1024U);
@@ -1007,7 +1019,7 @@ Result TagWriterService::native_unlink(const NativeHold &hold) {
                std::to_string(hold.spool))
                   .c_str());
 }
-Result TagWriterService::link_native() {
+__attribute__((noinline)) Result TagWriterService::link_native() {
   // A second "associating" publish gives these requests a fresh budget.
   publish("associating", "Linking the tag in Spoolman", plan_->completed,
           plan_->count);
@@ -1077,14 +1089,14 @@ Result TagWriterService::link_native() {
       return fail("Spoolman tag link readback names another spool");
   return Result::success();
 }
-Result TagWriterService::unlink_native() {
+__attribute__((noinline)) Result TagWriterService::unlink_native() {
   // A second "unlinking" publish gives these requests a fresh budget.
   publish("unlinking", "Removing the tag from Spoolman's tag list");
   auto holds = native_holders();
   if (!holds.ok())
     return Result::failure(holds.error());
   for (const auto &hold : holds.value()) {
-    if (spool_id_ && hold.spool != spool_id_)
+    if (hold.spool != spool_id_)
       return fail("Spoolman now links this tag to another spool; unlink "
                   "refused");
     auto removed = native_unlink(hold);
@@ -1330,10 +1342,15 @@ __attribute__((noinline)) Result TagWriterService::unlink() {
     if (!saved.ok())
       return saved;
   }
+  std::int32_t filament_link = 0;
   if (native_) {
     auto unlinked = unlink_native();
     if (!unlinked.ok())
       return unlinked;
+    // The station never removes a filament's tag link; say it remains.
+    auto filament = native_filament_holder();
+    if (filament.ok())
+      filament_link = filament.value();
   }
   if (extras_) {
     auto final_check = unlink_final_check();
@@ -1354,11 +1371,16 @@ __attribute__((noinline)) Result TagWriterService::unlink() {
   clear_recovery_required_ = false;
   plan_->cleanup_pending = false;
   view_["spool_id"] = spool_id_;
-  publish("cleared", "Tag cleared and verified. Ready to reuse.",
-          plan_->completed, plan_->count);
+  const auto cleared_message =
+      filament_link > 0
+          ? "Tag cleared and verified. Spoolman still links it to filament #" +
+                std::to_string(filament_link) +
+                "; remove it there before using the tag for a spool."
+          : std::string("Tag cleared and verified. Ready to reuse.");
+  publish("cleared", cleared_message.c_str(), plan_->completed, plan_->count);
   return Result::success();
 }
-Result TagWriterService::unlink_final_check() {
+__attribute__((noinline)) Result TagWriterService::unlink_final_check() {
   auto final_owner = uid_owner();
   if (!final_owner.ok())
     return Result::failure(final_owner.error());
@@ -1580,7 +1602,7 @@ Result TagWriterService::associate() {
           plan_->completed, plan_->count);
   return Result::success();
 }
-Result TagWriterService::associate_extra_fields() {
+__attribute__((noinline)) Result TagWriterService::associate_extra_fields() {
   auto unique = unique_identity();
   if (!unique.ok())
     return unique;

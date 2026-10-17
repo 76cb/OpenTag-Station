@@ -1687,7 +1687,7 @@ spool_resolution_unavailable: 'Spoolman resolution failed. Check the backend con
 spool_ready: '',
 assignment_complete: 'Assignment verified by FilaBridge readback.'
 };
-byId('spool-guidance').textContent=workflow.error || guidance[workflow.stage] || '';
+byId('spool-guidance').textContent=workflow.openprinttag_available?workflow.error||guidance[workflow.stage]||'':'';
 byId('confirm-spool-form').hidden = !workflow.openprinttag_available ||
 !['spool_not_found', 'spool_selection_required', 'spool_resolution_unavailable'].includes(workflow.stage);
 const choices = byId('spool-candidates');

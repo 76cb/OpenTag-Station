@@ -269,6 +269,24 @@ core::Result<SpoolResolution> SpoolIdentityResolver::resolve(
           SpoolResolutionStatus::conflict, SpoolMatchSource::native_tag,
           std::move(result.value().candidates)));
     }
+    // The linked spool has no instance UUID to compare (no extra fields, or
+    // an older client): another spool holding the tag's exact UUID makes the
+    // link ambiguous.
+    if (match != nullptr && identity.instance_uuid.has_value() &&
+        (!match->openprinttag_instance_uuid.has_value() ||
+         match->openprinttag_instance_uuid->empty())) {
+      auto by_uuid = exact_extra_match(settings_.identity_field,
+          *identity.instance_uuid, SpoolMatchSource::configured_identity_field);
+      if (!by_uuid.ok()) return by_uuid;
+      const auto* other = by_uuid.value().match();
+      if (other != nullptr && other->id != match->id) {
+        auto candidates = std::move(result.value().candidates);
+        candidates.push_back(*other);
+        return core::Result<SpoolResolution>::success(resolved(
+            SpoolResolutionStatus::conflict, SpoolMatchSource::native_tag,
+            std::move(candidates)));
+      }
+    }
     if (result.value().status != SpoolResolutionStatus::not_found) return result;
   }
   if (identity.instance_uuid.has_value()) {
@@ -303,9 +321,13 @@ core::Result<SpoolResolution> SpoolIdentityResolver::resolve(
     if (!result.ok() || result.value().status != SpoolResolutionStatus::not_found) {
       return result;
     }
-    result = cached_match(identity, true);
-    if (!result.ok() || result.value().status != SpoolResolutionStatus::not_found) {
-      return result;
+    // Spoolman 0.27+ keeps the UID links itself; a local entry it no longer
+    // confirms is stale (for example a link removed in Spoolman).
+    if (!inventory_.capabilities().has(integrations::BackendCapability::native_tags)) {
+      result = cached_match(identity, true);
+      if (!result.ok() || result.value().status != SpoolResolutionStatus::not_found) {
+        return result;
+      }
     }
   }
 

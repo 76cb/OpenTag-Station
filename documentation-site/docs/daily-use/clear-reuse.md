@@ -37,6 +37,11 @@ A tag with other data ("This tag can't be used as it is") cannot be erased by th
 
 The first two continue with the steps in [Write or update a tag](manage-tags.md).
 
+The station never removes a tag link that belongs to a filament in Spoolman. If there is one, the
+browser's message after clearing reads "Tag cleared and verified. Spoolman still links it to
+filament #N; remove it there before using the tag for a spool." Remove it in Spoolman before you
+write the tag for a spool; otherwise the write is refused.
+
 ### Browser
 
 1. Put the tag on the reader. On the Dashboard click **Manage tag**, then **Clear / Reuse**.

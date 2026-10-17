@@ -45,13 +45,15 @@ then tap **SKIP RECOVERY** again. **BACK** returns without skipping.
 Browser: **Skip linking** or **Skip cleanup**. An interrupted write or clear can only be skipped
 on the touchscreen.
 
-The station then stops trying and shows **Recovery skipped**.
-It changes neither the tag nor Spoolman, so what is left depends on where it stopped:
+The station then stops trying and shows **Recovery skipped** with "Stopped. The tag keeps its
+current contents. Spoolman may already be partly updated; check the spool there. Read the tag again
+before using it."
+Skipping changes neither the tag nor Spoolman, so what is left depends on where it stopped:
 
 | You skipped | What is left behind | What to do afterwards |
 |---|---|---|
 | **Finish writing this tag** or **Finish clearing this tag** | The tag may be half-written. The station cannot finish it, and may not be able to write or clear it either. | Skip only if the tag is lost or damaged. If you still have it, place it again; discard it if the station says it can't be used. |
-| **Link not saved yet** | The tag is written, but Spoolman does not know it belongs to the spool. | Link it later: **Manage tag → LINK TO A SPOOL** (browser: **Link to a spool**). |
+| **Link not saved yet** | The tag is written, but Spoolman does not know it belongs to the spool. When the tag was being moved, the old spool may already have lost its link. | Link it later: **Manage tag → LINK TO A SPOOL** (browser: **Link to a spool**). |
 | **Unlink not finished** | The tag is erased, but Spoolman may still list it on the old spool. | In Spoolman, open the old spool, empty its `nfc_uid` and `opentag_instance_uuid` fields, and on Spoolman 0.27 or later remove the tag from its tag list. |
 
 ## Good to know

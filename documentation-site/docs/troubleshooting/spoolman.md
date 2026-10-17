@@ -24,6 +24,7 @@ The touchscreen has no test button; in its setup steps `URL saved` only means th
 | `Spoolman returned HTTP <number>` | The same, or Spoolman answered with an error. | The same. |
 | `Spoolman authentication was rejected` | Spoolman, or something in front of it that asks for a password, wants a token and the saved one is wrong. | Enter the token under **Edit Spoolman → New token**. |
 | `Backend operation deadline exceeded` | Spoolman did not answer in time. | Check that Spoolman responds; try again. |
+| `Could not read Spoolman's version. Check that Spoolman is reachable, then try again.` | Writing or clearing a tag needs Spoolman's version first, to know whether Spoolman keeps a tag list, and Spoolman did not answer. Nothing was written; an operation already under way stays pending. | Check that Spoolman responds, then try again (**TRY SAVING LINK AGAIN** / **TRY UNLINKING AGAIN** if one is pending). |
 | `HTTP transport failed: …` | The connection to Spoolman failed or broke off. | The same. |
 | `Backend deferred: insufficient internal memory; local controls remain available` | The station is short of memory for the moment. | Try again. If it stays, restart the station. |
 

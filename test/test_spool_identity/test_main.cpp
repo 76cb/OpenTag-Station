@@ -405,6 +405,9 @@ void test_native_tag_list_is_asked_first_on_spoolman_with_tags() {
   inventory.caps.add(BackendCapability::native_tags);
   MemoryMappings mappings;
   inventory.find_results.push_back(spool_result({spool(17)}));
+  // The linked spool has no instance UUID, so the UUID must not be held
+  // by another spool either.
+  inventory.find_results.push_back(spool_result({}));
   SpoolIdentityResolver resolver(inventory, mappings, settings());
   SpoolIdentity identity;
   identity.instance_uuid = "00112233-4455-6677-8899-aabbccddeeff";
@@ -414,7 +417,7 @@ void test_native_tag_list_is_asked_first_on_spoolman_with_tags() {
   TEST_ASSERT_EQUAL(static_cast<int>(SpoolMatchSource::native_tag),
                     static_cast<int>(result.value().source));
   TEST_ASSERT_EQUAL_INT32(17, result.value().match()->id);
-  TEST_ASSERT_EQUAL_UINT(1U, inventory.filters.size());
+  TEST_ASSERT_EQUAL_UINT(2U, inventory.filters.size());
   TEST_ASSERT_EQUAL_STRING("E004010203040506", inventory.filters[0].tag->c_str());
   TEST_ASSERT_TRUE(inventory.filters[0].allow_archived);
   TEST_ASSERT_TRUE(inventory.filters[0].extra_json.empty());
@@ -518,6 +521,59 @@ void test_uid_only_identity_never_falls_back_to_metadata() {
   TEST_ASSERT_EQUAL_UINT(3U, inventory.filters.size());
 }
 
+void test_native_link_without_uuid_yields_to_an_exact_uuid_elsewhere() {
+  FakeInventory inventory;
+  inventory.caps.add(BackendCapability::native_tags);
+  MemoryMappings mappings;
+  auto linked = spool(17);       // Spoolman tag list, no instance UUID
+  auto exact = spool(18);        // holds the tag's exact instance UUID
+  exact.openprinttag_instance_uuid = "00112233-4455-6677-8899-aabbccddeeff";
+  inventory.find_results.push_back(spool_result({linked}));
+  inventory.find_results.push_back(spool_result({exact}));
+  SpoolIdentityResolver resolver(inventory, mappings, settings());
+  SpoolIdentity identity;
+  identity.instance_uuid = "00112233-4455-6677-8899-aabbccddeeff";
+  identity.nfc_uid = "E004010203040506";
+  const auto result = resolver.resolve(identity);
+  TEST_ASSERT_TRUE(result.ok());
+  TEST_ASSERT_EQUAL(static_cast<int>(SpoolResolutionStatus::conflict),
+                    static_cast<int>(result.value().status));
+  TEST_ASSERT_EQUAL_UINT(2U, result.value().candidates.size());
+
+  // The same spool on both sides is simply a match.
+  FakeInventory same;
+  same.caps.add(BackendCapability::native_tags);
+  same.find_results.push_back(spool_result({linked}));
+  auto also = spool(17);
+  also.openprinttag_instance_uuid = identity.instance_uuid;
+  same.find_results.push_back(spool_result({also}));
+  SpoolIdentityResolver same_resolver(same, mappings, settings());
+  const auto matched = same_resolver.resolve(identity);
+  TEST_ASSERT_EQUAL(static_cast<int>(SpoolResolutionStatus::matched),
+                    static_cast<int>(matched.value().status));
+}
+
+void test_local_uid_cache_is_not_trusted_over_spoolmans_tag_list() {
+  FakeInventory inventory;
+  inventory.caps.add(BackendCapability::native_tags);
+  MemoryMappings mappings;
+  ConfirmedSpoolMapping cached;
+  cached.spool_id = 44;
+  cached.nfc_uid = "E004010203040506";
+  mappings.values.push_back(cached);
+  inventory.by_id[44] = spool(44);
+  inventory.find_results.push_back(spool_result({}));  // tag, canonical
+  inventory.find_results.push_back(spool_result({}));  // tag, reversed
+  inventory.find_results.push_back(spool_result({}));  // nfc_uid extra field
+  SpoolIdentityResolver resolver(inventory, mappings, settings());
+  SpoolIdentity identity;
+  identity.nfc_uid = "E004010203040506";
+  const auto result = resolver.resolve(identity);
+  TEST_ASSERT_TRUE(result.ok());
+  TEST_ASSERT_EQUAL(static_cast<int>(SpoolResolutionStatus::not_found),
+                    static_cast<int>(result.value().status));
+}
+
 int main(int, char**) {
   UNITY_BEGIN();
   RUN_TEST(test_empty_metadata_never_selects_arbitrary_inventory);
@@ -527,6 +583,8 @@ int main(int, char**) {
   RUN_TEST(test_native_owner_of_an_earlier_tag_use_is_a_conflict);
   RUN_TEST(test_missing_extra_fields_are_skipped_when_spoolman_has_tags);
   RUN_TEST(test_uid_only_identity_never_falls_back_to_metadata);
+  RUN_TEST(test_native_link_without_uuid_yields_to_an_exact_uuid_elsewhere);
+  RUN_TEST(test_local_uid_cache_is_not_trusted_over_spoolmans_tag_list);
   RUN_TEST(test_configured_instance_uuid_is_first_and_unique_match_wins);
   RUN_TEST(test_duplicate_instance_uuid_is_reported_as_conflict);
   RUN_TEST(test_confirmed_instance_cache_precedes_nfc_and_metadata);

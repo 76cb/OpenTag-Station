@@ -66,7 +66,8 @@ def main():
         frame(filabridge, "FilaBridgeAdapter::probe(") + 2 * largest(filabridge))
     identify = frame(workflow, "StationWorkflow::accept_identified_spool(") + 2 * largest("services/spool_identity_resolver") + 2 * largest(spoolman)
     assignment = frame(workflow, "StationWorkflow::assign(") + 2 * largest("services/toolhead_assignment_service") + 2 * largest(filabridge)
-    backend = backend_owner + frame("application/backend_worker", "BackendWorker::process(") + max(probe, identify, assignment) + frame("network/http_transport", "HttpTransport::perform(") + 2048
+    scan_report = frame(spoolman, "SpoolmanAdapter::report_tag_scan(")
+    backend = backend_owner + frame("application/backend_worker", "BackendWorker::process(") + max(probe, identify, assignment, scan_report) + frame("network/http_transport", "HttpTransport::perform(") + 2048
     # Explicit spool confirmation adds a serialized configuration persistence
     # path on this owner. It runs after HTTP has returned, not beneath it.
     persistence = backend_owner + frame("application/backend_worker", "BackendWorker::process(") + frame("services/spool_identity_resolver", "SpoolIdentityResolver::confirm(") + frame("config/configuration_service", "ConfigurationService::confirm_spool_identity_mapping(") + frame("config/configuration_service", "ConfigurationService::persist_locked(") + 2 * largest("config/configuration_service") + 2048
@@ -93,6 +94,14 @@ def main():
     # associate() and unlink() first confirm the Spool extra fields exist.
     identity_fields_http = frame("services/tag_writer_service", "TagWriterService::require_identity_fields(") + frame(spoolman, "SpoolmanAdapter::list_extra_fields(")
     writer_uid_http = max(writer_uid_http, writer_commit + frame("services/tag_writer_service", "TagWriterService::associate(") + identity_fields_http)
+    # Extra-field association moved into its own helper; Spoolman 0.27+ tag
+    # links add native_holders (via api) and request_any_status beneath it.
+    tws = "services/tag_writer_service"
+    native_request = frame(spoolman, "SpoolmanAdapter::request_any_status(") - frame(spoolman, "SpoolmanAdapter::request(")
+    writer_uid_http = max(writer_uid_http,
+        writer_commit + frame(tws, "TagWriterService::associate(") + frame(tws, "TagWriterService::associate_extra_fields(") + frame(tws, "TagWriterService::clear_previous_uid(") + frame(tws, "TagWriterService::uid_owner(") + frame(tws, "TagWriterService::api("),
+        writer_commit + frame(tws, "TagWriterService::associate(") + frame(tws, "TagWriterService::link_native(") + max(frame(tws, "TagWriterService::native_holders(") + frame(tws, "TagWriterService::api("), max(0, native_request)),
+        writer_prepare + frame(tws, "TagWriterService::prepare_uid_owner(") + max(frame(tws, "TagWriterService::native_holders("), frame(tws, "TagWriterService::native_filament_holder(")) + frame(tws, "TagWriterService::api("))
     writer_edit_http = frame("services/tag_writer_service", "TagWriterService::edit_and_report(") + frame("services/tag_writer_service", "TagWriterService::edit_record(") + frame("services/tag_writer_service", "TagWriterService::api(")
     writer_http = writer_controller + max(2 * largest("services/tag_writer_service"), writer_uid_http, writer_edit_http) + frame(spoolman, "SpoolmanAdapter::request(") + frame("network/http_transport", "HttpTransport::perform(") + 2048
     writer_storage = writer_controller + max(writer_prepare, writer_commit) + largest("platform/storage/writer_journal") + 2048
@@ -103,7 +112,9 @@ def main():
     clear_decode = writer_controller + clear_prepare + max(frame(writer_path, "OpenPrintTagWriter::read("), frame(writer_path, "OpenPrintTagWriter::plan_clear(")) + decode + max(
         frame(codec, "parse_envelope(opentag::core::ByteView)"), frame(codec, "decode_material(opentag::core::ByteView")) + recursive
     clear_transport = writer_controller + max(clear_prepare + frame(writer_path, "OpenPrintTagWriter::read("), clear_commit + frame(writer_path, "OpenPrintTagWriter::execute(")) + frame(writer_path, "OpenPrintTagWriter::full_read(") + frame(writer_path, "OpenPrintTagWriter::fence(") + max(largest("hardware/nfc/st25r3916b/i2c_reader"), largest("hardware/nfc/st25r3916b/openprinttag_write_binding")) + 2048
-    clear_http = writer_controller + clear_commit + clear_unlink + max(max(frame(service, "TagWriterService::uid_owner("), frame(service, "TagWriterService::unique_identity(")) + frame(service, "TagWriterService::api("), identity_fields_http) + frame(spoolman, "SpoolmanAdapter::request(") + frame("network/http_transport", "HttpTransport::perform(") + 2048
+    clear_http = writer_controller + clear_commit + clear_unlink + max(max(frame(service, "TagWriterService::uid_owner("), frame(service, "TagWriterService::unique_identity(")) + frame(service, "TagWriterService::api("), identity_fields_http,
+        frame(service, "TagWriterService::unlink_final_check(") + frame(service, "TagWriterService::uid_owner(") + frame(service, "TagWriterService::api("),
+        frame(service, "TagWriterService::unlink_native(") + max(frame(service, "TagWriterService::native_holders(") + frame(service, "TagWriterService::api("), frame(service, "TagWriterService::native_unlink(") + max(0, native_request))) + frame(spoolman, "SpoolmanAdapter::request(") + frame("network/http_transport", "HttpTransport::perform(") + 2048
     clear_storage = writer_controller + clear_commit + clear_unlink + max(
         frame(service, "TagWriterService::persist_clear(") + 2 * largest("platform/storage/writer_journal"),
         frame("config/configuration_service", "ConfigurationService::clear_verified_spool_identity_mapping(") + frame("config/configuration_service", "ConfigurationService::persist_locked(") + 2 * largest("config/configuration_service")) + 2048
