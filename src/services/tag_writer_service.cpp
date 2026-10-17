@@ -165,6 +165,21 @@ const char *physical_status(const char *phase) {
     return "Checking tag contents";
   return "Working with tag";
 }
+// Kept out of prepare()'s frame: the strings live only for this call.
+__attribute__((noinline)) void write_dropped_fields(JsonArray dropped,
+                                                    JsonArray warnings,
+                                                    JsonObjectConst spool,
+                                                    bool mutable_only) {
+  if (mutable_only)
+    return;
+  for (const auto &field : nfc::openprinttag::dropped_fields(spool)) {
+    auto entry = dropped.add<JsonObject>();
+    entry["field"] = field.field;
+    entry["value"] = field.value;
+    entry["reason"] = field.reason;
+    warnings.add(field.warning);
+  }
+}
 } // namespace
 core::Result<network::BackendDocument>
 TagWriterService::api(const char *method, const std::string &path,
@@ -1570,9 +1585,10 @@ Result TagWriterService::prepare(JsonObjectConst c) {
                  "spool UUID is retained.");
   warnings.add("Writing is not atomic. Keep this tag on the reader and power "
                "connected until complete.");
-  warnings.add("Names exceeding OpenPrintTag limits and metadata without an "
-               "exact supported mapping are omitted, never truncated. Review "
-               "proposed values.");
+  // One explicit warning per Spoolman value a full write leaves off the tag
+  // (omitted, never truncated); a mutable update writes no metadata.
+  write_dropped_fields(view_["dropped_fields"].to<JsonArray>(), warnings,
+                       spool.value().as<JsonObjectConst>(), mutable_only);
   auto proposed = view_["proposed"].to<JsonObject>();
   const auto &m = plan_->proposed.material;
   nfc::openprinttag::material_json(proposed, m);

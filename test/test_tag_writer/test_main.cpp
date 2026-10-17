@@ -634,6 +634,126 @@ void confirmation_mismatch_refuses() {
   TEST_ASSERT_FALSE(f.confirm().ok());
   TEST_ASSERT_EQUAL(0, f.reader.writes);
 }
+// Preview of spool 12 with one filament value changed; returns the view.
+void preview_dropped(ServiceFixture &f) {
+  auto r = f.run(R"({"action":"preview","spool_id":12})");
+  TEST_ASSERT_TRUE_MESSAGE(r.ok(), r.ok() ? "" : r.error().message.c_str());
+  TEST_ASSERT_EQUAL_STRING("preview", f.view["phase"].as<const char *>());
+  TEST_ASSERT_TRUE(f.view["dropped_fields"].is<JsonArrayConst>());
+}
+bool has_warning(ServiceFixture &f, const std::string &text) {
+  for (auto w : f.view["warnings"].as<JsonArrayConst>())
+    if (text == w.as<const char *>())
+      return true;
+  return false;
+}
+void expect_single_drop(ServiceFixture &f, const char *field,
+                        const char *value, const char *reason,
+                        const char *warning) {
+  preview_dropped(f);
+  auto dropped = f.view["dropped_fields"].as<JsonArrayConst>();
+  TEST_ASSERT_EQUAL_MESSAGE(1, dropped.size(), field);
+  TEST_ASSERT_EQUAL_STRING(field, dropped[0]["field"].as<const char *>());
+  TEST_ASSERT_EQUAL_STRING(value, dropped[0]["value"].as<const char *>());
+  TEST_ASSERT_EQUAL_STRING(reason, dropped[0]["reason"].as<const char *>());
+  TEST_ASSERT_TRUE_MESSAGE(has_warning(f, warning), warning);
+}
+void dropped_fields_none_for_a_clean_spool() {
+  ServiceFixture f;
+  preview_dropped(f);
+  TEST_ASSERT_EQUAL(0, f.view["dropped_fields"].size());
+  for (auto w : f.view["warnings"].as<JsonArrayConst>())
+    TEST_ASSERT_TRUE(std::string(w.as<const char *>()).find("will not be written") ==
+                     std::string::npos);
+}
+void dropped_fields_name() {
+  ServiceFixture f;
+  const std::string name(64, 'n');
+  f.http.spool["filament"]["name"] = name;
+  expect_single_drop(f, "name", name.c_str(), "longer than 63 characters",
+                     ("Name \"" + name + "\" is longer than 63 characters and "
+                      "will not be written to the tag.").c_str());
+  TEST_ASSERT_TRUE(f.view["proposed"]["material_name"].isNull());
+}
+void dropped_fields_vendor() {
+  ServiceFixture f;
+  const std::string vendor = "Very Long Vendor Name Industries Inc";
+  f.http.spool["filament"]["vendor"]["name"] = vendor;
+  expect_single_drop(f, "vendor", vendor.c_str(), "longer than 31 characters",
+                     ("Vendor \"" + vendor + "\" is longer than 31 characters "
+                      "and will not be written to the tag.").c_str());
+}
+void dropped_fields_material_and_type() {
+  ServiceFixture f;
+  f.http.spool["filament"]["material"] = "PLA Matte";
+  preview_dropped(f);
+  auto dropped = f.view["dropped_fields"].as<JsonArrayConst>();
+  TEST_ASSERT_EQUAL(2, dropped.size());
+  TEST_ASSERT_EQUAL_STRING("material", dropped[0]["field"].as<const char *>());
+  TEST_ASSERT_EQUAL_STRING("PLA Matte", dropped[0]["value"].as<const char *>());
+  TEST_ASSERT_EQUAL_STRING("longer than 7 characters",
+                           dropped[0]["reason"].as<const char *>());
+  TEST_ASSERT_EQUAL_STRING("material_type", dropped[1]["field"].as<const char *>());
+  TEST_ASSERT_TRUE(has_warning(f, "Material \"PLA Matte\" is longer than 7 "
+                                  "characters and will not be written to the tag."));
+  // Never inferred from a prefix.
+  TEST_ASSERT_TRUE(f.view["proposed"]["material_type"].isNull());
+  TEST_ASSERT_TRUE(f.view["proposed"]["material_abbreviation"].isNull());
+}
+void dropped_fields_material_type() {
+  ServiceFixture f;
+  f.http.spool["filament"]["material"] = "PLA+";
+  expect_single_drop(
+      f, "material_type", "PLA+",
+      "not one of the material types the tag can store (PLA, PETG, TPU, ABS, "
+      "ASA, PC, PCTG, PP, PA6, PA11, PA12)",
+      "No material type will be written to the tag: \"PLA+\" is not one of the "
+      "material types the tag can store (PLA, PETG, TPU, ABS, ASA, PC, PCTG, "
+      "PP, PA6, PA11, PA12).");
+  TEST_ASSERT_EQUAL_STRING("PLA+", f.view["proposed"]["material_abbreviation"]
+                                       .as<const char *>());
+}
+void dropped_fields_article_number() {
+  ServiceFixture f;
+  f.http.spool["filament"]["article_number"] = "SKU-1234567890-XL";
+  expect_single_drop(f, "article_number", "SKU-1234567890-XL",
+                     "longer than 16 characters",
+                     "Article number \"SKU-1234567890-XL\" is longer than 16 "
+                     "characters and will not be written to the tag.");
+}
+void dropped_fields_multi_colour() {
+  ServiceFixture f;
+  f.http.spool["filament"]["color_hex"] = nullptr;
+  f.http.spool["filament"]["multi_color_hexes"] = "FF0000,00FF00";
+  expect_single_drop(f, "color", "FF0000,00FF00",
+                     "multi-colour filaments cannot be stored on the tag",
+                     "Colour \"FF0000,00FF00\" has several colours; no colour "
+                     "will be written to the tag.");
+}
+void dropped_fields_counts_bytes_for_non_ascii() {
+  ServiceFixture f;
+  // 20 characters, 40 bytes: the limit is in bytes.
+  std::string vendor;
+  for (int i = 0; i < 20; ++i)
+    vendor += "\xC3\xA4";
+  f.http.spool["filament"]["vendor"]["name"] = vendor;
+  preview_dropped(f);
+  auto dropped = f.view["dropped_fields"].as<JsonArrayConst>();
+  TEST_ASSERT_EQUAL(1, dropped.size());
+  TEST_ASSERT_EQUAL_STRING("longer than 31 bytes",
+                           dropped[0]["reason"].as<const char *>());
+  TEST_ASSERT_EQUAL_STRING(vendor.c_str(), dropped[0]["value"].as<const char *>());
+}
+void dropped_fields_not_reported_for_mutable_update() {
+  ServiceFixture f;
+  TEST_ASSERT_TRUE(f.run(R"({"action":"preview","spool_id":12})").ok());
+  TEST_ASSERT_TRUE(f.confirm().ok());
+  f.http.spool["filament"]["material"] = "PLA Matte";
+  auto r = f.run(R"({"action":"preview","spool_id":12,"mode":"update"})");
+  TEST_ASSERT_TRUE_MESSAGE(r.ok(), r.ok() ? "" : r.error().message.c_str());
+  TEST_ASSERT_EQUAL_STRING("update", f.view["mode"].as<const char *>());
+  TEST_ASSERT_EQUAL(0, f.view["dropped_fields"].size());
+}
 void catalog_pagination_and_search() {
   ServiceFixture f;
   for (const auto *entity : {"vendor", "filament", "spool"}) {
@@ -3153,6 +3273,15 @@ int main() {
   RUN_TEST(duplicate_uuid_refuses_before_write);
   RUN_TEST(confirmation_mismatch_refuses);
   RUN_TEST(catalog_pagination_and_search);
+  RUN_TEST(dropped_fields_none_for_a_clean_spool);
+  RUN_TEST(dropped_fields_name);
+  RUN_TEST(dropped_fields_vendor);
+  RUN_TEST(dropped_fields_material_and_type);
+  RUN_TEST(dropped_fields_material_type);
+  RUN_TEST(dropped_fields_article_number);
+  RUN_TEST(dropped_fields_multi_colour);
+  RUN_TEST(dropped_fields_counts_bytes_for_non_ascii);
+  RUN_TEST(dropped_fields_not_reported_for_mutable_update);
   RUN_TEST(catalog_malformed_and_timeout);
   RUN_TEST(catalog_search_falls_back_to_vendor_name);
 #if OPENTAG_ENABLE_COMMUNITY
