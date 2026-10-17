@@ -88,10 +88,10 @@ There is no reference enclosure; you design the scale platform yourself. Details
 6. **Write your first tag.** [Your first spool](https://76cb.github.io/OpenTag-Station-Docs/getting-started/quick-start/)
    walks through writing a tag, saving a weight and assigning a toolhead.
 
-Once a release is published, later firmware updates are done from the station's web page with the
+Later firmware updates are done from the station's web page (**Settings → Update**) with the
 file `opentag-station-<version>-application.bin` from the
-[Releases](https://github.com/76cb/OpenTag-Station/releases) page, and keep your settings
-([guide](https://76cb.github.io/OpenTag-Station-Docs/installation/ota/)).
+[Releases](https://github.com/76cb/OpenTag-Station/releases) page, and keep your settings and
+calibration ([guide](https://76cb.github.io/OpenTag-Station-Docs/installation/ota/)).
 
 ## Documentation
 
@@ -125,11 +125,11 @@ working on the firmware are in [`docs/`](docs/README.md).
 ## Project status
 
 Release candidate; [`VERSION`](VERSION) holds the version on `main` and the
-[changelog](CHANGELOG.md) lists what changed. The USB installer carries the current release
-candidate. No release has been published yet, so the Releases page has no update file: to move an
-existing station to a newer candidate, reinstall it with the USB installer (this erases its
-settings and calibration) or build from source (below). What remains before 1.0 is listed in
-[`docs/releasing.md`](docs/releasing.md).
+[changelog](CHANGELOG.md) lists what changed. Every version merged to `main` is published
+automatically from the same build in two places: the
+[Releases](https://github.com/76cb/OpenTag-Station/releases) page (as a pre-release, with the
+update file) and the [USB installer](https://76cb.github.io/OpenTag-Station/). What remains
+before 1.0 is listed in [`docs/releasing.md`](docs/releasing.md).
 
 ## Build from source
 

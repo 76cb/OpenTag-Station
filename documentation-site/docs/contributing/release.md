@@ -1,6 +1,7 @@
 # Release process
 
-A release is made by pushing a version tag. GitHub Actions builds, checks and publishes it.
+A release is made by merging a version change to `main`. GitHub Actions builds, checks and
+publishes it, then updates the USB installer from the same files.
 The full checklist, including the tests on real hardware, is in
 [docs/releasing.md](https://github.com/76cb/OpenTag-Station/blob/main/docs/releasing.md).
 
@@ -10,23 +11,25 @@ The candidate is `1.0.0-rc.20`.
 
 1. Set the version with `python tools/bump_version.py <version>` and add the changelog entry.
    See [Contributing changes](pull-requests.md).
-2. Merge to `main` and wait for CI to pass.
-3. Tag that commit `v<version>`, for example `v1.0.0`, and push the tag.
-4. Check the published release and the installer page.
-5. Export this manual and publish it.
+2. Open a pull request, wait for CI to pass, and merge it to `main`. Do not push a tag.
+3. Check the published release and the installer page.
+4. Export this manual and publish it.
 
-## What the tag starts
+## What the merge starts
 
-| Workflow | What it does |
+`release.yml` runs when a push to `main` changes `VERSION`:
+
+| Job | What it does |
 |---|---|
-| `release.yml` | Checks that the tag equals `v` + `VERSION` and points at the checked-out commit. Runs the `documentation`, `ui-review` and `firmware` jobs of `ci.yml` on the tag (`version-policy` runs only on pull requests). Downloads the files that run built, verifies them and their checksums, and creates the GitHub release with `CHANGELOG.md` as its text. |
-| `web-flasher-pages.yml` | Builds the firmware and the installer bundle from the tag and deploys it to <https://76cb.github.io/OpenTag-Station/>. |
+| `version` | Reads `VERSION` and checks whether the release `v<VERSION>` exists. A tag without a release stops the run. |
+| `validate` | Runs the `documentation`, `ui-review` and `firmware` jobs of `ci.yml` on that commit. |
+| `publish` | Verifies the files that run built and their checksums, and creates the GitHub release and its tag `v<VERSION>`, with the version's changelog section as its text. A version with a hyphen is a pre-release. |
+| `installer`, `deploy-installer` | Build the installer page from the release's own factory image and manifest and deploy it to <https://76cb.github.io/OpenTag-Station/>. |
 
-A tag `v<version>` whose version contains a hyphen is published as a pre-release.
-A push to `main` without a tag creates no release and does not change the installer.
-To update the installer without a release, start `web-flasher-pages.yml` by hand on `main`
-(Actions → Web flasher Pages → Run workflow); it builds and deploys. A manual run on any other
-branch builds but does not deploy.
+The release and the installer therefore always carry the same build, and a failure stops
+everything after it. A push to `main` that does not change `VERSION` publishes nothing.
+To redeploy the installer, start `release.yml` by hand on `main` (Actions → Release → Run
+workflow); when the release already exists it only redeploys the installer from it.
 
 ## Release files
 
