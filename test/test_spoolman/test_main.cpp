@@ -207,7 +207,7 @@ void test_probe_known_version_enables_proven_reads_and_guarded_writes() {
 
 void test_unknown_version_stays_connected_but_write_capabilities_are_off() {
   ScriptedTransport transport;
-  script_probe(transport, "0.27.0");
+  script_probe(transport, "0.28.0");
   SpoolmanAdapter adapter(transport, settings());
 
   const auto status = adapter.probe();
@@ -572,10 +572,10 @@ void test_info_transport_failure_keeps_the_proven_version_and_capabilities() {
 
   script_probe(transport);
   TEST_ASSERT_TRUE(adapter.probe().ok());
-  script_probe(transport, "0.27.0");
+  script_probe(transport, "0.28.0");
   reset = adapter.probe();
   TEST_ASSERT_FALSE(reset.value().version_formally_tested);
-  TEST_ASSERT_EQUAL_STRING("0.27.0", reset.value().version.c_str());
+  TEST_ASSERT_EQUAL_STRING("0.28.0", reset.value().version.c_str());
 
   // A changed configuration never inherits the old server's version.
   script_probe(transport);
@@ -619,6 +619,138 @@ void test_full_probe_keeps_the_error_of_a_failed_read_check() {
   TEST_ASSERT_FALSE(clean.value().last_error.has_value());
 }
 
+void test_weight_saving_covers_every_patch_of_the_tested_series() {
+  for (const char* version : {"0.26.0", "0.26.1", "0.27.0", "0.27.4", "v0.27.0"}) {
+    ScriptedTransport transport;
+    script_probe(transport, version);
+    SpoolmanAdapter adapter(transport, settings());
+    const auto status = adapter.probe();
+    TEST_ASSERT_TRUE_MESSAGE(status.value().version_formally_tested, version);
+    TEST_ASSERT_TRUE_MESSAGE(status.value().capabilities.has(
+        BackendCapability::update_remaining_weight), version);
+    assert_transport_consumed(transport);
+  }
+  for (const char* version : {"0.25.0", "0.28.0", "1.26.0", "0.27", "0.27.0-dev",
+                              "0.27.0.1", "unknown", ""}) {
+    ScriptedTransport transport;
+    script_probe(transport, version);
+    SpoolmanAdapter adapter(transport, settings());
+    const auto status = adapter.probe();
+    TEST_ASSERT_FALSE_MESSAGE(status.value().version_formally_tested, version);
+    TEST_ASSERT_FALSE_MESSAGE(status.value().capabilities.has(
+        BackendCapability::update_remaining_weight), version);
+    assert_transport_consumed(transport);
+  }
+}
+
+void test_native_tags_are_detected_from_the_version_without_extra_requests() {
+  for (const char* version : {"0.27.0", "0.27.4", "0.28.0", "1.0.0"}) {
+    ScriptedTransport transport;
+    script_probe(transport, version);
+    SpoolmanAdapter adapter(transport, settings());
+    const auto status = adapter.probe();
+    TEST_ASSERT_TRUE_MESSAGE(status.value().capabilities.has(
+        BackendCapability::native_tags), version);
+    assert_transport_consumed(transport);
+  }
+  for (const char* version : {"0.26.1", "0.26.0", "unknown"}) {
+    ScriptedTransport transport;
+    script_probe(transport, version);
+    SpoolmanAdapter adapter(transport, settings());
+    const auto status = adapter.probe();
+    TEST_ASSERT_FALSE_MESSAGE(status.value().capabilities.has(
+        BackendCapability::native_tags), version);
+    assert_transport_consumed(transport);
+  }
+}
+
+void test_missing_extra_fields_are_fine_when_spoolman_links_tags_itself() {
+  ScriptedTransport transport;
+  script_probe(transport, "0.27.0");  // field/spool answers [] : both missing
+  SpoolmanAdapter adapter(transport, settings());
+  auto status = adapter.probe();
+  TEST_ASSERT_TRUE(status.value().identity_fields_ready.value_or(false));
+  TEST_ASSERT_FALSE(status.value().extra_identity_fields.value_or(true));
+  TEST_ASSERT_TRUE(status.value().identity_fields_message.empty());
+
+  script_probe(transport, "0.26.1");
+  status = adapter.probe();
+  TEST_ASSERT_FALSE(status.value().identity_fields_ready.value_or(true));
+  TEST_ASSERT_FALSE(status.value().extra_identity_fields.value_or(true));
+  TEST_ASSERT_TRUE(status.value().identity_fields_message.find(
+      "opentag_instance_uuid") != std::string::npos);
+  assert_transport_consumed(transport);
+}
+
+void test_tag_lookup_is_refused_on_servers_that_would_ignore_it() {
+  ScriptedTransport transport;
+  script_probe(transport, "0.26.1");
+  SpoolmanAdapter adapter(transport, settings());
+  TEST_ASSERT_TRUE(adapter.probe().ok());
+  SpoolFilter filter;
+  filter.tag = "E0040108662F6FBC";
+  filter.maximum_results = 2U;
+  const auto refused = adapter.find_spools(filter);
+  TEST_ASSERT_FALSE(refused.ok());
+  TEST_ASSERT_EQUAL(static_cast<int>(ErrorCategory::configuration),
+                    static_cast<int>(refused.error().category));
+  assert_transport_consumed(transport);  // nothing was sent
+}
+
+void test_tag_lookup_appends_the_tag_filter_after_other_filters() {
+  ScriptedTransport transport;
+  script_probe(transport, "0.27.0");
+  SpoolmanAdapter adapter(transport, settings());
+  TEST_ASSERT_TRUE(adapter.probe().ok());
+  SpoolFilter filter;
+  filter.tag = "E0040108662F6FBC";
+  filter.allow_archived = true;
+  filter.maximum_results = 3U;
+  transport.expect(
+      "GET", "/spool?allow_archived=true&tag=E0040108662F6FBC&limit=3&offset=0",
+      "[" + spool_json() + "]");
+  const auto found = adapter.find_spools(filter);
+  TEST_ASSERT_TRUE(found.ok());
+  TEST_ASSERT_EQUAL_UINT32(1U, found.value().size());
+  TEST_ASSERT_EQUAL(17, found.value().front().id);
+
+  filter.tag = "E0:04";  // separators are never sent; callers send plain hex
+  TEST_ASSERT_FALSE(adapter.find_spools(filter).ok());
+  filter.tag = std::string(65, 'A');
+  TEST_ASSERT_FALSE(adapter.find_spools(filter).ok());
+  assert_transport_consumed(transport);
+}
+
+void test_scan_report_is_best_effort_and_leaves_status_alone() {
+  ScriptedTransport transport;
+  script_probe(transport, "0.27.0");
+  SpoolmanAdapter adapter(transport, settings());
+  TEST_ASSERT_TRUE(adapter.probe().ok());
+  transport.expect_body(
+      "POST", "/tag/scan",
+      R"json({"uid":"E0040108662F6FBC","reader_id":"opentag-station","name":"OpenTag Station"})json",
+      R"json({"uid":"E0040108662F6FBC","matched_spool_id":null,"matched_filament_id":null})json");
+  adapter.report_tag_scan("E0040108662F6FBC", "opentag-station", "OpenTag Station");
+  TEST_ASSERT_TRUE(adapter.status().connected);
+  TEST_ASSERT_FALSE(adapter.status().last_error.has_value());
+
+  transport.requests.push_back({"POST", "http://spoolman.local/api/v1/tag/scan",
+      std::nullopt, Result<HttpResponse>::failure(
+          {ErrorCategory::invalid_response, "HTTP response exceeds configured limit", false})});
+  adapter.report_tag_scan("E0040108662F6FBC", "opentag-station", "OpenTag Station");
+  TEST_ASSERT_TRUE(adapter.status().connected);
+  TEST_ASSERT_TRUE(adapter.status().healthy);
+  TEST_ASSERT_FALSE(adapter.status().last_error.has_value());
+  assert_transport_consumed(transport);
+
+  ScriptedTransport old_transport;
+  script_probe(old_transport, "0.26.1");
+  SpoolmanAdapter old_adapter(old_transport, settings());
+  TEST_ASSERT_TRUE(old_adapter.probe().ok());
+  old_adapter.report_tag_scan("E0040108662F6FBC", "opentag-station", "OpenTag Station");
+  assert_transport_consumed(old_transport);  // nothing sent to 0.26
+}
+
 int main(int, char**) {
   UNITY_BEGIN();
   RUN_TEST(test_weight_update_checks_presence_after_canonical_get);
@@ -644,5 +776,11 @@ int main(int, char**) {
   RUN_TEST(test_location_and_field_shapes_are_bounded_and_typed);
   RUN_TEST(test_info_transport_failure_keeps_the_proven_version_and_capabilities);
   RUN_TEST(test_full_probe_keeps_the_error_of_a_failed_read_check);
+  RUN_TEST(test_weight_saving_covers_every_patch_of_the_tested_series);
+  RUN_TEST(test_native_tags_are_detected_from_the_version_without_extra_requests);
+  RUN_TEST(test_missing_extra_fields_are_fine_when_spoolman_links_tags_itself);
+  RUN_TEST(test_tag_lookup_is_refused_on_servers_that_would_ignore_it);
+  RUN_TEST(test_tag_lookup_appends_the_tag_filter_after_other_filters);
+  RUN_TEST(test_scan_report_is_best_effort_and_leaves_status_alone);
   return UNITY_END();
 }

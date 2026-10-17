@@ -25,6 +25,8 @@ enum class BackendCapability : std::uint32_t {
   search_spools = 1U << 17U,
   list_extra_fields = 1U << 18U,
   update_extra_fields = 1U << 19U,
+  // Spoolman 0.27+: tags linked to spools (/spool/{id}/tag, ?tag=, /tag/scan).
+  native_tags = 1U << 20U,
 };
 
 class BackendCapabilities {

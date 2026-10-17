@@ -19,6 +19,9 @@ struct SpoolFilter {
   std::optional<std::string> vendor_name;
   std::optional<std::string> location;
   std::map<std::string, std::string> extra_json;
+  // Spoolman 0.27+ only: the spool linked to this tag UID (hex). Refused on
+  // servers without BackendCapability::native_tags, which would ignore it.
+  std::optional<std::string> tag;
   bool allow_archived{false};
   std::size_t maximum_results{256U};
 };
