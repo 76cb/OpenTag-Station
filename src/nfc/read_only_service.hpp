@@ -68,15 +68,26 @@ struct ReadSnapshot {
   std::shared_ptr<const IdentifiedTag> tag;
 };
 
+// A present tag without OpenPrintTag data (blank, or other data) can still be
+// identified by its UID alone, through Spoolman. Its read generation, else 0.
+inline std::uint64_t uid_only_generation(const ReadSnapshot& s) {
+  return !s.tag && s.present && s.uid &&
+                 (s.state == ReadState::blank || s.state == ReadState::unsupported)
+             ? s.generation
+             : 0U;
+}
+
 class ReadOnlyService {
  public:
   explicit ReadOnlyService(IReadOnlyReader& reader) : reader_(reader) {}
   void poll();
   ReadSnapshot snapshot() const;
   // Sole backend owner, only after an explicit writer finishes or fails.
-  void invalidate_after_write() { clear_active(); processed_.reset(); candidate_.reset(); consecutive_ = 0; publish(); }
+  void invalidate_after_write() { clear_active(); processed_.reset(); candidate_.reset(); consecutive_ = 0; missed_polls_ = 0; read_failures_ = 0; publish(); }
   static constexpr std::size_t maximum_memory_bytes = 4096U;
   static constexpr unsigned stable_polls = 3U;
+  // Consecutive failed reads of one present tag before the error state.
+  static constexpr unsigned read_attempts = 3U;
 
  private:
   core::Result<void> confirm_uid(const nfcv::Uid& uid);
@@ -94,6 +105,8 @@ class ReadOnlyService {
   std::optional<nfcv::Uid> candidate_;
   std::optional<nfcv::Uid> processed_;
   unsigned consecutive_{0};
+  unsigned missed_polls_{0};
+  unsigned read_failures_{0};
   std::uint32_t last_poll_{0};
   bool polled_{false};
 };

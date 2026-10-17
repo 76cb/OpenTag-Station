@@ -73,6 +73,7 @@ void ReadOnlyService::fail(const core::Error& e) {
   clear_active();
   candidate_.reset();
   consecutive_ = 0;
+  missed_polls_ = 0U;
   live_.error = e;
   live_.state = ReadState::error;
   live_.present = false;
@@ -182,9 +183,20 @@ void ReadOnlyService::poll() {
       result = core::Result<void>::failure(found.error());
     else {
       if (live_.state != ReadState::unsupported) live_.error.reset();
-      live_.tag_count = found.value().size();
-      live_.present = !found.value().empty();
-      if (found.value().size() != 1U) {
+      // A tag at the edge of the field drops out of single inventories.
+      // One empty answer keeps what is known about it; only a second one
+      // in a row means the tag was removed. Changed or extra tags still
+      // count immediately.
+      const bool tolerated_miss = found.value().empty() && missed_polls_ == 0U &&
+          (processed_.has_value() || candidate_.has_value());
+      if (tolerated_miss) {
+        ++missed_polls_;
+        // Stabilization restarts: a tag must be seen on consecutive polls.
+        if (!processed_) consecutive_ = 0;
+      } else if (found.value().size() != 1U) {
+        missed_polls_ = 0U;
+        live_.tag_count = found.value().size();
+        live_.present = !found.value().empty();
         live_.error.reset();
         clear_active();
         candidate_.reset();
@@ -193,6 +205,9 @@ void ReadOnlyService::poll() {
         live_.state =
             found.value().empty() ? ReadState::idle : ReadState::multiple;
       } else {
+        missed_polls_ = 0U;
+        live_.tag_count = 1U;
+        live_.present = true;
         const auto uid = found.value().front();
         live_.uid = uid;
         live_.last_seen_ms = now;
@@ -201,6 +216,7 @@ void ReadOnlyService::poll() {
           clear_active();
           candidate_ = uid;
           consecutive_ = 0;
+          read_failures_ = 0U;
         }
         if (consecutive_ < stable_polls) ++consecutive_;
         if (!processed_) {
@@ -208,7 +224,19 @@ void ReadOnlyService::poll() {
           if (consecutive_ >= stable_polls) {
             live_.state = ReadState::reading;
             publish();
-            result = read_tag(uid);
+            auto read = read_tag(uid);
+            if (read.ok()) {
+              read_failures_ = 0U;
+            } else if (++read_failures_ < read_attempts) {
+              // A read that fails part-way is usually a weak RF link, not a
+              // broken reader: try again on the next poll instead of pausing
+              // in the error state.
+              live_.state = ReadState::stabilizing;
+              consecutive_ = stable_polls - 1U;
+            } else {
+              read_failures_ = 0U;
+              result = read;
+            }
           }
         }
       }

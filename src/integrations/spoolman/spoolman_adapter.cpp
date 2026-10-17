@@ -7,6 +7,7 @@
 #include <cstring>
 #include <cstdint>
 #include <iomanip>
+#include <iterator>
 #include <limits>
 #include <sstream>
 #include <string>
@@ -18,7 +19,47 @@ namespace {
 constexpr std::size_t maximum_json_bytes = 65536U;
 constexpr std::size_t page_size = 8U;
 constexpr std::size_t maximum_extra_fields = 64U;
-constexpr const char* tested_version = "0.26.1";
+// Weight saving uses PATCH /spool/{id} with remaining_weight, which is
+// identical in every release of these series. Other versions stay read-only
+// until their contract has been checked.
+constexpr int tested_major = 0;
+constexpr int tested_minors[] = {26, 27};
+// Spoolman 0.27.0 added tags linked to spools.
+constexpr int native_tags_minor = 27;
+
+struct ParsedVersion {
+  int major{0}, minor{0}, patch{0};
+};
+
+std::optional<ParsedVersion> parse_version(const std::string& text) {
+  std::size_t index = text.rfind('v', 0) == 0U ? 1U : 0U;
+  int parts[3]{};
+  for (int part = 0; part < 3; ++part) {
+    if (part > 0) {
+      if (index >= text.size() || text[index] != '.') return std::nullopt;
+      ++index;
+    }
+    const auto first = index;
+    while (index < text.size() && text[index] >= '0' && text[index] <= '9' &&
+           index - first < 6U)
+      parts[part] = parts[part] * 10 + (text[index++] - '0');
+    if (index == first) return std::nullopt;
+  }
+  if (index != text.size()) return std::nullopt;
+  return ParsedVersion{parts[0], parts[1], parts[2]};
+}
+
+bool weight_contract_tested(const std::string& version) {
+  const auto parsed = parse_version(version);
+  if (!parsed || parsed->major != tested_major) return false;
+  return std::find(std::begin(tested_minors), std::end(tested_minors),
+                   parsed->minor) != std::end(tested_minors);
+}
+
+bool native_tags_supported(const std::string& version) {
+  const auto parsed = parse_version(version);
+  return parsed && (parsed->major > 0 || parsed->minor >= native_tags_minor);
+}
 
 core::Error configuration_error(const std::string& message) {
   return {core::ErrorCategory::configuration, message, false};
@@ -347,15 +388,11 @@ std::string SpoolmanAdapter::endpoint(const std::string& path) const {
   return base + "/api/v1" + path;
 }
 
-core::Result<network::HttpResponse> SpoolmanAdapter::request(
+network::HttpRequest SpoolmanAdapter::build_request(
     const std::string& method,
     const std::string& path,
     const std::string& body,
-    std::size_t maximum_response_bytes) {
-  if (settings_.url.empty()) {
-    return core::Result<network::HttpResponse>::failure(
-        configuration_error("Spoolman URL is not configured"));
-  }
+    std::size_t maximum_response_bytes) const {
   network::HttpRequest request;
   request.method = method;
   request.url = endpoint(path);
@@ -376,7 +413,61 @@ core::Result<network::HttpResponse> SpoolmanAdapter::request(
             ? settings_.authentication_token
             : "Bearer " + settings_.authentication_token);
   }
-  auto response = transport_.perform(request);
+  return request;
+}
+
+__attribute__((noinline)) core::Result<network::HttpResponse>
+SpoolmanAdapter::request_any_status(
+    const std::string& method,
+    const std::string& path,
+    const std::string& body,
+    std::size_t maximum_response_bytes) {
+  if (settings_.url.empty()) {
+    return core::Result<network::HttpResponse>::failure(
+        configuration_error("Spoolman URL is not configured"));
+  }
+  auto response = transport_.perform(
+      build_request(method, path, body, maximum_response_bytes));
+  if (!response.ok()) {
+    status_.connected = false;
+    status_.healthy = false;
+    status_.last_error = response.error();
+    return response;
+  }
+  status_.connected = true;
+  return response;
+}
+
+__attribute__((noinline)) void SpoolmanAdapter::report_tag_scan(const std::string& uid,
+                                      const std::string& reader_id,
+                                      const std::string& reader_name) {
+  if (settings_.url.empty() ||
+      !status_.capabilities.has(BackendCapability::native_tags))
+    return;
+  network::BackendDocument body;
+  body["uid"] = uid;
+  body["reader_id"] = reader_id;
+  body["name"] = reader_name;
+  std::string bytes;
+  serializeJson(body, bytes);
+  // Informational only. The answer embeds the whole spool and is not read:
+  // it exceeds the small bound, which ends the request as soon as its size is
+  // known. Neither that nor any failure says anything about Spoolman's
+  // health, so status_ is left untouched.
+  (void)transport_.perform(build_request("POST", "/tag/scan", bytes, 1024U));
+}
+
+core::Result<network::HttpResponse> SpoolmanAdapter::request(
+    const std::string& method,
+    const std::string& path,
+    const std::string& body,
+    std::size_t maximum_response_bytes) {
+  if (settings_.url.empty()) {
+    return core::Result<network::HttpResponse>::failure(
+        configuration_error("Spoolman URL is not configured"));
+  }
+  auto response = transport_.perform(
+      build_request(method, path, body, maximum_response_bytes));
   if (!response.ok()) {
     status_.connected = false;
     status_.healthy = false;
@@ -425,32 +516,51 @@ core::Result<SpoolmanStatus> SpoolmanAdapter::probe(bool full) {
   if (info.ok()) {
     auto info_json = parse_json(info.value().body, "Spoolman info");
     if (info_json.ok() && optional_text(info_json.value()["version"], 64U)) {
-      status_.version = info_json.value()["version"].as<const char*>();
-      status_.version_formally_tested = status_.version == tested_version;
-      status_.capabilities.add(BackendCapability::runtime_version);
-      if (optional_text(info_json.value()["git_commit"], 64U)) {
-        status_.git_commit = info_json.value()["git_commit"].as<const char*>();
-      }
+      apply_version(info_json.value()["version"].as<const char*>(),
+                    optional_text(info_json.value()["git_commit"], 64U)
+                        ? info_json.value()["git_commit"].as<const char*>()
+                        : "");
     }
   } else if (!status_.connected && !proven_version.empty()) {
     // /info did not answer at all right after /health did: one lost request
     // says nothing about the server's version, so keep what was proven.
-    status_.version = std::move(proven_version);
-    status_.git_commit = std::move(proven_git_commit);
-    status_.version_formally_tested = status_.version == tested_version;
-    status_.capabilities.add(BackendCapability::runtime_version);
+    apply_version(std::move(proven_version), std::move(proven_git_commit));
   }
   // Reset before the read checks so an error they record stays visible.
   status_.last_error.reset();
   const auto reads = probe_read_capabilities();
   (void)reads;
+  return core::Result<SpoolmanStatus>::success(status_);
+}
+
+void SpoolmanAdapter::apply_version(std::string version, std::string git_commit) {
+  status_.version = std::move(version);
+  status_.git_commit = std::move(git_commit);
+  status_.version_formally_tested = weight_contract_tested(status_.version);
+  status_.capabilities.add(BackendCapability::runtime_version);
+  if (native_tags_supported(status_.version))
+    status_.capabilities.add(BackendCapability::native_tags);
   if (status_.version_formally_tested) {
     status_.capabilities.add(BackendCapability::get_spool);
     status_.capabilities.add(BackendCapability::update_remaining_weight);
     status_.capabilities.add(BackendCapability::create_spool);
     status_.capabilities.add(BackendCapability::update_extra_fields);
   }
-  return core::Result<SpoolmanStatus>::success(status_);
+}
+
+void SpoolmanAdapter::refresh_capabilities() {
+  if (settings_.url.empty() ||
+      status_.capabilities.has(BackendCapability::runtime_version))
+    return;
+  auto info = request("GET", "/info", {}, 4096U);
+  if (!info.ok()) return;
+  auto info_json = parse_json(info.value().body, "Spoolman info");
+  if (!info_json.ok() || !optional_text(info_json.value()["version"], 64U))
+    return;
+  apply_version(info_json.value()["version"].as<const char*>(),
+                optional_text(info_json.value()["git_commit"], 64U)
+                    ? info_json.value()["git_commit"].as<const char*>()
+                    : "");
 }
 
 core::Result<void> SpoolmanAdapter::probe_read_capabilities() {
@@ -468,9 +578,14 @@ core::Result<void> SpoolmanAdapter::probe_read_capabilities() {
     status_.capabilities.add(BackendCapability::list_extra_fields);
     const auto missing = missing_text_fields(
         fields.value(), {settings_.identity_field, settings_.nfc_uid_field});
-    status_.identity_fields_ready = missing.empty();
+    status_.extra_identity_fields = missing.empty();
+    // Spoolman 0.27+ links tags to spools itself, so the station can work
+    // without the two extra fields there; it still fills them when present.
+    const bool usable = missing.empty() ||
+        status_.capabilities.has(BackendCapability::native_tags);
+    status_.identity_fields_ready = usable;
     status_.identity_fields_message =
-        missing.empty() ? std::string{} : missing_identity_fields_message(missing);
+        usable ? std::string{} : missing_identity_fields_message(missing);
     if (missing.empty()) {
       verified_extra_keys_.insert(settings_.identity_field);
       verified_extra_keys_.insert(settings_.nfc_uid_field);
@@ -552,6 +667,18 @@ core::Result<std::vector<domain::Spool>> SpoolmanAdapter::find_spools(
     return core::Result<std::vector<domain::Spool>>::failure(
         configuration_error("Spoolman filter exceeds limits"));
   }
+  if (filter.tag.has_value()) {
+    // Older Spoolman ignores ?tag= and would return every spool.
+    if (!status_.capabilities.has(BackendCapability::native_tags)) {
+      return core::Result<std::vector<domain::Spool>>::failure(configuration_error(
+          "This Spoolman version cannot look up spools by tag"));
+    }
+    if (filter.tag->empty() || filter.tag->size() > 64U ||
+        filter.tag->find_first_not_of("0123456789ABCDEFabcdef") != std::string::npos) {
+      return core::Result<std::vector<domain::Spool>>::failure(
+          configuration_error("Spoolman tag filter is invalid"));
+    }
+  }
 
   std::string common = "?allow_archived=";
   common += filter.allow_archived ? "true" : "false";
@@ -569,6 +696,7 @@ core::Result<std::vector<domain::Spool>> SpoolmanAdapter::find_spools(
     }
     common += "&extra." + field.first + "=" + url_encode(field.second);
   }
+  add("tag", filter.tag);
   if (!filter.extra_json.empty()) {
     const auto defined = require_extra_filters_defined(filter.extra_json);
     if (!defined.ok())

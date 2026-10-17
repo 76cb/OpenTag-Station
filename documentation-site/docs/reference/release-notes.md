@@ -22,6 +22,11 @@ Not released yet. This is what the first release contains.
   write or clear is interrupted, it offers to finish it the next time that tag is on the reader,
   or to skip it if the tag is lost.
 - **Clear / Reuse** erases a tag and removes its link in Spoolman. The spool stays in Spoolman.
+- With Spoolman 0.27 or later the station also uses Spoolman's own tag list: writing a tag links
+  it to the spool there, clearing removes it, and a tag Spoolman links to a spool is recognised
+  even if it holds no OpenPrintTag data. The two Spoolman extra fields are then optional. Each
+  tag placed on the station is reported to Spoolman, so a Spoolman page paired with the station
+  jumps to the spool.
 
 **Printer**
 - Assign the spool on the station to a toolhead (T1–T5) through FilaBridge. The station asks
@@ -47,7 +52,7 @@ Not released yet. This is what the first release contains.
   <https://github.com/76cb/OpenTag-Station/releases>.
 - Supported hardware is the WT32-SC01 Plus with an ST25R3916B NFC reader. Only NXP ICODE SLIX2
   tags can be written.
-- Saving weights needs Spoolman 0.26.1. Assigning toolheads needs FilaBridge 1.2.1 or 1.2.2.
+- Saving weights needs Spoolman 0.26 or 0.27. Assigning toolheads needs FilaBridge 1.2.1 or 1.2.2.
 - The Community filament catalog is not part of this release.
 
 The manual is at <https://76cb.github.io/OpenTag-Station-Docs/>.
@@ -59,6 +64,31 @@ browser), `opentag-station-factory.bin` (USB installer image), `manifest.json`,
 ---
 
 The release candidates below were development builds made for testing before 1.0.0.
+
+## 1.0.0-rc.20
+
+**Spoolman 0.27 tag support**
+- Writing a tag now also links it to the spool in Spoolman's own tag list (Spoolman 0.27 or
+  later). Moving a tag removes it from the previous spool first, and clearing a tag removes it.
+  These steps are part of saving the link in Spoolman, so the existing retry and recovery
+  prompts cover them.
+- The station finds the spool through Spoolman's tag list first. A tag Spoolman links to a spool
+  is recognised even if it holds no OpenPrintTag data, for example a blank tag you linked in
+  Spoolman yourself: Home shows its spool, and Weigh and Assign work.
+- Tag IDs are matched in both byte orders, because some phones report them reversed.
+- On Spoolman 0.27 or later the two extra fields are optional. When they exist the station still
+  fills them; when they don't, it uses Spoolman's tag list only and no longer warns about them.
+- Each tag placed on the station is reported to Spoolman, so a Spoolman page paired with the
+  station (Spoolman: Settings > Tag Scanning) jumps to its spool.
+- A tag that Spoolman links to a filament, or to two spools, is refused before anything is written.
+
+**Fixes**
+- Saving weights works with every Spoolman 0.26 and 0.27 release, not only 0.26.1.
+- After start-up or a Spoolman outage the station learns Spoolman's version again right away.
+  Before, weight saving could stay off for up to five minutes.
+- A tag at the edge of the reader's range no longer flickers: one missed check is tolerated, and
+  a read that fails part-way is retried after half a second instead of showing an error and
+  waiting five seconds.
 
 ## 1.0.0-rc.19
 

@@ -14,12 +14,14 @@ void NfcWorker::run_once() {
   service_.poll();
   const auto current = service_.snapshot();
   std::optional<domain::WeightReading> weight;
-  if (!current.tag) {
+  const auto generation =
+      current.tag ? current.tag->generation : nfc::uid_only_generation(current);
+  if (generation == 0U) {
     tag_generation_ = 0;
     measurement_requested_ = false;
   } else {
-    if (tag_generation_ != current.tag->generation) {
-      tag_generation_ = current.tag->generation;
+    if (tag_generation_ != generation) {
+      tag_generation_ = generation;
       measurement_requested_ = false;
     }
     if (!handoff_.submitted() || !measurement_requested_) {

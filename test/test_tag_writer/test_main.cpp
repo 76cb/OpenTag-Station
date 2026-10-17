@@ -6,6 +6,8 @@
 #include <cstring>
 #include <fstream>
 #include <functional>
+#include <map>
+#include <algorithm>
 #include <unity.h>
 using namespace opentag;
 namespace {
@@ -373,7 +375,9 @@ struct Http : network::IHttpTransport {
     network::BackendDocument result;
     auto path = request.url.substr(request.url.find("/api/v1") + 7);
     events.push_back(request.method + " " + path);
-    if (path == "/field/spool")
+    if (path == "/info")
+      deserializeJson(result, R"({"version":"0.26.1"})");
+    else if (path == "/field/spool")
       deserializeJson(
           result,
           R"([{"key":"opentag_instance_uuid","name":"UUID","field_type":"text"},{"key":"nfc_uid","name":"UID","field_type":"text"}])");
@@ -2069,6 +2073,448 @@ void restart_v3_verified_clear_repairs_stale_cache_without_nfc() {
   TEST_ASSERT_EQUAL_STRING("Tag cleared and verified. Ready to reuse.", f.view["message"].as<const char*>());
 }
 
+// --- Spoolman 0.27 native tag links -------------------------------------
+// A simulated Spoolman 0.27: tags are unique per spool or filament (409 on a
+// conflict), unlink is per spool (404 when not held), and an extra.<key>
+// filter for an undefined field is ignored, returning every spool.
+struct NativeSpoolman : network::IHttpTransport {
+  std::string version = "0.27.0";
+  bool fields = true, offline = false, fail_link = false;
+  std::map<int, network::BackendDocument> spools;
+  std::map<std::string, int> tags;           // uid -> spool id
+  std::map<std::string, int> filament_tags;  // uid -> filament id
+  std::vector<std::string> events;
+  std::function<void(const std::string &)> on_event;
+  NativeSpoolman() {
+    deserializeJson(spools[12], canonical);
+    deserializeJson(spools[9], R"({"id":9,"used_weight":0,"extra":{},"filament":{"id":4,"density":1.24,"diameter":1.75}})");
+    deserializeJson(spools[77], R"({"id":77,"used_weight":0,"extra":{},"filament":{"id":4,"density":1.24,"diameter":1.75}})");
+  }
+  static std::string query(const std::string &path, const std::string &key) {
+    const auto at = path.find(key + "=");
+    if (at == std::string::npos) return {};
+    const auto end = path.find('&', at);
+    return path.substr(at + key.size() + 1, end == std::string::npos ? std::string::npos : end - at - key.size() - 1);
+  }
+  static std::string decoded_extra(JsonVariantConst value) {
+    if (!value.is<const char *>()) return {};
+    network::BackendDocument d;
+    deserializeJson(d, value.as<const char *>());
+    return d.is<const char *>() ? d.as<std::string>() : std::string{};
+  }
+  core::Result<network::HttpResponse> reply(int status, const std::string &body) {
+    network::ResponseBody out;
+    out.append(body.data(), body.size());
+    return core::Result<network::HttpResponse>::success({status, std::move(out), "application/json"});
+  }
+  core::Result<network::HttpResponse> perform(const network::HttpRequest &request) override {
+    auto path = request.url.substr(request.url.find("/api/v1") + 7);
+    events.push_back(request.method + " " + path);
+    if (on_event) on_event(events.back());
+    if (offline)
+      return core::Result<network::HttpResponse>::failure({core::ErrorCategory::network, "offline", true});
+    std::string out;
+    if (path == "/health") return reply(200, R"({"status":"healthy"})");
+    if (path == "/info") return reply(200, R"({"version":")" + version + R"("})");
+    if (path == "/location") return reply(200, "[]");
+    if (path == "/field/spool")
+      return reply(200, fields ? R"([{"key":"opentag_instance_uuid","name":"UUID","field_type":"text"},{"key":"nfc_uid","name":"UID","field_type":"text"}])" : "[]");
+    if (path.rfind("/filament?", 0) == 0) {
+      const auto uid = query(path, "tag");
+      return reply(200, filament_tags.count(uid) ? "[{\"id\":" + std::to_string(filament_tags[uid]) + "}]" : "[]");
+    }
+    if (path.rfind("/spool?", 0) == 0) {
+      std::vector<int> ids;
+      const auto tag = query(path, "tag");
+      const auto uid_filter = query(path, "extra.nfc_uid");
+      const auto uuid_filter = query(path, "extra.opentag_instance_uuid");
+      for (auto &entry : spools) {
+        bool match = true;
+        if (!tag.empty()) match = tags.count(tag) && tags[tag] == entry.first;
+        if (fields && !uid_filter.empty()) {
+          auto want = uid_filter;  // %22VALUE%22, compare case-sensitively
+          want = want.substr(3, want.size() - 6);
+          match = match && decoded_extra(entry.second["extra"]["nfc_uid"]) == want;
+        }
+        if (fields && !uuid_filter.empty()) {
+          auto want = uuid_filter.substr(3, uuid_filter.size() - 6);
+          match = match && decoded_extra(entry.second["extra"]["opentag_instance_uuid"]) == want;
+        }
+        if (match) ids.push_back(entry.first);  // undefined fields: filter ignored
+      }
+      const auto limit = std::stoul(query(path, "limit").empty() ? "8" : query(path, "limit"));
+      out = "[";
+      for (std::size_t i = 0; i < ids.size() && i < limit; ++i) {
+        if (i) out += ",";
+        std::string item;
+        serializeJson(spools[ids[i]], item);
+        out += item;
+      }
+      return reply(200, out + "]");
+    }
+    // /spool/{id}, /spool/{id}/tag, /spool/{id}/tag/{uid}
+    const auto rest = path.substr(7);
+    const auto slash = rest.find('/');
+    const int id = std::stoi(rest.substr(0, slash));
+    if (!spools.count(id)) return reply(404, R"({"message":"No spool"})");
+    if (slash == std::string::npos) {
+      if (request.method == "PATCH") {
+        network::BackendDocument patch;
+        deserializeJson(patch, request.body);
+        for (auto extra : patch["extra"].as<JsonObjectConst>())
+          if (extra.value().isNull()) spools[id]["extra"].remove(extra.key());
+          else spools[id]["extra"][extra.key()] = extra.value();
+      }
+      serializeJson(spools[id], out);
+      return reply(200, out);
+    }
+    const auto tail = rest.substr(slash);
+    if (request.method == "POST" && tail == "/tag") {
+      if (fail_link) return reply(500, R"({"message":"boom"})");
+      network::BackendDocument body;
+      deserializeJson(body, request.body);
+      const auto uid = body["uid"].as<std::string>();
+      if (filament_tags.count(uid))
+        return reply(409, R"({"message":"filament","spool_id":null,"filament_id":)" + std::to_string(filament_tags[uid]) + "}");
+      if (tags.count(uid) && tags[uid] != id)
+        return reply(409, R"({"message":"spool","spool_id":)" + std::to_string(tags[uid]) + R"(,"filament_id":null})");
+      tags[uid] = id;
+      return reply(201, R"({"uid":")" + uid + R"(","added":"2026-10-17T12:00:00Z"})");
+    }
+    if (request.method == "DELETE" && tail.rfind("/tag/", 0) == 0) {
+      const auto uid = tail.substr(5);
+      if (!tags.count(uid) || tags[uid] != id) return reply(404, R"({"message":"not held"})");
+      tags.erase(uid);
+      return reply(204, "");
+    }
+    return reply(500, R"({"message":"unexpected route"})");
+  }
+  bool any(const std::string &needle) const {
+    return std::any_of(events.begin(), events.end(), [&](const std::string &e) { return e.find(needle) != std::string::npos; });
+  }
+  std::size_t index_of(const std::string &needle) const {
+    for (std::size_t i = 0; i < events.size(); ++i)
+      if (events[i].find(needle) != std::string::npos) return i;
+    return events.size();
+  }
+};
+std::string tag_uid() { return "E004010866" "27D8D4"; }
+std::string reversed_tag_uid() { return "D4D8276608" "0104E0"; }
+struct NativeFixture {
+  Reader reader;
+  NativeSpoolman http;
+  Journal journal;
+  integrations::spoolman::SpoolmanAdapter adapter{http, {"http://spoolman.test"}};
+  network::BackendDocument view;
+  int synced = 0, cleared = 0;
+  std::unique_ptr<services::TagWriterService> service;
+  explicit NativeFixture(const char *version = "0.27.0", bool fields = true,
+                         bool probed = true) {
+    http.version = version;
+    http.fields = fields;
+    if (probed) TEST_ASSERT_TRUE(adapter.probe().ok());
+    http.events.clear();
+    service = std::make_unique<services::TagWriterService>(
+        adapter, reader, [this] { return reader.generation; },
+        [](std::uint8_t *p, std::size_t n) { std::memset(p, 0x44, n); },
+        [this](const auto &b) { deserializeJson(view, b.data(), b.size()); }, &journal,
+        [this](const std::string &, const std::string &, std::int32_t) { ++cleared; return R::success(); },
+        [this](const domain::ConfirmedSpoolMapping &) { ++synced; return R::success(); });
+  }
+  R run(const char *command) {
+    network::BackendDocument d;
+    deserializeJson(d, command);
+    return service->process(d.as<JsonObjectConst>());
+  }
+  R preview(int spool = 12) {
+    return run(("{\"action\":\"preview\",\"spool_id\":" + std::to_string(spool) + "}").c_str());
+  }
+  R confirm() {
+    network::BackendDocument c;
+    c["action"] = "write";
+    for (const auto *key : {"uid", "generation", "spool_id", "previous_spool_id", "target_checksum"})
+      c[key] = view[key];
+    return service->process(c.as<JsonObjectConst>());
+  }
+  R write(int spool = 12) {
+    auto previewed = preview(spool);
+    if (!previewed.ok()) return previewed;
+    return confirm();
+  }
+  R clear() {
+    auto previewed = run(R"({"action":"clear_preview"})");
+    if (!previewed.ok()) return previewed;
+    network::BackendDocument c;
+    c["action"] = "clear";
+    for (auto key : {"uid", "generation", "current_checksum", "target_checksum"})
+      c[key] = view[key];
+    return service->process(c.as<JsonObjectConst>());
+  }
+};
+void native_write_links_the_tag_and_fills_the_extra_fields() {
+  NativeFixture f;
+  auto r = f.write();
+  TEST_ASSERT_TRUE_MESSAGE(r.ok(), r.ok() ? "" : r.error().message.c_str());
+  TEST_ASSERT_EQUAL_STRING("complete", f.view["phase"].as<const char *>());
+  TEST_ASSERT_EQUAL(12, f.http.tags[tag_uid()]);
+  TEST_ASSERT_EQUAL_STRING(tag_uid().c_str(),
+      NativeSpoolman::decoded_extra(f.http.spools[12]["extra"]["nfc_uid"]).c_str());
+  TEST_ASSERT_EQUAL(1, f.synced);
+  TEST_ASSERT_FALSE(f.journal.present);
+}
+void native_write_works_without_the_extra_fields() {
+  NativeFixture f("0.27.0", false);
+  auto r = f.write();
+  TEST_ASSERT_TRUE_MESSAGE(r.ok(), r.ok() ? "" : r.error().message.c_str());
+  TEST_ASSERT_EQUAL_STRING("complete", f.view["phase"].as<const char *>());
+  TEST_ASSERT_EQUAL(12, f.http.tags[tag_uid()]);
+  // Undefined extra filters would match every spool, so none may be sent.
+  TEST_ASSERT_FALSE(f.http.any("extra."));
+  TEST_ASSERT_FALSE(f.http.any("PATCH"));
+  TEST_ASSERT_TRUE(f.http.spools[12]["extra"].as<JsonObjectConst>().size() == 0);
+  TEST_ASSERT_EQUAL(1, f.synced);
+}
+void older_spoolman_without_fields_still_refuses_before_writing() {
+  NativeFixture f("0.26.1", false);
+  auto r = f.preview();
+  TEST_ASSERT_FALSE(r.ok());
+  TEST_ASSERT_TRUE(r.error().message.find("extra field") != std::string::npos);
+  TEST_ASSERT_EQUAL(0, f.reader.writes);
+  TEST_ASSERT_FALSE(f.http.any("tag="));
+}
+void native_move_removes_the_previous_link_first() {
+  NativeFixture f("0.27.0", false);
+  f.http.tags[tag_uid()] = 9;
+  TEST_ASSERT_TRUE(f.preview().ok());
+  TEST_ASSERT_EQUAL(9, f.view["previous_spool_id"].as<int>());
+  auto r = f.confirm();
+  TEST_ASSERT_TRUE_MESSAGE(r.ok(), r.ok() ? "" : r.error().message.c_str());
+  TEST_ASSERT_EQUAL(12, f.http.tags[tag_uid()]);
+  TEST_ASSERT_LESS_THAN(f.http.index_of("POST /spool/12/tag"),
+                        f.http.index_of("DELETE /spool/9/tag/" + tag_uid()));
+}
+void native_reversed_spelling_counts_as_the_same_tag() {
+  NativeFixture f("0.27.0", false);
+  f.http.tags[reversed_tag_uid()] = 12;  // linked by a phone, bytes reversed
+  TEST_ASSERT_TRUE(f.write().ok());
+  TEST_ASSERT_FALSE(f.http.any("POST /spool/12/tag"));
+  TEST_ASSERT_EQUAL(1u, f.http.tags.size());
+
+  NativeFixture g("0.27.0", false);
+  g.http.tags[reversed_tag_uid()] = 9;
+  TEST_ASSERT_TRUE(g.preview().ok());
+  TEST_ASSERT_EQUAL(9, g.view["previous_spool_id"].as<int>());
+  TEST_ASSERT_TRUE(g.confirm().ok());
+  TEST_ASSERT_TRUE(g.http.any("DELETE /spool/9/tag/" + reversed_tag_uid()));
+  TEST_ASSERT_EQUAL(12, g.http.tags[tag_uid()]);
+  TEST_ASSERT_EQUAL(1u, g.http.tags.size());
+}
+void native_conflicts_refuse_before_writing() {
+  NativeFixture filament("0.27.0", false);
+  filament.http.filament_tags[tag_uid()] = 4;
+  auto r = filament.preview();
+  TEST_ASSERT_FALSE(r.ok());
+  TEST_ASSERT_TRUE(r.error().message.find("filament #4") != std::string::npos);
+  TEST_ASSERT_EQUAL(0, filament.reader.writes);
+
+  NativeFixture split("0.27.0", false);
+  split.http.tags[tag_uid()] = 9;
+  split.http.tags[reversed_tag_uid()] = 77;
+  TEST_ASSERT_FALSE(split.preview().ok());
+  TEST_ASSERT_EQUAL(0, split.reader.writes);
+
+  NativeFixture both;  // extra field says 9, Spoolman's tag list says 77
+  both.http.spools[9]["extra"]["nfc_uid"] = "\"" + tag_uid() + "\"";
+  both.http.tags[tag_uid()] = 77;
+  r = both.preview();
+  TEST_ASSERT_FALSE(r.ok());
+  TEST_ASSERT_TRUE(r.error().message.find("#77") != std::string::npos);
+  TEST_ASSERT_EQUAL(0, both.reader.writes);
+}
+void native_link_failure_is_retried_without_writing_again() {
+  NativeFixture f("0.27.0", false);
+  TEST_ASSERT_TRUE(f.preview().ok());
+  f.http.fail_link = true;
+  TEST_ASSERT_FALSE(f.confirm().ok());
+  TEST_ASSERT_EQUAL_STRING("association_pending", f.view["phase"].as<const char *>());
+  TEST_ASSERT_TRUE(f.journal.present);
+  const auto writes = f.reader.writes;
+  f.http.fail_link = false;
+  TEST_ASSERT_TRUE(f.run(R"({"action":"retry_association"})").ok());
+  TEST_ASSERT_EQUAL(writes, f.reader.writes);
+  TEST_ASSERT_EQUAL_STRING("complete", f.view["phase"].as<const char *>());
+  TEST_ASSERT_EQUAL(12, f.http.tags[tag_uid()]);
+  TEST_ASSERT_FALSE(f.journal.present);
+}
+void native_link_taken_by_an_unexpected_spool_stays_pending() {
+  NativeFixture f("0.27.0", false);
+  TEST_ASSERT_TRUE(f.preview().ok());
+  f.http.on_event = [&](const std::string &event) {
+    if (event == "GET /field/spool" && f.reader.writes) f.http.tags[tag_uid()] = 77;
+  };
+  TEST_ASSERT_FALSE(f.confirm().ok());
+  TEST_ASSERT_EQUAL_STRING("association_pending", f.view["phase"].as<const char *>());
+  TEST_ASSERT_TRUE(f.view["message"].as<std::string>().find("#77") != std::string::npos);
+  TEST_ASSERT_EQUAL(77, f.http.tags[tag_uid()]);  // never taken from 77
+}
+void native_clear_removes_the_link() {
+  NativeFixture f("0.27.0", false);
+  TEST_ASSERT_TRUE(f.write().ok());
+  f.reader.generation++;
+  auto r = f.clear();
+  TEST_ASSERT_TRUE_MESSAGE(r.ok(), r.ok() ? "" : r.error().message.c_str());
+  TEST_ASSERT_EQUAL_STRING("cleared", f.view["phase"].as<const char *>());
+  TEST_ASSERT_TRUE(f.http.tags.empty());
+  TEST_ASSERT_FALSE(f.http.any("extra."));
+  TEST_ASSERT_EQUAL(1, f.cleared);
+  TEST_ASSERT_FALSE(f.journal.present);
+}
+void native_clear_with_fields_removes_both_links() {
+  NativeFixture f;
+  TEST_ASSERT_TRUE(f.write().ok());
+  f.reader.generation++;
+  TEST_ASSERT_TRUE(f.clear().ok());
+  TEST_ASSERT_TRUE(f.http.tags.empty());
+  TEST_ASSERT_TRUE(f.http.spools[12]["extra"]["nfc_uid"].isNull());
+  TEST_ASSERT_TRUE(f.http.spools[12]["extra"]["opentag_instance_uuid"].isNull());
+}
+void native_clear_offline_is_retried_without_touching_the_tag() {
+  NativeFixture f("0.27.0", false);
+  TEST_ASSERT_TRUE(f.write().ok());
+  f.reader.generation++;
+  TEST_ASSERT_TRUE(f.run(R"({"action":"clear_preview"})").ok());
+  f.http.on_event = [&](const std::string &event) {
+    if (event.rfind("DELETE", 0) == 0) f.http.offline = true;
+  };
+  network::BackendDocument c;
+  c["action"] = "clear";
+  for (auto key : {"uid", "generation", "current_checksum", "target_checksum"})
+    c[key] = f.view[key];
+  TEST_ASSERT_FALSE(f.service->process(c.as<JsonObjectConst>()).ok());
+  TEST_ASSERT_EQUAL_STRING("unlink_pending", f.view["phase"].as<const char *>());
+  TEST_ASSERT_TRUE(f.journal.present);
+  const auto writes = f.reader.writes;
+  f.http.on_event = nullptr;
+  f.http.offline = false;
+  TEST_ASSERT_TRUE(f.run(R"({"action":"retry_unlink"})").ok());
+  TEST_ASSERT_EQUAL(writes, f.reader.writes);
+  TEST_ASSERT_EQUAL_STRING("cleared", f.view["phase"].as<const char *>());
+  TEST_ASSERT_TRUE(f.http.tags.empty());
+}
+void native_link_is_not_missed_before_the_first_full_probe() {
+  NativeFixture f("0.27.0", true, false);  // version not known yet
+  auto r = f.write();
+  TEST_ASSERT_TRUE_MESSAGE(r.ok(), r.ok() ? "" : r.error().message.c_str());
+  TEST_ASSERT_TRUE(f.http.any("GET /info"));
+  TEST_ASSERT_EQUAL(12, f.http.tags[tag_uid()]);
+}
+void writer_refuses_to_guess_without_the_spoolman_version() {
+  // A move must not finish through the extra fields alone while Spoolman's
+  // tag list still names the old spool: without the version, stay pending.
+  NativeFixture f("0.27.0", true, false);
+  f.http.tags[tag_uid()] = 9;
+  bool info_down = true;
+  f.http.on_event = [&](const std::string &event) {
+    f.http.offline = info_down && event == "GET /info";
+  };
+  auto r = f.preview();
+  TEST_ASSERT_FALSE(r.ok());
+  TEST_ASSERT_TRUE(r.error().message.find("version") != std::string::npos);
+  TEST_ASSERT_EQUAL(0, f.reader.writes);
+  info_down = false;
+  TEST_ASSERT_TRUE(f.preview().ok());
+  TEST_ASSERT_EQUAL(9, f.view["previous_spool_id"].as<int>());
+  TEST_ASSERT_TRUE(f.confirm().ok());
+  TEST_ASSERT_EQUAL(12, f.http.tags[tag_uid()]);
+}
+void association_without_the_version_stays_pending_and_retries() {
+  NativeFixture f("0.27.0", false, false);
+  TEST_ASSERT_TRUE(f.preview().ok());  // learns 0.27.0
+  f.adapter.configure({"http://spoolman.test"});  // version forgotten again
+  f.http.on_event = [&](const std::string &event) {
+    f.http.offline = event == "GET /info";
+  };
+  // configure() also resets the preview's settings capture; restore the
+  // same URL so only the version is missing.
+  TEST_ASSERT_FALSE(f.confirm().ok());
+  TEST_ASSERT_EQUAL_STRING("association_pending", f.view["phase"].as<const char *>());
+  TEST_ASSERT_TRUE(f.journal.present);
+  f.http.on_event = nullptr;
+  f.http.offline = false;
+  TEST_ASSERT_TRUE(f.run(R"({"action":"retry_association"})").ok());
+  TEST_ASSERT_EQUAL(12, f.http.tags[tag_uid()]);
+  TEST_ASSERT_FALSE(f.journal.present);
+}
+void native_clear_never_removes_another_spools_link() {
+  NativeFixture f("0.27.0", false);
+  TEST_ASSERT_TRUE(f.write().ok());
+  f.reader.generation++;
+  TEST_ASSERT_TRUE(f.run(R"({"action":"clear_preview"})").ok());
+  // Between the owner lookup and the removal, Spoolman moves the tag to 77.
+  int lookups = 0;
+  f.http.on_event = [&](const std::string &event) {
+    if (event.find("tag=E004") != std::string::npos && ++lookups == 2)
+      f.http.tags[tag_uid()] = 77;
+  };
+  network::BackendDocument c;
+  c["action"] = "clear";
+  for (auto key : {"uid", "generation", "current_checksum", "target_checksum"})
+    c[key] = f.view[key];
+  TEST_ASSERT_FALSE(f.service->process(c.as<JsonObjectConst>()).ok());
+  TEST_ASSERT_EQUAL_STRING("unlink_pending", f.view["phase"].as<const char *>());
+  TEST_ASSERT_EQUAL(77, f.http.tags[tag_uid()]);
+  TEST_ASSERT_FALSE(f.http.any("DELETE /spool/77"));
+}
+void native_clear_says_when_a_filament_link_remains() {
+  NativeFixture f("0.27.0", false);
+  TEST_ASSERT_TRUE(f.write().ok());
+  f.reader.generation++;
+  f.http.filament_tags[reversed_tag_uid()] = 4;  // linked by a phone to the filament
+  TEST_ASSERT_TRUE(f.clear().ok());
+  TEST_ASSERT_EQUAL_STRING("cleared", f.view["phase"].as<const char *>());
+  TEST_ASSERT_TRUE(f.view["message"].as<std::string>().find("filament #4") != std::string::npos);
+  TEST_ASSERT_EQUAL(4, f.http.filament_tags[reversed_tag_uid()]);  // never removed
+}
+void native_move_with_extra_fields_moves_both_links() {
+  NativeFixture f;
+  f.http.spools[9]["extra"]["nfc_uid"] = "\"" + tag_uid() + "\"";
+  f.http.tags[tag_uid()] = 9;
+  TEST_ASSERT_TRUE(f.preview().ok());
+  TEST_ASSERT_EQUAL(9, f.view["previous_spool_id"].as<int>());
+  TEST_ASSERT_TRUE(f.confirm().ok());
+  TEST_ASSERT_EQUAL(12, f.http.tags[tag_uid()]);
+  TEST_ASSERT_TRUE(f.http.spools[9]["extra"]["nfc_uid"].isNull());
+  TEST_ASSERT_EQUAL_STRING(tag_uid().c_str(),
+      NativeSpoolman::decoded_extra(f.http.spools[12]["extra"]["nfc_uid"]).c_str());
+}
+void native_move_recovers_after_a_restart_without_writing_again() {
+  NativeFixture f("0.27.0", false);
+  f.http.tags[tag_uid()] = 9;
+  TEST_ASSERT_TRUE(f.preview().ok());
+  // The old link is removed, then Spoolman goes away before the new one.
+  f.http.on_event = [&](const std::string &event) {
+    if (event.rfind("POST /spool/12/tag", 0) == 0) f.http.offline = true;
+  };
+  TEST_ASSERT_FALSE(f.confirm().ok());
+  TEST_ASSERT_TRUE(f.journal.present);
+  TEST_ASSERT_TRUE(f.http.tags.empty());  // half-done: linked nowhere
+  const auto writes = f.reader.writes;
+  // Restart: a new service from the same journal; Spoolman is back.
+  f.http.on_event = nullptr;
+  f.http.offline = false;
+  f.service = std::make_unique<services::TagWriterService>(
+      f.adapter, f.reader, [&f] { return f.reader.generation; },
+      [](std::uint8_t *p, std::size_t n) { std::memset(p, 0x44, n); },
+      [&f](const auto &b) { deserializeJson(f.view, b.data(), b.size()); }, &f.journal,
+      [](const std::string &, const std::string &, std::int32_t) { return R::success(); },
+      [](const domain::ConfirmedSpoolMapping &) { return R::success(); });
+  TEST_ASSERT_TRUE(f.preview().ok());
+  TEST_ASSERT_EQUAL_STRING("association_pending", f.view["phase"].as<const char *>());
+  TEST_ASSERT_TRUE(f.run(R"({"action":"retry_association"})").ok());
+  TEST_ASSERT_EQUAL(writes, f.reader.writes);
+  TEST_ASSERT_EQUAL(12, f.http.tags[tag_uid()]);
+  TEST_ASSERT_FALSE(f.journal.present);
+}
 } // namespace
 void setUp() {}
 void tearDown() {}
@@ -2503,6 +2949,24 @@ int main() {
   RUN_TEST(final_mismatch_stops);
   RUN_TEST(removed_mid_write);
   RUN_TEST(bus_error_refuses);
+  RUN_TEST(native_write_links_the_tag_and_fills_the_extra_fields);
+  RUN_TEST(native_write_works_without_the_extra_fields);
+  RUN_TEST(older_spoolman_without_fields_still_refuses_before_writing);
+  RUN_TEST(native_move_removes_the_previous_link_first);
+  RUN_TEST(native_reversed_spelling_counts_as_the_same_tag);
+  RUN_TEST(native_conflicts_refuse_before_writing);
+  RUN_TEST(native_link_failure_is_retried_without_writing_again);
+  RUN_TEST(native_link_taken_by_an_unexpected_spool_stays_pending);
+  RUN_TEST(native_clear_removes_the_link);
+  RUN_TEST(native_clear_with_fields_removes_both_links);
+  RUN_TEST(native_clear_offline_is_retried_without_touching_the_tag);
+  RUN_TEST(native_link_is_not_missed_before_the_first_full_probe);
+  RUN_TEST(writer_refuses_to_guess_without_the_spoolman_version);
+  RUN_TEST(association_without_the_version_stays_pending_and_retries);
+  RUN_TEST(native_clear_never_removes_another_spools_link);
+  RUN_TEST(native_clear_says_when_a_filament_link_remains);
+  RUN_TEST(native_move_with_extra_fields_moves_both_links);
+  RUN_TEST(native_move_recovers_after_a_restart_without_writing_again);
   RUN_TEST(preserved_plan_refused);
   RUN_TEST(malformed_target_refused);
   RUN_TEST(no_change_rewrite);

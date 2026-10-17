@@ -30,7 +30,7 @@ keep its own inventory.
 | You need | Notes |
 |---|---|
 | The station hardware | A WT32-SC01 Plus touchscreen board, an NFC reader, a load cell with its amplifier, and a platform you build. See the [parts list](../hardware/bill-of-materials.md). |
-| Spoolman | Your own running Spoolman server that the station can reach on your network. The station is not useful without it. |
+| Spoolman | Your own running Spoolman server that the station can reach on your network. The station is not useful without it. Weights are saved to Spoolman 0.26 and 0.27; see [Connect Spoolman](../inventory/spoolman.md). |
 | 2.4 GHz Wi-Fi | The station cannot join 5 GHz-only or WPA3-only networks. |
 | Blank tags | NXP ICODE SLIX2 (NFC-V / ISO 15693). Other tag types are not seen at all. See [Which tags work](../openprinttag/supported-tags.md). |
 | A desktop computer with Chrome or Edge | Only for installing the firmware over USB. Afterwards any browser on your network works. |
@@ -46,9 +46,9 @@ Follow these pages in order:
    [Power](../hardware/power.md) and build the [scale platform](../hardware/mechanical.md).
 3. [Install the firmware over USB](../installation/web-flasher.md).
 4. [First boot and Wi-Fi](first-boot.md) — get the station onto your network.
-5. [Connect Spoolman and FilaBridge](initial-setup.md) — including the two
-   [extra fields Spoolman needs](../inventory/custom-fields.md) and the
-   [scale calibration](../scale/calibration.md).
+5. [Connect Spoolman and FilaBridge](initial-setup.md) — including the
+   [scale calibration](../scale/calibration.md) and, on Spoolman older than 0.27, the two
+   [extra fields Spoolman needs](../inventory/custom-fields.md).
 6. [Your first spool](quick-start.md) — write a tag, save a weight, assign a toolhead.
 
 ## Two ways to use it

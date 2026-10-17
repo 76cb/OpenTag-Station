@@ -391,6 +391,7 @@ void BackendWorker::probe_backends(std::uint64_t operation_id, bool full) {
       ++status_.revision;
     }
     wifi_offline_published_ = true;
+    discovery_required_ = true;  // learn versions again once Wi-Fi is back
     if (operation_id != 0U) operations_.fail(operation_id, now_ms, error);
     return;
   }
@@ -400,7 +401,11 @@ void BackendWorker::probe_backends(std::uint64_t operation_id, bool full) {
   std::optional<core::Error> filabridge_error;
   std::optional<core::Error> printer_refresh_error;
   if (spoolman_configured_) {
+    const bool spoolman_was_healthy = spoolman_.status().healthy;
     const auto result = spoolman_.probe(full);
+    // A health-only probe never learns the version; after an outage the next
+    // probe is a full one.
+    if (!full && !spoolman_was_healthy && result.ok()) discovery_required_ = true;
     if (!result.ok()) spoolman_error = result.error();
     workflow_.set_spoolman_probe(
         result.ok() && result.value().healthy,
@@ -517,6 +522,12 @@ void BackendWorker::process(Command& command) {
         command.expected_spool_generation); });
     if (!state) workflow_.set_spoolman_probe(false, core::Error{
         core::ErrorCategory::backend_unavailable, "Spool resolution workspace unavailable; retry", true});
+    // Spoolman 0.27+: a Spoolman page paired with this station jumps to the
+    // tag's spool. Once per placement, only when the lookup just reached
+    // Spoolman (an unreachable server would cost another timeout).
+    if (state && state->spoolman == services::BackendAvailability::online)
+      spoolman_.report_tag_scan(command.uid.hex(), configured.device.hostname,
+                                "OpenTag Station");
     return;
   }
   if (command.type == CommandType::assign) {

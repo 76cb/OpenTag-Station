@@ -61,9 +61,11 @@ void StationWorkflow::clear() {
 }
 
 std::uint64_t StationWorkflow::begin_identified_spool(
-    const nfc::openprinttag::MaterialRecord& material, const nfc::nfcv::Uid& uid) {
+    const nfc::openprinttag::MaterialRecord& material, const nfc::nfcv::Uid& uid,
+    bool uid_only) {
   auto pending = std::make_unique<WorkflowSnapshot>();
-  pending->openprinttag_available = true;
+  pending->openprinttag_available = !uid_only;
+  pending->uid_only = uid_only;
   pending->material = material;
   pending->uid = uid;
   pending->stage = WorkflowStage::waiting_for_stable_weight;
@@ -92,7 +94,8 @@ WorkflowSnapshot StationWorkflow::accept_identified_spool(
       ? *expected_generation : begin_identified_spool(material, uid);
   {
     std::lock_guard<std::mutex> lock(mutex_);
-    if (state_.spool_generation != generation || !state_.openprinttag_available ||
+    if (state_.spool_generation != generation ||
+        !(state_.openprinttag_available || state_.uid_only) ||
         state_.uid != uid) return state_;
     state_.physical_weight = physical_weight;
     state_.weight_snapshot.physical = physical_weight;
@@ -122,6 +125,16 @@ WorkflowSnapshot StationWorkflow::accept_identified_spool(
     if (state_.spool_generation != generation) return state_;
     state_.spoolman = BackendAvailability::online;
     state_.spoolman_error.reset();
+    if (state_.uid_only) {
+      // Without tag data only an exact link identifies the spool; anything
+      // else leaves the tag shown as it is (blank, or not usable).
+      if (resolution.value().status != SpoolResolutionStatus::matched ||
+          resolution.value().match() == nullptr) {
+        state_.stage = WorkflowStage::spool_not_found;
+        return state_;
+      }
+      state_.openprinttag_available = true;
+    }
     state_.spool_candidates = resolution.value().candidates;
     if (resolution.value().status == SpoolResolutionStatus::ambiguous ||
         resolution.value().status == SpoolResolutionStatus::conflict) {

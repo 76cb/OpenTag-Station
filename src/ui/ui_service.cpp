@@ -1165,7 +1165,7 @@ void UiService::navigation_callback(lv_event_t* event) {
 
 void UiService::weigh_callback(lv_event_t* event) {
   auto* self = static_cast<UiService*>(lv_event_get_user_data(event));
-  if(self->active_page_==ProductPage::home&&self->nfc_.snapshot().blank_compatible){self->active_page_=ProductPage::tags;self->build_current_screen();self->tag_action(TagAction::sources);return;}
+  if(self->active_page_==ProductPage::home&&self->home_shows_blank_tag()){self->active_page_=ProductPage::tags;self->build_current_screen();self->tag_action(TagAction::sources);return;}
   if (self->active_page_ == ProductPage::home &&
       !self->diagnostics_.scale_snapshot().scale_calibrated) {
     self->active_page_ = ProductPage::scale;
@@ -1866,12 +1866,24 @@ bool UiService::track_scale_operation() {
   return false;
 }
 
+bool UiService::home_shows_blank_tag() const {
+  const auto tag=nfc_.snapshot();
+  if(!tag.present||!tag.blank_compatible)return false;
+  // A blank tag that Spoolman links to a spool is shown (and weighed) as
+  // that spool instead.
+  bool linked=false;
+  workflow_.visit([&](const services::WorkflowSnapshot& current){
+    linked=current.openprinttag_available&&current.spool&&tag.uid&&current.uid==*tag.uid;
+  });
+  return !linked;
+}
+
 void UiService::refresh_home_page(
     const diagnostics::ScaleDiagnosticSnapshot& scale, bool busy) {
   const auto workflow=workflow_.snapshot();
   const auto tag=nfc_.snapshot();
-  const bool blank=tag.present&&tag.blank_compatible;
   const bool present=workflow.openprinttag_available;
+  const bool blank=home_shows_blank_tag();
   place(workflow_scale_indicator_,present?layout::home_art:layout::empty_art);
   const auto color=workflow.material.primary_color;
   lv_obj_set_style_bg_color(workflow_scale_indicator_,color?lv_color_make(color->red,color->green,color->blue):lv_color_hex(neutral_fill),0);
@@ -1881,7 +1893,9 @@ void UiService::refresh_home_page(
   lv_obj_set_width(workflow_identity_label_,present?348:448);
   lv_obj_set_width(workflow_weight_label_,348);
   lv_label_set_text(workflow_home_state_label_,present?workflow.material.brand_name.value_or("Current spool").c_str():"OpenTag Station");
-  lv_label_set_text(workflow_material_label_,present?workflow.material.material_name.value_or("Filament spool").c_str():"Place a spool");
+  const std::string material_name=workflow.material.material_name.value_or(
+      workflow.spool&&!workflow.spool->display_name.empty()?workflow.spool->display_name:std::string("Filament spool"));
+  lv_label_set_text(workflow_material_label_,present?material_name.c_str():"Place a spool");
   const std::string identity=workflow.spool?"Spool #"+std::to_string(workflow.spool->id):
       !present?"Set a tagged spool on the station":
       workflow.stage==services::WorkflowStage::spool_selection_required||workflow.stage==services::WorkflowStage::spool_not_found?"Not linked yet: Manage tag > Link to a spool":

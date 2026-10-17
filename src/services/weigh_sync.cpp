@@ -85,6 +85,7 @@ WeighSync::update(std::uint64_t id, integrations::ISpoolInventory &inventory,
     state_.phase = phase;
     state_.message = message;
   };
+  inventory.refresh_capabilities();
   if (!inventory.capabilities().has(
           integrations::BackendCapability::update_remaining_weight)) {
     finish("failed",

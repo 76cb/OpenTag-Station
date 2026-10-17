@@ -8,8 +8,9 @@ jobs: choosing the load cell and calibrating the scale.
 
 - The station is [on your Wi-Fi](first-boot.md).
 - Spoolman is running and reachable from the same network.
-- You have added the two [required extra fields](../inventory/custom-fields.md) in Spoolman.
-  Without them the station cannot write or link a tag.
+- On Spoolman older than 0.27: you have added the two
+  [extra fields](../inventory/custom-fields.md) in Spoolman. Without them the station cannot write
+  or link a tag. On Spoolman 0.27 or later they are optional.
 
 ## Connect Spoolman
 
@@ -38,8 +39,11 @@ use **Test** in the browser to be sure.
 
 ### The two extra fields
 
-Spoolman must have two extra fields for spools (Spoolman calls this the **Spool** entity), both
-of type **Text**:
+On Spoolman 0.27 or later you can skip this: the station links each tag to its spool in Spoolman's
+own tag list, and no warning appears when the fields are missing.
+
+On older Spoolman, two extra fields for spools (Spoolman calls this the **Spool** entity) must
+exist, both of type **Text**:
 `opentag_instance_uuid` and `nfc_uid`. If they are missing, **Test** shows:
 
 > Spoolman is missing the Spool extra fields 'opentag_instance_uuid', 'nfc_uid'. In Spoolman open
@@ -101,7 +105,7 @@ Next: [Your first spool](quick-start.md).
 
 | What you see | What it means | What to do |
 |---|---|---|
-| "Spoolman is missing the Spool extra field …" | One or both extra fields are missing or not of type Text. | [Add the extra fields](../inventory/custom-fields.md), then click **Test** again. |
+| "Spoolman is missing the Spool extra field …" | Your Spoolman is older than 0.27 and one or both extra fields are missing or not of type Text. | [Add the extra fields](../inventory/custom-fields.md), then click **Test** again. |
 | "Spoolman … has not been tested with this firmware, so saving weights to Spoolman is turned off." | Your Spoolman version is not one the station saves weights to. | See [Connect Spoolman](../inventory/spoolman.md). |
 | "HTTPS requires a configured CA certificate" | The address starts with `https://`. | Use the `http://` address. |
 | "DNS resolution failed or is still pending for …" | The station cannot look up that name. | Use Spoolman's IP address instead of its name. |

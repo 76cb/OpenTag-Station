@@ -141,6 +141,30 @@ domain::SpoolIdentity identity_from_openprinttag(
   return result;
 }
 
+core::Result<SpoolResolution> SpoolIdentityResolver::native_tag_match(
+    const std::string& nfc_uid) {
+  std::string reversed;
+  for (std::size_t i = nfc_uid.size(); i >= 2U; i -= 2U)
+    reversed += nfc_uid.substr(i - 2U, 2U);
+  for (const auto& form : {nfc_uid, reversed}) {
+    integrations::SpoolFilter filter;
+    filter.tag = form;
+    filter.allow_archived = true;
+    filter.maximum_results = 3U;
+    auto matches = inventory_.find_spools(filter);
+    if (!matches.ok()) {
+      return core::Result<SpoolResolution>::failure(matches.error());
+    }
+    if (matches.value().empty()) continue;
+    return core::Result<SpoolResolution>::success(resolved(
+        matches.value().size() > 1U ? SpoolResolutionStatus::conflict
+                                    : SpoolResolutionStatus::matched,
+        SpoolMatchSource::native_tag, matches.value()));
+  }
+  return core::Result<SpoolResolution>::success(
+      resolved(SpoolResolutionStatus::not_found, SpoolMatchSource::native_tag));
+}
+
 core::Result<SpoolResolution> SpoolIdentityResolver::exact_extra_match(
     const std::string& key,
     const std::string& value,
@@ -151,6 +175,13 @@ core::Result<SpoolResolution> SpoolIdentityResolver::exact_extra_match(
   filter.maximum_results = 3U;
   auto matches = inventory_.find_spools(filter);
   if (!matches.ok()) {
+    // On Spoolman 0.27+ the extra fields are optional; their absence is
+    // reported as a configuration error and simply means "no match here".
+    if (matches.error().category == core::ErrorCategory::configuration &&
+        inventory_.capabilities().has(integrations::BackendCapability::native_tags)) {
+      return core::Result<SpoolResolution>::success(
+          resolved(SpoolResolutionStatus::not_found, source));
+    }
     return core::Result<SpoolResolution>::failure(matches.error());
   }
   if (matches.value().empty()) {
@@ -220,6 +251,44 @@ core::Result<SpoolResolution> SpoolIdentityResolver::cached_match(
 
 core::Result<SpoolResolution> SpoolIdentityResolver::resolve(
     const domain::SpoolIdentity& identity) {
+  inventory_.refresh_capabilities();
+  // The tag's own UID is the physical key, so Spoolman's tag list comes
+  // first where it exists.
+  if (identity.nfc_uid.has_value() &&
+      inventory_.capabilities().has(integrations::BackendCapability::native_tags)) {
+    auto result = native_tag_match(*identity.nfc_uid);
+    if (!result.ok()) return result;
+    const auto* match = result.value().match();
+    // A spool linked to this tag but holding a different OpenPrintTag
+    // instance UUID belongs to an earlier use of the tag.
+    if (match != nullptr && identity.instance_uuid.has_value() &&
+        match->openprinttag_instance_uuid.has_value() &&
+        !match->openprinttag_instance_uuid->empty() &&
+        !equal_text(*match->openprinttag_instance_uuid, *identity.instance_uuid)) {
+      return core::Result<SpoolResolution>::success(resolved(
+          SpoolResolutionStatus::conflict, SpoolMatchSource::native_tag,
+          std::move(result.value().candidates)));
+    }
+    // The linked spool has no instance UUID to compare (no extra fields, or
+    // an older client): another spool holding the tag's exact UUID makes the
+    // link ambiguous.
+    if (match != nullptr && identity.instance_uuid.has_value() &&
+        (!match->openprinttag_instance_uuid.has_value() ||
+         match->openprinttag_instance_uuid->empty())) {
+      auto by_uuid = exact_extra_match(settings_.identity_field,
+          *identity.instance_uuid, SpoolMatchSource::configured_identity_field);
+      if (!by_uuid.ok()) return by_uuid;
+      const auto* other = by_uuid.value().match();
+      if (other != nullptr && other->id != match->id) {
+        auto candidates = std::move(result.value().candidates);
+        candidates.push_back(*other);
+        return core::Result<SpoolResolution>::success(resolved(
+            SpoolResolutionStatus::conflict, SpoolMatchSource::native_tag,
+            std::move(candidates)));
+      }
+    }
+    if (result.value().status != SpoolResolutionStatus::not_found) return result;
+  }
   if (identity.instance_uuid.has_value()) {
     auto result = exact_extra_match(
         settings_.identity_field,
@@ -252,9 +321,13 @@ core::Result<SpoolResolution> SpoolIdentityResolver::resolve(
     if (!result.ok() || result.value().status != SpoolResolutionStatus::not_found) {
       return result;
     }
-    result = cached_match(identity, true);
-    if (!result.ok() || result.value().status != SpoolResolutionStatus::not_found) {
-      return result;
+    // Spoolman 0.27+ keeps the UID links itself; a local entry it no longer
+    // confirms is stale (for example a link removed in Spoolman).
+    if (!inventory_.capabilities().has(integrations::BackendCapability::native_tags)) {
+      result = cached_match(identity, true);
+      if (!result.ok() || result.value().status != SpoolResolutionStatus::not_found) {
+        return result;
+      }
     }
   }
 

@@ -9,11 +9,13 @@ the old spool in Spoolman.
 | | Erased or removed | Stays |
 |---|---|---|
 | On the tag | All filament data the station wrote | The tag's permanent UID |
-| In Spoolman | The tag's link on the old spool: the values in the two extra fields `nfc_uid` and `opentag_instance_uuid` | The spool itself, its filament, its weights and its usage |
+| In Spoolman | The tag's link on the old spool: the values in the two extra fields `nfc_uid` and `opentag_instance_uuid` (if they exist) and, on Spoolman 0.27 or later, the tag in the spool's tag list | The spool itself, its filament, its weights and its usage |
 
 After clearing, the tag is blank and can be written again.
 Only tags that hold OpenPrintTag data can be cleared.
-A blank tag needs no clearing and has no **CLEAR / REUSE** button.
+A blank tag needs no clearing and has no **CLEAR / REUSE** button. If Spoolman still links a
+blank tag to a spool, remove the tag from that spool in Spoolman itself, or write the tag
+for the spool you want (the station moves the link).
 A tag with other data ("This tag can't be used as it is") cannot be erased by the station.
 
 ## Steps
@@ -34,6 +36,11 @@ A tag with other data ("This tag can't be used as it is") cannot be erased by th
     - **DONE** to leave the tag blank.
 
 The first two continue with the steps in [Write or update a tag](manage-tags.md).
+
+The station never removes a tag link that belongs to a filament in Spoolman. If there is one, the
+browser's message after clearing reads "Tag cleared and verified. Spoolman still links it to
+filament #N; remove it there before using the tag for a spool." Remove it in Spoolman before you
+write the tag for a spool; otherwise the write is refused.
 
 ### Browser
 
@@ -64,8 +71,8 @@ the tag.
 
 Skipping leaves Spoolman as it is. The touchscreen says so before you confirm:
 "The tag is erased, but Spoolman may still list it on the old spool."
-If you skip, empty the `nfc_uid` and `opentag_instance_uuid` fields on the old spool in Spoolman
-yourself.
+If you skip, remove the link on the old spool in Spoolman yourself: empty its `nfc_uid` and
+`opentag_instance_uuid` fields, and on Spoolman 0.27 or later remove the tag from its tag list.
 
 Until this is finished or skipped, the station does not start another tag write or clear.
 Full details for every unfinished state: [Finish an interrupted tag operation](../troubleshooting/journal.md).
@@ -76,6 +83,8 @@ Full details for every unfinished state: [Finish an interrupted tag operation](.
 |---|---|---|
 | "Finish clearing this tag" with "Clearing this tag was interrupted. Place the same tag on the reader to finish clearing it." | The tag was removed, or power was lost, while it was being erased. | Put the same tag back and tap **FINISH CLEARING**. See [Finish an interrupted tag operation](../troubleshooting/journal.md). |
 | "Unlink not finished" | The tag is blank; Spoolman was not updated. | See the section above. |
-| "Spoolman is missing the Spool extra field …" | The two extra fields are missing in Spoolman. The tag is already erased; only the link is left. | Add the fields ([Required extra fields](../inventory/custom-fields.md)), then finish as described in the section above. |
+| "Spoolman is missing the Spool extra field …" | Your Spoolman is older than 0.27 and the two extra fields are missing. The tag is already erased; only the link is left. | Add the fields ([Required extra fields](../inventory/custom-fields.md)), then finish as described in the section above. |
+| "Spoolman now links this tag to another spool; unlink refused" or "This tag is linked to one spool by its extra field and to another in Spoolman's tag list; unlink refused" | The tag is already erased, but Spoolman links it to a different spool than expected, so the station leaves Spoolman alone. The page shows "Unlink not finished". | In Spoolman, find the spools linked to this tag and remove the wrong link. Then tap **TRY UNLINKING AGAIN** (browser: **Retry Spoolman cleanup**). |
+| "Spoolman still links this tag after removing it; try again" | Spoolman did not keep the removal. | Tap **TRY UNLINKING AGAIN** (browser: **Retry Spoolman cleanup**). |
 | "This tag can't be used as it is" | The tag holds data the station does not recognise, so it will not erase it. | Use another tag. See [Which tags work](../openprinttag/supported-tags.md). |
 | Any other error while erasing | The tag or reader refused the operation. | See [Tag write or clear fails](../troubleshooting/write.md). |

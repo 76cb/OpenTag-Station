@@ -1,8 +1,17 @@
 # Required extra fields
 
-The station remembers which tag belongs to which spool by storing two values on the spool in
-Spoolman. Spoolman needs two extra fields to hold them. You create them once, before you write your
-first tag. The station never creates them for you.
+The station can remember which tag belongs to which spool by storing two values on the spool in
+Spoolman, in two extra fields. Spoolman 0.27 and later also has its own tag list, which the station
+uses as well. The station never creates the extra fields for you.
+
+## Do you need them?
+
+| Your Spoolman | Extra fields |
+|---|---|
+| Older than 0.27 | **Required.** Create them once, before you write your first tag. |
+| 0.27 or later | **Optional.** The station links each tag in Spoolman's own tag list instead. If the fields exist, the station keeps filling them as well, which helps older station firmware and other tools that read them. |
+
+Without the fields, the tag's unique ID is kept only on the tag itself and on the station.
 
 ## The two fields
 
@@ -34,8 +43,11 @@ them when you clear the tag.
 
 ## What happens when they are missing
 
-The station refuses to write or link a tag until both fields exist, and tells you which one is
-missing:
+On Spoolman 0.27 or later nothing goes wrong: there is no warning, and writing, identifying and
+clearing use Spoolman's tag list.
+
+On older Spoolman the station refuses to write or link a tag until both fields exist, and tells you
+which one is missing:
 
 > Spoolman is missing the Spool extra field 'nfc_uid'. In Spoolman open Settings > Extra Fields >
 > Spool and add it with type Text.
@@ -51,7 +63,7 @@ Where you see it:
 - Touchscreen: on the "Needs attention" page when you try to write or link a tag.
   The touchscreen does not check the fields before that.
 
-A clear is different. The station erases the tag first and checks the fields afterwards, so the tag
+On older Spoolman a clear is different. The station erases the tag first and checks the fields afterwards, so the tag
 ends up blank but its link stays on the spool in Spoolman, and the station stops at
 "Unlink not finished". Add the fields, then tap **TRY UNLINKING AGAIN**
 (browser: **Retry Spoolman cleanup**). See
@@ -65,7 +77,7 @@ described above.
 
 | What you see | What it means | What to do |
 |---|---|---|
-| "Spoolman is missing the Spool extra field …" although you created the fields | The field was created for Filament or Vendor, has the wrong type, or the key has a typing error. | Compare the keys letter by letter. Check that both are **Spool** fields of type **Text**. Then click **Test** again. |
+| "Spoolman is missing the Spool extra field …" although you created the fields (Spoolman older than 0.27) | The field was created for Filament or Vendor, has the wrong type, or the key has a typing error. | Compare the keys letter by letter. Check that both are **Spool** fields of type **Text**. Then click **Test** again. |
 | "Multiple NFC UID owners; clean up Spoolman before continuing" | Two spools carry the same tag UID in `nfc_uid`. | In Spoolman, empty the field on the spool that does not have the tag. |
 | "Instance UUID belongs to another Spoolman spool" | Another spool already carries this tag's ID. | In Spoolman, empty `opentag_instance_uuid` on the spool that does not have the tag. |
 

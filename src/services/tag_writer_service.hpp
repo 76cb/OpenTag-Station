@@ -61,13 +61,27 @@ private:
   core::Result<void> commit_clear(JsonObjectConst command);
   core::Result<void> commit_write(JsonObjectConst command);
   core::Result<void> unlink();
+  core::Result<void> unlink_final_check();
   core::Result<void> persist_clear();
   bool restore_ready();
   core::Result<void> associate();
+  core::Result<void> associate_extra_fields();
   core::Result<void> unique_identity();
   core::Result<std::int32_t> uid_owner();
   core::Result<void> prepare_uid_owner();
   core::Result<void> clear_previous_uid();
+  // Spoolman 0.27+ tag links (POST/DELETE /spool/{id}/tag). A tag may have
+  // been linked by another client in the reversed byte order, so both
+  // spellings are looked up; `uid` is the spelling Spoolman holds.
+  struct NativeHold {
+    std::int32_t spool{0};
+    std::string uid;
+  };
+  core::Result<std::vector<NativeHold>> native_holders();
+  core::Result<std::int32_t> native_filament_holder();
+  core::Result<void> native_unlink(const NativeHold &hold);
+  core::Result<void> link_native();
+  core::Result<void> unlink_native();
   // Remembers the Spoolman URL and extra-field keys a preview was made under.
   void capture_settings();
   // True when any of those differs from the adapter's current settings.
@@ -86,6 +100,10 @@ private:
   std::uint64_t preview_serial_{0};
   std::uint64_t operation_id_{0};
   bool association_pending_{false};
+  // Set by require_identity_fields(): whether the two extra fields exist and
+  // whether Spoolman links tags itself. At least one is true when it passes.
+  bool extras_{true};
+  bool native_{false};
   nfc::WriterJournal *journal_{nullptr};
   VerifiedClearMapping clear_mapping_;
   VerifiedAssociation sync_mapping_;

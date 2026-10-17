@@ -94,16 +94,19 @@ To bring the tag up to date, put it on the reader and use **Update tag**
 | The station does this | When |
 |---|---|
 | Sets a spool's remaining weight | When you save a weight, or with auto-update on. See [Weigh a spool and save the weight](../daily-use/weigh.md). |
-| Fills or empties the two extra fields `nfc_uid` and `opentag_instance_uuid` on a spool | When a tag is written, moved or cleared. |
+| Fills or empties the two extra fields `nfc_uid` and `opentag_instance_uuid` on a spool, if they exist | When a tag is written, moved or cleared. |
+| Adds the tag to a spool's tag list, or removes it (Spoolman 0.27 or later) | When a tag is written, moved or cleared. |
+| Reports which tag it saw (Spoolman 0.27 or later) | Each time it identifies a tag. See [What Spoolman 0.27 adds](spoolman.md#what-spoolman-027-adds). |
 | Creates a spool for an existing filament | When you ask for it while writing a tag. |
 | Changes the spool and filament fields listed above | When you save an edit in the browser. |
 
 The station never:
 
 - deletes or archives a spool, filament or vendor,
-- creates the two extra fields themselves (you do that once, see [Required extra fields](custom-fields.md)),
-- changes anything just because a spool sits on the station; every change starts with a tap or a
-  click from you, or with a weigh when auto-update is on.
+- creates the two extra fields themselves (see [Required extra fields](custom-fields.md)),
+- removes a tag that Spoolman links to a filament,
+- changes a spool or filament just because it sits on the station; every change starts with a
+  tap or a click from you, or with a weigh when auto-update is on.
 
 ## If something goes wrong
 

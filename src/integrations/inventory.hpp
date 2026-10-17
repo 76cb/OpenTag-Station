@@ -19,6 +19,9 @@ struct SpoolFilter {
   std::optional<std::string> vendor_name;
   std::optional<std::string> location;
   std::map<std::string, std::string> extra_json;
+  // Spoolman 0.27+ only: the spool linked to this tag UID (hex). Refused on
+  // servers without BackendCapability::native_tags, which would ignore it.
+  std::optional<std::string> tag;
   bool allow_archived{false};
   std::size_t maximum_results{256U};
 };
@@ -72,6 +75,10 @@ class ISpoolInventory {
   virtual core::Result<std::vector<std::string>> list_locations() = 0;
   virtual core::Result<std::vector<ExtraFieldDefinition>> list_extra_fields() = 0;
   [[nodiscard]] virtual BackendCapabilities capabilities() const = 0;
+  // Learns the server version when it is not known yet (for example right
+  // after start-up, before the first full probe), so that capabilities()
+  // reflects it. At most one request; failures are left to later calls.
+  virtual void refresh_capabilities() {}
 };
 
 }  // namespace opentag::integrations

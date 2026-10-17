@@ -85,7 +85,7 @@ void tick(Fake& f, nfc::ReadOnlyService& s, unsigned count = 1) {
     s.poll();
   }
 }
-void blank_approved_tag_is_distinct_and_clears_on_removal(){Fake f;f.tags={known};std::fill_n(f.image.begin(),312,0);f.image[319]=0x92;nfc::ReadOnlyService service(f);tick(f,service,3);TEST_ASSERT_TRUE(service.snapshot().blank_compatible);TEST_ASSERT_FALSE(service.snapshot().tag);TEST_ASSERT_FALSE(service.snapshot().error);JsonDocument doc;web::write_nfc(doc.to<JsonObject>(),service.snapshot());TEST_ASSERT_TRUE(doc["blank_compatible"].as<bool>());f.tags.clear();tick(f,service);TEST_ASSERT_FALSE(service.snapshot().blank_compatible);}
+void blank_approved_tag_is_distinct_and_clears_on_removal(){Fake f;f.tags={known};std::fill_n(f.image.begin(),312,0);f.image[319]=0x92;nfc::ReadOnlyService service(f);tick(f,service,3);TEST_ASSERT_TRUE(service.snapshot().blank_compatible);TEST_ASSERT_FALSE(service.snapshot().tag);TEST_ASSERT_FALSE(service.snapshot().error);JsonDocument doc;web::write_nfc(doc.to<JsonObject>(),service.snapshot());TEST_ASSERT_TRUE(doc["blank_compatible"].as<bool>());f.tags.clear();tick(f,service);TEST_ASSERT_TRUE(service.snapshot().blank_compatible);tick(f,service);TEST_ASSERT_FALSE(service.snapshot().blank_compatible);}
 void no_tag() {
   Fake f;
   nfc::ReadOnlyService s(f);
@@ -131,7 +131,7 @@ void initialization_cleanup_and_consistency_errors() {
   changed.tags = {known};
   changed.inconsistent = true;
   nfc::ReadOnlyService third(changed);
-  tick(changed, third, 3);
+  tick(changed, third, 5);
   TEST_ASSERT_NULL(third.snapshot().tag.get());
   TEST_ASSERT_TRUE(third.snapshot().error.has_value());
   TEST_ASSERT_EQUAL(changed.ons, changed.offs);
@@ -162,7 +162,13 @@ void removal_replacement() {
   const auto g = s.snapshot().generation;
   f.tags.clear();
   tick(f, s);
+  // One empty inventory is a weak link, not a removal.
+  TEST_ASSERT_NOT_NULL(s.snapshot().tag.get());
+  TEST_ASSERT_TRUE(s.snapshot().present);
+  TEST_ASSERT_EQUAL(g, s.snapshot().generation);
+  tick(f, s);
   TEST_ASSERT_NULL(s.snapshot().tag.get());
+  TEST_ASSERT_FALSE(s.snapshot().present);
   f.tags = {known};
   tick(f, s, 3);
   TEST_ASSERT_NOT_NULL(s.snapshot().tag.get());
@@ -212,6 +218,8 @@ void geometry_error() {
   nfc::ReadOnlyService s(f);
   tick(f, s, 3);
   TEST_ASSERT_EQUAL(0, f.reads);
+  TEST_ASSERT_FALSE(s.snapshot().error.has_value());
+  tick(f, s, 2);
   TEST_ASSERT_TRUE(s.snapshot().error.has_value());
   TEST_ASSERT_EQUAL(f.ons, f.offs);
 }
@@ -275,7 +283,7 @@ void api_and_presentation() {
       nfc::describe(s.snapshot()).find("OpenPrintTag recognized") !=
       std::string::npos);
   f.tags.clear();
-  tick(f, s);
+  tick(f, s, 2);  // removal is confirmed by a second empty inventory
   web::write_nfc(doc.to<JsonObject>(), s.snapshot());
   TEST_ASSERT_TRUE(doc["uid"].isNull());
 }
@@ -344,6 +352,70 @@ void read_storage_lifetime() {
   TEST_ASSERT_EQUAL_HEX8(0xA5, image.data()[4095]);
 }
 }  // namespace
+void weak_link_survives_one_missed_poll_but_not_two() {
+  Fake f;
+  f.tags = {known};
+  nfc::ReadOnlyService s(f);
+  tick(f, s, 3);
+  const auto read = s.snapshot();
+  TEST_ASSERT_NOT_NULL(read.tag.get());
+  const auto reads = f.reads;
+  for (int i = 0; i < 4; ++i) {  // drop out every other poll
+    f.tags.clear();
+    tick(f, s);
+    f.tags = {known};
+    tick(f, s);
+  }
+  TEST_ASSERT_EQUAL(reads, f.reads);  // never re-read
+  TEST_ASSERT_EQUAL(read.generation, s.snapshot().generation);
+  TEST_ASSERT_NOT_NULL(s.snapshot().tag.get());
+  // A different tag in the gap still counts immediately.
+  f.tags.clear();
+  tick(f, s);
+  Uid other = known;
+  other.bytes[7]++;
+  f.tags = {other};
+  tick(f, s);
+  TEST_ASSERT_NULL(s.snapshot().tag.get());
+  TEST_ASSERT_GREATER_THAN(read.generation, s.snapshot().generation);
+}
+void failed_read_is_retried_without_the_error_pause() {
+  Fake f;
+  f.tags = {known};
+  f.truncated = true;
+  nfc::ReadOnlyService s(f);
+  tick(f, s, 3);
+  TEST_ASSERT_EQUAL(1, f.reads);
+  TEST_ASSERT_FALSE(s.snapshot().error.has_value());
+  TEST_ASSERT_TRUE(s.snapshot().state != nfc::ReadState::error);
+  f.truncated = false;  // the link recovers
+  tick(f, s);           // 500 ms later, not 5 s
+  TEST_ASSERT_NOT_NULL(s.snapshot().tag.get());
+  TEST_ASSERT_FALSE(s.snapshot().error.has_value());
+  // A reader that keeps failing still reports an error after three tries.
+  Fake g;
+  g.tags = {known};
+  g.truncated = true;
+  nfc::ReadOnlyService t(g);
+  tick(g, t, 4);
+  TEST_ASSERT_FALSE(t.snapshot().error.has_value());
+  tick(g, t);
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(nfc::ReadState::error),
+                        static_cast<int>(t.snapshot().state));
+  TEST_ASSERT_EQUAL(3, g.reads);
+}
+void broken_transport_is_still_immediate() {
+  Fake f;
+  f.tags = {known};
+  nfc::ReadOnlyService s(f);
+  tick(f, s, 3);
+  TEST_ASSERT_NOT_NULL(s.snapshot().tag.get());
+  f.broken = true;
+  tick(f, s);
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(nfc::ReadState::error),
+                        static_cast<int>(s.snapshot().state));
+  TEST_ASSERT_NULL(s.snapshot().tag.get());
+}
 void setUp() {}
 void tearDown() {}
 int main() {
@@ -365,5 +437,8 @@ int main() {
   RUN_TEST(provisioning_defers_without_hardware_failure);
   RUN_TEST(enabling_does_not_poll_hardware);
   RUN_TEST(read_storage_lifetime);
+  RUN_TEST(weak_link_survives_one_missed_poll_but_not_two);
+  RUN_TEST(failed_read_is_retried_without_the_error_pause);
+  RUN_TEST(broken_transport_is_still_immediate);
   return UNITY_END();
 }

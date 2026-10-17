@@ -34,7 +34,7 @@ saves weights to them. This page connects the two and shows how to check that th
 "URL saved" only means the address was stored. The touchscreen has no test button.
 To see whether Spoolman answers, open the **Assign** page: its status line shows
 "Spoolman ONLINE", "Spoolman OFFLINE" or "Spoolman WAITING".
-The full check, including the extra fields, is the browser's **Test** button.
+The full check, including the version and the extra fields, is the browser's **Test** button.
 
 ## What the Test button tells you
 
@@ -43,25 +43,47 @@ Then read the **Integrations** card:
 
 | What you see | What it means | What to do |
 |---|---|---|
-| Spoolman: connected, no warning below | The station can read Spoolman, the extra fields exist and weights can be saved. | Nothing. |
+| Spoolman: connected, no warning below | The station can read Spoolman, it can link tags and weights can be saved. | Nothing. |
 | Spoolman: offline | The station got no valid answer from that address. | Check the address and port, that Spoolman is running, and that you used `http://`. See [Spoolman problems](../troubleshooting/spoolman.md). |
-| "Spoolman is missing the Spool extra field …" | One or both required extra fields are missing or have the wrong type. | Create them: [Required extra fields](custom-fields.md). |
-| "Spoolman 0.x.y has not been tested with this firmware, so saving weights to Spoolman is turned off." | Spoolman answers, but it is not the supported version. | See the next section. |
+| "Spoolman is missing the Spool extra field …" | Your Spoolman is older than 0.27 and one or both extra fields are missing or have the wrong type. | Create them: [Required extra fields](custom-fields.md), or update Spoolman to 0.27. |
+| "Spoolman 0.x.y has not been tested with this firmware, so saving weights to Spoolman is turned off." | Spoolman answers, but it is not a supported version. | See the next section. |
 
-## Supported Spoolman version
+## Supported Spoolman versions
 
-The station saves weights only to Spoolman **0.26.1**. The version must match exactly.
+The station saves weights to Spoolman **0.26** and **0.27** (any release whose version starts with
+`0.26.` or `0.27.`, for example 0.26.0, 0.26.1 or 0.27.0).
 
-On any other Spoolman version:
+On any other Spoolman version, including test builds such as `0.27.0-dev`:
 
 - **Not switched off:** identifying spools, browsing and searching, creating spools, editing
   records, writing, linking and clearing tags. The station does not check the version for these,
-  but 0.26.1 is the only version it supports.
+  but 0.26 and 0.27 are the only versions it supports.
 - **Stops working:** saving a measured weight. **UPDATE SPOOLMAN** / **Update Spoolman** and
   auto-update answer with "Saving weights is turned off: this Spoolman version has not been tested
   with this firmware, or Spoolman is offline. See Settings."
 
-The versions the firmware was built against are listed in [Supported versions](../reference/upstream.md).
+The version rules are listed in [Supported versions](../reference/upstream.md).
+
+## What Spoolman 0.27 adds
+
+Spoolman 0.27 can link NFC tags to spools itself. When the station sees Spoolman 0.27 or later it
+uses this automatically; there is no setting.
+
+- **The extra fields become optional.** The station keeps the tag-to-spool link in Spoolman's tag
+  list. If the two [extra fields](custom-fields.md) exist, the station keeps filling them too.
+- **Written tags appear in Spoolman.** After writing a tag, the station adds it to the spool's tag
+  list. Clearing a tag removes it again. Moving a tag to another spool moves it in the list.
+- **Tags you linked in Spoolman are recognised.** A tag that Spoolman links to a spool is shown as
+  that spool, even a blank tag or a tag holding other data. See
+  [Identify a spool](../daily-use/identify.md).
+- **Scans are reported to Spoolman.** Each time the station identifies a tag, it tells Spoolman
+  which tag it saw, with the station's host name (`opentag-station` unless you changed it) as the
+  reader. If you pair a browser with that reader in Spoolman's **Settings → Tag Scanning**, that
+  browser jumps to the spool when you put it on the station. If the report fails, nothing on the
+  station changes.
+
+The station only adds and removes tag links on spools. It never removes a tag that Spoolman links
+to a filament; it asks you to do that in Spoolman.
 
 ## HTTP and HTTPS
 

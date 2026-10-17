@@ -4,7 +4,7 @@ A release is made by pushing a version tag. GitHub Actions builds, checks and pu
 The full checklist, including the tests on real hardware, is in
 [docs/releasing.md](https://github.com/76cb/OpenTag-Station/blob/main/docs/releasing.md).
 
-The candidate is `1.0.0-rc.19`.
+The candidate is `1.0.0-rc.20`.
 
 ## Steps
 

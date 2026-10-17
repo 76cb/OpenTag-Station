@@ -11,7 +11,8 @@ Look for what you see in the left column and open the page on the right.
 | **Needs attention** after trying to write or clear a tag | [Tag write or clear fails](write.md) |
 | **Finish writing this tag**, **Finish clearing this tag**, **Link not saved yet**, **Unlink not finished** | [Finish an interrupted tag operation](journal.md) |
 | `Another tag (…) has an unfinished write or clear` | [Finish an interrupted tag operation](journal.md) |
-| `Spoolman is missing the Spool extra field…` | [Required extra fields](../inventory/custom-fields.md) |
+| `Spoolman is missing the Spool extra field…` (Spoolman older than 0.27) | [Required extra fields](../inventory/custom-fields.md) |
+| A message that names Spoolman's tag list, a filament number, or a spool "which was not part of this change" | [Spoolman problems](spoolman.md#tag-links-in-spoolmans-tag-list-spoolman-027-or-later) |
 | Spoolman is offline, or a spool does not show up in search | [Spoolman problems](spoolman.md) |
 | `Saving weights is turned off…` | [Spoolman problems](spoolman.md#saving-weights-is-turned-off) |
 | The weight is wrong, jumps, or does not settle | [Weight looks wrong](weight.md) |
