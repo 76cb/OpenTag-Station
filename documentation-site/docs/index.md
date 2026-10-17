@@ -1,31 +1,37 @@
-# A station for your filament spools
+# OpenTag Station
 
-OpenTag Station brings spool identification, weighing, inventory and printer
-assignment to a WT32-SC01 Plus touchscreen and a local browser. Spoolman is the
-canonical inventory. NFC tags carry OpenPrintTag data; FilaBridge connects a
-resolved spool to a printer toolhead.
+OpenTag Station is a touchscreen station for your filament spools.
+Put a spool on it: it reads the spool's NFC tag, shows which Spoolman spool it is, weighs it and
+saves the remaining filament to Spoolman.
+It also writes new tags from your Spoolman records and can tell a Prusa XL which spool is in which
+toolhead.
 
-![Dashboard with generic demo spool](assets/images/browser/dashboard.png)
+![The station's web page with a spool on the station](assets/images/browser/dashboard.png)
 
-This manual describes the **1.0 release candidate** shown in the footer. External
-visual review, real WT32 touch/rendering and the final physical/live-service
-acceptance checklist remain pending. Screenshots are deterministic demonstrations,
-not evidence of a connected station. Touch images approximate production layout
-and fonts; they are not captured LVGL framebuffers.
+*Demo data.*
 
-| Start here | Next action |
+## Where to start
+
+| You want to… | Start here |
 |---|---|
-| Building hardware | Read the [BOM](hardware/bill-of-materials.md), [wiring](hardware/wiring.md) and [power guide](hardware/power.md) |
-| Installing firmware | Use [USB installation](installation/web-flasher.md) and [first boot](getting-started/first-boot.md) |
-| Using a station | Follow [quick start](getting-started/quick-start.md), then [Weigh](daily-use/weigh.md) or [Assign](daily-use/assign.md) |
-| Reusing a tag | Read [Clear / Reuse](daily-use/clear-reuse.md), including pending unlink recovery |
-| Developing | Start with [architecture](advanced/architecture.md), [build](contributing/build.md) and [testing](contributing/testing.md) |
+| See what it does and what you need | [What the station does and what you need](getting-started/overview.md) |
+| Build one | [Parts list](hardware/bill-of-materials.md), then [Wiring](hardware/wiring.md) |
+| Install the firmware | [Install the firmware over USB](installation/web-flasher.md), then [First boot and Wi-Fi](getting-started/first-boot.md) |
+| Set it up | [Connect Spoolman and FilaBridge](getting-started/initial-setup.md) and the [required extra fields](inventory/custom-fields.md) |
+| Write your first tag | [Your first spool](getting-started/quick-start.md) |
+| Use it day to day | [Identify](daily-use/identify.md), [Weigh](daily-use/weigh.md), [Write a tag](daily-use/manage-tags.md), [Clear a tag](daily-use/clear-reuse.md), [Assign a toolhead](daily-use/assign.md) |
+| Fix a problem | [Find your problem](troubleshooting/index.md) |
+| Script it or change the firmware | [REST API](reference/api.md), [Build from source](contributing/build.md) |
 
-[Install / web flasher](https://76cb.github.io/OpenTag-Station/) ·
-[Firmware source](https://github.com/76cb/OpenTag-Station) ·
-[Documentation source](https://github.com/76cb/OpenTag-Station-Docs)
+## Project status
 
-The installer and documentation are separate GitHub Pages projects. During
-candidate review the public installer follows firmware main, so verify its
-manifest version before using it; the PR candidate is available from its CI artifact.
-There is no final v1.0.0 release yet.
+This manual describes the release candidate shown in the footer. No release has been published
+yet, so the [Releases page](https://github.com/76cb/OpenTag-Station/releases) has no update file and
+the [USB installer](https://76cb.github.io/OpenTag-Station/) still offers an earlier candidate.
+Until then, [build the firmware from source](contributing/build.md).
+
+## Links
+
+- [USB installer](https://76cb.github.io/OpenTag-Station/)
+- [Source code and issues](https://github.com/76cb/OpenTag-Station)
+- [Release notes](reference/release-notes.md)

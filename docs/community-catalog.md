@@ -1,38 +1,38 @@
-# Local Community catalog
+# Community catalog (postponed)
 
-> **1.0 status: disabled.** Community import/search is disabled for 1.0 after physical ESP32-S3 testing demonstrated a miniz inflater-state memory overwrite. The implementation is retained for redesign in 1.1. The following is retained development history, not an rc.9 operating procedure.
+The Community catalog is a local, searchable copy of a public filament database from which a
+filament could be imported into Spoolman. It is switched off in the shipping firmware and is not
+described in the user manual.
 
-OpenTag Station 1.0.0-rc.4 compiles the pinned SpoolmanDB-Community JSON snapshot
-into `community/community.pack`. Both the WT32 and browser submit Community commands
-to the backend worker, which searches this local pack. Normal search and detail
-selection perform no internet request.
+## Switch
 
-The format begins with a fixed 120-byte versioned header and a block directory.
-Search records contain source ID, manufacturer, name, material, display color,
-nominal weight, and normalized searchable text. Detail records retain every field
-accepted by the existing Community import contract. Index and detail data use
-independent raw-DEFLATE blocks with a 64 KiB expanded limit. Each block has a CRC,
-and the pack has a complete payload CRC and source SHA-256. Detail selection seeks
-to and inflates one bounded block.
+`OPENTAG_ENABLE_COMMUNITY` in `src/config/product_features.hpp` defaults to `0`.
+The firmware environment `wt32-sc01-plus` does not set it. Only the host test environment
+`native-community` builds with `-DOPENTAG_ENABLE_COMMUNITY=1`.
 
-Generate and inspect a pack with:
+With the switch off:
 
-```text
-python tools/community_catalog.py compile --source filaments.json --output community.pack --catalog-version YYYY-MM-DD --source-revision REVISION
-python tools/community_catalog.py inspect community.pack
-```
+- The tag writer and the REST API reject every `community_*`, `import_preview` and `import`
+  action with `Community is disabled for 1.0`.
+- The touchscreen and browser offer no Community source.
+- The factory image contains an empty LittleFS; the build fails if `community.pack` ends up in it.
+- The installer page and the release files do not include the catalog.
+- `tools/check_production_memory.py` fails if catalog search, detail, status, verify or update
+  code is linked into the firmware.
 
-The deterministic compiler rejects unknown source fields, invalid required values,
-duplicate source IDs, malformed JSON, and output above 2.5 MiB. CI inspects the
-committed production pack and enforces its record count and size.
+## What remains in the tree
 
-Catalog updates fetch a small manifest and pack from the fixed OpenTag Pages origin.
-The backend writes `/community.new`, verifies the declared size and SHA-256, checks
-the complete internal structure and checksums, then renames the active catalog through
-a rollback file. Network, truncation, hash, format, storage, or install failure leaves
-the previous active catalog available. Routine application OTA does not write LittleFS.
-The Web Flasher factory image contains an initial `community.pack` for new installs.
+| Path | Content |
+|---|---|
+| `community/` | `community.pack` (the compiled catalog), `manifest.json`, `source.json` |
+| `tools/community_catalog.py` | Compiles and inspects a pack (`compile`, `inspect`) |
+| `tools/test_community_catalog.py`, `test/test_community_catalog/` | Tool and host tests |
+| `src/services/community_catalog*.{hpp,cpp}`, `src/platform/storage/community_catalog_store.*`, `src/network/gzip_stream.hpp`, `src/network/miniz/` | Catalog reader, updater, storage and inflater |
+| `[env:native-community]` in `platformio.ini` | Host tests with the feature on |
 
-The catalog version is a snapshot date rather than a freshness deadline. An older
-valid catalog remains searchable offline. Settings and the Community chooser report
-the installed version, record count, byte size, and offer an explicit update action.
+CI still runs `python -m unittest tools.test_community_catalog`,
+`python tools/community_catalog.py inspect community/community.pack` and
+`pio test --environment native-community`, so the code keeps compiling.
+
+The browser assets still contain hidden Community markup. It is never shown while the switch is
+off.

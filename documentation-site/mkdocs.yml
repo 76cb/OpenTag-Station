@@ -38,23 +38,49 @@
     {
       "Home": [
         {
-          "A station for your filament spools": "index.md"
+          "OpenTag Station": "index.md"
         }
       ]
     },
     {
       "Getting started": [
         {
-          "What the station does": "getting-started/overview.md"
+          "What the station does and what you need": "getting-started/overview.md"
+        }
+      ]
+    },
+    {
+      "Build the hardware": [
+        {
+          "Parts list": "hardware/bill-of-materials.md"
+        },
+        {
+          "Wiring": "hardware/wiring.md"
+        },
+        {
+          "Power": "hardware/power.md"
+        },
+        {
+          "Scale platform and enclosure": "hardware/mechanical.md"
+        }
+      ]
+    },
+    {
+      "Install and set up": [
+        {
+          "Install the firmware over USB": "installation/web-flasher.md"
         },
         {
           "First boot and Wi-Fi": "getting-started/first-boot.md"
         },
         {
-          "Initial setup": "getting-started/initial-setup.md"
+          "Connect Spoolman and FilaBridge": "getting-started/initial-setup.md"
         },
         {
           "Your first spool": "getting-started/quick-start.md"
+        },
+        {
+          "Update the firmware": "installation/ota.md"
         }
       ]
     },
@@ -64,221 +90,128 @@
           "Identify a spool": "daily-use/identify.md"
         },
         {
-          "Weigh a spool": "daily-use/weigh.md"
+          "Weigh a spool and save the weight": "daily-use/weigh.md"
         },
         {
-          "Update remaining weight": "daily-use/update-spoolman.md"
+          "Assign a spool to a toolhead": "daily-use/assign.md"
         },
         {
-          "Assign a spool to a printer": "daily-use/assign.md"
+          "Write or update a tag": "daily-use/manage-tags.md"
         },
         {
-          "Manage a tag": "daily-use/manage-tags.md"
-        },
-        {
-          "Clear / Reuse a tag": "daily-use/clear-reuse.md"
+          "Clear and reuse a tag": "daily-use/clear-reuse.md"
         }
       ]
     },
     {
-      "Inventory": [
+      "Spoolman": [
         {
           "Connect Spoolman": "inventory/spoolman.md"
         },
         {
-          "Spoolman extra fields (required)": "inventory/custom-fields.md"
+          "Required extra fields": "inventory/custom-fields.md"
         },
         {
-          "Filaments, spools and remaining weight": "inventory/filaments-spools.md"
-        },
-        {
-          "Edit canonical inventory": "inventory/editing.md"
-        },
-        {
-          "Community import (postponed to 1.1)": "inventory/community.md"
+          "Find and edit spools and filaments": "inventory/filaments-spools.md"
         }
       ]
     },
     {
-      "OpenPrintTag": [
+      "Tags": [
         {
-          "Write or update a tag": "openprinttag/writing.md"
+          "Which tags work": "openprinttag/supported-tags.md"
         },
         {
-          "Supported tags": "openprinttag/supported-tags.md"
-        },
-        {
-          "OpenPrintTag and station support": "openprinttag/overview.md"
-        },
-        {
-          "Recovery and safety model": "openprinttag/recovery.md"
+          "What is stored on a tag": "openprinttag/overview.md"
         }
       ]
     },
     {
-      "Printer integration": [
+      "Printer": [
         {
-          "FilaBridge and Prusa XL setup": "printer/prusa-xl.md"
-        },
-        {
-          "Replace a toolhead assignment": "printer/replacing.md"
-        }
-      ]
-    },
-    {
-      "Hardware": [
-        {
-          "Bill of materials": "hardware/bill-of-materials.md"
-        },
-        {
-          "Complete wiring": "hardware/wiring.md"
-        },
-        {
-          "Pinout": "hardware/pinout.md"
-        },
-        {
-          "Power": "hardware/power.md"
-        },
-        {
-          "Mechanical setup": "hardware/mechanical.md"
-        },
-        {
-          "Controller, ADC and reader": "hardware/components.md"
+          "Set up FilaBridge for a Prusa XL": "printer/prusa-xl.md"
         }
       ]
     },
     {
       "Scale": [
         {
-          "Tare and reference calibration": "scale/calibration.md"
-        },
-        {
-          "Tare during daily use": "scale/tare.md"
-        },
-        {
-          "Stability, accuracy and auto-update": "scale/stability.md"
+          "Tare and calibrate": "scale/calibration.md"
         }
       ]
     },
     {
-      "Installation and updates": [
+      "Settings": [
         {
-          "First installation and USB recovery": "installation/web-flasher.md"
+          "Access token and network safety": "configuration/security.md"
         },
         {
-          "Local OTA updates and rollback": "installation/ota.md"
-        }
-      ]
-    },
-    {
-      "Configuration": [
-        {
-          "Back up and restore configuration": "configuration/backup.md"
+          "Back up and restore settings": "configuration/backup.md"
         },
         {
-          "Local control and security": "configuration/security.md"
-        },
-        {
-          "Display and station settings": "configuration/display.md"
+          "Display": "configuration/display.md"
         }
       ]
     },
     {
       "Troubleshooting": [
         {
-          "Troubleshooting by symptom": "troubleshooting/index.md"
+          "Find your problem": "troubleshooting/index.md"
         },
         {
-          "Tag not detected": "troubleshooting/tag.md"
+          "Tag is not detected": "troubleshooting/tag.md"
         },
         {
-          "Unsupported tag or write failure": "troubleshooting/write.md"
+          "Tag write or clear fails": "troubleshooting/write.md"
         },
         {
-          "Spoolman offline": "troubleshooting/spoolman.md"
+          "Finish an interrupted tag operation": "troubleshooting/journal.md"
         },
         {
-          "Community (postponed to 1.1)": "troubleshooting/community.md"
+          "Spoolman problems": "troubleshooting/spoolman.md"
         },
         {
-          "Weight mismatch or unstable readings": "troubleshooting/weight.md"
+          "Weight looks wrong": "troubleshooting/weight.md"
         },
         {
-          "FilaBridge offline or assignment failure": "troubleshooting/assignment.md"
+          "Printer assignment fails": "troubleshooting/assignment.md"
         },
         {
-          "Wi-Fi and browser access": "troubleshooting/wifi.md"
+          "Wi-Fi and reaching the station": "troubleshooting/wifi.md"
         },
         {
-          "Recovery journal states": "troubleshooting/journal.md"
-        },
-        {
-          "Factory recovery": "troubleshooting/recovery.md"
-        }
-      ]
-    },
-    {
-      "Advanced": [
-        {
-          "Architecture": "advanced/architecture.md"
-        },
-        {
-          "Task ownership": "advanced/task-ownership.md"
-        },
-        {
-          "Writer journaling": "advanced/journaling.md"
-        },
-        {
-          "Memory and stack design": "advanced/memory-stack.md"
-        },
-        {
-          "Browser memory design": "advanced/browser-memory.md"
+          "Factory reset and USB recovery": "troubleshooting/recovery.md"
         }
       ]
     },
     {
       "Reference": [
         {
-          "REST API reference": "reference/api.md"
+          "REST API": "reference/api.md"
         },
         {
-          "Configuration reference": "reference/configuration.md"
+          "Configuration keys": "reference/configuration.md"
         },
         {
-          "Spoolman contract": "reference/spoolman.md"
+          "Spoolman integration": "reference/spoolman.md"
         },
         {
-          "FilaBridge contract": "reference/filabridge.md"
+          "FilaBridge integration": "reference/filabridge.md"
         },
         {
-          "Format reference": "reference/openprinttag.md"
+          "OpenPrintTag format": "reference/openprinttag.md"
         },
         {
-          "OTA state reference": "reference/ota.md"
+          "Firmware update internals": "reference/ota.md"
         },
         {
-          "Scale service reference": "reference/scale.md"
+          "Scale behaviour": "reference/scale.md"
         },
         {
-          "Provisioning reference": "reference/provisioning.md"
+          "Supported versions": "reference/upstream.md"
         },
         {
-          "NFC safety model": "reference/nfc-safety.md"
-        },
-        {
-          "Upstream compatibility": "reference/upstream.md"
-        },
-        {
-          "Writer/editor contract": "reference/writer.md"
-        },
-        {
-          "Clear and Weigh contracts": "reference/clear-weigh.md"
-        },
-        {
-          "UI state and review contract": "reference/data-model.md"
-        },
-        {
-          "FAQ and error interpretation": "reference/faq.md"
+          "FAQ": "reference/faq.md"
         },
         {
           "Release notes": "reference/release-notes.md"
