@@ -43,6 +43,7 @@ public:
   bool physical_pass() const { return plan_ && plan_->verified; }
 
 private:
+  using WriterProgress = nfc::OpenPrintTagWriter::Progress;
   core::Result<network::BackendDocument>
   api(const char *method, const std::string &path, JsonVariantConst body = {});
   core::Result<void> community(JsonObjectConst command);

@@ -32,6 +32,14 @@ fail(const char *message,
      core::ErrorCategory category = core::ErrorCategory::conflict) {
   return core::Result<void>::failure({category, message, false});
 }
+// Reports reading progress at the documented stride and at the final read.
+void report_reading(const OpenPrintTagWriter::Progress *progress,
+                    std::size_t done, std::size_t total) {
+  if (progress && *progress &&
+      (done == total ||
+       done % OpenPrintTagWriter::reading_progress_stride == 0))
+    (*progress)("reading", done, total);
+}
 } // namespace
 core::Result<void> OpenPrintTagWriter::fence(const WriterPlan &p) {
   if (static_cast<std::uint32_t>(reader_.now_ms() - started_ms_) > 120000U)
@@ -63,7 +71,10 @@ core::Result<void> OpenPrintTagWriter::fence(const WriterPlan &p) {
   return core::Result<void>::success();
 }
 core::Result<void> OpenPrintTagWriter::full_read(WriterPlan &p,
-                                                 std::uint8_t *destination) {
+                                                 std::uint8_t *destination,
+                                                 const Progress *progress,
+                                                 std::size_t done,
+                                                 std::size_t total) {
   for (std::size_t block = 0; block < p.geometry.block_count; ++block) {
     auto check = fence(p);
     if (!check.ok())
@@ -75,12 +86,14 @@ core::Result<void> OpenPrintTagWriter::full_read(WriterPlan &p,
       return read;
     if (security != p.security[block])
       return fail("Tag protection state changed");
+    report_reading(progress, done + block + 1, total);
     reader_.yield_between_chunks();
   }
   return fence(p);
 }
 core::Result<void> OpenPrintTagWriter::read(WriterPlan &p,
-                                            const WriterPlan *interrupted) {
+                                            const WriterPlan *interrupted,
+                                            const Progress *progress) {
   started_ms_ = reader_.now_ms();
   WriterFieldScope field{reader_};
   p.attempted = p.verified = false;
@@ -110,6 +123,10 @@ core::Result<void> OpenPrintTagWriter::read(WriterPlan &p,
   if (!system.ok())
     return core::Result<void>::failure(system.error());
   p.system = system.value();
+  // Both passes are counted: 80 first-pass reads plus block_count (validated
+  // as 80 above) repeat reads.
+  const std::size_t reads = 80 + p.geometry.block_count;
+  report_reading(progress, 0, reads);
   for (std::size_t block = 0; block < 80; ++block) {
     auto check = fence(p);
     if (!check.ok())
@@ -121,9 +138,10 @@ core::Result<void> OpenPrintTagWriter::read(WriterPlan &p,
     if (block < 78 && p.security[block] != 0)
       return fail("Tag has protected blocks",
                   core::ErrorCategory::tag_write_protected);
+    report_reading(progress, block + 1, reads);
     reader_.yield_between_chunks();
   }
-  auto repeated = full_read(p, p.scratch.data());
+  auto repeated = full_read(p, p.scratch.data(), progress, 80, reads);
   if (!repeated.ok())
     return repeated;
   if (p.original != p.scratch)
