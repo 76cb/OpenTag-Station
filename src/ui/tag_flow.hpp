@@ -198,6 +198,11 @@ class TagFlow {
   int current_spool{0}, from_spool{0};
   std::string import_name;
   unsigned offset{0}, row{0};
+  // Start offsets of the pages before this one. A page can hold fewer than 8
+  // rows (the station shrinks oversized pages), so PREV returns to the exact
+  // offset it came from instead of subtracting a page size.
+  std::array<unsigned, 32> previous_offsets{};
+  std::size_t previous_count{0};
   double initial{1000}, remaining{1000}, tare{0};
   // False until the empty-spool weight comes from Spoolman or the user. A
   // silent 0 g default overstated remaining filament on every later weigh.
@@ -244,6 +249,7 @@ class TagFlow {
   std::string search(std::string text) {
     query = std::move(text);
     offset = row = 0;
+    previous_count = 0;
     land_on_last_rows = false;
     return browse();
   }
@@ -405,6 +411,7 @@ class TagFlow {
                  : action == TagAction::filaments ? "filament"
                                                   : "community";
         offset = row = 0;
+    previous_count = 0;
         land_on_last_rows = false;
         query.clear();
         search_field = "name";
@@ -419,8 +426,8 @@ class TagFlow {
           row -= 3;
           return {};
         }
-        if (offset >= 8) {
-          offset -= 8;
+        if (previous_count > 0) {
+          offset = previous_offsets[--previous_count];
           land_on_last_rows = true;
           return browse();
         }
@@ -431,7 +438,11 @@ class TagFlow {
           return {};
         }
         if (catalog_page["has_more"] | false) {
-          offset += 8;
+          const unsigned next = catalog_page["next_offset"] | (offset + 8U);
+          if (next <= offset) return {};
+          if (previous_count < previous_offsets.size())
+            previous_offsets[previous_count++] = offset;
+          offset = next;
           return browse();
         }
         return {};

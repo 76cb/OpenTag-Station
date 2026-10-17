@@ -45,6 +45,22 @@ void bounded_paging_and_selection() {
   receive(f,R"({"phase":"preview","spool_id":22})");TEST_ASSERT_TRUE(f.page==TagPage::review);
   f.act(TagAction::back);TEST_ASSERT_TRUE(f.page==TagPage::catalog);TEST_ASSERT_EQUAL(0,f.row);
 }
+// rc.23: a shrunk page (fewer than 8 rows) pages with next_offset, and PREV
+// returns to the exact earlier offset.
+void short_pages_use_next_offset() {
+  TagFlow f;command(f.act(TagAction::spools));
+  receive(f,R"({"phase":"catalog","offset":0,"items":[{"id":1},{"id":2}],"has_more":true,"next_offset":2})");
+  auto c=command(f.act(TagAction::next));TEST_ASSERT_EQUAL(2,c["offset"].as<int>());
+  receive(f,R"({"phase":"catalog","offset":2,"items":[{"id":3},{"id":4},{"id":5},{"id":6}],"has_more":true,"next_offset":6})");
+  TEST_ASSERT_TRUE(f.act(TagAction::next).empty());TEST_ASSERT_EQUAL(3,f.row);
+  c=command(f.act(TagAction::next));TEST_ASSERT_EQUAL(6,c["offset"].as<int>());
+  receive(f,R"({"phase":"catalog","offset":6,"items":[{"id":7}],"has_more":false,"next_offset":7})");
+  c=command(f.act(TagAction::previous));TEST_ASSERT_EQUAL(2,c["offset"].as<int>());
+  receive(f,R"({"phase":"catalog","offset":2,"items":[{"id":3},{"id":4},{"id":5},{"id":6}],"has_more":true,"next_offset":6})");
+  f.row=0;c=command(f.act(TagAction::previous));TEST_ASSERT_EQUAL(0,c["offset"].as<int>());
+  receive(f,R"({"phase":"catalog","offset":0,"items":[{"id":1},{"id":2}],"has_more":true,"next_offset":2})");
+  f.row=0;TEST_ASSERT_TRUE(f.act(TagAction::previous).empty());
+}
 // rc.21: the move warning is part of the single review page (no separate
 // "Move this tag?" + CONTINUE step), and BACK returns to the list.
 void reassign_review() {
@@ -265,7 +281,7 @@ void production_sink_full_gzip_integrity() {
 #include "train_cases.hpp"
 #include "rc23_cases.hpp"
 void setUp() {} void tearDown() {}
-int main() {UNITY_BEGIN();RUN_TEST(lifecycle);RUN_TEST(sensible_actions);RUN_TEST(bounded_paging_and_selection);RUN_TEST(reassign_review);RUN_TEST(review_warns_from_writer_preview);RUN_TEST(action_buttons_are_coloured_by_role);RUN_TEST(created_spool_previews_once);RUN_TEST(reading_and_two_tags);RUN_TEST(loading_spool_says_what_it_does);RUN_TEST(spool_colour_ring);RUN_TEST(exact_confirmation);RUN_TEST(clear_retry_to_immediate_assign);RUN_TEST(filament_and_community_create);RUN_TEST(stale_operation_rejected);RUN_TEST(keyboard_geometry);RUN_TEST(keyboard_value_and_validation);RUN_TEST(gzip_chunked_integrity_and_limits);RUN_TEST(gzip_explicit_completion_and_error);RUN_TEST(community_catalog_status_download_and_retry);RUN_TEST(production_sink_closes_on_disposition);RUN_TEST(production_sink_full_gzip_integrity);RUN_TEST(rc10::assignment_dialog_only_affirmative_labels_confirm);RUN_TEST(rc10::progress_never_shows_blocks_for_spoolman_work);RUN_TEST(rc10::filament_review_formats_diameter);RUN_TEST(rc10::unknown_empty_spool_weight_must_be_entered);RUN_TEST(rc10::vendor_search_is_kept_while_paging);RUN_TEST(rc10::destructive_and_duplicate_actions);RUN_TEST(rc10::recovery_can_be_skipped_explicitly);RUN_TEST(rc10::metadata_candidates_can_be_chosen_on_the_touchscreen);
+int main() {UNITY_BEGIN();RUN_TEST(lifecycle);RUN_TEST(sensible_actions);RUN_TEST(bounded_paging_and_selection);RUN_TEST(short_pages_use_next_offset);RUN_TEST(reassign_review);RUN_TEST(review_warns_from_writer_preview);RUN_TEST(action_buttons_are_coloured_by_role);RUN_TEST(created_spool_previews_once);RUN_TEST(reading_and_two_tags);RUN_TEST(loading_spool_says_what_it_does);RUN_TEST(spool_colour_ring);RUN_TEST(exact_confirmation);RUN_TEST(clear_retry_to_immediate_assign);RUN_TEST(filament_and_community_create);RUN_TEST(stale_operation_rejected);RUN_TEST(keyboard_geometry);RUN_TEST(keyboard_value_and_validation);RUN_TEST(gzip_chunked_integrity_and_limits);RUN_TEST(gzip_explicit_completion_and_error);RUN_TEST(community_catalog_status_download_and_retry);RUN_TEST(production_sink_closes_on_disposition);RUN_TEST(production_sink_full_gzip_integrity);RUN_TEST(rc10::assignment_dialog_only_affirmative_labels_confirm);RUN_TEST(rc10::progress_never_shows_blocks_for_spoolman_work);RUN_TEST(rc10::filament_review_formats_diameter);RUN_TEST(rc10::unknown_empty_spool_weight_must_be_entered);RUN_TEST(rc10::vendor_search_is_kept_while_paging);RUN_TEST(rc10::destructive_and_duplicate_actions);RUN_TEST(rc10::recovery_can_be_skipped_explicitly);RUN_TEST(rc10::metadata_candidates_can_be_chosen_on_the_touchscreen);
   RUN_TEST(train::nfc_error_does_not_replace_recovery_instructions);
   RUN_TEST(train::recovery_prompt_survives_leaving_and_failed_retries);
   RUN_TEST(train::different_tag_after_removal_restarts_the_flow);

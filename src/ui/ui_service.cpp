@@ -147,16 +147,6 @@ std::string wifi_options(const std::vector<network::WifiNetwork>& networks) {
   return options;
 }
 
-// The network status may report how long the setup Wi-Fi stays open
-// (requested_remaining_ms). Older status structs have no such field: 0.
-template <class T>
-auto setup_ap_remaining_ms(const T& status, int)
-    -> decltype(static_cast<std::uint32_t>(status.requested_remaining_ms)) {
-  return static_cast<std::uint32_t>(status.requested_remaining_ms);
-}
-template <class T>
-std::uint32_t setup_ap_remaining_ms(const T&, long) { return 0U; }
-
 // A failed settings save in words the user can act on.
 std::string plain_save_error(const core::Error* error, services::SetupStep step) {
   if (error == nullptr) return "Could not save these settings. Try again.";
@@ -1339,7 +1329,14 @@ void UiService::start_weigh() {
   } else {
     weigh_operation_id_.reset();
     scale_action_ = ScaleAction::none;
-    workflow_feedback_ = "The scale is busy. Try again in a moment.";
+    // A refused weigh carries its reason (for example a weight still being
+    // saved to Spoolman) on its failed operation.
+    const auto refused = receipt.operation_id != 0U
+        ? backend_worker_.writer_operation(receipt.operation_id)
+        : std::nullopt;
+    workflow_feedback_ = refused && refused->error
+        ? refused->error->message
+        : "The scale is busy. Try again in a moment.";
     feedback_measurement_id_ = backend_worker_.weigh_snapshot().measurement_id;
   }
   refresh_workflow();
@@ -2303,7 +2300,7 @@ void UiService::refresh_settings_page() {
   }
   if (system.provisioning_active && !system.setup_ap_ssid.empty()) {
     status = "Setup Wi-Fi " + system.setup_ap_ssid + " (no password)";
-    const auto remaining_ms = setup_ap_remaining_ms(system, 0);
+    const auto remaining_ms = system.provisioning_requested_remaining_ms;
     if (remaining_ms > 0U)
       status += " - closes in " + std::to_string((remaining_ms + 59999U) / 60000U) + " min";
   }

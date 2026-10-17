@@ -386,7 +386,7 @@ void test_rc23_scale_results_follow_the_spool_and_stay_visible() {
   TEST_ASSERT_TRUE(drawer.find("weight_policy_") == std::string::npos);
   const auto settings = method(source, "void UiService::refresh_settings_page()", "void UiService::refresh_diagnostics");
   TEST_ASSERT_TRUE(settings.find("workflow_.snapshot()") == std::string::npos);
-  TEST_ASSERT_TRUE(settings.find("setup_ap_remaining_ms(system, 0)") != std::string::npos);
+  TEST_ASSERT_TRUE(settings.find("system.provisioning_requested_remaining_ms") != std::string::npos);
 }
 
 void test_rc23_setup_waits_for_its_save_and_selects_the_printer() {
