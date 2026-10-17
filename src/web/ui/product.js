@@ -38,6 +38,7 @@ function renderSpoolChoices(workflow) {
     button.setAttribute('aria-pressed','false');list.append(button);
   });
 }
+function tagReading(t){return !t.blank_compatible&&!/pass|fail|blank/.test(t.decode)&&!/error|multiple|unsupported/.test(t.state);}
 function renderCurrentSpool() {
   if (!byId('current-spool')) return;
   const {t,w,present,spool}=spoolIdentity(), s=spool||{};
@@ -70,8 +71,9 @@ function renderCurrentSpool() {
   const safe=color?.length===3&&color.every(n=>Number.isInteger(n)&&n>=0&&n<=255);
   byId('current-spool').style.setProperty('--filament',safe?'rgb('+color.join(',')+')':'#879b9b');
   setText('current-color',safe?'Filament color':'Color not provided');
-  setText('current-tag',t.blank_compatible?'Blank tag':t.decode==='pass'?'Tag valid':t.decode==='fail'?'Tag needs attention':'Reading tag…');
-  byId('current-tag').dataset.valid=String(t.decode==='pass');
+  const reading=tagReading(t);
+  setText('current-tag',t.blank_compatible?'Blank tag':t.decode==='pass'?'Tag valid':t.decode==='fail'?'Tag needs attention':reading?'Reading tag…':'Tag not read');
+  byId('current-tag').dataset.valid=String(t.decode==='pass');byId('current-tag').dataset.reading=String(reading);
   setText('current-link',s.id?'Linked to Spoolman':w.stage==='resolving_spool'?'Looking up spool…':'Not linked to Spoolman');
   const assignments=state.printers.flatMap(p=>asArray(p.toolheads).filter(h=>s.id&&Number(first(h.assigned_spool_id,h.spool_id))===Number(s.id)).map(h=>(p.display_name||p.name||'Printer')+' · T'+(Number(first(h.backend_id,h.id))+1)));
   setText('current-assignment',assignments.length?assignments.join(', '):'Not assigned');

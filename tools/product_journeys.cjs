@@ -37,10 +37,12 @@ module.exports=async function productJourneys(page,scene,width){
     assert.equal(await page.locator('#writer-results button:visible').count(),1);
     await page.locator('#inventory-status').selectOption('');
     await page.locator('.inventory-refine summary').click();
-    await page.locator('#writer-results button').nth(1).click();await page.locator('#writer-continue').click();
-    assert.equal(await visible('writer-edit-spool'),true);await page.locator('#writer-preview').click();
+    await page.locator('#writer-results button').nth(1).click();
+    assert.equal(await visible('writer-edit-spool'),true,'editors stay reachable from Select');assert.equal(await visible('writer-step-2'),false);
+    await page.locator('#writer-continue').click();
     await page.waitForFunction(()=>document.getElementById('writer-dialog').open&&window.OpenTagWriter.writerState.snapshot.phase==='preview');
-    assert.equal(await visible('writer-confirm'),true);
+    assert.equal(await visible('writer-confirm'),true);assert.equal(await page.locator('#writer-confirm').textContent(),'Write tag');
+    assert.equal(await page.locator('#writer-critical').innerText().then(t=>/Keep|incomplete/.test(t)),false,'no hold-the-tag nag before writing');
     await page.locator('#writer-close').click();
     await page.waitForFunction(()=>document.getElementById('writer-content').parentElement.id==='inventory-content'&&!window.OpenTagWriter.writerState.busy);
     assert.equal(await visible('writer-results'),true,'closing preview restores the inventory browser');
@@ -66,7 +68,9 @@ module.exports=async function productJourneys(page,scene,width){
     await page.waitForFunction(()=>window.OpenTagWriter.writerState.filament===22&&!window.OpenTagWriter.writerState.busy);
 
     assert.equal(await page.locator('#writer-source').inputValue(),'spoolman');
+    const asked=[];page.on('dialog',d=>asked.push(d.message()));
     await page.locator('#writer-create-submit').click();await page.waitForFunction(()=>window.OpenTagWriter.writerState.spool===29);
+    assert.deepEqual(asked,[],'creating a spool needs no second confirmation');
     await page.locator('#writer-preview').click();await page.waitForFunction(()=>window.OpenTagWriter.writerState.snapshot.phase==='preview');
     assert.equal(await page.evaluate(()=>window.OpenTagWriter.writerState.snapshot.spool_id),29);
   }

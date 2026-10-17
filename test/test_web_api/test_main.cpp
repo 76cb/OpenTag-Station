@@ -1675,8 +1675,23 @@ void test_snapshot_trace_names_cover_every_resource_in_order() {
   TEST_ASSERT_TRUE(source.find("static_assert(sizeof(names) / sizeof(names[0]) ==", begin) != std::string::npos);
 }
 
+void test_spool_json_carries_spoolman_colour_for_browser_spool_art() {
+  // The browser paints Home's spool from workflow.spool.primary_color ([r, g, b, a]).
+  const auto source = read_project_source("src/web/application_api_context.cpp");
+  const auto begin = source.find("void write_spool(JsonObject object, const domain::Spool& spool)");
+  TEST_ASSERT_TRUE(begin != std::string::npos);
+  const auto end = source.find("\n}\n", begin);
+  const auto body = source.substr(begin, end - begin);
+  TEST_ASSERT_TRUE(body.find("if (spool.primary_color)") != std::string::npos);
+  TEST_ASSERT_TRUE(body.find("object[\"primary_color\"].to<JsonArray>()") != std::string::npos);
+  for (const char* channel : {"red", "green", "blue", "alpha"}) {
+    TEST_ASSERT_TRUE(body.find(std::string("spool.primary_color->") + channel) != std::string::npos);
+  }
+}
+
 int main(int, char**) {
   UNITY_BEGIN();
+  RUN_TEST(test_spool_json_carries_spoolman_colour_for_browser_spool_art);
   RUN_TEST(test_clear_route_requires_and_forwards_exact_confirmation);
   RUN_TEST(test_weight_update_route_requires_only_explicit_measurement_id);
   RUN_TEST(test_writer_requires_specific_authorized_high_level_confirmation);

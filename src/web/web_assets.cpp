@@ -298,6 +298,8 @@ const char application_css[] = R"CSS(:root{color-scheme:dark;--bg:#101416;--surf
 
 @media(max-width:520px){.settings-nav{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));overflow:visible;margin-inline:0;padding:0}.settings-nav button{padding:10px 4px;font-size:13px}}
 .warning-text{color:var(--warning)}
+[data-reading=true]::before{width:9px!important;height:9px!important;border:2px solid var(--accent);border-right-color:transparent;background:none!important;animation:spin .8s linear infinite}.status-chip[data-reading=true]::before{content:'';border-radius:50%}
+.writer-spool{width:96px;float:right;margin:0 0 8px 16px;filter:none}.writer-spool .spool-flange{border-width:6px}.writer-spool .spool-center{border-width:5px}
 )CSS";
 
 const std::size_t application_css_size = sizeof(application_css) - 1U;
@@ -1539,7 +1541,7 @@ function tagStatus(){renderCurrentSpool();const t=state.currentTag||{},w=state.t
 const same=uid&&String(w.tag?.uid||'').replace(/:/g,'')===uid.replace(/:/g,''),linked=present&&same&&w.openprinttag_available&&w.spool,owned=present&&uid&&String(writer.uid||'').replace(/:/g,'')===uid.replace(/:/g,'');
 const cleared=state.clearSnapshot||{},blank=String(cleared.uid||'').replace(/:/g,'')===uid.replace(/:/g,'')&&['cleared','unlink_pending','unlinking'].includes(cleared.phase);
 const pending=owned&&writer.phase==='association_pending',complete=owned&&writer.phase==='complete';const id=blank?0:pending?0:complete?writer.spool_id:linked?(w.spool.id||w.spool.spool_id):0;
-setText('nfc-detected-chip',present?'Tag detected':'No tag');setText('nfc-decode-chip',t.decode==='pass'?'Tag valid':t.decode==='fail'?'Tag needs attention':'Reading tag…');setText('nfc-link-chip',pending?'Link pending':id?'Linked to Spoolman':'Not linked');
+setText('nfc-detected-chip',present?'Tag detected':'No tag');const rd=present&&tagReading(t);setText('nfc-decode-chip',t.decode==='pass'?'Tag valid':t.decode==='fail'?'Tag needs attention':rd?'Reading tag…':'Not read');byId('nfc-decode-chip').dataset.reading=String(rd);setText('nfc-link-chip',pending?'Link pending':id?'Linked to Spoolman':'Not linked');
 setText('nfc-association',pending?'Association pending — open Write / Rewrite to retry':id?'Linked · Spool #'+id:'Not linked');setText('nfc-identity',id?'Spoolman #'+id:'—');byId('nfc-identity-row').hidden=!id;byId('nfc-copy').disabled=!uid;
 if(t.blank_compatible&&!blank){setBadge('nfc-badge','Blank','good');setText('nfc-summary','Compatible blank tag');setText('nfc-guidance','Ready to assign');setText('nfc-decode-chip','BLANK');}if(blank){setBadge('nfc-badge','Blank','good');setText('nfc-summary','Tag ready to reuse');setText('nfc-guidance',cleared.phase==='cleared'?'Ready to assign':cleared.message||'Tag blank and verified. Cleanup still needs attention.');setText('nfc-decode-chip','BLANK VERIFIED');setText('nfc-link-chip',cleared.phase==='cleared'?'UNLINKED':'UNLINK PENDING');}
 if(uid)setText('nfc-uid',uid.replace(/[^a-f0-9]/gi,'').match(/.{1,2}/g)?.join(':')||uid);
@@ -3311,13 +3313,13 @@ setText('clear-message',p==='unlink_pending'?cleanupSummary+' Retry cleanup with
 const list=byId('clear-summary');list.replaceChildren();[['Tag',clearView.uid],['Current material',clearView.material_name],['Spoolman',clearView.spool_id?'Spool #'+clearView.spool_id:'Exact owner checked after blank verification']].forEach(([k,v])=>{const row=document.createElement('div'),dt=document.createElement('dt'),dd=document.createElement('dd');dt.textContent=k;dd.textContent=v||'—';row.append(dt,dd);list.append(row);});
 byId('clear-confirm').hidden=p!=='clear_preview';byId('clear-confirm').disabled=locked||p!=='clear_preview';byId('clear-retry').hidden=p!=='unlink_pending';byId('clear-retry').disabled=locked;byId('clear-skip').hidden=p!=='unlink_pending';byId('clear-skip').disabled=locked;
 ['close','cancel'].forEach(k=>byId('clear-'+k).disabled=locked);setText('clear-cancel',p==='cleared'?'Done':'Cancel');byId('clear-assign').hidden=p!=='cleared';
-byId('clear-effects').hidden=p!=='clear_preview';const meter=byId('clear-meter');meter.hidden=!locked;if(clearView.total_blocks){meter.max=clearView.total_blocks;meter.value=clearView.completed_blocks||0;if(p==='clearing')setText('clear-message',meter.value+' / '+meter.max+' changed blocks verified. Keep tag on reader. Do not remove power.');}else meter.removeAttribute('value');
+byId('clear-effects').hidden=p!=='clear_preview';const meter=byId('clear-meter'),n=clearView.total_blocks,step={reading:'Reading tag',validating:'Checking tag',clearing:'Erasing tag',verifying:'Verifying erase'}[p];meter.hidden=!locked;if(n){meter.max=n;meter.value=clearView.completed_blocks||0;}else meter.removeAttribute('value');if(step)setText('clear-message',step+(n?' · '+meter.value+' / '+n+' blocks':'')+'. Keep the tag on the reader.');if(p==='unlinking')setText('clear-message','The tag is erased. Removing the link in Spoolman…');
 tagStatus();}
 async function clearCommand(action){if(clearLocked())return;const p=clearView,body={action};if(action==='discard_recovery')body.confirm='SKIP RECOVERY';if(action==='clear'){if(p.phase!=='clear_preview')return;['uid','generation','current_checksum','target_checksum'].forEach(k=>body[k]=p[k]);}
-window.OpenTagWriter?.writerState&&(window.OpenTagWriter.writerState.invalidated=true);clearBusy=true;renderClear({...p,phase:action==='clear_preview'?'reading':action==='clear'?'clearing':action==='discard_recovery'?'stopping':'unlinking',message:action==='clear_preview'?'Reading complete tag and protection state…':action==='clear'?'Keep tag on reader. Do not remove power.':action==='discard_recovery'?'Stopping cleanup. Nothing is written to the tag.':'Removing the link in Spoolman. The tag is not written again.'});let fetching=false,accepting=true;
+window.OpenTagWriter?.writerState&&(window.OpenTagWriter.writerState.invalidated=true);clearBusy=true;renderClear({...p,phase:action==='clear_preview'?'reading':action==='clear'?'clearing':action==='discard_recovery'?'stopping':'unlinking',message:action==='discard_recovery'?'Stopping cleanup. Nothing is written to the tag.':''});let fetching=false,accepting=true;
 try{await submitMutation('/tag-writer',{body,operationTimeoutMs:180000,onProgress:()=>{if(fetching)return;fetching=true;api('/tag-writer',{priority:PRIORITY.CONTROL}).then(v=>{if(accepting)renderClear(v);}).catch(()=>{}).finally(()=>fetching=false);}});}catch(e){setText('clear-message',e.message);}finally{accepting=false;clearBusy=false;try{renderClear(await api('/tag-writer',{priority:PRIORITY.CONTROL}));}catch(e){renderClear({phase:'failed',message:e.message});}}}
 async function openClear(){if(window.OpenTagWriter?.writerState?.busy)return;closeProductDialog('manage-dialog');byId('clear-dialog').showModal();document.body.classList.add('modal-open');try{const v=await api('/tag-writer',{priority:PRIORITY.CONTROL});if(v.mode==='clear'&&['unlink_pending','clearing','verifying','unlinking'].includes(v.phase)){renderClear(v);byId('clear-retry').focus();return;}if(['association_pending','writing','associating','validating','decoding'].includes(v.phase)){renderClear({phase:'failed',message:'Finish the pending write or association in Write / Rewrite first.'});return;}}catch(e){renderClear({phase:'failed',message:e.message});return;}await clearCommand('clear_preview');byId('clear-confirm').focus();}
-function closeClear(){if(clearLocked())return;byId('clear-dialog').close();document.body.classList.remove('modal-open');openProductDialog('manage-dialog');(byId('clear-open').hidden?byId('writer-open'):byId('clear-open')).focus();}
+function closeClear(){if(clearLocked())return;byId('clear-dialog').close();document.body.classList.remove('modal-open');const done=clearView.phase==='cleared';if(!done)openProductDialog('manage-dialog');byId(done?'spool-manage':byId('clear-open').hidden?'writer-open':'clear-open').focus();}
 function bindWeighAndClear(){byId('clear-assign').addEventListener('click',()=>{if(clearView.phase!=='cleared')return;byId('clear-dialog').close();document.body.classList.remove('modal-open');window.OpenTagWriter.openModal();});byId('weigh-update').addEventListener('click',updateWeighedSpool);byId('clear-open').addEventListener('click',openClear);['close','cancel'].forEach(k=>byId('clear-'+k).addEventListener('click',closeClear));byId('clear-dialog').addEventListener('cancel',e=>{e.preventDefault();closeClear();});byId('clear-confirm').addEventListener('click',()=>clearCommand('clear'));byId('clear-retry').addEventListener('click',()=>clearCommand('retry_unlink'));byId('clear-skip').addEventListener('click',()=>{if(clearView.phase!=='unlink_pending'||clearLocked())return;if(!window.confirm('Skip removing the link in Spoolman? The tag stays erased, but Spoolman may still list it on the old spool.'))return;clearCommand('discard_recovery');});}
 
 // PRODUCT PRESENTATION BEGIN
@@ -3361,6 +3363,7 @@ function renderSpoolChoices(workflow) {
     button.setAttribute('aria-pressed','false');list.append(button);
   });
 }
+function tagReading(t){return !t.blank_compatible&&!/pass|fail|blank/.test(t.decode)&&!/error|multiple|unsupported/.test(t.state);}
 function renderCurrentSpool() {
   if (!byId('current-spool')) return;
   const {t,w,present,spool}=spoolIdentity(), s=spool||{};
@@ -3393,8 +3396,9 @@ function renderCurrentSpool() {
   const safe=color?.length===3&&color.every(n=>Number.isInteger(n)&&n>=0&&n<=255);
   byId('current-spool').style.setProperty('--filament',safe?'rgb('+color.join(',')+')':'#879b9b');
   setText('current-color',safe?'Filament color':'Color not provided');
-  setText('current-tag',t.blank_compatible?'Blank tag':t.decode==='pass'?'Tag valid':t.decode==='fail'?'Tag needs attention':'Reading tag…');
-  byId('current-tag').dataset.valid=String(t.decode==='pass');
+  const reading=tagReading(t);
+  setText('current-tag',t.blank_compatible?'Blank tag':t.decode==='pass'?'Tag valid':t.decode==='fail'?'Tag needs attention':reading?'Reading tag…':'Tag not read');
+  byId('current-tag').dataset.valid=String(t.decode==='pass');byId('current-tag').dataset.reading=String(reading);
   setText('current-link',s.id?'Linked to Spoolman':w.stage==='resolving_spool'?'Looking up spool…':'Not linked to Spoolman');
   const assignments=state.printers.flatMap(p=>asArray(p.toolheads).filter(h=>s.id&&Number(first(h.assigned_spool_id,h.spool_id))===Number(s.id)).map(h=>(p.display_name||p.name||'Printer')+' · T'+(Number(first(h.backend_id,h.id))+1)));
   setText('current-assignment',assignments.length?assignments.join(', '):'Not assigned');
@@ -3646,23 +3650,23 @@ if(f){d.append(swatch(f.color_hex),el('span',String(asObject(f.vendor).name||'')
 const cards=el('div',undefined,S.step===2?'field-grid':'');d.append(cards);const card=(title,rows,button)=>{const c=el('section',undefined,'card');c.append(el('h4',title),button);values(c,rows);cards.append(c);};
 if(s)card('Spool #'+s.id,[['Remaining',s.remaining_weight,' g'],['Initial',s.initial_weight,' g'],['Used',s.used_weight,' g'],['Tare',s.spool_weight,' g'],['Location',s.location]],bs);
 if(S.step===2||!s)card('Filament #'+f.id,[['Nominal weight',f.weight,' g'],['Default tare',f.spool_weight,' g'],['Diameter',f.diameter,' mm'],['Density',f.density,' g/cm³'],['Color',f.color_hex]],bf);
-}else d.append(el('p','Select a result to see its material and weight here. Continue to review before writing.','empty-state'));
-visible('writer-edit-spool',!!s&&S.step===2);visible('writer-edit-filament',!!f&&S.step===2);visible('writer-create',!!f&&!s);
+}else d.append(el('p','Select a spool to see its details here.','empty-state'));
+visible('writer-edit-spool',!!s&&S.step<3);visible('writer-edit-filament',!!f&&S.step<3);visible('writer-create',!!f&&!s);
 if(f&&!s){buildFields('writer-create-fields',fields.spool,{initial_weight:f.weight,spool_weight:f.spool_weight},'create');byId('writer-create').open=true;}
 };
 window.OpenTagWriterPreview=function(v,S,{byId,asObject,asArray,setText,visible,values,el,fmt,swatch,uidText}){const active=['preview','association_pending','complete','import_preview'].includes(v.phase)&&!(v.phase==='preview'&&S.invalidated);visible('writer-review',active);if(!active)return;
 const tag=byId('writer-tag');tag.replaceChildren();const diff=byId('writer-diff');diff.replaceChildren();const critical=byId('writer-critical');critical.replaceChildren();const notices=byId('writer-notice-list');notices.replaceChildren();
 setText('writer-review-title',v.phase==='import_preview'?'Review Community import':v.phase==='complete'?'✓ OpenPrintTag written and verified':v.phase==='association_pending'?'Tag verified · association pending':'Ready to write');
 if(v.phase==='import_preview'){values(tag,[['Source','COMMUNITY — NOT YET IN SPOOLMAN'],['Vendor',v.vendor_name],['Product',asObject(v.proposed_filament).name],['Material',asObject(v.proposed_filament).material],['Nominal weight',asObject(v.proposed_filament).weight,' g'],['Density',asObject(v.proposed_filament).density,' g/cm³'],['Diameter',asObject(v.proposed_filament).diameter,' mm']]);}
-else{values(tag,[['Inventory',S.material?.name],['UID',uidText(v.uid)],['Spool','#'+v.spool_id]]);
+else{const art=el('div',undefined,'spool-art writer-spool');let a=art;['flange','winding','center'].forEach(c=>a=a.appendChild(el('div',undefined,'spool-'+c)));art.style.setProperty('--filament',swatch(v.proposed?.primary_color||asObject(asObject(v.spool).filament).color_hex).style.backgroundColor||'');tag.append(art);values(tag,[['Inventory',S.material?.name],['UID',uidText(v.uid)],['Spool','#'+v.spool_id]]);
 if(v.phase==='preview'){diff.append(el('h4','This tag will contain'));values(diff,window.OpenTagWriterDiffFields.filter(([key])=>['brand_name','material_name','material_abbreviation','actual_netto_full_weight','empty_container_weight','primary_color'].includes(key)).map(([key,label,unit])=>[label,key==='primary_color'?(Array.isArray(v.proposed?.[key])?'#'+v.proposed[key].slice(0,3).map(n=>Number(n).toString(16).padStart(2,'0')).join(''):'Not provided'):v.proposed?.[key],unit]));}else if(v.phase==='complete')values(diff,[['✓ Tag readback','Verified'],['✓ OpenPrintTag decode','Valid'],['✓ Spoolman link','Spool #'+v.spool_id]]);
 }
 const warn=text=>critical.append(el('p',text,'writer-warning'));
 if(v.phase==='preview'&&v.semantic_no_change)warn('No changes needed. This tag already matches Spoolman.');if(v.phase==='association_pending')warn('Tag write verified. Only the Spoolman link is pending. Retry association without rewriting the tag.');if(v.previous_spool_id>0)warn('Move this tag from Spool #'+v.previous_spool_id+' to Spool #'+v.spool_id+'. The previous spool stays in your inventory.');
 else if(v.repurpose)warn('Repurpose: this write replaces the tag’s current spool identity.');
-if(v.recovering_interrupted_write)warn('Recovery: this is an interrupted write. Confirm an explicit rewrite only after reviewing the recovered tag.');
+if(v.recovering_interrupted_write)warn('Recovery: an earlier write to this tag was interrupted. Writing again completes it.');
 const optional=asArray(v.warnings).filter(w=>/^missing recommended /i.test(w));
-const metadata=asArray(v.warnings).filter(w=>!String(w).includes('association will move')&&!/not atomic|Full rewrite/i.test(w));if(asArray(v.warnings).some(w=>/not atomic|Full rewrite/i.test(w)))warn('Keep the spool on the station until writing finishes. Removing it may leave an incomplete tag.');
+const metadata=asArray(v.warnings).filter(w=>!String(w).includes('association will move')&&!/not atomic|Full rewrite/i.test(w));
 metadata.forEach(w=>notices.append(el('li',String(w))));visible('writer-notices',metadata.length>0);setText('writer-notice-count',optional.length?optional.length+' optional metadata fields are not populated':'Metadata notices');
 }
 ;
