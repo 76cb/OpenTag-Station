@@ -19,6 +19,11 @@ In the browser, **Manage tag** shows the reader's status at the top.
 | `Two tags on the reader. Remove one.` on **Manage tag** (NFC READER step: `More than one tag. Use one tag at a time.`; browser: `Multiple NFC-V tags detected`) | Two or more tags are in range. | Remove the others, including tagged spools lying next to the station. |
 | `This tag can't be used as it is` | The tag is an NFC-V tag, but it is not blank SLIX2 and holds no OpenPrintTag data the station can read. | Use a blank SLIX2 tag. See [Which tags work](../openprinttag/supported-tags.md). |
 | "Reading tag" with the spinner for a long time, or the tag appears and disappears | The tag is at the edge of the reader's range, or more than one tag is in range. | Remove other tags. Move the tag closer to the antenna and keep it still. |
+| The tag is read, but **Manage tag** says "Spoolman is not reachable. The tag's link cannot be checked right now." (browser: "Link not checked") | The tag is fine; the station cannot reach Spoolman to find out which spool it belongs to. | Fix Spoolman: [Spoolman problems](spoolman.md). Leave the spool where it is; the station looks it up again by itself, usually within about 30 seconds after Spoolman is back. |
+| The tag is read and "Looking up this spool in Spoolman..." stays for a long time | Spoolman is slow to answer. | Wait. If it ends with "Spoolman is not reachable…", see the row above. |
+
+The station identifies a spool as soon as the tag is read. It does not need a steady weight or a
+calibrated scale for that.
 
 ## The reader waits for Wi-Fi
 

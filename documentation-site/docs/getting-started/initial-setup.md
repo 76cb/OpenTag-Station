@@ -61,6 +61,8 @@ More about versions and what the station reads and changes: [Connect Spoolman](.
 2. Enter the **FilaBridge URL**, tap **Save**, then **Next**.
 3. On the **PRINTER** step, choose your printer from the list and tap **Save**.
    "No printers found yet" means FilaBridge has not answered; check the URL.
+   The list starts at the printer that is already saved. If FilaBridge does not report that
+   printer, it is listed as "<printer ID> (not found)"; choose your printer again.
 
 **Browser**
 

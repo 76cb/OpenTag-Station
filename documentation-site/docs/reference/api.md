@@ -71,7 +71,11 @@ The station remembers up to 32 keys for ten minutes each, in memory only.
 |---|---|
 | Same key, same method, path and body, within ten minutes | `202` with the original `operation_id`; nothing runs twice. |
 | Same key, different request | `409 state_conflict` |
-| All 32 slots hold live keys | `409 state_conflict`, `retryable: true` |
+| All 32 slots full | The oldest key whose operation has finished is dropped to make room. Keys of queued or running operations are never dropped. |
+| All 32 slots hold keys of queued or running operations | `409 state_conflict`, `retryable: true`, message "The station is still running many earlier requests; wait for them to finish, then try again" |
+
+`POST /tag-writer` with `action` `catalog` (a Spoolman catalog page) never takes a slot: it still
+needs an `Idempotency-Key`, but a repeat runs again instead of being replayed.
 
 If a receipt is lost, do not send the request again under a new key. Poll the operation if you
 have its ID, until it finishes or returns `404`. If no ID was received, repeat the identical
@@ -105,7 +109,12 @@ operations by `operation_id`.
 | `GET /network` | – | – | `system`, `networks[]` (`ssid`, `rssi_dbm`, `secured`), `config_revision`, `hostname`, `access_token_configured`, `local_browser_control_enabled` |
 | `POST /network/scan` | Token or setup network | `{}` (≤ 256) | Results appear in `GET /network`. |
 | `POST /network/connect` | Token or setup network | ≤ 1024, see below | Saves Wi-Fi settings and joins. |
-| `POST /network/setup-mode` | Token | `{}` (≤ 256) | Starts the setup network. |
+| `POST /network/setup-mode` | Token | `{}` or `{"stop": true}` (≤ 256) | `{}` starts the setup network (receipt `kind` `network_setup_mode`); it closes by itself after 10 minutes. `{"stop": true}` stops a setup network started this way (receipt `kind` `network_setup_stop`); refused with `409` while the setup network runs because no Wi-Fi is saved or connecting keeps failing. Any other body returns `400`. |
+
+Setup network state is in `system.network.provisioning` of `GET /network`: `active`, `reason`
+(`unconfigured`, `connection_failures`, `requested` or `none`), `grace_remaining_ms` (time left
+after a successful join) and `requested_remaining_ms` (time left before a setup network started on
+request closes; `0` otherwise).
 
 `POST /network/connect` fields:
 
@@ -137,7 +146,7 @@ Rules and tolerances: [Scale behaviour](scale.md) and [Spoolman integration](spo
 | `GET /nfc/tag` | – | – | The same state under `tag`. |
 | `POST /nfc/read` | Token | `{}` (≤ 256) | Inert. Always fails with `503 nfc_unavailable`: the reader reads a tag when it is placed. Use `GET /nfc`. |
 | `GET /spool` | – | – | `workflow`: `tag_lifecycle`, `stage`, `spool_generation`, `printer_revision`, `tag`, `spoolman`, `filabridge`, `candidates[]`, `spool`, `reconciliation`, optional `error` |
-| `POST /spool/confirm` | Token | ≤ 512 | Exactly `spool_generation` (> 0), `spool_id` (> 0) and `confirmed: true`. Confirms one of `candidates[]` as the spool for the tag on the station. Needs a stable weight on the scale. |
+| `POST /spool/confirm` | Token | ≤ 512 | Exactly `spool_generation` (> 0), `spool_id` (> 0) and `confirmed: true`. Confirms one of `candidates[]` as the spool for the tag on the station. Does not need a weight on the scale; fails with "Spool changed; refresh before confirming" if the tag changed. |
 | `GET /tag-writer` | – | – | Current writer view: `phase`, `message`, `operation_id`, `completed_blocks`, `total_blocks` and the data of the last action. |
 | `POST /tag-writer` | Token | ≤ 4096 | `action` plus the fields of that action, below. |
 
@@ -156,6 +165,16 @@ Rules and tolerances: [Scale behaviour](scale.md) and [Spoolman integration](spo
 | `discard_recovery` | exactly `confirm: "SKIP RECOVERY"` | Abandon an interrupted operation. |
 | `update_spool` | `spool_id` (> 0), `expected`, `changes` (non-empty) | Edit a spool in Spoolman. |
 | `update_filament` | `filament_id` (> 0), `expected`, `changes` (non-empty), optional `spool_id` (> 0) | Edit a filament in Spoolman. |
+
+A `catalog` reply in `GET /tag-writer` carries `entity`, `offset`, `limit` (rows asked for: 8, or
+fewer when a page of 8 was too large for the station and the same offset was asked again with 4,
+2 or 1), `next_offset`, `has_more`, `search_field` (`vendor` when a name search found nothing and
+the station searched by vendor name instead) and `items[]`. Page on with `offset` = `next_offset`.
+
+A `preview` reply carries `dropped_fields[]`: one object per value that will not be written to the
+tag, with `field` (`name`, `vendor`, `material`, `material_type`, `article_number` or `color`),
+`value` and `reason` (for example `longer than 7 characters`). The matching sentence is also in
+`warnings[]`. An `update` preview has none.
 
 There is no route that writes raw tag memory. The values for `write` and `clear` come from the
 preceding preview in `GET /tag-writer`. Engine details:

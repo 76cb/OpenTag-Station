@@ -73,6 +73,9 @@ interrupted; see [Finish an interrupted tag operation](../troubleshooting/journa
       "From spool #A to #B. Spool #A stays in your inventory."
     - When the tag holds another spool's data that Spoolman does not link: "This tag holds another
       spool's data. Writing replaces it."
+    - When some of the spool's details cannot be stored on the tag, a line such as
+      "Not written: material, material type" lists them. See
+      [Details that are not written to the tag](#details-that-are-not-written-to-the-tag).
 
     Tap **WRITE TAG**. This is the only confirmation.
 7. Leave the tag on the reader. The page shows "Checking tag", then "Writing tag" with
@@ -103,7 +106,7 @@ filament.
 
 1. **Select.** Choose a tab: **Spools**, **Filaments** or **Vendors**.
    Type into **Search** and, if you like, **Material** (for example `PETG`), then click **Search**.
-   **Clear** empties the search. **Previous** and **Next** page through the results, eight per page.
+   **Clear** empties the search. **Previous** and **Next** page through the results, eight per page (fewer if Spoolman's records are very long).
     - Clicking a vendor shows that vendor's filaments.
     - Clicking a filament shows the spools of that filament.
     - Click a spool to select it.
@@ -114,7 +117,10 @@ filament.
 3. If you selected an existing spool, click **Continue**. The station reads the tag at once
    (a progress bar fills while it reads).
 4. **Preview.** "Ready to write" shows the spool, a spool picture in its colour and what the tag
-   will contain. Click **Write tag**. For an ordinary write there is no further question.
+   will contain. If some details cannot be stored on the tag, a box headed
+   "Not written to the tag:" lists each one with its value and the reason. See
+   [Details that are not written to the tag](#details-that-are-not-written-to-the-tag).
+   Click **Write tag**. For an ordinary write there is no further question.
    The browser asks once more, with the button in red, only when the write replaces something:
    when the tag belongs to another spool ("Move the tag from spool #A to #N. The previous spool
    stays in inventory."), or when it holds other data or an interrupted write.
@@ -127,6 +133,30 @@ filament.
 **Edit Spool** and **Edit filament** on the Select step open the editor; **Update consumed
 weight** prepares a write that only refreshes the used weight on the tag.
 **Cancel** and **Back to Select** leave or step back without writing.
+
+## Details that are not written to the tag
+
+A tag has little room, and some details from Spoolman do not fit or have no place on it.
+The review page lists them before you write, so nothing is left out silently:
+
+| Detail | Not written when |
+|---|---|
+| Name | Longer than 63 characters |
+| Maker (vendor) | Longer than 31 characters |
+| Material | Longer than 7 characters, for example "PLA Matte" |
+| Material type | The material is not exactly one of PLA, PETG, TPU, ABS, ASA, PC, PCTG, PP, PA6, PA11 or PA12. "PLA Matte" is not; "PLA" is. |
+| Article number | Longer than 16 characters |
+| Colour | The filament has several colours instead of one |
+
+Accented and non-Latin letters take more room, so the limit can be reached with fewer of them.
+
+The touchscreen names up to three of these, for example "Not written: material, material type",
+and adds "and N more" if there are others. The browser shows each one in full, for example
+"Material “PLA Matte” — longer than 7 characters".
+
+You can still write the tag: everything else is written, and the spool keeps all its details in
+Spoolman. To get a detail onto the tag, shorten it in Spoolman (or, for the material, use one of
+the material types above) and write the tag again.
 
 ## How search works
 
@@ -201,5 +231,5 @@ In the browser the message appears in the banner at the top of the dialog.
 | "Tag already up to date" | The tag already holds this spool's data. | Nothing. |
 | "Link not saved yet" (touchscreen) or **Retry Spoolman link** / **Skip linking** (browser) | The tag is written, but Spoolman could not be updated. | See [Finish an interrupted tag operation](../troubleshooting/journal.md). |
 | "Finish writing this tag" (touchscreen) or **Resume tag workflow** (browser) | A write was interrupted. | Put the same tag back and follow [Finish an interrupted tag operation](../troubleshooting/journal.md). |
-| "This page is too large to show; narrow the search." | Spoolman's answer for this page is bigger than the station can hold. | Search for a more specific name. |
+| "This page is too large to show; narrow the search." | Even a single result is bigger than the station can hold (it already tried showing fewer results per page). | Search for a more specific name. |
 | Any other write error | The tag or reader refused the write. | See [Tag write or clear fails](../troubleshooting/write.md). |

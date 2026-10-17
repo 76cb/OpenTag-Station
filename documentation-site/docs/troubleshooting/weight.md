@@ -14,7 +14,10 @@ or the number is fine but cannot be saved to Spoolman.
 | `Scale overload detected. Remove weight and retry.` | The load is above the cell's capacity plus the overload margin (by default 5500 g for the 5 kg cell, 2200 g for the 2 kg cell). It also appears when the load-cell signal is out of range, for example with a loose or swapped cell wire. | Remove the load. If the platform is empty, check the load-cell wires, check that the right cell size is selected and calibrate again. |
 | The Home button reads **CALIBRATE**, or `Calibration required` | The scale has no calibration. This also happens after you change the load-cell size or do a factory reset. | [Tare and calibrate](../scale/calibration.md) |
 | `Scale hardware unavailable` | The scale converter does not answer. | Check the scale [wiring](../hardware/wiring.md). |
-| `The scale is busy. Try again in a moment.` | Another measurement is running. | Wait and try again. |
+| `The scale is busy. Try again in a moment.` (also "Try TARE again" or "Try calibrating again") | Another measurement is running. | Wait and try again. |
+| `Saving the previous weight to Spoolman. Try again in a moment.` | The last weight is still being saved to Spoolman. The browser's **Weigh** button reads "Saving to Spoolman…" meanwhile. | Wait a few seconds and weigh again. |
+| `The scale stopped responding. Reconnecting to it; weighing is unavailable until it answers again.` | The scale converter stopped answering, for example after a short power drop on the scale. | Wait. The station reconnects to the scale by itself and keeps the calibration; you do not need to restart it. If the message stays, check the scale [wiring](../hardware/wiring.md) and [power](../hardware/power.md). |
+| `The platform is not empty (reads X g). Remove everything, then tare.` | You asked for a tare while the calibrated scale reads more than 50 g. | Remove the spool and everything else from the platform, then tare. |
 | The weight is steady but wrong by the same factor every time | The calibration is off, or the wrong cell size is selected. | Check **Settings → Scale → Edit Load-cell profile** in the browser (5 kg or 2 kg), then calibrate again with a known weight. |
 | The weight changes when you touch the case or move a cable | The platform is not free. | [Scale platform and enclosure](../hardware/mechanical.md) |
 | A known weight reads a few grams lower (or higher) some time after calibrating, and drifts slowly while it sits on the platform | Warm-up drift or load-cell creep. Right after power-on the board warms up for 10–15 minutes and the reading moves with it. A load cell under a steady load also creeps slowly, more so when it is close to a warm part or when the platform rubs on something. | Leave the station switched on for 15 minutes, then **tare** and calibrate again. Keep the load cell away from the touchscreen board and other warm parts, mount it only by its two screw pairs, and make sure the platform and cables touch nothing. If a known weight still moves by more than a few grams over ten minutes, the load cell itself may be poor; try another one. |
@@ -36,6 +39,10 @@ Touchscreen: **Settings → About / Advanced**, section **SCALE AND SCREEN**, li
 | `No reference weight detected. Place the reference weight on the platform and retry.` | Put the known weight on the platform after taring, wait until it is stable, then calibrate. |
 | `calibration reference produced too few ADC counts` | The scale hardly noticed the weight. Use a heavier known weight; check that the platform rests on the load cell only. |
 | `Enter a valid reference weight` | Enter the weight in grams: more than 0 and not more than the cell's capacity. |
+
+On the touchscreen, tare and calibration results ("Tare complete", "Calibration complete", or
+"Tare failed: …" / "Calibration failed: …" with the reason) stay on the screen until your next tap
+or until you leave the page.
 
 ## The filament weight does not make sense
 

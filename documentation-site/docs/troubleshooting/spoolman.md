@@ -16,7 +16,7 @@ The touchscreen has no test button; in its setup steps `URL saved` only means th
 
 | What you see | What it means | What to do |
 |---|---|---|
-| `Spoolman unavailable; spool not looked up` (touchscreen Home) | The station cannot reach Spoolman. | Check that Spoolman is running and the address is right: browser **Settings → Integrations → Edit Spoolman → Base URL**. |
+| `Spoolman unavailable; spool not looked up` (touchscreen Home), "Spoolman is not reachable…" (touchscreen **Manage tag** and browser Dashboard) | The station cannot reach Spoolman, so it does not know yet which spool the tag belongs to. This does not mean the tag is unlinked. | Check that Spoolman is running and the address is right: browser **Settings → Integrations → Edit Spoolman → Base URL**. Leave the spool on the station: once Spoolman answers again, the station looks the spool up by itself, usually within about 30 seconds. |
 | `Spoolman URL is not configured` | No address is saved. | Enter it. See [Connect Spoolman](../inventory/spoolman.md). |
 | `DNS resolution failed or is still pending for <host>` | The station cannot find that host name on your network. | Use Spoolman's IP address in the Base URL instead of a name. |
 | `HTTP request requires Wi-Fi` | The station itself is offline. | [Wi-Fi and reaching the station](wifi.md) |

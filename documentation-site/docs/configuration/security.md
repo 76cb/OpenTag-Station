@@ -53,9 +53,11 @@ Set a new one on the touchscreen; it does not ask for the old one:
 ## The setup network
 
 The temporary network `OpenTag-Setup-XXXX` is open: it has no password, so anyone nearby can
-join it while it runs. It runs only while the station has no working Wi-Fi: on first start, after
-three failed connection attempts in a row, or when you start it yourself. It closes about
-30 seconds after the station connects to your Wi-Fi.
+join it while it runs. It runs while the station has no working Wi-Fi (on first start, or after
+three failed connection attempts in a row), and when you start it yourself. Started because Wi-Fi
+is missing, it closes about 30 seconds after the station connects to your Wi-Fi. Started by you,
+it closes by itself after 10 minutes, or earlier when you click **Stop setup network** in the
+browser (**Settings** → **Advanced** → **Device controls**).
 
 On a station that has never had Wi-Fi saved, scanning for Wi-Fi and saving Wi-Fi details work
 over the setup network without an access token (a new station has none). When the setup network

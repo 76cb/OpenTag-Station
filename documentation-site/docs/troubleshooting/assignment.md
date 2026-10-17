@@ -64,7 +64,7 @@ The browser asks the same questions as OK / Cancel prompts:
 
 | What you see | What it means |
 |---|---|
-| `Assignment verified by FilaBridge readback` (browser: `Assigned and verified on the printer.`) | Done. FilaBridge reports the spool on that toolhead. |
+| `Assigned. FilaBridge confirmed the spool is on this toolhead.` (browser: `Assigned and verified on the printer.`) | Done. FilaBridge reports the spool on that toolhead. |
 
 After any failure the browser shows
 `Assignment was not verified. Check the station message and refresh the printer before trying again.`

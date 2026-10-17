@@ -5,21 +5,24 @@ itself when nobody touches it.
 
 ## Change the brightness
 
-**Browser** — this is the saved setting:
+You can change it in either place. Both change the same saved setting, which the station keeps
+after a restart.
+
+**Touchscreen**
+
+1. Tap **Settings**.
+2. Move the **Display brightness** slider (5 to 100 %).
+
+The screen changes while you move the slider. The new brightness is saved when you lift your
+finger.
+
+**Browser**
 
 1. Go to **Settings** → **Display**.
 2. Set **Brightness (%)** between 5 and 100. The default is 80.
 3. Click **Validate and save**.
 
-The saved brightness is used the next time the station starts.
-
-**Touchscreen** — for a quick change:
-
-1. Tap **Settings**.
-2. Move the **Display brightness** slider (5 to 100 %).
-
-The screen changes at once, but the slider does not save. After a restart the station uses the
-brightness saved in the browser again.
+The touchscreen changes to the new brightness straight away; you do not need to restart.
 
 ## Dimming and sleep
 
@@ -35,5 +38,5 @@ settings keys `device.dim_after_ms` and `device.sleep_after_ms`; see
 ## The About screen
 
 **Settings** → **About / Advanced** opens "About this station". It shows the firmware version, the
-Wi-Fi state and IP address, and the state of the hardware. It also has a second **Brightness**
-slider and the buttons **Home**, **Setup** and **Sleep**.
+Wi-Fi state and IP address, and the state of the hardware. It has the buttons **Home**, **Setup**
+and **Sleep**. It has no brightness slider; use the one on **Settings**.

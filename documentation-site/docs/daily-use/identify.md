@@ -6,7 +6,9 @@ Spoolman thinks is left. This page explains what each screen means and what to d
 ## Steps
 
 1. Put one spool on the station with its tag over the reader. Keep other tags away from the reader.
-2. Wait a second or two. The station reads the tag, then looks the spool up in Spoolman.
+2. Wait a second or two. The station reads the tag, then looks the spool up in Spoolman straight
+   away. It does not wait for the weight to settle, and it does this even if the scale is not
+   calibrated yet.
 3. Read the result on the touchscreen **Home** page or the browser **Dashboard** page.
 
 The reader starts once the station has joined your Wi-Fi.
@@ -19,9 +21,9 @@ Until then tags are ignored; see [Tag is not detected](../troubleshooting/tag.md
 |---|---|---|---|
 | Nothing on the reader | "OpenTag Station", "Place a spool", "Set a tagged spool on the station" | "Place a spool", with **Write a new tag** and **Browse inventory** | Place a spool. |
 | Tag linked to a Spoolman spool | Maker, filament name, "Spool #N" and "NNN g remaining" (or "Weight not known") | "CURRENT SPOOL", "Spool #N", name, "N g remaining", "N% of M g", and the labels "Tag valid", "Linked to Spoolman" and "Not assigned" or the printer and toolhead | [Weigh it](weigh.md), [assign it to a toolhead](assign.md) or [manage the tag](manage-tags.md). |
-| Station is looking the spool up | "Finding this spool in Spoolman..." | "Looking up spool…" | Wait. |
+| Station is looking the spool up | "Finding this spool in Spoolman..." | "Looking up…", "Looking up this spool in Spoolman…" | Wait. |
 | Tag has filament data but no Spoolman spool is linked | "Not linked yet: Manage tag > Link to a spool" | "Not yet linked", "Not linked to Spoolman" | Link it. See [below](#link-a-tag-the-station-does-not-recognise). |
-| Spoolman cannot be reached | "Spoolman unavailable; spool not looked up" | "Spoolman resolution failed. Check the backend connection, then reinsert the spool or confirm its ID." | Fix the connection ([Spoolman problems](../troubleshooting/spoolman.md)), then lift the spool and put it back. |
+| Spoolman cannot be reached | "Spoolman unavailable; spool not looked up". **Manage tag** says "Spoolman is not reachable. The tag's link cannot be checked right now." | "Link not checked" and "Spoolman is not reachable; the link can't be checked right now. It will be looked up again when Spoolman is back." | Fix the connection ([Spoolman problems](../troubleshooting/spoolman.md)) and leave the spool where it is. Once Spoolman answers again the station looks the spool up by itself, usually within about 30 seconds. |
 | Blank tag | "COMPATIBLE BLANK TAG", "Ready to write", "Open Manage tag to choose a spool". The first button reads **WRITE TAG**. | "Blank tag", "Ready to write". The first button reads **Write tag**. | [Write the tag](manage-tags.md). |
 | Blank tag, or tag with other data, that Spoolman links to a spool | The spool's name, "Spool #N" and "NNN g remaining", with the normal **WEIGH** button | The spool's name, "Spool #N", its weight and "Linked to Spoolman", with the normal **Weigh** button | Weigh it, or [write the tag](manage-tags.md) to put the filament data on it. See [below](#tags-spoolman-links-to-a-spool). |
 | Tag the station cannot use | On the **Tag** page: "This tag can't be used as it is", a reason, and "Use a blank NXP ICODE SLIX2 tag." | Dashboard: "Reading spool…" and "Tag needs attention". In **Manage tag**: "Unsupported" and "OpenPrintTag decode failed / unsupported" | Use a blank NXP ICODE SLIX2 tag. See [Which tags work](../openprinttag/supported-tags.md). |
@@ -37,8 +39,8 @@ The screen keeps showing "Place a spool".
 ## Tags Spoolman links to a spool
 
 A tag does not need filament data on it to be recognised. When a blank tag, or a tag holding data
-the station cannot use, is placed, the station still looks its UID up in Spoolman once the weight
-is steady. It shows the spool only for an exact link:
+the station cannot use, is placed, the station still looks its UID up in Spoolman. It shows the
+spool only for an exact link:
 
 - on Spoolman 0.27 or later, the tag is in the spool's tag list in Spoolman (for example because
   you added it there yourself);
@@ -95,4 +97,4 @@ A similar name is not enough when you own several spools of the same filament.
 |---|---|---|
 | The screen stays on "Place a spool" with a tag on the reader | The tag is not an NFC-V tag, is too far from the reader, or the reader has not started yet | See [Tag is not detected](../troubleshooting/tag.md). |
 | "This tag can't be used as it is" | The tag holds data that is neither blank nor OpenPrintTag | Use a blank NXP ICODE SLIX2 tag. The station does not erase unknown data. |
-| "Spoolman unavailable; spool not looked up" | The station could not reach Spoolman | See [Spoolman problems](../troubleshooting/spoolman.md). |
+| "Spoolman unavailable; spool not looked up" | The station could not reach Spoolman | See [Spoolman problems](../troubleshooting/spoolman.md). You do not need to lift the spool: the station looks it up again by itself once Spoolman is back. |

@@ -24,6 +24,16 @@ Actions: `catalog`, `preview`, `write`, `retry_association`, `update_spool`, `up
 The `community_*`, `import_preview` and `import` actions are rejected while the Community
 catalog is disabled.
 
+`catalog` (and the disabled `community_status` / `community_search`) is idempotency-exempt
+(`Mutation::idempotency_exempt`): it still needs an `Idempotency-Key`, but never takes one of the
+32 ledger slots, so searching cannot fill the ledger. `catalog` asks Spoolman for `limit=8`; if
+the response exceeds the HTTP limit, or the resulting view exceeds `writer_view_maximum_bytes`,
+the same offset is asked again with 4, 2 and 1 rows. The view carries `entity`, `offset`,
+`limit` (rows asked for), `next_offset` (`offset` + rows returned), `has_more` (rows returned ==
+`limit`), `search_field` and `items`. Only a single row that is still too large fails with
+"This page is too large to show; narrow the search." An empty first page of a name search
+(filament or spool) is repeated once against the vendor name (`search_field` becomes `vendor`).
+
 Phases: `catalog`, `searching`, `spool_selected`, `loading_spool`, `reading`, `preview`,
 `editing`, `updated`, `validating`, `writing`, `verifying`, `decoding`, `associating`,
 `association_pending`, `complete`, `write_recovery`, `clear_preview`, `clearing`,
@@ -42,8 +52,14 @@ Phases: `catalog`, `searching`, `spool_selected`, `loading_spool`, `reading`, `p
 - The decoded tag does not declare write protection.
 
 Before and during execution `fence()` rechecks, before every block: 120 s deadline, same tag
-generation, reader healthy, zero bus errors, exactly the same UID, same geometry, same system
-information.
+generation, reader healthy, no new bus error since the start of this step, exactly the same UID,
+same geometry, same system information.
+
+The reader's bus-error counter counts since boot and is never reset. `read()` and `execute()` each
+record it when they open the field (`bus_errors_at_start_`); `fence()` and `WriterFieldScope::close()`
+fail only if it has grown since, with `nfc_communication` and "The tag reader reported an error
+during this step. Try again." An error from an earlier read no longer blocks writes and clears
+until restart (before rc.23: "NFC bus errors must be zero").
 
 `BackendWorker::process_writer()` additionally refuses `preview`, `write`, `clear_preview` and
 `clear` until NFC is initialised, and drops a `write` or `clear` that waited more than 15 s in
@@ -64,6 +80,23 @@ the queue (`Write confirmation expired in queue`).
    when two spools hold it, or when the field owner and the tag-list owner are different spools
    other than the target (messages in the
    [Spoolman reference](https://76cb.github.io/OpenTag-Station-Docs/reference/spoolman/)).
+   For `initialize` and `rewrite`, `write_dropped_fields()` adds one entry per value
+   `encode_main()` leaves out to `dropped_fields[]` (`{"field", "value", "reason"}`) and its
+   sentence to `warnings[]`. `nfc::openprinttag::dropped_fields()` checks the same limits
+   `encode_main()` uses: filament `name` > 63 bytes, vendor `name` > 31, `material` > 7,
+   `article_number` > 16 (`reason` "longer than N characters", or "bytes" for non-ASCII text);
+   `material_type` when `material` is not exactly one of PLA, PETG, TPU, ABS, ASA, PC, PCTG, PP,
+   PA6, PA11, PA12; `color` when `color_hex` is absent and `multi_color_hexes` is set. Example:
+   ```json
+   "dropped_fields": [
+     {"field": "material", "value": "PLA Matte", "reason": "longer than 7 characters"},
+     {"field": "material_type", "value": "PLA Matte",
+      "reason": "not one of the material types the tag can store (PLA, PETG, TPU, ABS, ASA, PC, PCTG, PP, PA6, PA11, PA12)"}
+   ]
+   ```
+   The browser lists them under "Not written to the tag:"; the touchscreen review shows
+   `dropped_fields_text()` (`src/ui/tag_flow.hpp`), e.g. "Not written: material, material type",
+   at most three names plus "and N more". `update` previews report none.
 2. **Confirm** (`write`): the request must repeat `uid`, `generation`, `spool_id`,
    `previous_spool_id` and `target_checksum` from the preview. A mismatch, changed Spoolman
    settings, or a recovery record for a different tag refuses the write.

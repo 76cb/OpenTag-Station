@@ -162,6 +162,8 @@ The station joins 2.4 GHz networks only.
 | Address | `http://192.168.4.1/`. Every DNS name resolves to it, and unknown paths redirect to it. |
 | Home Wi-Fi | Stays active alongside the setup network. |
 | Stops | 30 seconds after the station joins your Wi-Fi. It stays up while the join fails. |
+| Stops (started on request) | By itself 10 minutes after it was started, or on `POST /network/setup-mode` with `{"stop": true}` (**Stop setup network** in the browser). The time left is `system.network.provisioning.requested_remaining_ms` in `GET /network`. |
+| Stop refused | With `409` while the setup network runs because no Wi-Fi is saved or 3 connection attempts in a row failed. |
 
 ### What a setup-network client may do
 

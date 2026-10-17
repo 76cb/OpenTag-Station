@@ -64,7 +64,10 @@ The station tries these in order and stops at the first that gives an answer
    Product identifiers on the tag (GTIN, package or material IDs) are preferred over plain
    vendor/material agreement.
 
-The lookup runs once per tag placement, after the scale reports a stable weight.
+The lookup runs once per tag placement, as soon as the tag is read; it does not wait for a stable
+weight or a calibrated scale. If it fails because Spoolman cannot be reached, it runs again once
+the station's periodic Spoolman check (every 30 seconds) finds Spoolman reachable, without the tag
+being lifted.
 
 Rules:
 
@@ -88,13 +91,13 @@ Used by the spool, filament and vendor lists on the touchscreen and browser.
 | Rule | Value |
 |---|---|
 | Page size | 8 rows, sorted by ID ascending (`limit=8&offset=N&sort=id:asc`) |
-| More pages | Offered when a page returns 8 rows |
+| More pages | Offered when a page returns as many rows as were asked for |
 | Search text | ≤ 64 bytes. Sent as `name=` for filaments and vendors, `filament.name=` for spools. Spoolman matches case-insensitive substrings. |
 | Vendor fallback | If the first page of a filament or spool name search is empty, the search is repeated once against the vendor name (`vendor.name=` / `filament.vendor.name=`). |
 | Other filters | `material` (filaments and spools), `article_number` (filaments only), vendor ID, filament ID |
 | Not searched | Color, comment, location, lot number, ID |
 | Archived spools | Not requested: the catalog query does not send `allow_archived`, so which spools come back is up to Spoolman. (The uniqueness checks before a write send `allow_archived=true`.) |
-| Oversized page | A page larger than the station can hold fails with "This page is too large to show; narrow the search." |
+| Oversized page | A page larger than the station can hold is asked for again at the same offset with 4, then 2, then 1 row; the next page continues after the rows actually shown. Only a single row that is still too large fails with "This page is too large to show; narrow the search." |
 
 ## What the station writes
 

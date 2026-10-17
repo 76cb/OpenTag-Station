@@ -113,7 +113,7 @@ The station never:
 | What you see | What it means | What to do |
 |---|---|---|
 | "No matching spools. Try changing your search or material filter." (or "filaments", "vendors") | Nothing matches the search and filters. | Search for one word of the filament name. Remove the material filter. |
-| "This page is too large to show; narrow the search." | Spoolman's answer for this page is bigger than the station can hold. | Search for a more specific name. |
+| "This page is too large to show; narrow the search." | Even a single result is bigger than the station can hold (it already tried showing fewer results per page). | Search for a more specific name. |
 | "Inventory unavailable. … Open Inventory again to retry." | The station could not load the page. | Check Spoolman ([Connect Spoolman](spoolman.md)), then click **Inventory** again. |
 | "No changed values to save." | You clicked save without changing a field. | Change a value or click **Cancel edit**. |
 | "Spoolman changed. Current values: … Your draft is unchanged. Review these values, then Save Changes again." | Someone or something else changed the same fields in Spoolman while the editor was open, for example a print using filament. | Compare the current values with your draft, then save again if your draft is still right. |
