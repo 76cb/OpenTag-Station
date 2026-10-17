@@ -76,7 +76,7 @@ function renderCurrentSpool() {
   const reading=tagReading(t);
   setText('current-tag',t.blank_compatible?'Blank tag':t.decode==='pass'?'Tag valid':t.decode==='fail'?'Tag needs attention':reading?'Reading tag…':'Tag not read');
   byId('current-tag').dataset.valid=String(t.decode==='pass');byId('current-tag').dataset.reading=String(reading);
-  setText('current-link',s.id?'Linked to Spoolman':look?'Looking up this spool in Spoolman…':off?"Spoolman is not reachable; the link can't be checked right now. It will be looked up again when Spoolman is back.":'Not linked to Spoolman');byId('current-link').dataset.state=off?'warn':'';
+  setText('current-link',s.id?'Linked to Spoolman':look?'Looking up this spool in Spoolman…':off?(w.lookup_error?'The Spoolman lookup failed: '+w.lookup_error:"Spoolman is not reachable; the link can't be checked right now. It will be looked up again when Spoolman is back."):'Not linked to Spoolman');byId('current-link').dataset.state=off?'warn':'';
   const assignments=state.printers.flatMap(p=>asArray(p.toolheads).filter(h=>s.id&&Number(first(h.assigned_spool_id,h.spool_id))===Number(s.id)).map(h=>(p.display_name||p.name||'Printer')+' · T'+(Number(first(h.backend_id,h.id))+1)));
   setText('current-assignment',assignments.length?assignments.join(', '):'Not assigned');
   setText('dashboard-printer',assignments.length?assignments.join(', '):'Choose a toolhead to assign this spool.');

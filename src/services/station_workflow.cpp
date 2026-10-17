@@ -122,6 +122,8 @@ WorkflowSnapshot StationWorkflow::accept_identified_spool(
                           ? BackendAvailability::offline
                           : BackendAvailability::unknown;
     state_.spoolman_error = resolution.error();
+    state_.lookup_error = resolution.error();
+    state_.lookup_failed_unreachable = connection_failure(resolution.error());
     return state_;
   }
 
@@ -202,7 +204,8 @@ bool StationWorkflow::begin_lookup_retry(std::uint64_t generation) {
   std::lock_guard<std::mutex> lock(mutex_);
   if (state_.spool_generation != generation ||
       state_.stage != WorkflowStage::spool_resolution_unavailable ||
-      state_.spoolman != BackendAvailability::online) return false;
+      state_.spoolman != BackendAvailability::online ||
+      !state_.lookup_failure_is_connection()) return false;
   state_.stage = WorkflowStage::resolving_spool;
   return true;
 }
@@ -221,6 +224,8 @@ void StationWorkflow::fail_resolution(std::uint64_t generation,
       state_.stage != WorkflowStage::resolving_spool) return;
   state_.stage = WorkflowStage::spool_resolution_unavailable;
   state_.spoolman = BackendAvailability::unknown;
+  state_.lookup_failed_unreachable = connection_failure(error);
+  state_.lookup_error = error;
   state_.spoolman_error = std::move(error);
 }
 

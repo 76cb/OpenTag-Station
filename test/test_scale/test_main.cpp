@@ -1300,6 +1300,27 @@ void test_calibration_timeout_on_a_still_platform_asks_for_the_reference() {
       service.status().measurement_error->message.c_str());
 }
 
+// If the zero itself moved, an empty platform reads high: a second tare
+// within 15 s is accepted, a late one is refused again.
+void test_refused_tare_can_be_confirmed_by_tapping_again() {
+  FakeAdc adc;
+  FakeStore store;
+  store.stored = physical_calibration();
+  ScaleService service(adc, store, measurement_config());
+  TEST_ASSERT_TRUE(service.initialize(0U, 1000U).ok());
+  for (std::uint32_t index = 0U; index < 10U; ++index)
+    sample(service, adc, physical_raw_for_grams(300.0F), (index + 1U) * 100U);
+  TEST_ASSERT_FALSE(service.begin_measurement(ScaleMeasurementPurpose::tare, 1000U).ok());
+  // Too late: refused again (and the window restarts).
+  for (std::uint32_t index = 0U; index < 10U; ++index)
+    sample(service, adc, physical_raw_for_grams(300.0F), 16100U + index * 100U);
+  TEST_ASSERT_FALSE(service.begin_measurement(ScaleMeasurementPurpose::tare, 17100U).ok());
+  // Confirmed within the window: accepted.
+  for (std::uint32_t index = 0U; index < 10U; ++index)
+    sample(service, adc, physical_raw_for_grams(300.0F), 17200U + index * 100U);
+  TEST_ASSERT_TRUE(service.begin_measurement(ScaleMeasurementPurpose::tare, 18200U).ok());
+}
+
 void test_tare_is_refused_while_the_calibrated_platform_is_loaded() {
   FakeAdc adc;
   FakeStore store;
@@ -1317,7 +1338,8 @@ void test_tare_is_refused_while_the_calibrated_platform_is_loaded() {
       static_cast<int>(ErrorCategory::scale_unstable),
       static_cast<int>(refused.error().category));
   TEST_ASSERT_EQUAL_STRING(
-      "The platform is not empty (reads 500 g). Remove everything, then tare.",
+      "The platform is not empty (reads 500 g). Remove everything, then tare. "
+      "If it is empty, tare again within 15 seconds.",
       refused.error().message.c_str());
   // Nothing changed: no offset calibration, zero still trusted, no session.
   TEST_ASSERT_EQUAL_UINT(calibrations_before, adc.calibration_calls);
@@ -1444,6 +1466,7 @@ void test_repeated_poll_failures_require_reinitialization_and_recover() {
 int main(int, char**) {
   UNITY_BEGIN();
   RUN_TEST(test_tare_is_refused_while_the_calibrated_platform_is_loaded);
+  RUN_TEST(test_refused_tare_can_be_confirmed_by_tapping_again);
   RUN_TEST(test_uncalibrated_first_tare_is_not_load_checked);
   RUN_TEST(test_repeated_poll_failures_require_reinitialization_and_recover);
   RUN_TEST(test_i2c_scan_result_is_bounded_and_tracks_target);

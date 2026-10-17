@@ -221,6 +221,10 @@ class ScaleService {
   // captured the new zero. If the session ends any other way, the stored zero
   // belongs to the old offset and a tare is required before weighing.
   bool zero_pending_after_offset_calibration_{false};
+  // When a tare was last refused for a loaded platform; a second tare within
+  // tare_confirm_window_ms is accepted.
+  std::optional<std::uint32_t> tare_refused_at_ms_;
+  static constexpr std::uint32_t tare_confirm_window_ms = 15000U;
   void invalidate_zero_if_offset_changed();
   std::optional<std::uint32_t> stable_candidate_since_ms_;
   std::optional<float> stable_baseline_grams_;

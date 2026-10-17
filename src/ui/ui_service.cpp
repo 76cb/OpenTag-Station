@@ -861,7 +861,9 @@ void UiService::refresh_tags() {
     // As on Home: "not linked" only once Spoolman answered for this tag.
     const bool this_tag=tag.uid&&current.uid==*tag.uid;
     flow.lookup=this_tag&&(current.stage==services::WorkflowStage::spool_selection_required||current.stage==services::WorkflowStage::spool_not_found)?SpoolLookup::checked:
-        this_tag&&current.stage==services::WorkflowStage::spool_resolution_unavailable?SpoolLookup::unavailable:SpoolLookup::resolving;
+        this_tag&&current.stage==services::WorkflowStage::spool_resolution_unavailable?
+            (current.lookup_failure_is_connection()||!current.lookup_error?SpoolLookup::unavailable:SpoolLookup::failed):SpoolLookup::resolving;
+    flow.lookup_error=flow.lookup==SpoolLookup::failed?current.lookup_error->message:std::string();
     // Product/metadata matches must be chosen explicitly (never auto-linked).
     flow.candidates.clear();
     if(tag.uid&&current.uid==*tag.uid&&current.stage==services::WorkflowStage::spool_selection_required) {
@@ -2108,8 +2110,11 @@ bool UiService::track_scale_operation() {
       const bool calibration_complete =
           scale_action_ == ScaleAction::calibrate;
       // A weigh shows its own result (the receipt); tare and calibration
-      // results stay visible until the next action or page change.
-      feedback_terminal_ = scale_action_ != ScaleAction::weigh;
+      // results stay visible until the next action or page change. A tare
+      // inside the calibration panel is a step, not a result: the numbered
+      // guidance ("3. Tare complete - place reference weight") takes over.
+      feedback_terminal_ = scale_action_ == ScaleAction::calibrate ||
+          (scale_action_ == ScaleAction::tare && !scale_calibration_panel_open_);
       if (feedback_terminal_) workflow_feedback_ = std::string(action) + " complete";
       else workflow_feedback_.clear();
       feedback_measurement_id_ = backend_worker_.weigh_snapshot().measurement_id;

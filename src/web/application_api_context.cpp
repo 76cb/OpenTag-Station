@@ -37,8 +37,7 @@ core::Error conflict_error(const char* message) {
 }
 
 constexpr const char* ledger_full_message =
-    "The station is still running many earlier requests; wait for them to "
-    "finish, then try again";
+    "The station is busy. Wait a minute and try again.";
 constexpr std::size_t constant_time_token_bytes = 512U;
 
 bool constant_time_token_match(
@@ -968,6 +967,9 @@ core::Result<api::JsonBody> ApplicationApiContext::snapshot_json(
           write_spool(candidates.add<JsonObject>(), candidate);
         }
         if (workflow.spoolman_error) encoded["error"] = workflow.spoolman_error->message;
+        if (workflow.stage == services::WorkflowStage::spool_resolution_unavailable &&
+            workflow.lookup_error && !workflow.lookup_failed_unreachable)
+          encoded["lookup_error"] = workflow.lookup_error->message;
         if (workflow.assignment_error) encoded["error"] = workflow.assignment_error->message;
         if (workflow.spool.has_value()) {
           write_spool(encoded["spool"].to<JsonObject>(), *workflow.spool);

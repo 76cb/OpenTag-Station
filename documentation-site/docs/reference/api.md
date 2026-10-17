@@ -72,7 +72,7 @@ The station remembers up to 32 keys for ten minutes each, in memory only.
 | Same key, same method, path and body, within ten minutes | `202` with the original `operation_id`; nothing runs twice. |
 | Same key, different request | `409 state_conflict` |
 | All 32 slots full | The oldest key whose operation has finished is dropped to make room. Keys of queued or running operations are never dropped. |
-| All 32 slots hold keys of queued or running operations | `409 state_conflict`, `retryable: true`, message "The station is still running many earlier requests; wait for them to finish, then try again" |
+| All 32 slots hold keys of queued or running operations | `409 state_conflict`, `retryable: true`, message "The station is busy. Wait a minute and try again." |
 
 `POST /tag-writer` with `action` `catalog` (a Spoolman catalog page) never takes a slot: it still
 needs an `Idempotency-Key`, but a repeat runs again instead of being replayed.

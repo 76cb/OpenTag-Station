@@ -1668,13 +1668,13 @@ setText('reconciliation-state', normalizeState(first(reconciliation.decision, re
 setText('reconciliation-difference', formatGrams(reconciliation.maximum_absolute_difference_grams));
 setBadge('spool-badge', state.spool ? 'Spool ready' : stage, state.spool ? 'good' : 'neutral');
 const guidance = {
-waiting_for_stable_weight: 'OpenPrintTag recognized. Waiting for a stable weight; calibrate the scale if required.',
+waiting_for_stable_weight: 'Finding the matching Spoolman spool…',
 resolving_spool: 'Finding the matching Spoolman spool…',
 spool_not_found: 'No Spoolman spool matched. Enter its Spoolman ID to confirm a local mapping.',
 spool_selection_required: 'More than one Spoolman spool matches this tag. Choose the spool on the station, then confirm.',
-spool_resolution_unavailable: 'Spoolman resolution failed. Check the backend connection, then reinsert the spool or confirm its ID.',
+spool_resolution_unavailable: 'Spoolman is not reachable. The spool is looked up again by itself when Spoolman is back.',
 spool_ready: '',
-assignment_complete: 'Assignment verified by FilaBridge readback.'
+assignment_complete: 'Assigned. FilaBridge confirmed the spool is on this toolhead.'
 };
 byId('spool-guidance').textContent=workflow.openprinttag_available?workflow.error||guidance[workflow.stage]||'':'';
 byId('confirm-spool-form').hidden = !workflow.openprinttag_available ||
@@ -3331,7 +3331,7 @@ function renderCurrentSpool() {
   const reading=tagReading(t);
   setText('current-tag',t.blank_compatible?'Blank tag':t.decode==='pass'?'Tag valid':t.decode==='fail'?'Tag needs attention':reading?'Reading tag…':'Tag not read');
   byId('current-tag').dataset.valid=String(t.decode==='pass');byId('current-tag').dataset.reading=String(reading);
-  setText('current-link',s.id?'Linked to Spoolman':look?'Looking up this spool in Spoolman…':off?"Spoolman is not reachable; the link can't be checked right now. It will be looked up again when Spoolman is back.":'Not linked to Spoolman');byId('current-link').dataset.state=off?'warn':'';
+  setText('current-link',s.id?'Linked to Spoolman':look?'Looking up this spool in Spoolman…':off?(w.lookup_error?'The Spoolman lookup failed: '+w.lookup_error:"Spoolman is not reachable; the link can't be checked right now. It will be looked up again when Spoolman is back."):'Not linked to Spoolman');byId('current-link').dataset.state=off?'warn':'';
   const assignments=state.printers.flatMap(p=>asArray(p.toolheads).filter(h=>s.id&&Number(first(h.assigned_spool_id,h.spool_id))===Number(s.id)).map(h=>(p.display_name||p.name||'Printer')+' · T'+(Number(first(h.backend_id,h.id))+1)));
   setText('current-assignment',assignments.length?assignments.join(', '):'Not assigned');
   setText('dashboard-printer',assignments.length?assignments.join(', '):'Choose a toolhead to assign this spool.');

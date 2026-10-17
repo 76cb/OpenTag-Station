@@ -582,41 +582,66 @@ void test_lookup_repeats_once_spoolman_returns() {
   TEST_ASSERT_EQUAL_UINT(0U, queue.size());
 }
 
-void test_lookup_retry_is_spaced_and_requeued_when_queue_is_full() {
-  FakeResolver resolver;
-  resolver.next = Result<SpoolResolution>::failure(
-      {ErrorCategory::invalid_response, "Spoolman answered 500", true});
-  FakePrinterBackend printers;
-  StationWorkflow workflow(resolver, printers);
-  int submissions = 0;
-  bool accept = true;
-  opentag::services::NfcWorkflowHandoff handoff(workflow,
-      [&](const opentag::nfc::IdentifiedTag& tag, opentag::domain::WeightReading weight, std::uint64_t generation) {
-        ++submissions;
-        if (!accept) return false;
-        (void)workflow.accept_identified_spool(tag.decoded.material, tag.uid, weight, {}, {}, generation);
-        return true;
-      });
-  auto tag = std::make_shared<opentag::nfc::IdentifiedTag>();
-  tag->generation = 6;
-  opentag::nfc::ReadSnapshot s;
-  s.tag = tag;
-  handoff.observe(s, std::nullopt, 1000U);
-  TEST_ASSERT_EQUAL(1, submissions);
-  // Even with every probe reporting Spoolman online, a failing lookup is
-  // repeated at most once per retry interval (at 11, 21, 31 and 41 s).
-  for (std::uint32_t t = 1000U; t <= 41000U; t += 250U) {
-    workflow.set_spoolman_probe(true);
-    handoff.observe(s, std::nullopt, t);
+void test_lookup_retry_is_spaced_capped_and_only_for_unreachable_spoolman() {
+  // Spoolman could not be reached: retried after 10 s, then 30 s, then 90 s
+  // (only while the probe says Spoolman is back), at most three times.
+  {
+    FakeResolver resolver;
+    resolver.next = Result<SpoolResolution>::failure(
+        {ErrorCategory::network, "Spoolman timed out", true});
+    FakePrinterBackend printers;
+    StationWorkflow workflow(resolver, printers);
+    std::vector<std::uint32_t> at;
+    std::uint32_t now = 0U;
+    opentag::services::NfcWorkflowHandoff handoff(workflow,
+        [&](const opentag::nfc::IdentifiedTag& tag, opentag::domain::WeightReading weight, std::uint64_t generation) {
+          at.push_back(now);
+          (void)workflow.accept_identified_spool(tag.decoded.material, tag.uid, weight, {}, {}, generation);
+          return true;
+        });
+    auto tag = std::make_shared<opentag::nfc::IdentifiedTag>();
+    tag->generation = 6;
+    opentag::nfc::ReadSnapshot s;
+    s.tag = tag;
+    for (now = 1000U; now <= 400000U; now += 250U) {
+      workflow.set_spoolman_probe(true);
+      handoff.observe(s, std::nullopt, now);
+    }
+    TEST_ASSERT_EQUAL_UINT(4U, at.size());
+    TEST_ASSERT_EQUAL_UINT(1000U, at[0]);
+    TEST_ASSERT_EQUAL_UINT(11000U, at[1]);
+    TEST_ASSERT_EQUAL_UINT(41000U, at[2]);
+    TEST_ASSERT_EQUAL_UINT(131000U, at[3]);
+    TEST_ASSERT_TRUE(workflow.snapshot().lookup_failure_is_connection());
   }
-  TEST_ASSERT_EQUAL(5, submissions);
-  // A retry that cannot be queued shows the failure again and is tried later.
-  accept = false;
-  workflow.set_spoolman_probe(true);
-  handoff.observe(s, std::nullopt, 52000U);
-  TEST_ASSERT_EQUAL(6, submissions);
-  TEST_ASSERT_EQUAL_INT(static_cast<int>(WorkflowStage::spool_resolution_unavailable),
-      static_cast<int>(workflow.snapshot().stage));
+  // Spoolman answered with an error: never retried automatically, and the
+  // snapshot says it was not a connection problem (the UIs offer linking).
+  {
+    FakeResolver resolver;
+    resolver.next = Result<SpoolResolution>::failure(
+        {ErrorCategory::invalid_response, "Spoolman answered 500", true});
+    FakePrinterBackend printers;
+    StationWorkflow workflow(resolver, printers);
+    int submissions = 0;
+    opentag::services::NfcWorkflowHandoff handoff(workflow,
+        [&](const opentag::nfc::IdentifiedTag& tag, opentag::domain::WeightReading weight, std::uint64_t generation) {
+          ++submissions;
+          (void)workflow.accept_identified_spool(tag.decoded.material, tag.uid, weight, {}, {}, generation);
+          return true;
+        });
+    auto tag = std::make_shared<opentag::nfc::IdentifiedTag>();
+    tag->generation = 7;
+    opentag::nfc::ReadSnapshot s;
+    s.tag = tag;
+    for (std::uint32_t t = 1000U; t <= 200000U; t += 250U) {
+      workflow.set_spoolman_probe(true);
+      handoff.observe(s, std::nullopt, t);
+    }
+    TEST_ASSERT_EQUAL(1, submissions);
+    TEST_ASSERT_EQUAL_INT(static_cast<int>(WorkflowStage::spool_resolution_unavailable),
+        static_cast<int>(workflow.snapshot().stage));
+    TEST_ASSERT_FALSE(workflow.snapshot().lookup_failure_is_connection());
+  }
 }
 
 void test_scan_report_is_claimed_once_per_placement() {
@@ -921,7 +946,7 @@ int main(int, char**) {
   RUN_TEST(test_nfc_handoff_submits_once_without_weight_and_clears);
   RUN_TEST(test_uncalibrated_scale_still_resolves_spool);
   RUN_TEST(test_lookup_repeats_once_spoolman_returns);
-  RUN_TEST(test_lookup_retry_is_spaced_and_requeued_when_queue_is_full);
+  RUN_TEST(test_lookup_retry_is_spaced_capped_and_only_for_unreachable_spoolman);
   RUN_TEST(test_scan_report_is_claimed_once_per_placement);
   RUN_TEST(test_failed_resolution_workspace_never_stays_resolving);
   RUN_TEST(test_removed_tag_rejects_queued_and_inflight_resolution);

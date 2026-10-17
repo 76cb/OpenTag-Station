@@ -58,6 +58,16 @@ struct WorkflowSnapshot {
   bool filabridge_assignment_available{false};
   std::vector<domain::Printer> printers;
   std::optional<core::Error> spoolman_error;
+  // Why the last spool lookup for this tag failed. Kept separately from
+  // spoolman_error, which the backend probe overwrites.
+  std::optional<core::Error> lookup_error;
+  // True when that lookup failed because Spoolman could not be reached (as
+  // opposed to Spoolman answering with an error). Only these failures are
+  // retried automatically, and only these are shown as "not reachable".
+  bool lookup_failed_unreachable{false};
+  [[nodiscard]] bool lookup_failure_is_connection() const {
+    return lookup_failed_unreachable;
+  }
   std::optional<core::Error> filabridge_error;
   std::optional<core::Error> assignment_error;
   std::optional<AssignmentResult> last_assignment;

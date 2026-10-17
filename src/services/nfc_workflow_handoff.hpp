@@ -17,8 +17,11 @@ class NfcWorkflowHandoff {
   NfcWorkflowHandoff(StationWorkflow& workflow, Submit submit)
       : workflow_(workflow), submit_(std::move(submit)) {}
   // Minimum spacing between lookups of the same tag after a failure. A retry
-  // only starts once the backend probe reports Spoolman reachable again.
+  // only starts once the backend probe reports Spoolman reachable again, and
+  // only for failures where Spoolman could not be reached. The spacing
+  // triples after each retry and a placement gets at most max_retries.
   static constexpr std::uint32_t retry_interval_ms = 10000U;
+  static constexpr std::uint8_t max_retries = 3U;
 
   void observe(const nfc::ReadSnapshot& s,
                std::optional<domain::WeightReading> weight,
@@ -31,6 +34,7 @@ class NfcWorkflowHandoff {
       tag_generation_ = 0;
       submitted_ = false;
       weight_attached_ = false;
+      retries_ = 0U;
       return;
     }
     nfc::IdentifiedTag by_uid;
@@ -45,6 +49,7 @@ class NfcWorkflowHandoff {
           tag.decoded.material, tag.uid, !s.tag);
       submitted_ = false;
       weight_attached_ = false;
+      retries_ = 0U;
     }
     const bool usable = weight && weight->stable &&
                         std::isfinite(weight->gross_grams);
@@ -68,11 +73,14 @@ class NfcWorkflowHandoff {
     // A lookup that failed while Spoolman was unreachable is repeated once
     // Spoolman is back. begin_lookup_retry() moves the stage off
     // spool_resolution_unavailable, so at most one lookup is in flight.
-    if (static_cast<std::uint32_t>(now_ms - last_submit_ms_) <
-            retry_interval_ms ||
+    std::uint32_t spacing = retry_interval_ms;
+    for (std::uint8_t i = 0U; i < retries_; ++i) spacing *= 3U;
+    if (retries_ >= max_retries ||
+        static_cast<std::uint32_t>(now_ms - last_submit_ms_) < spacing ||
         !workflow_.begin_lookup_retry(workflow_generation_))
       return;
     last_submit_ms_ = now_ms;
+    ++retries_;
     if (!submit_(tag, domain::WeightReading{NAN, false}, workflow_generation_))
       workflow_.abort_lookup_retry(workflow_generation_);
   }
@@ -87,5 +95,6 @@ class NfcWorkflowHandoff {
   std::uint32_t last_submit_ms_{0};
   bool submitted_{false};
   bool weight_attached_{false};
+  std::uint8_t retries_{0U};
 };
 }  // namespace opentag::services

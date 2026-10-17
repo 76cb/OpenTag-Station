@@ -88,7 +88,7 @@ inline std::uint32_t parse_spool_rgb(const char* text, std::uint32_t fallback = 
 // What Spoolman currently says about the tag on the reader when no spool is
 // linked: checked (really not linked), still being looked up, or not
 // reachable (the lookup failed; it is retried when Spoolman is back).
-enum class SpoolLookup : std::uint8_t { checked, resolving, unavailable };
+enum class SpoolLookup : std::uint8_t { checked, resolving, unavailable, failed };
 // Destructive buttons (clear, skip recovery) are drawn in a distinct colour.
 struct TagButton {
   layout::Box box{};
@@ -186,6 +186,7 @@ class TagFlow {
   // Only meaningful for an unlinked OpenPrintTag: "not linked" is claimed
   // only once Spoolman actually answered.
   SpoolLookup lookup{SpoolLookup::checked};
+  std::string lookup_error;  // plain reason when lookup == failed
   // Set when this station's own create_spool returned the new spool; the UI
   // sends its tag preview once (take_auto_preview), with no extra stop.
   bool auto_preview{false};
@@ -793,6 +794,14 @@ inline TagScreen TagFlow::screen() const {
         s.body = material + "\nThis may be one of your Spoolman spools.";
         action(0, "CHOOSE WHICH SPOOL", TagAction::choose);
         action(1, "LINK TO A SPOOL", TagAction::sources);
+        s.button({16, 212, 448, 44}, "CLEAR / REUSE", TagAction::clear, true, true);
+      } else if (lifecycle == services::TagLifecycle::unlinked &&
+                 lookup == SpoolLookup::failed) {
+        // Spoolman answered, but the lookup failed: say why and still allow
+        // linking by hand.
+        s.body = material + "\nThe Spoolman lookup failed" +
+            (lookup_error.empty() ? std::string(".") : ": " + plain_error(lookup_error));
+        action(0, "LINK TO A SPOOL", TagAction::sources);
         s.button({16, 212, 448, 44}, "CLEAR / REUSE", TagAction::clear, true, true);
       } else if (lifecycle == services::TagLifecycle::unlinked &&
                  lookup != SpoolLookup::checked) {

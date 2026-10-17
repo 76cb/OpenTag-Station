@@ -428,18 +428,26 @@ core::Result<void> ScaleService::begin_measurement(
       status_.samples_in_filter > 0U &&
       static_cast<std::uint32_t>(now_ms - status_.sample.sampled_at_ms) <=
           config_.sample_timeout_ms &&
-      *status_.sample.gross_grams > tare_maximum_load_grams) {
+      *status_.sample.gross_grams > tare_maximum_load_grams &&
+      !(tare_refused_at_ms_.has_value() &&
+        static_cast<std::uint32_t>(now_ms - *tare_refused_at_ms_) <=
+            tare_confirm_window_ms)) {
     // A tare stores the current reading as zero. Refuse it while something
     // is on the platform (checked against the current zero, so a negative
     // drift can still be corrected). An uncalibrated scale cannot tell.
-    char message[112];
+    // If the zero itself has moved, the empty platform reads high too: a
+    // second tare within the confirm window is accepted, so there is always
+    // a way back without a factory reset.
+    tare_refused_at_ms_ = now_ms;
+    char message[176];
     std::snprintf(
         message, sizeof(message),
         "The platform is not empty (reads %.0f g). Remove everything, then "
-        "tare.",
+        "tare. If it is empty, tare again within 15 seconds.",
         static_cast<double>(*status_.sample.gross_grams));
     return core::Result<void>::failure(unstable(message));
   }
+  if (purpose == ScaleMeasurementPurpose::tare) tare_refused_at_ms_.reset();
   if (purpose == ScaleMeasurementPurpose::tare) {
     // The ADC's offset drifts as the station warms up after power-on. Re-run
     // its internal offset calibration right before a new zero is captured
