@@ -66,6 +66,13 @@ std::string normalized_uid(const std::string &value) {
   }
   return result.size() == 16 ? result : std::string{};
 }
+// Same bytes in the opposite order: E0040108662F6FBC <-> BC6F2F66080104E0.
+std::string reversed_uid(const std::string &hex) {
+  std::string result;
+  for (std::size_t i = hex.size(); i >= 2; i -= 2)
+    result += hex.substr(i - 2, 2);
+  return result;
+}
 bool uid_cleared(JsonVariantConst value) {
   if (value.isNull())
     return true;
@@ -752,10 +759,39 @@ core::Result<std::int32_t> TagWriterService::uid_owner() {
   return core::Result<std::int32_t>::success(owner);
 }
 Result TagWriterService::prepare_uid_owner() {
-  auto owner = uid_owner();
-  if (!owner.ok())
-    return Result::failure(owner.error());
-  plan_->previous_spool_id = owner.value() == spool_id_ ? 0 : owner.value();
+  std::int32_t owner = 0;
+  if (extras_) {
+    auto by_field = uid_owner();
+    if (!by_field.ok())
+      return Result::failure(by_field.error());
+    owner = by_field.value();
+  }
+  if (native_) {
+    auto holds = native_holders();
+    if (!holds.ok())
+      return Result::failure(holds.error());
+    for (const auto &hold : holds.value()) {
+      if (hold.spool == spool_id_)
+        continue;
+      if (owner && owner != spool_id_ && owner != hold.spool)
+        return fail(("This tag is linked to spool #" + std::to_string(owner) +
+                     " by its extra field and to spool #" +
+                     std::to_string(hold.spool) +
+                     " in Spoolman's tag list. Remove one of the links in "
+                     "Spoolman first.")
+                        .c_str());
+      owner = hold.spool;
+    }
+    auto filament = native_filament_holder();
+    if (!filament.ok())
+      return Result::failure(filament.error());
+    if (filament.value() > 0)
+      return fail(("Spoolman links this tag to filament #" +
+                   std::to_string(filament.value()) +
+                   ". Remove it from that filament in Spoolman first.")
+                      .c_str());
+  }
+  plan_->previous_spool_id = owner == spool_id_ ? 0 : owner;
   return Result::success();
 }
 Result TagWriterService::clear_previous_uid() {
@@ -901,13 +937,163 @@ __attribute__((noinline)) Result TagWriterService::persist_clear() {
   return Result::success();
 }
 Result TagWriterService::require_identity_fields() {
+  native_ = spoolman_.status_.capabilities.has(
+      integrations::BackendCapability::native_tags);
   auto definitions = spoolman_.list_extra_fields();
   if (!definitions.ok())
     return Result::failure(definitions.error());
   const auto problem = integrations::spoolman::SpoolmanAdapter::text_field_problem(
       definitions.value(), {spoolman_.settings_.identity_field,
                             spoolman_.settings_.nfc_uid_field});
-  return problem.empty() ? Result::success() : fail(problem.c_str());
+  // Spoolman 0.27+ links tags itself; the extra fields are then optional and
+  // are still kept up to date when they exist.
+  extras_ = problem.empty();
+  return extras_ || native_ ? Result::success() : fail(problem.c_str());
+}
+core::Result<std::vector<TagWriterService::NativeHold>>
+TagWriterService::native_holders() {
+  using Holds = core::Result<std::vector<NativeHold>>;
+  std::vector<NativeHold> holds;
+  const auto canonical = plan_->uid.hex();
+  for (const auto &form : {canonical, reversed_uid(canonical)}) {
+    auto matches = api("GET", "/spool?allow_archived=true&tag=" + form +
+                                  "&limit=2&offset=0");
+    if (!matches.ok())
+      return Holds::failure(matches.error());
+    if (!matches.value().is<JsonArray>() || matches.value().size() > 1)
+      return Holds::failure(
+          fail("Spoolman returned an unexpected answer for this tag").error());
+    if (!matches.value().size())
+      continue;
+    const auto id = matches.value()[0]["id"].as<int>();
+    if (id <= 0)
+      return Holds::failure(fail("Malformed Spoolman tag owner").error());
+    holds.push_back({id, form});
+  }
+  if (holds.size() == 2 && holds[0].spool != holds[1].spool)
+    return Holds::failure(
+        fail("Spoolman links this tag to two different spools; remove one of "
+             "the links in Spoolman first")
+            .error());
+  return Holds::success(std::move(holds));
+}
+core::Result<std::int32_t> TagWriterService::native_filament_holder() {
+  const auto canonical = plan_->uid.hex();
+  for (const auto &form : {canonical, reversed_uid(canonical)}) {
+    auto matches = api("GET", "/filament?tag=" + form + "&limit=1&offset=0");
+    if (!matches.ok())
+      return core::Result<std::int32_t>::failure(matches.error());
+    if (matches.value().is<JsonArray>() && matches.value().size())
+      return core::Result<std::int32_t>::success(
+          matches.value()[0]["id"].as<int>());
+  }
+  return core::Result<std::int32_t>::success(0);
+}
+Result TagWriterService::native_unlink(const NativeHold &hold) {
+  auto response = spoolman_.request_any_status(
+      "DELETE", "/spool/" + std::to_string(hold.spool) + "/tag/" + hold.uid,
+      {}, 1024U);
+  if (!response.ok())
+    return Result::failure(response.error());
+  // 404: the spool no longer holds the tag, which is the goal.
+  const auto status = response.value().status_code;
+  if ((status >= 200 && status < 300) || status == 404)
+    return Result::success();
+  return fail(("Spoolman returned HTTP " + std::to_string(status) +
+               " while removing the tag from spool #" +
+               std::to_string(hold.spool))
+                  .c_str());
+}
+Result TagWriterService::link_native() {
+  // A second "associating" publish gives these requests a fresh budget.
+  publish("associating", "Linking the tag in Spoolman", plan_->completed,
+          plan_->count);
+  auto holds = native_holders();
+  if (!holds.ok())
+    return Result::failure(holds.error());
+  bool linked = false;
+  for (const auto &hold : holds.value()) {
+    if (hold.spool == spool_id_) {
+      linked = true;
+      continue;
+    }
+    if (hold.spool != plan_->previous_spool_id)
+      return fail(("Spoolman now links this tag to spool #" +
+                   std::to_string(hold.spool) +
+                   ", which was not part of this change. Check it in "
+                   "Spoolman, then try again.")
+                      .c_str());
+    auto removed = native_unlink(hold);
+    if (!removed.ok())
+      return removed;
+  }
+  if (!linked) {
+    network::BackendDocument body;
+    body["uid"] = plan_->uid.hex();
+    body["format"] = "openprinttag";
+    std::string bytes;
+    serializeJson(body, bytes);
+    auto response = spoolman_.request_any_status(
+        "POST", "/spool/" + std::to_string(spool_id_) + "/tag", bytes, 4096U);
+    if (!response.ok())
+      return Result::failure(response.error());
+    const auto status = response.value().status_code;
+    if (status == 409) {
+      auto conflict = network::parse_backend_json(response.value().body,
+                                                  "Spoolman tag conflict");
+      const auto spool = conflict.ok() ? conflict.value()["spool_id"].as<int>() : 0;
+      const auto filament =
+          conflict.ok() ? conflict.value()["filament_id"].as<int>() : 0;
+      if (filament > 0)
+        return fail(("Spoolman links this tag to filament #" +
+                     std::to_string(filament) +
+                     ". Remove it from that filament in Spoolman, then try "
+                     "again.")
+                        .c_str());
+      return fail(("Spoolman already links this tag to spool #" +
+                   std::to_string(spool) +
+                   ". Remove it from that spool in Spoolman, then try again.")
+                      .c_str());
+    }
+    if (status == 404)
+      return fail(("Spool #" + std::to_string(spool_id_) +
+                   " no longer exists in Spoolman")
+                      .c_str());
+    if (status < 200 || status >= 300)
+      return fail(("Spoolman returned HTTP " + std::to_string(status) +
+                   " while linking the tag")
+                      .c_str());
+  }
+  auto verified = native_holders();
+  if (!verified.ok())
+    return Result::failure(verified.error());
+  if (verified.value().empty())
+    return fail("Spoolman did not keep the tag link; try again");
+  for (const auto &hold : verified.value())
+    if (hold.spool != spool_id_)
+      return fail("Spoolman tag link readback names another spool");
+  return Result::success();
+}
+Result TagWriterService::unlink_native() {
+  // A second "unlinking" publish gives these requests a fresh budget.
+  publish("unlinking", "Removing the tag from Spoolman's tag list");
+  auto holds = native_holders();
+  if (!holds.ok())
+    return Result::failure(holds.error());
+  for (const auto &hold : holds.value()) {
+    if (spool_id_ && hold.spool != spool_id_)
+      return fail("Spoolman now links this tag to another spool; unlink "
+                  "refused");
+    auto removed = native_unlink(hold);
+    if (!removed.ok())
+      return removed;
+  }
+  auto remaining = native_holders();
+  if (!remaining.ok())
+    return Result::failure(remaining.error());
+  if (!remaining.value().empty())
+    return fail("Spoolman still links this tag after removing it; try again");
+  return Result::success();
 }
 __attribute__((noinline)) Result TagWriterService::prepare_clear() {
   if (!journal_)
@@ -1049,15 +1235,27 @@ __attribute__((noinline)) Result TagWriterService::unlink() {
   // ownership lookup could then name an unrelated spool.
   if (auto defined = require_identity_fields(); !defined.ok())
     return defined;
-  auto owner = uid_owner();
+  auto owner = extras_ ? uid_owner() : core::Result<std::int32_t>::success(0);
   if (!owner.ok())
     return Result::failure(owner.error());
-  if (plan_->cleanup_owner_bound && owner.value() != 0 &&
-      owner.value() != spool_id_)
+  std::int32_t native_owner = 0;
+  if (native_) {
+    auto holds = native_holders();
+    if (!holds.ok())
+      return Result::failure(holds.error());
+    if (!holds.value().empty())
+      native_owner = holds.value().front().spool;
+    if (owner.value() && native_owner && owner.value() != native_owner)
+      return fail("This tag is linked to one spool by its extra field and to "
+                  "another in Spoolman's tag list; unlink refused");
+  }
+  if (plan_->cleanup_owner_bound &&
+      ((owner.value() != 0 && owner.value() != spool_id_) ||
+       (native_owner != 0 && native_owner != spool_id_)))
     return fail("NFC UID owner changed; unlink refused");
   if (!plan_->cleanup_owner_bound) {
-    spool_id_ = owner.value();
-    if (!spool_id_ && !uuid_.empty()) {
+    spool_id_ = owner.value() ? owner.value() : native_owner;
+    if (!spool_id_ && extras_ && !uuid_.empty()) {
       auto matches =
           api("GET", "/spool?allow_archived=true&limit=2&offset=0&extra." +
                          encode(identity_key_) + "=" + encode(quote(uuid_)));
@@ -1072,7 +1270,7 @@ __attribute__((noinline)) Result TagWriterService::unlink() {
       }
     }
   }
-  if (spool_id_) {
+  if (spool_id_ && extras_) {
     const auto path = "/spool/" + std::to_string(spool_id_);
     auto before = api("GET", path);
     if (!before.ok())
@@ -1129,20 +1327,15 @@ __attribute__((noinline)) Result TagWriterService::unlink() {
     if (!saved.ok())
       return saved;
   }
-  auto final_owner = uid_owner();
-  if (!final_owner.ok())
-    return Result::failure(final_owner.error());
-  if (final_owner.value())
-    return fail("NFC UID acquired an owner during unlink; review required");
-  if (!uuid_.empty()) {
-    auto remaining =
-        api("GET", "/spool?allow_archived=true&limit=2&offset=0&extra." +
-                       encode(identity_key_) + "=" + encode(quote(uuid_)));
-    if (!remaining.ok())
-      return Result::failure(remaining.error());
-    if (!remaining.value().is<JsonArray>() || remaining.value().size())
-      return fail(
-          "Instance UUID acquired an owner during unlink; review required");
+  if (native_) {
+    auto unlinked = unlink_native();
+    if (!unlinked.ok())
+      return unlinked;
+  }
+  if (extras_) {
+    auto final_check = unlink_final_check();
+    if (!final_check.ok())
+      return final_check;
   }
   view_["cleanup_stage"] = "local_identity";
   if (!clear_mapping_)
@@ -1160,6 +1353,24 @@ __attribute__((noinline)) Result TagWriterService::unlink() {
   view_["spool_id"] = spool_id_;
   publish("cleared", "Tag cleared and verified. Ready to reuse.",
           plan_->completed, plan_->count);
+  return Result::success();
+}
+Result TagWriterService::unlink_final_check() {
+  auto final_owner = uid_owner();
+  if (!final_owner.ok())
+    return Result::failure(final_owner.error());
+  if (final_owner.value())
+    return fail("NFC UID acquired an owner during unlink; review required");
+  if (!uuid_.empty()) {
+    auto remaining =
+        api("GET", "/spool?allow_archived=true&limit=2&offset=0&extra." +
+                       encode(identity_key_) + "=" + encode(quote(uuid_)));
+    if (!remaining.ok())
+      return Result::failure(remaining.error());
+    if (!remaining.value().is<JsonArray>() || remaining.value().size())
+      return fail(
+          "Instance UUID acquired an owner during unlink; review required");
+  }
   return Result::success();
 }
 Result TagWriterService::prepare(JsonObjectConst c) {
@@ -1231,12 +1442,25 @@ Result TagWriterService::prepare(JsonObjectConst c) {
     return Result::failure(spool.error());
   if (spool.value()["id"].as<int>() != spool_id_)
     return fail("Canonical spool ID mismatch");
-  uuid_ = scalar(spool.value()["extra"][identity_key_]);
-  if (uuid_.empty() && plan_->current.material.instance_uuid &&
-      normalized_uid(scalar(spool.value()["extra"][uid_key_])) ==
-          plan_->uid.hex())
-    uuid_ = nfc::openprinttag::instance_uuid_text(
-        *plan_->current.material.instance_uuid);
+  uuid_.clear();
+  if (extras_) {
+    uuid_ = scalar(spool.value()["extra"][identity_key_]);
+    if (uuid_.empty() && plan_->current.material.instance_uuid &&
+        normalized_uid(scalar(spool.value()["extra"][uid_key_])) ==
+            plan_->uid.hex())
+      uuid_ = nfc::openprinttag::instance_uuid_text(
+          *plan_->current.material.instance_uuid);
+  } else if (plan_->current.material.instance_uuid) {
+    // Without the extra fields the instance UUID lives only on the tag: keep
+    // it when Spoolman already links this tag to the chosen spool.
+    auto holds = native_holders();
+    if (!holds.ok())
+      return Result::failure(holds.error());
+    for (const auto &hold : holds.value())
+      if (hold.spool == spool_id_)
+        uuid_ = nfc::openprinttag::instance_uuid_text(
+            *plan_->current.material.instance_uuid);
+  }
   if (uuid_.empty()) {
     std::array<std::uint8_t, 16> bytes{};
     random_(bytes.data(), bytes.size());
@@ -1247,7 +1471,7 @@ Result TagWriterService::prepare(JsonObjectConst c) {
   auto uuid = nfc::openprinttag::parse_instance_uuid(uuid_);
   if (!uuid.ok())
     return Result::failure(uuid.error());
-  auto unique = unique_identity();
+  auto unique = extras_ ? unique_identity() : Result::success();
   if (!unique.ok())
     return unique;
   unique = prepare_uid_owner();
@@ -1326,6 +1550,34 @@ Result TagWriterService::associate() {
   // a fresh network budget.
   if (auto defined = require_identity_fields(); !defined.ok())
     return defined;
+  if (extras_) {
+    auto by_fields = associate_extra_fields();
+    if (!by_fields.ok())
+      return by_fields;
+  }
+  if (native_) {
+    auto linked = link_native();
+    if (!linked.ok())
+      return linked;
+  }
+  if (!sync_mapping_)
+    return fail("Verified local association storage is unavailable");
+  domain::ConfirmedSpoolMapping mapping;
+  mapping.spool_id = spool_id_;
+  mapping.nfc_uid = plan_->uid.hex();
+  mapping.instance_uuid = uuid_;
+  auto local = sync_mapping_(mapping);
+  if (!local.ok()) return local;
+  if (journal_ && !journal_->clear())
+    return fail(
+        "Association verified; recovery journal cleanup is still pending");
+  association_pending_ = false;
+  publish("complete",
+          "Tag and Spoolman association verified; ready to weigh and assign",
+          plan_->completed, plan_->count);
+  return Result::success();
+}
+Result TagWriterService::associate_extra_fields() {
   auto unique = unique_identity();
   if (!unique.ok())
     return unique;
@@ -1366,21 +1618,6 @@ Result TagWriterService::associate() {
     return Result::failure(owner.error());
   if (owner.value() != spool_id_)
     return fail("Final NFC UID ownership is not uniquely the target spool");
-  if (!sync_mapping_)
-    return fail("Verified local association storage is unavailable");
-  domain::ConfirmedSpoolMapping mapping;
-  mapping.spool_id = spool_id_;
-  mapping.nfc_uid = plan_->uid.hex();
-  mapping.instance_uuid = uuid_;
-  auto local = sync_mapping_(mapping);
-  if (!local.ok()) return local;
-  if (journal_ && !journal_->clear())
-    return fail(
-        "Association verified; recovery journal cleanup is still pending");
-  association_pending_ = false;
-  publish("complete",
-          "Tag and Spoolman association verified; ready to weigh and assign",
-          plan_->completed, plan_->count);
   return Result::success();
 }
 __attribute__((noinline)) Result
