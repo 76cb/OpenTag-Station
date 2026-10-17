@@ -7,7 +7,7 @@ and, if you use FilaBridge, a toolhead assignment. Each step links to the page w
 
 - The station is [on your Wi-Fi](first-boot.md), [connected to Spoolman](initial-setup.md) and the
   [scale is calibrated](../scale/calibration.md).
-- Spoolman has the two [required extra fields](../inventory/custom-fields.md).
+- Spoolman is 0.27 or later, or it has the two [extra fields](../inventory/custom-fields.md).
 - The spool exists in Spoolman — or at least its filament does; the station can create the spool.
 - You have a blank NXP ICODE SLIX2 tag. Use one tag at a time.
 
@@ -35,6 +35,7 @@ No spool in Spoolman yet? Tap **MY FILAMENTS** instead, choose the filament, tap
 4. Wait for "✓ OpenPrintTag written and verified", then click **Done**.
 
 The station has now written the tag, checked it, and stored the link on the spool in Spoolman.
+On Spoolman 0.27 or later the tag also appears on the spool in Spoolman's tag list.
 Details: [Write or update a tag](../daily-use/manage-tags.md).
 
 ## 2. Weigh the spool and save the weight
@@ -91,7 +92,7 @@ Take the spool off and put it back. The station recognises it by itself:
 |---|---|---|
 | The screen stays on "Place a spool" | The tag is not seen. | Check that it is an ICODE SLIX2 tag and sits over the reader. See [Tag is not detected](../troubleshooting/tag.md). |
 | "This tag can't be used as it is" | The tag is not blank and does not hold filament data the station understands. | Use a blank tag. See [Which tags work](../openprinttag/supported-tags.md). |
-| "Needs attention" with a message about a missing Spool extra field | The extra fields are missing in Spoolman. | [Add the extra fields](../inventory/custom-fields.md). |
+| "Needs attention" with a message about a missing Spool extra field | Your Spoolman is older than 0.27 and the extra fields are missing. | [Add the extra fields](../inventory/custom-fields.md). |
 | The Home button reads **CALIBRATE** | The scale is not calibrated. | [Tare and calibrate](../scale/calibration.md). |
 | "The empty spool weight is unknown. Set it on the spool in Spoolman, then weigh again." | Neither Spoolman (spool, filament, vendor) nor the tag holds an empty-spool weight. | Enter it in Spoolman. See [Weigh a spool and save the weight](../daily-use/weigh.md). |
 | The toolhead buttons are greyed out | No linked spool on the station, FilaBridge offline, or no printer chosen. | See [Printer assignment fails](../troubleshooting/assignment.md). |

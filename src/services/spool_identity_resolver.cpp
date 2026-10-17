@@ -251,6 +251,7 @@ core::Result<SpoolResolution> SpoolIdentityResolver::cached_match(
 
 core::Result<SpoolResolution> SpoolIdentityResolver::resolve(
     const domain::SpoolIdentity& identity) {
+  inventory_.refresh_capabilities();
   // The tag's own UID is the physical key, so Spoolman's tag list comes
   // first where it exists.
   if (identity.nfc_uid.has_value() &&

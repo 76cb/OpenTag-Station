@@ -2206,10 +2206,11 @@ struct NativeFixture {
   network::BackendDocument view;
   int synced = 0, cleared = 0;
   std::unique_ptr<services::TagWriterService> service;
-  explicit NativeFixture(const char *version = "0.27.0", bool fields = true) {
+  explicit NativeFixture(const char *version = "0.27.0", bool fields = true,
+                         bool probed = true) {
     http.version = version;
     http.fields = fields;
-    TEST_ASSERT_TRUE(adapter.probe().ok());
+    if (probed) TEST_ASSERT_TRUE(adapter.probe().ok());
     http.events.clear();
     service = std::make_unique<services::TagWriterService>(
         adapter, reader, [this] { return reader.generation; },
@@ -2397,6 +2398,13 @@ void native_clear_offline_is_retried_without_touching_the_tag() {
   TEST_ASSERT_EQUAL(writes, f.reader.writes);
   TEST_ASSERT_EQUAL_STRING("cleared", f.view["phase"].as<const char *>());
   TEST_ASSERT_TRUE(f.http.tags.empty());
+}
+void native_link_is_not_missed_before_the_first_full_probe() {
+  NativeFixture f("0.27.0", true, false);  // version not known yet
+  auto r = f.write();
+  TEST_ASSERT_TRUE_MESSAGE(r.ok(), r.ok() ? "" : r.error().message.c_str());
+  TEST_ASSERT_TRUE(f.http.any("GET /info"));
+  TEST_ASSERT_EQUAL(12, f.http.tags[tag_uid()]);
 }
 } // namespace
 void setUp() {}
@@ -2843,6 +2851,7 @@ int main() {
   RUN_TEST(native_clear_removes_the_link);
   RUN_TEST(native_clear_with_fields_removes_both_links);
   RUN_TEST(native_clear_offline_is_retried_without_touching_the_tag);
+  RUN_TEST(native_link_is_not_missed_before_the_first_full_probe);
   RUN_TEST(preserved_plan_refused);
   RUN_TEST(malformed_target_refused);
   RUN_TEST(no_change_rewrite);

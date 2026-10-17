@@ -751,6 +751,21 @@ void test_scan_report_is_best_effort_and_leaves_status_alone() {
   assert_transport_consumed(old_transport);  // nothing sent to 0.26
 }
 
+void test_unknown_version_is_learned_on_demand_once() {
+  ScriptedTransport transport;
+  SpoolmanAdapter adapter(transport, settings());
+  transport.expect("GET", "/health", R"json({"status":"healthy"})json");
+  TEST_ASSERT_TRUE(adapter.probe(false).ok());  // health only: no version
+  TEST_ASSERT_FALSE(adapter.capabilities().has(BackendCapability::native_tags));
+  transport.expect("GET", "/info", R"json({"version":"0.27.0"})json");
+  adapter.refresh_capabilities();
+  TEST_ASSERT_TRUE(adapter.capabilities().has(BackendCapability::native_tags));
+  TEST_ASSERT_TRUE(adapter.capabilities().has(BackendCapability::update_remaining_weight));
+  TEST_ASSERT_EQUAL_STRING("0.27.0", adapter.status().version.c_str());
+  adapter.refresh_capabilities();  // known now: no request
+  assert_transport_consumed(transport);
+}
+
 int main(int, char**) {
   UNITY_BEGIN();
   RUN_TEST(test_weight_update_checks_presence_after_canonical_get);
@@ -782,5 +797,6 @@ int main(int, char**) {
   RUN_TEST(test_tag_lookup_is_refused_on_servers_that_would_ignore_it);
   RUN_TEST(test_tag_lookup_appends_the_tag_filter_after_other_filters);
   RUN_TEST(test_scan_report_is_best_effort_and_leaves_status_alone);
+  RUN_TEST(test_unknown_version_is_learned_on_demand_once);
   return UNITY_END();
 }

@@ -75,6 +75,10 @@ class ISpoolInventory {
   virtual core::Result<std::vector<std::string>> list_locations() = 0;
   virtual core::Result<std::vector<ExtraFieldDefinition>> list_extra_fields() = 0;
   [[nodiscard]] virtual BackendCapabilities capabilities() const = 0;
+  // Learns the server version when it is not known yet (for example right
+  // after start-up, before the first full probe), so that capabilities()
+  // reflects it. At most one request; failures are left to later calls.
+  virtual void refresh_capabilities() {}
 };
 
 }  // namespace opentag::integrations

@@ -515,34 +515,51 @@ core::Result<SpoolmanStatus> SpoolmanAdapter::probe(bool full) {
   if (info.ok()) {
     auto info_json = parse_json(info.value().body, "Spoolman info");
     if (info_json.ok() && optional_text(info_json.value()["version"], 64U)) {
-      status_.version = info_json.value()["version"].as<const char*>();
-      status_.version_formally_tested = weight_contract_tested(status_.version);
-      status_.capabilities.add(BackendCapability::runtime_version);
-      if (optional_text(info_json.value()["git_commit"], 64U)) {
-        status_.git_commit = info_json.value()["git_commit"].as<const char*>();
-      }
+      apply_version(info_json.value()["version"].as<const char*>(),
+                    optional_text(info_json.value()["git_commit"], 64U)
+                        ? info_json.value()["git_commit"].as<const char*>()
+                        : "");
     }
   } else if (!status_.connected && !proven_version.empty()) {
     // /info did not answer at all right after /health did: one lost request
     // says nothing about the server's version, so keep what was proven.
-    status_.version = std::move(proven_version);
-    status_.git_commit = std::move(proven_git_commit);
-    status_.version_formally_tested = weight_contract_tested(status_.version);
-    status_.capabilities.add(BackendCapability::runtime_version);
+    apply_version(std::move(proven_version), std::move(proven_git_commit));
   }
-  if (native_tags_supported(status_.version))
-    status_.capabilities.add(BackendCapability::native_tags);
   // Reset before the read checks so an error they record stays visible.
   status_.last_error.reset();
   const auto reads = probe_read_capabilities();
   (void)reads;
+  return core::Result<SpoolmanStatus>::success(status_);
+}
+
+void SpoolmanAdapter::apply_version(std::string version, std::string git_commit) {
+  status_.version = std::move(version);
+  status_.git_commit = std::move(git_commit);
+  status_.version_formally_tested = weight_contract_tested(status_.version);
+  status_.capabilities.add(BackendCapability::runtime_version);
+  if (native_tags_supported(status_.version))
+    status_.capabilities.add(BackendCapability::native_tags);
   if (status_.version_formally_tested) {
     status_.capabilities.add(BackendCapability::get_spool);
     status_.capabilities.add(BackendCapability::update_remaining_weight);
     status_.capabilities.add(BackendCapability::create_spool);
     status_.capabilities.add(BackendCapability::update_extra_fields);
   }
-  return core::Result<SpoolmanStatus>::success(status_);
+}
+
+void SpoolmanAdapter::refresh_capabilities() {
+  if (settings_.url.empty() ||
+      status_.capabilities.has(BackendCapability::runtime_version))
+    return;
+  auto info = request("GET", "/info", {}, 4096U);
+  if (!info.ok()) return;
+  auto info_json = parse_json(info.value().body, "Spoolman info");
+  if (!info_json.ok() || !optional_text(info_json.value()["version"], 64U))
+    return;
+  apply_version(info_json.value()["version"].as<const char*>(),
+                optional_text(info_json.value()["git_commit"], 64U)
+                    ? info_json.value()["git_commit"].as<const char*>()
+                    : "");
 }
 
 core::Result<void> SpoolmanAdapter::probe_read_capabilities() {

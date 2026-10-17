@@ -59,6 +59,7 @@ class SpoolmanAdapter final : public ISpoolInventory {
   [[nodiscard]] BackendCapabilities capabilities() const override {
     return status_.capabilities;
   }
+  void refresh_capabilities() override;
 
   // Empty when every key exists as a Spool text extra field; otherwise a
   // user-facing explanation of which fields to create in Spoolman.
@@ -101,6 +102,8 @@ class SpoolmanAdapter final : public ISpoolInventory {
   [[nodiscard]] core::Result<domain::Spool> parse_spool(
       network::ResponseBody& body) const;
   [[nodiscard]] core::Result<void> probe_read_capabilities();
+  // Records the version and the capabilities that follow from it.
+  void apply_version(std::string version, std::string git_commit);
   // Spoolman silently ignores extra.<key> filters for undefined fields, which
   // would return arbitrary spools. Refuse such queries until every filtered
   // key is known to exist as a Spool text field.

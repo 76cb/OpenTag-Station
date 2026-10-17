@@ -937,6 +937,9 @@ __attribute__((noinline)) Result TagWriterService::persist_clear() {
   return Result::success();
 }
 Result TagWriterService::require_identity_fields() {
+  // Right after start-up the version may not be known yet; without it a tag
+  // would be linked only through the extra fields.
+  spoolman_.refresh_capabilities();
   native_ = spoolman_.status_.capabilities.has(
       integrations::BackendCapability::native_tags);
   auto definitions = spoolman_.list_extra_fields();

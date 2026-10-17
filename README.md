@@ -59,7 +59,7 @@ settings, inventory browsing and firmware updates.
 | NFC reader | ELECHOUSE NFC_ST25R3916B module, switched to I2C mode |
 | Tags | Blank NXP ICODE SLIX2 (NFC-V / ISO 15693). NTAG and MIFARE tags are not detected. |
 | Power | Regulated 5 V over USB |
-| On your network | A running Spoolman server and 2.4 GHz Wi-Fi |
+| On your network | A running Spoolman server (0.26 or 0.27 to save weights) and 2.4 GHz Wi-Fi |
 | Optional | FilaBridge and a Prusa XL, for toolhead assignment |
 
 There is no reference enclosure; you design the scale platform yourself. Details are in the
@@ -78,10 +78,11 @@ There is no reference enclosure; you design the scale platform yourself. Details
    password. Enter your Wi-Fi on the touchscreen, or join that network and open
    `http://192.168.4.1/` ([guide](https://76cb.github.io/OpenTag-Station-Docs/getting-started/first-boot/)).
    Afterwards the station is at `http://opentag-station.local/`.
-4. **Prepare Spoolman.** Add two extra fields of type **Text** to the **Spool** entity, with the
-   keys `opentag_instance_uuid` and `nfc_uid`
-   ([why and how](https://76cb.github.io/OpenTag-Station-Docs/inventory/custom-fields/)). Without them
-   the station cannot link a tag to a spool.
+4. **Prepare Spoolman.** On Spoolman 0.27 or later there is nothing to do: the station links tags
+   in Spoolman's own tag list. On older Spoolman, add two extra fields of type **Text** to the
+   **Spool** entity, with the keys `opentag_instance_uuid` and `nfc_uid`
+   ([why and how](https://76cb.github.io/OpenTag-Station-Docs/inventory/custom-fields/)); without
+   them the station cannot link a tag to a spool.
 5. **Connect and calibrate.** Enter the Spoolman address (and FilaBridge, if you use it), then
    [tare and calibrate the scale](https://76cb.github.io/OpenTag-Station-Docs/scale/calibration/)
    ([guide](https://76cb.github.io/OpenTag-Station-Docs/getting-started/initial-setup/)).
@@ -116,9 +117,11 @@ working on the firmware are in [`docs/`](docs/README.md).
 - The station talks plain HTTP and is meant for a home network you trust. Do not expose it to the
   internet. Set an access token so that only you can change it from a browser.
 - Firmware files are not signed by the publisher.
-- Saving weights and assigning toolheads are enabled only for the Spoolman and FilaBridge versions
-  the firmware was tested with; see
+- Saving weights is enabled for Spoolman 0.26 and 0.27, and assigning toolheads only for the
+  FilaBridge versions the firmware was tested with; see
   [Supported versions](https://76cb.github.io/OpenTag-Station-Docs/reference/upstream/).
+- On Spoolman 0.27 or later the station also uses Spoolman's tag list: written tags appear on
+  their spool in Spoolman, and each scan is reported so a paired Spoolman page can jump to the spool.
 
 ## Project status
 
