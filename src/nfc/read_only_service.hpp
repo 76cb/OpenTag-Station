@@ -74,9 +74,11 @@ class ReadOnlyService {
   void poll();
   ReadSnapshot snapshot() const;
   // Sole backend owner, only after an explicit writer finishes or fails.
-  void invalidate_after_write() { clear_active(); processed_.reset(); candidate_.reset(); consecutive_ = 0; publish(); }
+  void invalidate_after_write() { clear_active(); processed_.reset(); candidate_.reset(); consecutive_ = 0; missed_polls_ = 0; read_failures_ = 0; publish(); }
   static constexpr std::size_t maximum_memory_bytes = 4096U;
   static constexpr unsigned stable_polls = 3U;
+  // Consecutive failed reads of one present tag before the error state.
+  static constexpr unsigned read_attempts = 3U;
 
  private:
   core::Result<void> confirm_uid(const nfcv::Uid& uid);
@@ -94,6 +96,8 @@ class ReadOnlyService {
   std::optional<nfcv::Uid> candidate_;
   std::optional<nfcv::Uid> processed_;
   unsigned consecutive_{0};
+  unsigned missed_polls_{0};
+  unsigned read_failures_{0};
   std::uint32_t last_poll_{0};
   bool polled_{false};
 };
