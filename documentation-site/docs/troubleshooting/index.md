@@ -23,3 +23,26 @@ Look for what you see in the left column and open the page on the right.
 | You forgot the access token | [Access token and network safety](../configuration/security.md) |
 | The station does not start, or you want to start over | [Factory reset and USB recovery](recovery.md) |
 | The scale or reader does not work right after building | [Wiring](../hardware/wiring.md) |
+
+## Station check report
+
+When you report a problem, a station check report helps. It only reads from the station: it never
+writes a tag, changes a setting or saves a weight.
+
+1. Install [Python 3](https://www.python.org/downloads/) on a computer on the same network as the
+   station, if it is not there already.
+2. Download [`station_check.py`](https://github.com/76cb/OpenTag-Station/blob/main/tools/station_check.py)
+   (on that page: **Download raw file**).
+3. Close the station's web page in your browser, then run in a terminal, in the download folder:
+
+    ```sh
+    python station_check.py
+    ```
+
+    If the station is not found at `opentag-station.local`, add `--host` and the IP address from
+    the touchscreen **Settings** page, for example `--host 192.168.1.50`. If you set an access
+    token, add `--token` and the token.
+
+The check prints the station's status, whether changes need the access token, whether browsing the
+spool list many times in a row works, and whether live updates connect. It saves the same text as
+`station-check.txt` next to the script.

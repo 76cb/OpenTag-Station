@@ -20,10 +20,10 @@
     "test/test_touch_flow/fixtures.hpp": "3f7be297a846be7b7168792bdfdb04c17d271bd348d9494efb0500515e9808f3"
   },
   "images": {
-    "docs/assets/images/browser/dashboard.png": "d47a1ef189704e0f0cac4e28c673d895f19532f740bace0b9fa2828155f70950",
-    "docs/assets/images/browser/weigh.png": "44b5992aba855bb0cd45410e8fc9794247970e019dddcaa21fdfb7ad45d53fd4",
-    "docs/assets/images/browser/assignment.png": "41383c2d06ff944de97d2549f51853954d7759e3dad8dd2fca833c6f09ec7341",
-    "docs/assets/images/browser/tag-management.png": "0bd9f613169b164f6d2a405e336b66704c229a171deddc78adea810f717f162d",
+    "docs/assets/images/browser/dashboard.png": "6211caa5a55fdd9f565e149d0ee4f209519f066a86095a5809a4eeea002a3f6a",
+    "docs/assets/images/browser/weigh.png": "23606817ac8798d9e3410c5a1803814f1e45d9c6f3ee606dce0db33270cbb98d",
+    "docs/assets/images/browser/assignment.png": "a9103b0952f6cda2d7b885fd7277c31515c5e969500a569f6d29bd7bf8c39379",
+    "docs/assets/images/browser/tag-management.png": "2b724a34f5b81758c5354dadcc625abad91b48399b6aa6b9025c5ace72caff10",
     "docs/assets/images/touchscreen/wt32-home.png": "c768e1b3be568f2563bdf0a368f2cf5b4aab2e2e6efb8a98c8a996ff4dcdc7e3"
   }
 }

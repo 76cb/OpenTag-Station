@@ -4,11 +4,12 @@ What changed in each version of OpenTag Station, newest first.
 
 ## 1.0.0
 
-Not released yet. This is what the first release contains.
+The first release. Everything below is in it.
 
 **Identify and weigh**
 - Place a spool with an OpenPrintTag on the station and it reads the tag and finds the spool in
-  Spoolman. Spoolman stays the record of what you own.
+  Spoolman. Spoolman stays the record of what you own. If Spoolman was unreachable, the station
+  looks the spool up again by itself when Spoolman is back.
 - **Weigh** measures the spool. **Update Spoolman** saves the remaining weight. Nothing is saved
   until you ask; saving automatically after each Weigh is a setting and is off by default.
 - Scale support for the NAU7802 amplifier with a YZC-133 load cell (5 kg by default, 2 kg
@@ -22,6 +23,10 @@ Not released yet. This is what the first release contains.
   write or clear is interrupted, it offers to finish it the next time that tag is on the reader,
   or to skip it if the tag is lost.
 - **Clear / Reuse** erases a tag and removes its link in Spoolman. The spool stays in Spoolman.
+- Writing is one confirmation: pick the spool, check what will be written, **Write tag**. The
+  station asks again only when the tag belongs to another spool or holds other data. The preview
+  lists anything that does not fit on the tag (a long name or material, several colours).
+- Reading and writing show their progress, and the spool's colour is shown on the result.
 - With Spoolman 0.27 or later the station also uses Spoolman's own tag list: writing a tag links
   it to the spool there, clearing removes it, and a tag Spoolman links to a spool is recognised
   even if it holds no OpenPrintTag data. The two Spoolman extra fields are then optional. Each
@@ -37,8 +42,9 @@ Not released yet. This is what the first release contains.
 - A touchscreen with Home, Weigh, Assign, Tag and Settings views, and a web page with Dashboard,
   Inventory, Printer and Settings. Firmware updates, settings export and factory reset are in
   the browser only.
-- First-time Wi-Fi setup through a password-protected setup network; the password is shown on
-  the touchscreen.
+- First-time Wi-Fi setup on the touchscreen, or through an open setup network
+  `OpenTag-Setup-XXXX` and a browser. A setup network you start yourself closes after 10
+  minutes; on a station with an access token, the token is still needed over it.
 - An optional access token for the web page, and settings export and import that never include
   passwords or tokens.
 - Firmware updates from the browser keep your settings. After an update the station checks

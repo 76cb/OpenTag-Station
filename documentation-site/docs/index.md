@@ -25,11 +25,12 @@ toolhead.
 
 ## Project status
 
-This manual describes the release candidate shown in the footer. Each candidate is published
-from one build in two places: the [Releases page](https://github.com/76cb/OpenTag-Station/releases),
-as a pre-release with the update file, and the [USB installer](https://76cb.github.io/OpenTag-Station/).
-To move a station to a newer candidate and keep its settings and calibration,
-[update it from its web page](installation/ota.md) with the release's application file.
+This manual describes the firmware version shown in the footer; 1.0.0 is the first release. Each
+version is published from one build in two places: the
+[Releases page](https://github.com/76cb/OpenTag-Station/releases), with the update file, and the
+[USB installer](https://76cb.github.io/OpenTag-Station/). To move a station to a newer version and
+keep its settings and calibration, [update it from its web page](installation/ota.md) with the
+release's application file.
 
 ## Links
 
