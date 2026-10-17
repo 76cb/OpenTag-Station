@@ -65,6 +65,18 @@ browser), `opentag-station-factory.bin` (USB installer image), `manifest.json`,
 
 The release candidates below were development builds made for testing before 1.0.0.
 
+## 1.0.0-rc.22
+
+**Touchscreen button colours**
+- The main action on each touchscreen screen is now drawn in the product's mint colour:
+  **WRITE TAG**, **ASSIGN TAG**, **CONTINUE**, **WEIGH** on TAG READY, **CHOOSE EXISTING SPOOL**,
+  **FINISH WRITING** and the like. Erasing stays red. **BACK**, **DONE** and other secondary
+  choices stay grey. Before, every tag button except the red ones was grey.
+- The setup guide, **About this station** and the toolhead confirmation no longer use LVGL's
+  default blue. In setup, **Next**/**Finish**, **Save** and (until the scale is calibrated)
+  **CALIBRATE NOW** are mint; **Back**, **Home** and **Scan** are grey. In the toolhead question,
+  **Assign** is mint, and **Replace** or **Assign anyway** (during an active print) is red.
+
 ## 1.0.0-rc.21
 
 **Writing and erasing tags: fewer steps, one reminder**

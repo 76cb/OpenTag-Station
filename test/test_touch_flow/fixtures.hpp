@@ -12,7 +12,7 @@ inline void export_touch_fixtures() {
     auto buttons=scene["buttons"].to<JsonArray>();
     if(screen.indicator!=TagIndicator::none){const auto box=screen.indicator==TagIndicator::bar?layout::tag_bar:layout::tag_spinner;auto ind=scene["indicator"].to<JsonObject>();ind["kind"]=screen.indicator==TagIndicator::bar?"bar":"spinner";ind["done"]=screen.done;ind["total"]=screen.total;auto a=ind["box"].to<JsonArray>();for(auto n:{box.x,box.y,box.w,box.h})a.add(n);}
     if(screen.art){auto art=scene["art"].to<JsonObject>();char hex[8];std::snprintf(hex,sizeof(hex),"#%06X",static_cast<unsigned>(screen.art_rgb));art["color"]=hex;auto a=art["box"].to<JsonArray>();for(auto n:{layout::tag_art.x,layout::tag_art.y,layout::tag_art.w,layout::tag_art.h})a.add(n);}
-    for(std::size_t i=0;i<screen.count;++i){const auto& b=screen.buttons[i];auto item=buttons.add<JsonObject>();item["text"]=b.text;item["enabled"]=b.enabled;if(b.destructive)item["destructive"]=true;auto box=item["box"].to<JsonArray>();for(auto n:{b.box.x,b.box.y,b.box.w,b.box.h})box.add(n);}
+    for(std::size_t i=0;i<screen.count;++i){const auto& b=screen.buttons[i];auto item=buttons.add<JsonObject>();item["text"]=b.text;item["enabled"]=b.enabled;if(b.destructive)item["destructive"]=true;if(b.primary)item["primary"]=true;auto box=item["box"].to<JsonArray>();for(auto n:{b.box.x,b.box.y,b.box.w,b.box.h})box.add(n);}
   };
   TagFlow f;f.uid="E004000000000001";f.material="SUNLU PLA+ 2.0 Black";
   emit("no-tag",f);f.lifecycle=services::TagLifecycle::reading;emit("reading",f);
@@ -55,7 +55,7 @@ inline void export_touch_fixtures() {
     scene["title"]=mode==InputMode::numeric?"Empty spool (g)":mode==InputMode::url?"Spoolman URL":mode==InputMode::password?"Wi-Fi password":"Search Community";
     scene["input"]=mode==InputMode::numeric?"130":mode==InputMode::url?"http://spoolman.example:7912":mode==InputMode::password?"********":"SUNLU PLA+ 2.0";scene["numeric"]=mode==InputMode::numeric;
     auto buttons=scene["buttons"].to<JsonArray>();
-    for(std::size_t i=0;i<keys.count;++i){auto item=buttons.add<JsonObject>();const auto& k=keys.keys[i];item["text"]=std::string(k.text)=="ACTION"?(mode==InputMode::text?"SEARCH":"DONE"):k.text;auto box=item["box"].to<JsonArray>();for(auto n:{k.box.x,k.box.y,k.box.w,k.box.h})box.add(n);}
+    for(std::size_t i=0;i<keys.count;++i){auto item=buttons.add<JsonObject>();const auto& k=keys.keys[i];item["text"]=std::string(k.text)=="ACTION"?(mode==InputMode::text?"SEARCH":"DONE"):k.text;if(std::string(k.text)=="ACTION")item["key_action"]=true;auto box=item["box"].to<JsonArray>();for(auto n:{k.box.x,k.box.y,k.box.w,k.box.h})box.add(n);}
   }
   output["keyboard-long"].set(output["keyboard-url"]);output["keyboard-long"]["input"]="…very-long-spoolman-hostname.example:7912";
   std::ofstream file(".pio/touch-flow-fixtures.json");serializeJsonPretty(output,file);

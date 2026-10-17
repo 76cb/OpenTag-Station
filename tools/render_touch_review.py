@@ -64,7 +64,7 @@ def render(scene,out):
 def model_scene(name,scene,out):
     im=Image.new('RGB',(480,320),BG);d=ImageDraw.Draw(im)
     keyboard='input' in scene
-    def text(box,value,size=16):
+    def text(box,value,size=16,colour=TEXT):
         assert_public_text(value)
         x,y,w,h=box;f=font(size);lines=[]
         for paragraph in value.split('\n'):
@@ -77,7 +77,7 @@ def model_scene(name,scene,out):
         capacity=max(1,h//(size+3))
         for i,line in enumerate(lines[:capacity]):
             while len(line)>1 and d.textbbox((0,0),line,font=f)[2]>w:line=line[:-2]+'…'
-            d.text((x,y+i*(size+3)),line,font=f,fill=TEXT)
+            d.text((x,y+i*(size+3)),line,font=f,fill=colour)
         if len(lines)>capacity:d.text((x+w-14,y+h-20),'↕',font=font(16),fill=MINT)
     title_width=266 if keyboard and not scene.get('numeric') else 300 if any(b['box'][1]==4 for b in scene['buttons']) else 448
     text((8 if keyboard else 16,4 if scene.get('numeric') else 8,title_width,28),scene['title'],20)
@@ -105,10 +105,13 @@ def model_scene(name,scene,out):
     for b in scene['buttons']:
         x,y,w,h=b['box'];assert 4<=x<x+w<=476 and 4<=y<y+h<=316 and w>=44 and h>=44,(name,b)
         for bx,by,bw,bh in boxes:assert x+w<=bx or bx+bw<=x or y+h<=by or by+bh<=y,(name,b)
-        boxes.append((x,y,w,h));primary=b['text'] in ['SEARCH','DONE','WRITE TAG','CREATE SPOOL','REVIEW TAG WRITE']
-        d.rounded_rectangle((x,y,x+w-1,y+h-1),6,fill='#8f2d2d' if b.get('destructive') else '#147d73' if primary else SURFACE,outline='#52645f')
+        boxes.append((x,y,w,h));primary=b.get('primary',False)
+        # The same colours as the device: mint with dark text for the main
+        # action, red for erase, the keyboard's darker teal for its action key.
+        fill='#8f2d2d' if b.get('destructive') else MINT if primary else '#147d73' if b.get('key_action') else SURFACE
+        d.rounded_rectangle((x,y,x+w-1,y+h-1),6,fill=fill,outline='#52645f')
         value=b['text'];size=20 if keyboard and len(value)==1 else 16
-        text((x+6,y+max(3,(h-(size+3)*min(2,value.count('\n')+1))//2),w-12,h-6),value,size)
+        text((x+6,y+max(3,(h-(size+3)*min(2,value.count('\n')+1))//2),w-12,h-6),value,size,'#112c25' if primary else TEXT)
     im.save(out/f'wt32-{name}.png')
 
 def main():

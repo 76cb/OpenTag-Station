@@ -91,6 +91,8 @@ struct TagButton {
   TagAction action{TagAction::none};
   bool enabled{true};
   bool destructive{false};
+  // The screen's main forward action: drawn in the primary colour.
+  bool primary{false};
 };
 struct TagScreen {
   std::string title, body;
@@ -102,8 +104,9 @@ struct TagScreen {
   bool art{false};
   std::uint32_t art_rgb{neutral_spool_rgb};
   void button(layout::Box box, std::string text, TagAction action, bool enabled = true,
-              bool destructive = false) {
-    buttons[count++] = {box, std::move(text), action, enabled, destructive};
+              bool destructive = false, bool primary = false) {
+    buttons[count++] = {box, std::move(text), action, enabled, destructive,
+                        primary && !destructive};
   }
 };
 // Phases in which the physical tag is being changed. The UI must never offer
@@ -664,14 +667,16 @@ inline TagScreen TagFlow::screen() const {
   TagScreen s;
   s.title = "Manage tag";
   const auto action = [&](int n, const char* label, TagAction a) {
-    s.button({16, static_cast<std::int16_t>(112 + n * 50), 448, 44}, label, a);
+    // The first of a list of actions is the recommended one.
+    s.button({16, static_cast<std::int16_t>(112 + n * 50), 448, 44}, label, a,
+             true, false, n == 0);
   };
   const auto back = [&] {
     s.button({8, 266, 140, 46}, "BACK", TagAction::back);
   };
   const auto primary = [&](const char* text, TagAction a, bool enabled = true,
                            bool destructive = false) {
-    s.button({156, 266, 316, 46}, text, a, enabled, destructive);
+    s.button({156, 266, 316, 46}, text, a, enabled, destructive, true);
   };
   switch (page) {
     case TagPage::tag:
