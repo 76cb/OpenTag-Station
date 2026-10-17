@@ -115,8 +115,7 @@ const char index_html[] = R"HTML(<!doctype html>
 <div><dt>Spoolman</dt><dd id="nfc-association">Not linked</dd></div><div id="nfc-identity-row" hidden><dt>Identity</dt><dd id="nfc-identity">—</dd></div>
 </dl>
 <p id="nfc-read-status" class="setup-status" aria-live="polite">No tag data</p>
-<button id="read-tag" class="button" type="button" disabled hidden>Read tag</button>
-<button id="tag-update" class="button primary" type="button">Update tag</button><button id="writer-open" class="button primary" type="button">Reassign tag to another spool</button> <button id="clear-open" class="button destructive-action" type="button">Clear / Reuse Tag</button>
+<button id="tag-update" class="button primary" type="button">Update tag</button><button id="writer-open" class="button primary" type="button">Use for another spool</button> <button id="clear-open" class="button destructive-action" type="button">Clear / Reuse Tag</button>
 </article>
 <details class="card"><summary>Tag metadata &amp; advanced details</summary><dl class="facts"><div><dt>Geometry</dt><dd id="nfc-geometry">—</dd></div>
 <div><dt>Material</dt><dd id="nfc-material">—</dd></div>
@@ -132,7 +131,7 @@ const char index_html[] = R"HTML(<!doctype html>
 </dl></details>
 </div></article></dialog>
 <div id="writer-panel" hidden></div>
-<dialog id="clear-dialog" class="modal" aria-labelledby="clear-title"><article><header class="modal-header"><h2 id="clear-title">Reuse this NFC tag?</h2><button id="clear-close" class="button" type="button" aria-label="Close clear dialog">×</button></header><div class="modal-body"><p>This removes the filament information and unlinks the tag from Spoolman. Its permanent NFC identifier will not change.</p><dl id="clear-summary" class="facts"></dl><p id="clear-message" class="result-banner" role="status" aria-live="polite"></p><progress id="clear-meter" hidden aria-label="Clear progress"></progress><ul id="clear-effects"><li>Erase OpenPrintTag metadata</li><li>Unlink this tag from Spoolman</li><li>Preserve the permanent NFC UID</li><li><details><summary>Advanced preservation details</summary>Protected blocks 78–79 remain unchanged.</details></li></ul></div><footer class="modal-footer"><button id="clear-cancel" class="button" type="button">Cancel</button><button id="clear-confirm" class="button destructive-action" type="button" disabled>Clear tag</button><button id="clear-assign" class="button primary" type="button" hidden>Assign tag to a spool</button><button id="clear-retry" class="button primary" type="button" hidden>Retry Spoolman cleanup</button><button id="clear-skip" class="button destructive-action" type="button" hidden>Skip cleanup</button></footer></article></dialog>
+<dialog id="clear-dialog" class="modal" aria-labelledby="clear-title"><article><header class="modal-header"><h2 id="clear-title">Reuse this NFC tag?</h2><button id="clear-close" class="button" type="button" aria-label="Close clear dialog">×</button></header><div class="modal-body"><p>This removes the filament information and unlinks the tag from Spoolman. Its permanent NFC identifier will not change.</p><dl id="clear-summary" class="facts"></dl><p id="clear-message" class="result-banner" role="status" aria-live="polite"></p><progress id="clear-meter" hidden aria-label="Clear progress"></progress><ul id="clear-effects"><li>Erase OpenPrintTag metadata</li><li>Unlink this tag from Spoolman</li><li>Preserve the permanent NFC UID</li><li><details><summary>Advanced preservation details</summary>Protected blocks 78–79 remain unchanged.</details></li></ul></div><footer class="modal-footer"><button id="clear-cancel" class="button" type="button">Cancel</button><button id="clear-confirm" class="button destructive-action" type="button" disabled>Clear tag</button><button id="clear-assign" class="button primary" type="button" hidden>Write tag for a spool</button><button id="clear-retry" class="button primary" type="button" hidden>Retry Spoolman cleanup</button><button id="clear-skip" class="button destructive-action" type="button" hidden>Skip cleanup</button></footer></article></dialog>
 
 <section id="spool-resolution" class="section product-page home-support" data-page="home">
 <p id="spool-guidance" class="hint" role="status"></p>
@@ -244,7 +243,7 @@ const char index_html[] = R"HTML(<!doctype html>
 <div class="action-row"><button id="upload-firmware" class="button primary" type="button" disabled>Upload and check</button><button id="cancel-update" class="button" type="button" disabled>Cancel update</button><button id="reboot-update" class="button warning" type="button" disabled>Restart to finish update</button></div>
 <ol id="update-stages" class="update-stages"><li data-stage="upload">Upload not started</li><li data-stage="validate">File not checked</li><li data-stage="install">Update not installed</li><li data-stage="boot">Not restarted</li><li data-stage="confirm">Not confirmed</li></ol><p id="update-error" class="hint" role="alert"></p>
 </article>
-<article class="card danger-card"><h3>Device controls</h3><p id="device-control-auth" class="muted">Local API authentication: CHECKING. Local browser control: ENABLED.</p><div class="action-row"><button id="start-setup-mode" class="button" type="button" disabled>Start setup access point</button><button id="reboot-device" class="button warning" type="button" disabled>Reboot device</button></div><label for="factory-confirm">Type <strong>FACTORY RESET</strong> to enable reset</label><input id="factory-confirm" type="text" autocomplete="off"><button id="factory-reset" class="button danger" type="button" disabled>Factory reset</button></article>
+<article class="card danger-card"><h3>Device controls</h3><p id="device-control-auth" class="muted">Local API authentication: CHECKING. Local browser control: ENABLED.</p><p id="setup-mode-status" class="muted" hidden></p><div class="action-row"><button id="start-setup-mode" class="button" type="button" disabled>Start setup access point</button><button id="stop-setup-mode" class="button" type="button" hidden>Stop setup network</button><button id="reboot-device" class="button warning" type="button" disabled>Reboot device</button></div><label for="factory-confirm">Type <strong>FACTORY RESET</strong> to enable reset</label><input id="factory-confirm" type="text" autocomplete="off"><button id="factory-reset" class="button danger" type="button" disabled>Factory reset</button></article>
 </div>
 </section>
 </main>
@@ -300,6 +299,7 @@ const char application_css[] = R"CSS(:root{color-scheme:dark;--bg:#101416;--surf
 .warning-text{color:var(--warning)}
 [data-reading=true]::before{width:9px!important;height:9px!important;border:2px solid var(--accent);border-right-color:transparent;background:none!important;animation:spin .8s linear infinite}.status-chip[data-reading=true]::before{content:'';border-radius:50%}
 .writer-spool{width:96px;float:right;margin:0 0 8px 16px;filter:none}.writer-spool .spool-flange{border-width:6px}.writer-spool .spool-center{border-width:5px}
+.spool-status [data-state=warn]::before{background:var(--warning)}
 )CSS";
 
 const std::size_t application_css_size = sizeof(application_css) - 1U;
@@ -559,7 +559,7 @@ return sha256Bytes(new Uint8Array(bytes));
 
 class ApiError extends Error {
 constructor(message, detail) {
-super(message);
+super(/Idempotency ledger is full/.test(message)?'The station is busy. Wait a minute and try again.':message);
 this.name = 'ApiError';
 Object.assign(this, {
 kind: 'application', status: 0, code: 'request_failed', category: '',
@@ -1091,7 +1091,7 @@ return true;
 
 function setAuthLocked(locked) {
 locked = locked || state.maintenance;
-['start-setup-mode', 'reboot-device', 'test-backends'].forEach(function (id) {
+['start-setup-mode', 'stop-setup-mode', 'reboot-device', 'test-backends'].forEach(function (id) {
 const node = byId(id);
 if (node) node.disabled = locked;
 });
@@ -1257,6 +1257,8 @@ setBadge('setup-badge', normalizeState(first(provisioning.reason, 'setup')), net
 setText('setup-ap-detail', state.provisioningActive
 ? 'Setup AP: ' + String(first(provisioning.ap_ssid, 'OpenTag-Setup')) + ' at http://' + String(first(provisioning.ap_ip, '192.168.4.1')) + '/'
 : 'Setup access point is inactive.');
+const requested=state.provisioningActive&&provisioning.reason==='requested',left=Math.ceil(Number(provisioning.requested_remaining_ms)/6e4);
+byId('stop-setup-mode').hidden=!requested;byId('start-setup-mode').hidden=requested;setText('setup-mode-status','Setup network open'+(left>0?' for '+left+' more min':'')+'.');byId('setup-mode-status').hidden=!requested;
 const networks = asArray(payload.networks);
 populateNetworks('setup-network-list', networks);
 populateNetworks('config-network-list', networks);
@@ -1402,9 +1404,10 @@ const homeWeigh = byId('home-weigh');
 const tare = byId('tare-scale');
 const calibrate = byId('calibrate-scale');
 const confirmCalibration = byId('confirm-calibration');
-if (weigh) weigh.disabled = !weighReady;
+const saving=weighSaving();
+if (weigh) weigh.disabled = !weighReady||saving;
 if (homeWeigh) homeWeigh.disabled = calibrated
-? !weighReady : !adcReady || blocked;
+? !weighReady||saving : !adcReady || blocked;
 if (tare) tare.disabled = !adcReady || !rawStable || blocked;
 if (calibrate) calibrate.disabled = !adcReady || blocked;
 if (confirmCalibration) confirmCalibration.disabled =
@@ -1493,7 +1496,7 @@ setText('weight-captured', Number.isFinite(completed)
 : measurementActive ? 'Capturing live measurement'
 : measurementState === 'timed_out' || measurementState === 'failed'
 ? 'No new measurement captured' : 'No captured measurement');
-setText('weigh-action-label', measurementActive ? activeLabel :
+setText('weigh-action-label', weighSaving() ? 'Saving to Spoolman…' : measurementActive ? activeLabel :
 Number.isFinite(completed) ? 'Weigh Again' :
 measurementState === 'timed_out' || measurementState === 'failed' ? 'Retry' : 'Weigh');
 setText('home-last-weight', Number.isFinite(completed)
@@ -1543,7 +1546,7 @@ const cleared=state.clearSnapshot||{},blank=String(cleared.uid||'').replace(/:/g
 const pending=owned&&writer.phase==='association_pending',complete=owned&&writer.phase==='complete';const id=blank?0:pending?0:complete?writer.spool_id:linked?(w.spool.id||w.spool.spool_id):0;
 setText('nfc-detected-chip',present?'Tag detected':'No tag');const rd=present&&tagReading(t);setText('nfc-decode-chip',t.decode==='pass'?'Tag valid':t.decode==='fail'?'Tag needs attention':rd?'Reading tag…':'Not read');byId('nfc-decode-chip').dataset.reading=String(rd);setText('nfc-link-chip',pending?'Link pending':id?'Linked to Spoolman':'Not linked');
 setText('nfc-association',pending?'Association pending — open Write / Rewrite to retry':id?'Linked · Spool #'+id:'Not linked');setText('nfc-identity',id?'Spoolman #'+id:'—');byId('nfc-identity-row').hidden=!id;byId('nfc-copy').disabled=!uid;
-if(t.blank_compatible&&!blank){setBadge('nfc-badge','Blank','good');setText('nfc-summary','Compatible blank tag');setText('nfc-guidance','Ready to assign');setText('nfc-decode-chip','BLANK');}if(blank){setBadge('nfc-badge','Blank','good');setText('nfc-summary','Tag ready to reuse');setText('nfc-guidance',cleared.phase==='cleared'?'Ready to assign':cleared.message||'Tag blank and verified. Cleanup still needs attention.');setText('nfc-decode-chip','BLANK VERIFIED');setText('nfc-link-chip',cleared.phase==='cleared'?'UNLINKED':'UNLINK PENDING');}
+if(t.blank_compatible&&!blank){setBadge('nfc-badge','Blank','good');setText('nfc-summary','Compatible blank tag');setText('nfc-guidance','Ready to write');setText('nfc-decode-chip','BLANK');}if(blank){setBadge('nfc-badge','Blank','good');setText('nfc-summary','Tag ready to reuse');setText('nfc-guidance',cleared.phase==='cleared'?'Ready to write':cleared.message||'Tag blank and verified. Cleanup still needs attention.');setText('nfc-decode-chip','BLANK VERIFIED');setText('nfc-link-chip',cleared.phase==='cleared'?'UNLINKED':'UNLINK PENDING');}
 if(uid)setText('nfc-uid',uid.replace(/[^a-f0-9]/gi,'').match(/.{1,2}/g)?.join(':')||uid);
 ['detected','decode','link'].forEach((k,i)=>byId('nfc-'+k+'-chip').className='status-chip '+([present,t.decode==='pass',!!id][i]?'status-success':pending?'status-warning':''));
 }
@@ -1614,7 +1617,7 @@ setText('nfc-guidance', nfc.material_name || 'Metadata fields unavailable / empt
 setBadge('nfc-badge', 'OpenPrintTag', 'good');
 } else if (nfc.blank_compatible || nfc.state === 'blank_compatible') {
 setText('nfc-summary', 'Compatible blank tag');
-setText('nfc-guidance', 'Ready to assign');
+setText('nfc-guidance', 'Ready to write');
 setBadge('nfc-badge', 'Blank', 'good');
 } else if (nfc.state === 'unsupported') {
 setText('nfc-summary', 'NFC-V tag detected');
@@ -1627,16 +1630,12 @@ setBadge('nfc-badge', 'Error', 'bad');
 }
 renderTag(nfc);
 }
-tagStatus();const readButton = byId('read-tag');
-if (readButton) {
-readButton.hidden = !ready || nfc.read_only === true;
-readButton.disabled = !ready || state.maintenance || nfc.read_only === true;
-}
+tagStatus();
 }
 
 function renderTag(payload) {
+// Every station NFC snapshot is a read-only decode; raw memory is never rendered.
 const tag = asObject(first(payload.tag, payload));
-if (tag.read_only === true) {
 for (const [id, key] of [['nfc-material','material_name'],['nfc-type','material_abbreviation'],
 ['nfc-brand','brand_name'],['nfc-nominal','nominal_full_weight'],['nfc-actual','actual_full_weight'],
 ['nfc-consumed','consumed_weight'],['nfc-remaining','remaining_weight'],['nfc-checksum','checksum']]) {
@@ -1647,19 +1646,6 @@ setText('nfc-color', Array.isArray(tag.color) ? tag.color.join(', ') : 'Unavaila
 if (Object.prototype.hasOwnProperty.call(tag, 'measured_weight')) setText('nfc-measured', tag.measured_weight);
 state.currentTag=tag;setText('nfc-uid',tag.uid);tagStatus();
 setText('nfc-read-status', tag.decode === 'pass' ? 'OpenPrintTag decode PASS' : tag.present ? 'OpenPrintTag ' + tag.decode : 'No tag data');
-return;
-}
-setText('nfc-uid', first(tag.uid, tag.nfc_uid));
-const material = asObject(tag.material);
-setText('nfc-material', first(material.name, material.material_name, tag.material_name, tag.material));
-const geometry = asObject(tag.geometry);
-const blockSize = Number(first(geometry.block_size, tag.block_size));
-const blockCount = Number(first(geometry.block_count, tag.block_count));
-if (Number.isFinite(blockSize) && Number.isFinite(blockCount)) {
-setText('nfc-geometry', blockCount + ' × ' + blockSize + ' B');
-}
-setText('nfc-read-status', Object.keys(tag).length
-? 'Read-only tag data retrieved successfully.' : 'No tag data');
 }
 
 function renderSpool(payload) {
@@ -2574,17 +2560,15 @@ await load('/update', renderUpdate, true, PRIORITY.CORE);
 }
 
 function refreshResource(resource) {
-const name = String(resource || '').toLowerCase();
-if (name === 'backends') return load('/health', renderHealth, true, PRIORITY.CORE, { supersedeKey: 'live:/health' })
-.then(function () { return load('/status', renderStatus, true, PRIORITY.SECONDARY, { supersedeKey: 'live:/status' }); })
-.then(function () { return refreshPrinters(true); });
-if (name === 'nfc') return load('/nfc', renderNfc, true, PRIORITY.SECONDARY, { supersedeKey: 'live:/nfc' })
-.then(function () { return load('/spool', renderSpool, true, PRIORITY.SECONDARY, { supersedeKey: 'live:/spool' }); });
-if (name === 'scale') return load('/scale', renderScale, true, PRIORITY.CORE, { supersedeKey: 'live:/scale' });
-if (name === 'update') return load('/update', renderUpdate, true, PRIORITY.SECONDARY, { supersedeKey: 'live:/update' });
-if (name === 'health') return load('/health', renderHealth, true, PRIORITY.CORE, { supersedeKey: 'live:/health' });
-if (name === 'network') return load('/network', renderNetwork, true, PRIORITY.CORE, { supersedeKey: 'live:/network' });
-if (name === 'logs') return load('/logs', renderLogs, true, PRIORITY.BACKGROUND, { supersedeKey: 'live:/logs' });
+const name = String(resource || '').toLowerCase(), {CORE, SECONDARY} = PRIORITY;
+const live = (path, render, priority) => load(path, render, true, priority, { supersedeKey: 'live:' + path });
+if (name === 'backends') return live('/health', renderHealth, CORE).then(() => live('/status', renderStatus, SECONDARY)).then(() => refreshPrinters(true));
+if (name === 'nfc') return live('/nfc', renderNfc, SECONDARY).then(() => live('/spool', renderSpool, SECONDARY));
+if (name === 'scale') return live('/scale', renderScale, CORE);
+if (name === 'update') return live('/update', renderUpdate, SECONDARY);
+if (name === 'health') return live('/health', renderHealth, CORE);
+if (name === 'network') return live('/network', renderNetwork, CORE);
+if (name === 'logs') return live('/logs', renderLogs, PRIORITY.BACKGROUND);
 if (name === 'configuration' || name === 'config') {
 if (state.configDirty) {
 setText('config-load-status', 'The station configuration changed, but unsaved local edits were preserved. Save or discard to reload.');
@@ -2924,6 +2908,7 @@ if (path === '/scale/calibrate') setCalibrationPanel(false);
 showToast(operationMessage(operation, success));
 } catch (error) {
 showToast(error.message || String(error), true);
+if (error.status === 409) load('/scale', renderScale, true, PRIORITY.CORE);
 } finally {
 state.scaleBusy = false;
 state.scaleProgress = '';
@@ -3049,9 +3034,18 @@ return true;
 });
 }
 
+async function configSaveFailed(error, enteredToken, clearToken, fallback) {
+if (error && error.kind === 'operation' && error.category === 'network') {
+const verified = await reloadPersistedNetworkConfiguration(enteredToken, clearToken);
+showToast(error.message + (verified
+? ' Persisted configuration was reloaded so the failed network settings can be corrected.'
+: ' Configuration was persisted, but its verification reload failed.'), true);
+} else showToast(error.message || fallback, true);
+}
+
 function wireActions() {
 bindProduct();
-byId('refresh-all').addEventListener('click', function () { refreshAll(false); });
+byId('refresh-all').addEventListener('click', () => refreshAll(false));
 byId('confirm-spool-form').addEventListener('submit', async function (event) {
 event.preventDefault();
 const id = Number(byId('confirm-spool-id').value);
@@ -3064,20 +3058,12 @@ await load('/spool', renderSpool, true, PRIORITY.SECONDARY);
 } catch (error) { showToast(error.message || String(error), true); }
 });
 byId('home-weigh').addEventListener('click', startHomeWeigh);
-byId('weigh-scale').addEventListener('click', function (event) {
-runScaleMutation(event.currentTarget, '/scale/weigh', {}, 'Weight captured.');
+byId('weigh-scale').addEventListener('click', e => runScaleMutation(e.currentTarget, '/scale/weigh', {}, 'Weight captured.'));
+byId('tare-scale').addEventListener('click', e => {
+if (window.confirm('Tare the scale now? The platform must be empty and stable.')) runScaleMutation(e.currentTarget, '/scale/tare', {}, 'Tare complete.');
 });
-byId('tare-scale').addEventListener('click', function (event) {
-if (window.confirm('Tare the scale now? The platform must be empty and stable.')) {
-runScaleMutation(event.currentTarget, '/scale/tare', {}, 'Tare complete.');
-}
-});
-byId('calibrate-scale').addEventListener('click', function () {
-setCalibrationPanel(true);
-});
-byId('close-calibration').addEventListener('click', function () {
-setCalibrationPanel(false);
-});
+byId('calibrate-scale').addEventListener('click', () => setCalibrationPanel(true));
+byId('close-calibration').addEventListener('click', () => setCalibrationPanel(false));
 byId('reference-grams').addEventListener('input', updateScaleControls);
 byId('calibrate-form').addEventListener('submit', async function (event) {
 event.preventDefault();
@@ -3092,46 +3078,25 @@ await runScaleMutation(byId('confirm-calibration'), '/scale/calibrate', {
 reference_grams: reference
 }, 'Calibration complete.');
 });
-byId('read-tag').addEventListener('click', function (event) {
-mutateButton(event.currentTarget, '/nfc/read', {}, 'NFC read complete.');
-});
-byId('test-backends').addEventListener('click', function (event) {
-mutateButton(event.currentTarget, '/backends/test', {}, 'Backend connection tests complete.', {
+byId('test-backends').addEventListener('click', e => mutateButton(e.currentTarget, '/backends/test', {}, 'Backend connection tests complete.', {
 operationTimeoutMs: BACKEND_OPERATION_WAIT_MS
-});
-});
-byId('retry-config').addEventListener('click', function () {
-if (state.configDirty && !window.confirm('Discard unsaved configuration edits and retry loading?')) return;
+}));
+['retry', 'reload'].forEach(k => byId(k + '-config').addEventListener('click', () => {
+if (state.configDirty && !window.confirm('Discard unsaved configuration edits and ' + (k === 'retry' ? 'retry loading?' : 'reload?'))) return;
 state.configDirty = false;
 loadConfig(false, true);
-});
-byId('reload-config').addEventListener('click', function () {
-if (state.configDirty && !window.confirm('Discard unsaved configuration edits and reload?')) return;
-state.configDirty = false;
-loadConfig(false, true);
-});
+}));
 byId('config-scale-profile').addEventListener('change', updateCapacityHelp);
 const configForm = byId('config-form');
 configForm.addEventListener('input', markConfigDirty);
 configForm.addEventListener('change', markConfigDirty);
-byId('setup-network-list').addEventListener('change', function (event) {
-if (event.currentTarget.value) setValue('setup-ssid', event.currentTarget.value);
+byId('setup-network-list').addEventListener('change', e => { if (e.currentTarget.value) setValue('setup-ssid', e.currentTarget.value); });
+byId('config-network-list').addEventListener('change', e => {
+if (e.currentTarget.value) { setValue('config-ssid', e.currentTarget.value); markConfigDirty(); }
 });
-byId('config-network-list').addEventListener('change', function (event) {
-if (event.currentTarget.value) {
-setValue('config-ssid', event.currentTarget.value);
-markConfigDirty();
-}
-});
-byId('setup-scan').addEventListener('click', function (event) {
-scanNetworks(event.currentTarget, true);
-});
-byId('config-scan').addEventListener('click', function (event) {
-scanNetworks(event.currentTarget, false);
-});
-byId('setup-connect').addEventListener('click', function (event) {
-saveAndConnect(event.currentTarget);
-});
+byId('setup-scan').addEventListener('click', e => scanNetworks(e.currentTarget, true));
+byId('config-scan').addEventListener('click', e => scanNetworks(e.currentTarget, false));
+byId('setup-connect').addEventListener('click', e => saveAndConnect(e.currentTarget));
 configForm.addEventListener('submit', async function (event) {
 event.preventDefault();
 if (state.configState !== CONFIG_STATE.READY) {
@@ -3169,15 +3134,7 @@ setText('config-load-status', 'Configuration saved. Testing / refreshing backend
 showToast('Configuration was saved, but its verification reload failed. Use Retry before making more edits.', true);
 }
 } catch (error) {
-if (error && error.kind === 'operation' && error.category === 'network') {
-const verified = await reloadPersistedNetworkConfiguration(
-enteredToken, clearToken);
-showToast((error.message || String(error)) + (verified
-? ' Persisted configuration was reloaded so the failed network settings can be corrected.'
-: ' Configuration was persisted, but its verification reload failed.'), true);
-} else {
-showToast(error.message || String(error), true);
-}
+await configSaveFailed(error, enteredToken, clearToken, String(error));
 } finally {
 setConfigState(state.configState, state.configError);
 renderAuthState();
@@ -3237,54 +3194,26 @@ const verified = await loadConfig(true, true);
 showToast(verified ? operationMessage(operation, 'Configuration import completed and verified.')
 : 'Configuration import completed, but verification reload failed.', !verified);
 } catch (error) {
-if (error && error.kind === 'operation' && error.category === 'network') {
-const verified = await reloadPersistedNetworkConfiguration(
-enteredToken, clearToken);
-showToast((error.message || String(error)) + (verified
-? ' Persisted configuration was reloaded so the failed network settings can be corrected.'
-: ' Configuration was persisted, but its verification reload failed.'), true);
-} else {
-showToast(error.message || 'The selected file is not valid JSON.', true);
-}
+await configSaveFailed(error, enteredToken, clearToken, 'The selected file is not valid JSON.');
 }
 });
-byId('refresh-diagnostics').addEventListener('click', function () {
-load('/diagnostics', renderDiagnostics, false, PRIORITY.BACKGROUND);
-});
-byId('refresh-logs').addEventListener('click', function () {
-load('/logs', renderLogs, false, PRIORITY.BACKGROUND);
-});
+byId('refresh-diagnostics').addEventListener('click', () => load('/diagnostics', renderDiagnostics, false, PRIORITY.BACKGROUND));
+byId('refresh-logs').addEventListener('click', () => load('/logs', renderLogs, false, PRIORITY.BACKGROUND));
 byId('run-self-test').addEventListener('click', runSelfTest);
-byId('firmware-file').addEventListener('change', function (event) {
-const file = event.currentTarget.files && event.currentTarget.files[0];
-selectFirmwareFile(file || null);
+byId('firmware-file').addEventListener('change', e => selectFirmwareFile(e.currentTarget.files?.[0] || null));
+byId('upload-firmware').addEventListener('click', e => uploadSelectedFirmware(e.currentTarget));
+byId('cancel-update').addEventListener('click', e => cancelUpdate(e.currentTarget));
+byId('reboot-update').addEventListener('click', e => rebootIntoUpdate(e.currentTarget));
+byId('reboot-device').addEventListener('click', e => {
+if (window.confirm('Reboot OpenTag Station now?')) submitRestartButton(e.currentTarget, '/device/reboot', { confirmation: 'REBOOT' }, 'Reboot');
 });
-byId('upload-firmware').addEventListener('click', function (event) {
-uploadSelectedFirmware(event.currentTarget);
+const setupMode = (button, body, done) => mutateButton(button, '/network/setup-mode', body, done, { operationTimeoutMs: NETWORK_OPERATION_WAIT_MS });
+byId('stop-setup-mode').addEventListener('click', e => setupMode(e.currentTarget, { stop: true }, 'Setup network stopped.'));
+byId('start-setup-mode').addEventListener('click', e => {
+if (window.confirm('Open the temporary setup network? It has no password and closes by itself after 10 minutes. Normal Wi-Fi stays connected.')) setupMode(e.currentTarget, {}, 'Setup access point is running.');
 });
-byId('cancel-update').addEventListener('click', function (event) {
-cancelUpdate(event.currentTarget);
-});
-byId('reboot-update').addEventListener('click', function (event) {
-rebootIntoUpdate(event.currentTarget);
-});
-byId('reboot-device').addEventListener('click', function (event) {
-if (window.confirm('Reboot OpenTag Station now?')) {
-submitRestartButton(event.currentTarget, '/device/reboot', { confirmation: 'REBOOT' }, 'Reboot');
-}
-});
-byId('start-setup-mode').addEventListener('click', async function (event) {
-if (!window.confirm('Start the temporary setup access point? Normal Wi-Fi remains active.')) return;
-await mutateButton(
-event.currentTarget,
-'/network/setup-mode',
-{},
-'Setup access point is running.',
-{ operationTimeoutMs: NETWORK_OPERATION_WAIT_MS });
-});
-byId('factory-confirm').addEventListener('input', function (event) {
-byId('factory-reset').disabled = state.maintenance ||
-event.currentTarget.value !== 'FACTORY RESET';
+byId('factory-confirm').addEventListener('input', e => {
+byId('factory-reset').disabled = state.maintenance || e.currentTarget.value !== 'FACTORY RESET';
 });
 byId('factory-reset').addEventListener('click', async function (event) {
 if (valueOf('factory-confirm') !== 'FACTORY RESET') return;
@@ -3296,6 +3225,7 @@ confirmation: 'FACTORY RESET'
 }
 
 
+function weighSaving(){return state.weighUpdating===true||state.weighSync?.phase==='updating';}
 function renderWeighSync(value){const v=asObject(value);state.weighSync=v;
 setText('weigh-spool',v.spool_id?(v.name||'Spool')+' · #'+v.spool_id:'Place a spool');
 ['gross','tare','measured','canonical_remaining','difference'].forEach(k=>setText('weigh-'+k,formatGrams(v[k])));
@@ -3375,7 +3305,7 @@ function renderCurrentSpool() {
   byId('tag-update').hidden=!linked||cleanup||writePending;
   byId('writer-open').hidden=(!blank&&!valid&&!writePending)||cleanup;
   byId('clear-open').hidden=(!valid&&!cleanup)||writePending;
-  setText('writer-open',writePending?'Resume tag workflow':blank?'Assign tag to a spool':linked?'Reassign':'Link to a spool');
+  setText('writer-open',writePending?'Resume tag workflow':blank?'Write tag for a spool':linked?'Use for another spool':'Link to a spool');
   setText('clear-open',cleanup?'Retry cleanup':'Clear / Reuse');
   byId('spool-empty').hidden=present;
   byId('current-spool').hidden=!present;
@@ -3386,7 +3316,9 @@ function renderCurrentSpool() {
   setText('current-name',name);setText('manage-material',name);
   setText('current-vendor',first(s.vendor,t.brand_name,t.brand,''));
   setText('current-material',first(s.material,t.material_abbreviation,''));
-  setText('current-number',blank&&!s.id?'Ready to assign':s.id?'Spool #'+s.id:'Not yet linked');
+  // Unlinked only means "no link" once Spoolman has actually answered for this tag.
+  const look=!s.id&&w.stage==='resolving_spool',off=!s.id&&!look&&(w.spoolman==='offline'||w.stage==='spool_resolution_unavailable');
+  setText('current-number',s.id?'Spool #'+s.id:look?'Looking up…':off?'Link not checked':blank?'Ready to write':'Not yet linked');
   setText('current-remaining',remaining===null?'—':Math.round(Number(remaining)));
   const percentage=remaining!==null&&Number(initial)>0?Math.max(0,Math.min(100,Math.round(Number(remaining)/Number(initial)*100))):null;
   byId('remaining-summary').hidden=percentage===null;
@@ -3399,14 +3331,14 @@ function renderCurrentSpool() {
   const reading=tagReading(t);
   setText('current-tag',t.blank_compatible?'Blank tag':t.decode==='pass'?'Tag valid':t.decode==='fail'?'Tag needs attention':reading?'Reading tag…':'Tag not read');
   byId('current-tag').dataset.valid=String(t.decode==='pass');byId('current-tag').dataset.reading=String(reading);
-  setText('current-link',s.id?'Linked to Spoolman':w.stage==='resolving_spool'?'Looking up spool…':'Not linked to Spoolman');
+  setText('current-link',s.id?'Linked to Spoolman':look?'Looking up this spool in Spoolman…':off?"Spoolman is not reachable; the link can't be checked right now. It will be looked up again when Spoolman is back.":'Not linked to Spoolman');byId('current-link').dataset.state=off?'warn':'';
   const assignments=state.printers.flatMap(p=>asArray(p.toolheads).filter(h=>s.id&&Number(first(h.assigned_spool_id,h.spool_id))===Number(s.id)).map(h=>(p.display_name||p.name||'Printer')+' · T'+(Number(first(h.backend_id,h.id))+1)));
   setText('current-assignment',assignments.length?assignments.join(', '):'Not assigned');
   setText('dashboard-printer',assignments.length?assignments.join(', '):'Choose a toolhead to assign this spool.');
   const v=state.weighSync||{}, sameWeight=s.id&&Number(v.spool_id)===Number(s.id);
   setText('dashboard-weight',sameWeight&&v.measured!=null?formatGrams(v.measured)+' measured · '+formatGrams(v.canonical_remaining)+' in Spoolman':'Weigh this spool to compare it with your inventory.');
   // A blank tag that Spoolman links to a spool is weighed as that spool.
-  setText('home-action-label',blank&&!s.id?'Assign tag':state.scale?.measurement?.active?'Weighing…':'Weigh');
+  setText('home-action-label',blank&&!s.id?'Write tag':weighSaving()?'Saving to Spoolman…':state.scale?.measurement?.active?'Weighing…':'Weigh');
   if(blank&&!s.id)byId('home-weigh').disabled=!!state.maintenance;
   byId('spool-edit').disabled=!s.id;byId('tag-update').disabled=!s.id;
   byId('spool-assign').disabled=!s.id||state.maintenance;
@@ -3604,21 +3536,14 @@ return api('/health', { initialSyncComplete: true, dedupe: false,
 priority: PRIORITY.BACKGROUND });
 }).catch(function () { /* reconnect/fallback will recover a failed sync */ });
 
-window.addEventListener('online', function () {
-if (state.live) state.live.setOnline(true);
-});
-window.addEventListener('offline', function () {
-if (state.live) state.live.setOnline(false);
-});
+['online', 'offline'].forEach(k => window.addEventListener(k, () => state.live?.setOnline(k === 'online')));
 document.addEventListener('visibilitychange', function () {
 if (state.live) {
 if (document.hidden) state.live.suspend(); else state.live.resume();
 }
 syncCalibrationRefresh();
 });
-window.addEventListener('hashchange', function () {
-activateProductPage(productPageFromHash(location.hash));
-});
+window.addEventListener('hashchange', () => activateProductPage(productPageFromHash(location.hash)));
 window.addEventListener('pagehide', function () {
 state.unloading = true;
 state.selfTestGeneration += 1;
@@ -3665,8 +3590,10 @@ const warn=text=>critical.append(el('p',text,'writer-warning'));
 if(v.phase==='preview'&&v.semantic_no_change)warn('No changes needed. This tag already matches Spoolman.');if(v.phase==='association_pending')warn('Tag write verified. Only the Spoolman link is pending. Retry association without rewriting the tag.');if(v.previous_spool_id>0)warn('Move this tag from Spool #'+v.previous_spool_id+' to Spool #'+v.spool_id+'. The previous spool stays in your inventory.');
 else if(v.repurpose)warn('Repurpose: this write replaces the tag’s current spool identity.');
 if(v.recovering_interrupted_write)warn('Recovery: an earlier write to this tag was interrupted. Writing again completes it.');
+// Informational: Write tag stays available, but the loss must be visible before writing.
+const dropped=asArray(v.dropped_fields).map(asObject);if(dropped.length&&v.phase!=='import_preview'){const box=el('div',undefined,'writer-warning writer-dropped'),list=el('ul');box.append(el('strong','Not written to the tag:'),list);dropped.forEach(d=>{const f=String(d.field||'Field').replace(/_/g,' ');list.append(el('li',f[0].toUpperCase()+f.slice(1)+(d.value?' “'+d.value+'”':'')+(d.reason?' — '+d.reason:'')));});critical.append(box);}
 const optional=asArray(v.warnings).filter(w=>/^missing recommended /i.test(w));
-const metadata=asArray(v.warnings).filter(w=>!String(w).includes('association will move')&&!/not atomic|Full rewrite/i.test(w));
+const metadata=asArray(v.warnings).filter(w=>!String(w).includes('association will move')&&!/not atomic|Full rewrite/i.test(w)&&!dropped.some(d=>d.value&&String(w).includes(d.value)));
 metadata.forEach(w=>notices.append(el('li',String(w))));visible('writer-notices',metadata.length>0);setText('writer-notice-count',optional.length?optional.length+' optional metadata fields are not populated':'Metadata notices');
 }
 ;

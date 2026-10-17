@@ -13,15 +13,32 @@ module.exports=async function productJourneys(page,scene,width){
     if(width===390){for(const id of ['home-weigh','spool-assign','spool-manage']){const box=await page.locator('#'+id).boundingBox();assert.ok(box.y+box.height<=770,id+' stays above bottom navigation');}}
     await page.evaluate(()=>{const a=window.__OpenTagTest;delete a.state.spool.initial_grams;delete a.state.currentTag.actual_full_weight;delete a.state.currentTag.nominal_full_weight;a.renderCurrentSpool();});
     assert.equal(await visible('remaining-summary'),false);
+    // Spoolman offline: the tag is not called unlinked, and the long explanation wraps inside the layout.
+    await page.evaluate(()=>{const a=window.__OpenTagTest,w=a.state.tagWorkflow;a.renderSpool({workflow:{...w,spool:null,stage:'spool_resolution_unavailable',spoolman:'offline'}});});
+    assert.match(await page.locator('#current-link').textContent(),/^Spoolman is not reachable/);assert.equal(await page.locator('#current-number').textContent(),'Link not checked');
+    assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,'offline link message stays inside the viewport');
     await page.evaluate(()=>window.__OpenTagTest.renderNfc({present:false,inventory:{present:false}}));
     assert.equal(await visible('current-spool'),false);
   }
   if(scene==='manage'){
     const text=await page.locator('#nfc').innerText();assert.ok(!text.includes('NFC-V / ISO15693'));
-    assert.equal(await visible('tag-update'),true);
+    assert.equal(await visible('tag-update'),true);assert.equal(await page.locator('#writer-open').textContent(),'Use for another spool');
     await page.locator('#tag-update').click();await page.waitForFunction(()=>document.getElementById('writer-review').hidden===false);
     assert.equal(await visible('writer-inventory'),false);assert.match(await page.locator('#writer-review-title').textContent(),/Ready to write/);
     assert.equal(await page.evaluate(()=>requests.filter(r=>r.action==='write').length),0,'update opens a fresh preview without writing');
+  }
+  if(scene==='blank'){assert.equal(await page.locator('#writer-open').textContent(),'Write tag for a spool');assert.equal(await page.locator('#manage-dialog').innerText().then(t=>/Assign tag|Reassign/.test(t)),false);}
+  if(scene==='settings-advanced'){
+    assert.equal(await visible('stop-setup-mode'),false);assert.equal(await visible('setup-mode-status'),false);
+    await page.evaluate(()=>window.__OpenTagTest.renderNetwork({system:{network:{connected:true,provisioning:{active:true,reason:'requested',requested_remaining_ms:540000}}}}));
+    assert.equal(await visible('stop-setup-mode'),true);assert.equal(await visible('start-setup-mode'),false);
+    assert.equal(await page.locator('#setup-mode-status').textContent(),'Setup network open for 9 more min.');
+    const box=await page.locator('#stop-setup-mode').boundingBox();assert.ok(box.height>=40,'stop control is comfortably pressable');
+  }
+  if(scene==='preview'){
+    await page.evaluate(()=>{const W=window.OpenTagWriter;W.renderWriter({...W.writerState.snapshot,dropped_fields:[{field:'vendor',value:'An Extremely Long Vendor Name GmbH',reason:'longer than the tag allows'}]});});
+    assert.equal(await page.locator('.writer-dropped').isVisible(),true);assert.match(await page.locator('.writer-dropped').innerText(),/Not written to the tag:[\s\S]*Vendor “An Extremely Long Vendor Name GmbH” — longer than the tag allows/);
+    assert.equal(await page.locator('#writer-confirm').isEnabled(),true);
   }
   if(scene==='settings'){
     assert.equal(await visible('community-settings'),false);

@@ -767,8 +767,6 @@ test("failed startup keeps UNKNOWN control optimistic and sends a tokenless firs
   T.renderScale({ revision: 1, adc_ready: true, stable: true, raw_stable: true, samples_in_filter: 3, tare_ready: true });
   assert.equal(document.getElementById("tare-scale").disabled, false);
   assert.equal(document.getElementById("calibrate-scale").disabled, false);
-  T.renderNfc({ available: true, state: "ready" });
-  assert.equal(document.getElementById("read-tag").disabled, false);
 
   prepareFirmwareUpload(T);
   T.updateButtons();
@@ -1563,7 +1561,6 @@ test('production Tags recognizes empty metadata, clears removal, and exposes no 
   assert.equal(document.getElementById('nfc-summary').textContent, 'OpenPrintTag recognized');
   assert.equal(document.getElementById('nfc-material').textContent, 'Unavailable');
   assert.equal(document.getElementById('nfc-checksum').textContent, '9E639911');
-  assert.equal(document.getElementById('read-tag').hidden, true);
   T.renderNfc({ state: 'idle', read_only: true, available: true, bringup_state: 'ready',
     uid: null, checksum: null, decode: 'pending', inventory: { present: false, tag_count: 0 } });
   assert.equal(document.getElementById('nfc-summary').textContent, 'Reader ready');
@@ -1590,7 +1587,6 @@ test('Tags renders bounded disabled, initializing, ready, detected, multiple, an
   assert.equal(document.getElementById('nfc-summary').textContent, 'NFC hardware disabled');
   assert.equal(document.getElementById('nfc-badge').textContent, 'Disabled');
   assert.match(document.getElementById('nfc-guidance').textContent, /wiring.*RFAL/i);
-  assert.equal(document.getElementById('read-tag').hidden, true);
 
   T.renderNfc({ available: false, bringup_state: 'identifying', inventory: {} });
   assert.equal(document.getElementById('nfc-summary').textContent, 'Initializing NFC reader');
@@ -1603,8 +1599,6 @@ test('Tags renders bounded disabled, initializing, ready, detected, multiple, an
   });
   assert.equal(document.getElementById('nfc-summary').textContent, 'Reader ready');
   assert.equal(document.getElementById('nfc-guidance').textContent, 'Present an NFC-V tag.');
-  assert.equal(document.getElementById('read-tag').hidden, false);
-  assert.equal(document.getElementById('read-tag').disabled, false);
 
   T.renderNfc({
     available: true,
@@ -1640,12 +1634,12 @@ test('Tags renders bounded disabled, initializing, ready, detected, multiple, an
   assert.match(document.getElementById('nfc-guidance').textContent, /IRQ line/);
 
   T.renderTag({
-    uid: 'E004000000000029',
+    read_only: true, uid: 'E004000000000029', present: true, decode: 'pass',
     geometry: { block_size: 4, block_count: 78 },
     raw_blocks: new Array(4000).fill(255),
   });
   assert.equal(document.getElementById('nfc-read-status').textContent,
-    'Read-only tag data retrieved successfully.');
+    'OpenPrintTag decode PASS');
   assert.equal(document.getElementById('nfc-read-status').textContent.includes('255'), false,
     'raw memory must not be rendered into routine status UI');
 });
@@ -2384,7 +2378,6 @@ test('provisioning NFC is enabled but deferred, not a hardware failure', () => {
   assert.match(document.getElementById('nfc-summary').textContent, /deferred: provisioning/);
   assert.equal(document.getElementById('nfc-badge').textContent, 'Deferred');
   assert.match(document.getElementById('nfc-guidance').textContent, /setup AP closes/);
-  assert.equal(document.getElementById('read-tag').hidden, true);
 });
 
 test('persisted network recovery applies a cleared API token before authoritative reload', async () => {
@@ -2975,4 +2968,144 @@ test('identical submits racing after the uncertain TTL send one replacement muta
   assert.equal(app.fetchCalls.length, 2, 'one lost original and exactly one replacement mutation');
   assert.deepEqual(outcomes.map((outcome) => outcome.status).sort(), ['fulfilled', 'rejected']);
   assert.equal(outcomes.find((outcome) => outcome.status === 'rejected').reason.code, 'mutation_receipt_uncertain');
+});
+
+test('requested setup network shows its remaining time and a stop control that sends stop:true', async () => {
+  let sent = null;
+  const app = loadApplication({ fetch: async (url, init) => {
+    if (init.method === 'POST') { sent = { url: String(url), body: JSON.parse(init.body) }; return jsonResponse(202, { operation_id: 9 }); }
+    if (String(url).includes('/operations/')) return jsonResponse(200, { id: 9, state: 'succeeded' });
+    return jsonResponse(200, {});
+  } });
+  await app.T.start();
+  await drainScheduler(app.T.scheduler);
+  const byId = (id) => app.document.getElementById(id);
+  app.T.renderNetwork({ system: { network: { connected: true, provisioning: { active: true, reason: 'requested', requested_remaining_ms: 400000 } } } });
+  assert.equal(byId('stop-setup-mode').hidden, false);
+  assert.equal(byId('start-setup-mode').hidden, true);
+  assert.equal(byId('setup-mode-status').textContent, 'Setup network open for 7 more min.');
+  assert.equal(byId('setup-mode-status').hidden, false);
+  byId('stop-setup-mode').disabled = false;
+  byId('stop-setup-mode').click();
+  for (let turn = 0; turn < 20 && !sent; turn += 1) await flushPromises(64);
+  assert.equal(sent.url, '/api/v1/network/setup-mode');
+  assert.deepEqual(sent.body, { stop: true });
+  // A setup network opened because Wi-Fi is not configured cannot be stopped from here.
+  app.T.renderNetwork({ system: { network: { connected: false, provisioning: { active: true, reason: 'unconfigured' } } } });
+  assert.equal(byId('stop-setup-mode').hidden, true);
+  assert.equal(byId('setup-mode-status').hidden, true);
+  // Absent remaining time (older firmware) still shows the requested state without a number.
+  app.T.renderNetwork({ system: { network: { connected: true, provisioning: { active: true, reason: 'requested' } } } });
+  assert.equal(byId('setup-mode-status').textContent, 'Setup network open.');
+});
+
+test('a full idempotency ledger is reported as a busy station, not an implementation detail', async () => {
+  const a = loadApplication({ fetch: async () => jsonResponse(409, null, { code: 'conflict', message: 'Idempotency ledger is full' }) });
+  await assert.rejects(a.T.submitMutationReceipt('/scale/weigh', { method: 'POST', body: {} }),
+    (error) => error.message === 'The station is busy. Wait a minute and try again.');
+});
+
+const READY_SCALE = { revision: 1, adc_ready: true, calibrated: true, stable: true, samples_in_filter: 3, tare_ready: true };
+test('Weigh is disabled and labelled while the previous weight is saving to Spoolman', () => {
+  const a = loadApplication();
+  const byId = (id) => a.document.getElementById(id);
+  a.T.renderScale({ ...READY_SCALE, weigh_sync: { phase: 'updating', spool_id: 28, measurement_id: 4 } });
+  assert.equal(byId('weigh-scale').disabled, true);
+  assert.equal(byId('home-weigh').disabled, true);
+  assert.equal(byId('weigh-action-label').textContent, 'Saving to Spoolman…');
+  a.T.renderScale({ ...READY_SCALE, revision: 2, weigh_sync: { phase: 'updated', spool_id: 28, measurement_id: 4 } });
+  assert.equal(byId('weigh-scale').disabled, false);
+  assert.equal(byId('weigh-action-label').textContent, 'Weigh');
+});
+
+test('a weigh refused while saving shows the station message and refreshes the saving state', async () => {
+  const message = 'Saving the previous weight to Spoolman. Try again in a moment.';
+  const a = loadApplication({ fetch: async (url, init) => init.method === 'POST'
+    ? jsonResponse(409, null, { code: 'weigh_update_in_progress', message })
+    : jsonResponse(200, { ...READY_SCALE, revision: 2, weigh_sync: { phase: 'updating' } }) });
+  a.T.renderScale(READY_SCALE);
+  const button = a.document.getElementById('weigh-scale');
+  await drivePromise(a.T.runScaleMutation(button, '/scale/weigh', {}, 'Weight captured.'), a.clock);
+  await drainScheduler(a.T.scheduler);
+  await flushPromises(64);
+  assert.equal(a.document.getElementById('toast').textContent, message);
+  assert.equal(a.document.getElementById('weigh-action-label').textContent, 'Saving to Spoolman…');
+  assert.equal(button.disabled, true);
+});
+
+test('dashboard does not call a tag unlinked while Spoolman is unreachable or still looking it up', () => {
+  const a = loadApplication();
+  const text = (id) => a.document.getElementById(id).textContent;
+  const tag = { state: 'openprinttag', read_only: true, available: true, bringup_state: 'ready', present: true,
+    uid: 'E004000000000028', decode: 'pass', inventory: { present: true, tag_count: 1, uid: 'E004000000000028' } };
+  a.T.renderNfc(tag);
+  a.T.renderSpool({ workflow: { openprinttag_available: true, stage: 'spool_resolution_unavailable', spoolman: 'offline', tag } });
+  assert.equal(text('current-link'), "Spoolman is not reachable; the link can't be checked right now. It will be looked up again when Spoolman is back.");
+  assert.equal(a.document.getElementById('current-link').dataset.state, 'warn');
+  assert.equal(text('current-number'), 'Link not checked');
+  a.T.renderSpool({ workflow: { openprinttag_available: true, stage: 'resolving_spool', spoolman: 'unknown', tag } });
+  assert.equal(text('current-link'), 'Looking up this spool in Spoolman…');
+  a.T.renderSpool({ workflow: { openprinttag_available: true, stage: 'spool_not_found', spoolman: 'online', tag } });
+  assert.equal(text('current-link'), 'Not linked to Spoolman');
+  assert.equal(a.document.getElementById('current-link').dataset.state, '');
+  a.T.renderSpool({ workflow: { openprinttag_available: true, stage: 'spool_ready', spoolman: 'offline', tag, spool: { id: 28, display_name: 'Sunlu PLA+' } } });
+  assert.equal(text('current-link'), 'Linked to Spoolman');
+});
+
+test('tag actions say Write tag; Assign is reserved for printer toolheads', () => {
+  const a = loadApplication();
+  const text = (id) => a.document.getElementById(id).textContent;
+  const blank = { state: 'blank_compatible', read_only: true, available: true, bringup_state: 'ready', present: true,
+    uid: 'E004000000000031', decode: 'blank', blank_compatible: true, inventory: { present: true, tag_count: 1, uid: 'E004000000000031' } };
+  a.T.renderNfc(blank);
+  a.T.renderSpool({ workflow: { openprinttag_available: false, stage: 'awaiting_spool', spoolman: 'online', tag: blank } });
+  assert.equal(text('writer-open'), 'Write tag for a spool');
+  assert.equal(text('home-action-label'), 'Write tag');
+  assert.equal(text('current-number'), 'Ready to write');
+  assert.equal(text('nfc-guidance'), 'Ready to write');
+  const tag = { ...blank, state: 'openprinttag', decode: 'pass', blank_compatible: false, uid: 'E004000000000028', inventory: { present: true, tag_count: 1, uid: 'E004000000000028' } };
+  a.T.renderNfc(tag);
+  a.T.renderSpool({ workflow: { openprinttag_available: true, stage: 'spool_ready', spoolman: 'online', tag, spool: { id: 28, display_name: 'Sunlu PLA+' } } });
+  assert.equal(text('writer-open'), 'Use for another spool');
+  const html = readFileSync(ASSET_PATH, 'utf8');
+  assert.doesNotMatch(html, /Assign tag|Reassign|Ready to assign|id="read-tag"/);
+});
+
+test('writer preview lists fields that will not be written, outside the collapsed notices', () => {
+  const a = writerApp();
+  a.T.renderWriter({ ...sunluPreview,
+    dropped_fields: [{ field: 'material_type', value: 'PLA-CF HS', reason: 'not an OpenPrintTag material type' }, { field: 'vendor', value: 'Very Long Vendor', reason: 'longer than 32 bytes' }],
+    warnings: ['Material type PLA-CF HS is not written: not an OpenPrintTag material type', 'Vendor Very Long Vendor is not written: longer than 32 bytes', 'missing recommended GTIN'] });
+  const critical = nodeText(a.document.getElementById('writer-critical'));
+  assert.match(critical, /Not written to the tag:/);
+  assert.match(critical, /Material type “PLA-CF HS” — not an OpenPrintTag material type/);
+  assert.match(critical, /Vendor “Very Long Vendor” — longer than 32 bytes/);
+  assert.equal(a.document.getElementById('writer-notice-list').children.length, 1, 'dropped fields are not repeated in the collapsed notices');
+  assert.equal(a.document.getElementById('writer-confirm').disabled, false, 'dropped fields are informational');
+  a.T.renderWriter({ ...sunluPreview, warnings: [] });
+  assert.doesNotMatch(nodeText(a.document.getElementById('writer-critical')), /Not written/);
+});
+
+test('writer Next follows backend next_offset and Previous returns to the exact prior page', async () => {
+  const bodies = [];
+  const a = writerApp({ fetch: async (url, init) => {
+    if (init.method === 'POST') { bodies.push(JSON.parse(init.body)); return jsonResponse(202, { operation_id: 40 + bodies.length }); }
+    if (String(url).includes('/operations/')) return jsonResponse(200, { id: 40 + bodies.length, state: 'succeeded' });
+    const offset = bodies.at(-1)?.offset || 0;
+    return jsonResponse(200, { phase: 'catalog', entity: 'spool', items: [SUNLU], offset, next_offset: offset + 11, has_more: true });
+  } });
+  a.T.renderWriter({ phase: 'catalog', entity: 'spool', items: [SUNLU], offset: 0, next_offset: 11, has_more: true });
+  await drivePromise(a.T.writerSearch(true), a.clock);
+  assert.equal(bodies.at(-1).offset, 11);
+  assert.equal(a.document.getElementById('writer-page').textContent, 'Page 2');
+  await drivePromise(a.T.writerSearch(true), a.clock);
+  assert.equal(bodies.at(-1).offset, 22);
+  await drivePromise(a.T.writerSearch('previous'), a.clock);
+  assert.equal(bodies.at(-1).offset, 11);
+  await drivePromise(a.T.writerSearch('previous'), a.clock);
+  assert.equal(bodies.at(-1).offset, 0);
+  // Older firmware without next_offset continues after the rows it returned.
+  a.T.renderWriter({ phase: 'catalog', entity: 'spool', items: [SUNLU], offset: 0, has_more: true });
+  await drivePromise(a.T.writerSearch(true), a.clock);
+  assert.equal(bodies.at(-1).offset, 1);
 });

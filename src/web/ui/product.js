@@ -50,7 +50,7 @@ function renderCurrentSpool() {
   byId('tag-update').hidden=!linked||cleanup||writePending;
   byId('writer-open').hidden=(!blank&&!valid&&!writePending)||cleanup;
   byId('clear-open').hidden=(!valid&&!cleanup)||writePending;
-  setText('writer-open',writePending?'Resume tag workflow':blank?'Assign tag to a spool':linked?'Reassign':'Link to a spool');
+  setText('writer-open',writePending?'Resume tag workflow':blank?'Write tag for a spool':linked?'Use for another spool':'Link to a spool');
   setText('clear-open',cleanup?'Retry cleanup':'Clear / Reuse');
   byId('spool-empty').hidden=present;
   byId('current-spool').hidden=!present;
@@ -61,7 +61,9 @@ function renderCurrentSpool() {
   setText('current-name',name);setText('manage-material',name);
   setText('current-vendor',first(s.vendor,t.brand_name,t.brand,''));
   setText('current-material',first(s.material,t.material_abbreviation,''));
-  setText('current-number',blank&&!s.id?'Ready to assign':s.id?'Spool #'+s.id:'Not yet linked');
+  // Unlinked only means "no link" once Spoolman has actually answered for this tag.
+  const look=!s.id&&w.stage==='resolving_spool',off=!s.id&&!look&&(w.spoolman==='offline'||w.stage==='spool_resolution_unavailable');
+  setText('current-number',s.id?'Spool #'+s.id:look?'Looking up…':off?'Link not checked':blank?'Ready to write':'Not yet linked');
   setText('current-remaining',remaining===null?'—':Math.round(Number(remaining)));
   const percentage=remaining!==null&&Number(initial)>0?Math.max(0,Math.min(100,Math.round(Number(remaining)/Number(initial)*100))):null;
   byId('remaining-summary').hidden=percentage===null;
@@ -74,14 +76,14 @@ function renderCurrentSpool() {
   const reading=tagReading(t);
   setText('current-tag',t.blank_compatible?'Blank tag':t.decode==='pass'?'Tag valid':t.decode==='fail'?'Tag needs attention':reading?'Reading tag…':'Tag not read');
   byId('current-tag').dataset.valid=String(t.decode==='pass');byId('current-tag').dataset.reading=String(reading);
-  setText('current-link',s.id?'Linked to Spoolman':w.stage==='resolving_spool'?'Looking up spool…':'Not linked to Spoolman');
+  setText('current-link',s.id?'Linked to Spoolman':look?'Looking up this spool in Spoolman…':off?"Spoolman is not reachable; the link can't be checked right now. It will be looked up again when Spoolman is back.":'Not linked to Spoolman');byId('current-link').dataset.state=off?'warn':'';
   const assignments=state.printers.flatMap(p=>asArray(p.toolheads).filter(h=>s.id&&Number(first(h.assigned_spool_id,h.spool_id))===Number(s.id)).map(h=>(p.display_name||p.name||'Printer')+' · T'+(Number(first(h.backend_id,h.id))+1)));
   setText('current-assignment',assignments.length?assignments.join(', '):'Not assigned');
   setText('dashboard-printer',assignments.length?assignments.join(', '):'Choose a toolhead to assign this spool.');
   const v=state.weighSync||{}, sameWeight=s.id&&Number(v.spool_id)===Number(s.id);
   setText('dashboard-weight',sameWeight&&v.measured!=null?formatGrams(v.measured)+' measured · '+formatGrams(v.canonical_remaining)+' in Spoolman':'Weigh this spool to compare it with your inventory.');
   // A blank tag that Spoolman links to a spool is weighed as that spool.
-  setText('home-action-label',blank&&!s.id?'Assign tag':state.scale?.measurement?.active?'Weighing…':'Weigh');
+  setText('home-action-label',blank&&!s.id?'Write tag':weighSaving()?'Saving to Spoolman…':state.scale?.measurement?.active?'Weighing…':'Weigh');
   if(blank&&!s.id)byId('home-weigh').disabled=!!state.maintenance;
   byId('spool-edit').disabled=!s.id;byId('tag-update').disabled=!s.id;
   byId('spool-assign').disabled=!s.id||state.maintenance;
