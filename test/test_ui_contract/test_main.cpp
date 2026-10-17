@@ -340,6 +340,27 @@ void test_weight_fence_counts_only_its_own_bus_errors_and_drops_the_field() {
                         fence.find("reader_.field_off()", inventory));
 }
 
+// rc.21: the reading spinner, block bar and spool ring are built once with the
+// tags page and only shown/restyled when drawn; the created-spool preview is
+// sent from refresh; Home colours Spoolman-identified spools too.
+void test_tag_activity_and_colour_are_built_once() {
+  const auto source = read_source("src/ui/ui_service.cpp");
+  const auto build = method(source, "void UiService::build_tags_page()", "void UiService::open_input(");
+  for (const char* token : {"lv_spinner_create(", "lv_bar_create(", "tag_art_=lv_obj_create("})
+    TEST_ASSERT_TRUE_MESSAGE(build.find(token) != std::string::npos, token);
+  const auto draw = method(source, "void UiService::draw_tags()", "void UiService::refresh_tags()");
+  for (const char* token : {"_create(", "lv_obj_del", "lv_obj_clean"})
+    TEST_ASSERT_TRUE_MESSAGE(draw.find(token) == std::string::npos, token);
+  const auto refresh = method(source, "void UiService::refresh_tags()", "void UiService::weight_update_callback(");
+  TEST_ASSERT_TRUE(refresh.find("tag_command(flow.take_auto_preview())") != std::string::npos);
+  TEST_ASSERT_TRUE(refresh.find("ReadState::multiple") != std::string::npos);
+  const auto home = method(source, "void UiService::refresh_home_page(", "lv_obj_set_style_text_align(workflow_home_state_label_");
+  TEST_ASSERT_TRUE(home.find("workflow.spool->primary_color") != std::string::npos);
+  const auto flow = read_source("src/ui/tag_flow.hpp");
+  TEST_ASSERT_TRUE(flow.find("TagPage::move") == std::string::npos);
+  TEST_ASSERT_TRUE(flow.find("Keep the tag on the reader until it says done") == std::string::npos);
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -358,5 +379,6 @@ int main(int argc, char** argv) {
   RUN_TEST(test_tags_page_exposes_guarded_writer_and_reader_state);
   RUN_TEST(test_printer_dialogs_do_not_prefix_the_toolhead_name);
   RUN_TEST(test_weight_fence_counts_only_its_own_bus_errors_and_drops_the_field);
+  RUN_TEST(test_tag_activity_and_colour_are_built_once);
   return UNITY_END();
 }

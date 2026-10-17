@@ -64,7 +64,7 @@ const char* nfc_status_text(const nfc::ReadSnapshot& tag) {
     case nfc::ReadState::starting: return "NFC reader starting...";
     case nfc::ReadState::idle: return "NFC reader ready. Place a tag on it to test.";
     case nfc::ReadState::stabilizing:
-    case nfc::ReadState::reading: return "Reading tag...";
+    case nfc::ReadState::reading: return "Reading tag. Hold the spool still.";
     case nfc::ReadState::openprinttag: return "OpenPrintTag found. The reader works.";
     case nfc::ReadState::blank: return "Blank tag found. The reader works.";
     case nfc::ReadState::unsupported: return "Tag found, but it can't be used as it is.";
@@ -311,6 +311,7 @@ void UiService::build_current_screen() {
   workflow_identity_label_ = nullptr;
   workflow_status_label_ = nullptr;
   nfc_detail_ = nullptr;tag_title_=nullptr;tag_buttons_.fill(nullptr);
+  tag_spinner_=tag_bar_=tag_art_=nullptr;
   weight_update_=nullptr;weight_policy_=nullptr;
   display_test_touch_marker_ = nullptr;
   display_test_touch_label_ = nullptr;
@@ -660,6 +661,27 @@ void UiService::build_tags_page() {
   lv_label_set_long_mode(nfc_detail_,LV_LABEL_LONG_WRAP);
   lv_obj_set_height(nfc_detail_,LV_SIZE_CONTENT);
   for(auto& button:tag_buttons_)button=product_button(screen,{16,212,448,44},"",tag_action_callback,this);
+  // Built once per page and only shown/restyled by draw_tags: no per-refresh
+  // LVGL allocation. The spinner animates only while it is visible.
+  tag_spinner_=lv_spinner_create(screen,1000,60);place(tag_spinner_,layout::tag_spinner);
+  lv_obj_set_style_arc_width(tag_spinner_,6,LV_PART_MAIN);lv_obj_set_style_arc_width(tag_spinner_,6,LV_PART_INDICATOR);
+  lv_obj_set_style_arc_color(tag_spinner_,lv_color_hex(neutral_fill),LV_PART_MAIN);
+  lv_obj_set_style_arc_color(tag_spinner_,lv_color_hex(accent_text),LV_PART_INDICATOR);
+  lv_obj_add_flag(tag_spinner_,LV_OBJ_FLAG_HIDDEN);
+  tag_bar_=lv_bar_create(screen);place(tag_bar_,layout::tag_bar);
+  lv_obj_set_style_bg_color(tag_bar_,lv_color_hex(neutral_fill),LV_PART_MAIN);
+  lv_obj_set_style_bg_color(tag_bar_,lv_color_hex(accent_text),LV_PART_INDICATOR);
+  lv_obj_add_flag(tag_bar_,LV_OBJ_FLAG_HIDDEN);
+  // Spool ring like the Home art: the filament colour with a dark hub.
+  tag_art_=lv_obj_create(screen);place(tag_art_,layout::tag_art);
+  lv_obj_set_style_radius(tag_art_,LV_RADIUS_CIRCLE,0);
+  lv_obj_set_style_border_color(tag_art_,lv_color_hex(0x788583),0);
+  lv_obj_set_style_border_width(tag_art_,5,0);lv_obj_set_style_pad_all(tag_art_,0,0);
+  lv_obj_clear_flag(tag_art_,LV_OBJ_FLAG_SCROLLABLE);lv_obj_clear_flag(tag_art_,LV_OBJ_FLAG_CLICKABLE);
+  auto* hub=lv_obj_create(tag_art_);lv_obj_set_size(hub,16,16);lv_obj_center(hub);
+  lv_obj_set_style_radius(hub,LV_RADIUS_CIRCLE,0);lv_obj_set_style_bg_color(hub,lv_color_hex(screen_background),0);
+  lv_obj_set_style_border_width(hub,0,0);lv_obj_clear_flag(hub,LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_add_flag(tag_art_,LV_OBJ_FLAG_HIDDEN);
   if(!tag_flow_){lv_label_set_text(nfc_detail_,"Tag workspace unavailable. Please restart.");build_product_rail();return;}
   refresh_tags();
 }
@@ -742,6 +764,17 @@ void UiService::draw_tags() {
     if(item.enabled)lv_obj_clear_state(b,LV_STATE_DISABLED);else lv_obj_add_state(b,LV_STATE_DISABLED);
     if(item.destructive)style_action(b,destructive_fill,destructive_label);else style_action(b,neutral_fill,neutral_label);
   }
+  const auto indicator=tag_screen_.indicator;
+  if(indicator==TagIndicator::spinner)lv_obj_clear_flag(tag_spinner_,LV_OBJ_FLAG_HIDDEN);else lv_obj_add_flag(tag_spinner_,LV_OBJ_FLAG_HIDDEN);
+  if(indicator==TagIndicator::bar) {
+    lv_bar_set_range(tag_bar_,0,tag_screen_.total>0?tag_screen_.total:1);
+    lv_bar_set_value(tag_bar_,tag_screen_.done,LV_ANIM_OFF);
+    lv_obj_clear_flag(tag_bar_,LV_OBJ_FLAG_HIDDEN);
+  } else lv_obj_add_flag(tag_bar_,LV_OBJ_FLAG_HIDDEN);
+  if(tag_screen_.art) {
+    lv_obj_set_style_bg_color(tag_art_,lv_color_hex(tag_screen_.art_rgb),0);
+    lv_obj_clear_flag(tag_art_,LV_OBJ_FLAG_HIDDEN);
+  } else lv_obj_add_flag(tag_art_,LV_OBJ_FLAG_HIDDEN);
 }
 void UiService::refresh_tags() {
   if(!tag_flow_||!nfc_detail_)return;
@@ -759,10 +792,13 @@ void UiService::refresh_tags() {
   });
   flow.material=tag.tag?tag.tag->decoded.material.material_name.value_or("Filament spool"):"";
   flow.lifecycle=services::tag_lifecycle({tag.present,tag.blank_compatible,bool(tag.tag),flow.current_spool>0,tag.state==nfc::ReadState::unsupported,flow.phase,false});
+  flow.multiple_tags=tag.state==nfc::ReadState::multiple;
   auto body=backend_worker_.writer_snapshot();
   const auto checksum=nfc::nfcv::diagnostic_checksum(reinterpret_cast<const std::uint8_t*>(body.data()),body.size());
   if(checksum!=writer_view_checksum_) {
     if(flow.consume(body))writer_view_checksum_=checksum;
+    // A spool this screen just created goes straight to its tag review.
+    tag_command(flow.take_auto_preview());
   }
   if(flow.operation) {
     const auto op=backend_worker_.writer_operation(flow.operation);
@@ -1885,8 +1921,12 @@ void UiService::refresh_home_page(
   const bool present=workflow.openprinttag_available;
   const bool blank=home_shows_blank_tag();
   place(workflow_scale_indicator_,present?layout::home_art:layout::empty_art);
-  const auto color=workflow.material.primary_color;
-  lv_obj_set_style_bg_color(workflow_scale_indicator_,color?lv_color_make(color->red,color->green,color->blue):lv_color_hex(neutral_fill),0);
+  // The tag's own colour, else the Spoolman spool's (UID-linked spools).
+  const auto& tag_color=workflow.material.primary_color;
+  const domain::Color* spool_color=workflow.spool&&workflow.spool->primary_color?&*workflow.spool->primary_color:nullptr;
+  lv_obj_set_style_bg_color(workflow_scale_indicator_,
+      tag_color?lv_color_make(tag_color->red,tag_color->green,tag_color->blue):
+      spool_color?lv_color_make(spool_color->red,spool_color->green,spool_color->blue):lv_color_hex(neutral_fill),0);
   lv_obj_set_style_text_align(workflow_home_state_label_,present?LV_TEXT_ALIGN_LEFT:LV_TEXT_ALIGN_CENTER,0);
   lv_obj_set_style_text_align(workflow_material_label_,present?LV_TEXT_ALIGN_LEFT:LV_TEXT_ALIGN_CENTER,0);
   lv_obj_set_style_text_align(workflow_identity_label_,present?LV_TEXT_ALIGN_LEFT:LV_TEXT_ALIGN_CENTER,0);
