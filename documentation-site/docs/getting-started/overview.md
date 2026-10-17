@@ -69,7 +69,7 @@ Some things exist in only one of them:
 
 | Only on the touchscreen | Only in the browser |
 |---|---|
-| Showing the password of the setup network | Updating the firmware |
+| Showing the name of the setup network | Updating the firmware |
 | Choosing the printer from a list of the printers FilaBridge found | Factory reset and restarting the station |
 | Setting a new access token when you forgot the old one | Downloading and restoring a settings file |
 | | Testing the Spoolman and FilaBridge connections (**Test**) |

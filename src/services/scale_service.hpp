@@ -201,6 +201,7 @@ class ScaleService {
   std::size_t next_sample_{0U};
   std::size_t sample_count_{0U};
   std::uint32_t last_sample_ms_{0U};
+  std::uint32_t operation_timeout_ms_{1000U};
   std::optional<std::uint32_t> stable_candidate_since_ms_;
   std::optional<float> stable_baseline_grams_;
   std::optional<std::uint32_t> runtime_zero_candidate_since_ms_;

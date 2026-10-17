@@ -18,7 +18,7 @@ Use this page when the station does not join your Wi-Fi, or when you cannot open
 | What you need | Where it is |
 |---|---|
 | Is the station connected, and its IP address | Touchscreen **Settings**: "Connected - " and the address, or "Wi-Fi not connected" |
-| Setup network name and password | Touchscreen **Settings**: "Setup network … password …" |
+| Setup network name | Touchscreen **Settings**: "Setup Wi-Fi … (no password)" |
 | More detail (network name, signal, gateway) | Touchscreen **Settings** → **About / Advanced** |
 | The reason the last attempt failed | Touchscreen **Settings** → **Wi-Fi & services** (the **WI-FI** step), or the setup page |
 
@@ -50,7 +50,7 @@ Both are described step by step in [First boot and Wi-Fi](../getting-started/fir
 | The IP address does not open either | Your device is on another network, or the address changed. | Connect the device to the same network as the station and read the address from the touchscreen again. |
 | The touchscreen shows "Wi-Fi not connected" | The station is offline. | See the table above. After three failed attempts the setup network starts. |
 | `http://192.168.4.1/` does not open | Your device is not on the setup network, or the setup network has closed. | Join `OpenTag-Setup-XXXX` first. If it is not in the list, the station is connected to your Wi-Fi: use its normal address. |
-| Your device cannot join `OpenTag-Setup-XXXX` | Old password. | Read the current password from the touchscreen; it changes at every start. |
+| Your device cannot join `OpenTag-Setup-XXXX` | It remembered a password from an older firmware, or it leaves networks without internet. | Forget the network on your device and join it again; it has no password. If your device offers to stay connected without internet, accept. |
 | The page opens but changes ask for a token | An access token is set. | Enter it. If you forgot it, see [Access token and network safety](../configuration/security.md). |
 
 ## Open the setup network on purpose

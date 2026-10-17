@@ -3,7 +3,7 @@
 The release checklist. `VERSION` is the single source of the version; every other copy is
 generated from it.
 
-The candidate is `1.0.0-rc.20`.
+The candidate is `1.0.0-rc.21`.
 
 ## Prerequisites
 
@@ -112,8 +112,8 @@ commit (browser: **Settings → Advanced**, card **Device**) and pass or fail fo
 
 ### Install and start
 
-1. Install with the USB installer (**Factory Install / Recovery**). The station shows the setup
-   network name and password. Complete setup from the touchscreen or at `http://192.168.4.1/`.
+1. Install with the USB installer (**Factory Install / Recovery**). The station shows the open setup
+   network's name. Complete setup from the touchscreen or at `http://192.168.4.1/`.
 2. Restart. The station joins Wi-Fi, the tag reader becomes ready, Spoolman and FilaBridge show
    as connected, and there is no restart loop.
 3. Calibrate the scale with a known weight. Weigh the same object several times in different

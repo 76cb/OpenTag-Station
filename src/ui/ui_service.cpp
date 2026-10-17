@@ -834,25 +834,38 @@ void UiService::build_diagnostics_screen() {
   lv_obj_set_style_text_font(version, &lv_font_montserrat_14, 0);
   lv_obj_align(version, LV_ALIGN_TOP_RIGHT, -14, 12);
 
-  system_label_ = lv_label_create(screen);
-  lv_obj_set_style_text_font(system_label_, &lv_font_montserrat_14, 0);
-  lv_obj_set_width(system_label_, 220);
-  lv_obj_align(system_label_, LV_ALIGN_TOP_LEFT, 18, 55);
-
-  memory_label_ = lv_label_create(screen);
-  lv_obj_set_style_text_font(memory_label_, &lv_font_montserrat_14, 0);
-  lv_obj_set_width(memory_label_, 220);
-  lv_obj_align(memory_label_, LV_ALIGN_TOP_RIGHT, -18, 55);
-
-  storage_label_ = lv_label_create(screen);
-  lv_obj_set_style_text_font(storage_label_, &lv_font_montserrat_14, 0);
-  lv_obj_set_width(storage_label_, 220);
-  lv_obj_align(storage_label_, LV_ALIGN_TOP_LEFT, 18, 148);
-
-  touch_label_ = lv_label_create(screen);
-  lv_obj_set_style_text_font(touch_label_, &lv_font_montserrat_14, 0);
-  lv_obj_set_width(touch_label_, 220);
-  lv_obj_align(touch_label_, LV_ALIGN_TOP_RIGHT, -18, 148);
+  // One scrolling column of short "name: value" lines in a 16 px font, with a
+  // heading per section. The former four-column 14 px block was unreadable.
+  auto* details = lv_obj_create(screen);
+  lv_obj_set_size(details, 460, 184);
+  lv_obj_align(details, LV_ALIGN_TOP_MID, 0, 42);
+  lv_obj_set_style_bg_color(details, lv_color_hex(recessed_fill), 0);
+  lv_obj_set_style_border_width(details, 0, 0);
+  lv_obj_set_style_radius(details, 10, 0);
+  lv_obj_set_style_pad_all(details, 12, 0);
+  lv_obj_set_style_pad_row(details, 4, 0);
+  lv_obj_set_flex_flow(details, LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_scroll_dir(details, LV_DIR_VER);
+  lv_obj_set_scrollbar_mode(details, LV_SCROLLBAR_MODE_ACTIVE);
+  const auto add_section = [details](const char* heading) {
+    auto* title_label = lv_label_create(details);
+    lv_label_set_text(title_label, heading);
+    lv_obj_set_style_text_font(title_label, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(title_label, lv_color_hex(accent_text), 0);
+    lv_obj_set_style_pad_top(title_label, 6, 0);
+    auto* body = lv_label_create(details);
+    lv_obj_set_width(body, lv_pct(100));
+    lv_label_set_long_mode(body, LV_LABEL_LONG_WRAP);
+    lv_obj_set_style_text_font(body, &lv_font_montserrat_16, 0);
+    lv_obj_set_style_text_color(body, lv_color_hex(primary_text), 0);
+    lv_obj_set_style_text_line_space(body, 4, 0);
+    lv_label_set_text(body, "");
+    return body;
+  };
+  storage_label_ = add_section("NETWORK");
+  touch_label_ = add_section("SCALE AND SCREEN");
+  system_label_ = add_section("SYSTEM");
+  memory_label_ = add_section("MEMORY");
 
   auto* brightness_label = lv_label_create(screen);
   lv_label_set_text(brightness_label, "Brightness");
@@ -1532,7 +1545,7 @@ void UiService::refresh_setup() {
       body = "PRINTER\nChoose the printer FilaBridge found.";
       break;
     case services::SetupStep::scale_calibration:
-      body = "SCALE CALIBRATION\nHave an object of known weight ready, then tap\nCALIBRATE NOW and follow the steps.";
+      body = "SCALE CALIBRATION\nHave a known weight ready, then tap CALIBRATE NOW.\nMost accurate after 15 minutes switched on.";
       break;
     case services::SetupStep::nfc_status:
       body = "NFC READER\nPlace a tag on the reader to check that it works.";
@@ -1553,12 +1566,11 @@ void UiService::refresh_setup() {
   switch (step) {
     case services::SetupStep::wifi:
       if (network.provisioning_active && !network.setup_ap_ssid.empty()) {
-        // Three short lines that fit above the Back/Home/Next buttons: the
-        // password is the only way to join the WPA2 setup network.
-        status = "Wi-Fi: " + network.setup_ap_ssid + "\nPassword: " +
-            network.setup_ap_password +
+        // Short lines that fit above the Back/Home/Next buttons. The setup
+        // network is open, so there is no password to show.
+        status = "Setup Wi-Fi: " + network.setup_ap_ssid + " (no password)" +
             (network.wifi_last_error ? "\n" + network.wifi_last_error->message
-             : setup_feedback_.empty() ? std::string("\nThen open 192.168.4.1") : std::string());
+             : setup_feedback_.empty() ? std::string("\nOr join it and open 192.168.4.1") : std::string());
       } else {
         status = std::string("State: ") + network::to_string(network.wifi_state) +
             "  scan results: " + std::to_string(network_.scan_results().size());
@@ -1595,11 +1607,12 @@ void UiService::refresh_setup() {
                  "Local browser control: ENABLED\n"
                  "Trusted LAN mode - set an API token in Configuration to require authentication.";
       }
-      if (first_run_setup_.complete()) status += "\nSetup previously confirmed";
+      if (first_run_setup_.complete()) status += "\nSetup is complete.";
       break;
     case services::SetupStep::welcome:
-      status = "Configuration schema " +
-          std::to_string(configured.schema_version);
+      status = first_run_setup_.complete()
+                   ? "This station is already set up.\nTap Next to review a step, or Home to leave."
+                   : "Tap Next to start.";
       break;
   }
   if (!setup_feedback_.empty()) status += "\n" + setup_feedback_;
@@ -1994,8 +2007,7 @@ void UiService::refresh_settings_page() {
     status += " - " + system.ip_address;
   }
   if (system.provisioning_active && !system.setup_ap_ssid.empty()) {
-    status = "Setup network " + system.setup_ap_ssid + "  password " +
-        system.setup_ap_password;
+    status = "Setup Wi-Fi " + system.setup_ap_ssid + " (no password)";
   }
   bool automatic=false;configuration_.visit([&](const auto& c,auto){automatic=c.reconciliation.auto_update_after_weigh;});
   lv_label_set_text(lv_obj_get_child(weight_policy_,0),automatic?"Auto-update ON":"Auto-update OFF");
@@ -2011,6 +2023,7 @@ void UiService::refresh_diagnostics(std::uint32_t now_ms) {
   char weight[24] = "not calibrated";
   if (status.scale_weight_available) {
     format_milli(weight, sizeof(weight), status.scale_gross_milligrams);
+    std::strncat(weight, " g", sizeof(weight) - std::strlen(weight) - 1U);
   }
   char factor[24] = "n/a";
   if (status.scale_calibrated) {
@@ -2018,63 +2031,64 @@ void UiService::refresh_diagnostics(std::uint32_t now_ms) {
         factor, sizeof(factor), status.scale_factor_millicounts_per_gram);
   }
   const char* scale_quality = status.scale_overload
-                                  ? "OVERLOAD"
+                                  ? "overload"
                                   : status.scale_negative
-                                        ? "NEGATIVE"
+                                        ? "below zero"
                                         : status.scale_creep_warning
-                                              ? "CREEP"
-                                              : status.scale_stable ? "stable" : "moving";
-  lv_label_set_text_fmt(
-      system_label_,
-      "SYSTEM\nReset: %s\nUptime: %lus\nBoots: %lu  crash streak: %u\n"
-      "Storage: NVS %s / FS %s  Setup: %s",
-      status.reset_reason,
-      static_cast<unsigned long>(status.uptime_ms / 1000U),
-      static_cast<unsigned long>(status.boot_count),
-      status.crash_streak,
-      status.nvs_ready ? "OK" : "ERR",
-      status.filesystem_ready ? "OK" : "ERR",
-      first_run_setup_.complete() ? "ready" : "incomplete");
-  lv_label_set_text_fmt(
-      memory_label_,
-      "MEMORY\nHeap: %lu KiB (min %lu, block %lu)\n"
-      "PSRAM: %lu KiB (min %lu, block %lu) / %lu\nLVGL buffers: %s",
-      static_cast<unsigned long>(status.free_heap_bytes / 1024U),
-      static_cast<unsigned long>(status.minimum_free_heap_bytes / 1024U),
-      static_cast<unsigned long>(
-          status.largest_free_internal_block_bytes / 1024U),
-      static_cast<unsigned long>(status.psram_free_bytes / 1024U),
-      static_cast<unsigned long>(status.minimum_free_psram_bytes / 1024U),
-      static_cast<unsigned long>(
-          status.largest_free_psram_block_bytes / 1024U),
-      static_cast<unsigned long>(status.psram_total_bytes / 1024U),
-      buffers_in_psram_ ? "PSRAM" : "internal fallback");
+                                              ? "drifting"
+                                              : status.scale_stable ? "steady" : "settling";
+  const auto uptime_minutes = static_cast<unsigned long>(status.uptime_ms / 60000U);
   lv_label_set_text_fmt(
       storage_label_,
-      "NETWORK\nWi-Fi: %s\nSSID: %s  RSSI: %ld\nIP: %s\nGateway: %s\n"
-      "DNS: %s\nmDNS: %s  NTP: %s",
+      "Wi-Fi: %s\nNetwork: %s (signal %ld dBm)\nAddress: %s\n"
+      "Router: %s   DNS: %s\nopentag-station.local: %s   Clock: %s",
       network::to_string(status.wifi_state),
       status.wifi_ssid.empty() ? "-" : status.wifi_ssid.c_str(),
       static_cast<long>(status.wifi_rssi_dbm),
       status.ip_address.empty() ? "-" : status.ip_address.c_str(),
       status.gateway.empty() ? "-" : status.gateway.c_str(),
       status.dns_server.empty() ? "-" : status.dns_server.c_str(),
-      status.mdns_ready ? "ready" : "pending",
-      status.ntp_ready ? "ready" : "pending");
+      status.mdns_ready ? "ready" : "waiting",
+      status.ntp_ready ? "set" : "waiting");
   lv_label_set_text_fmt(
       touch_label_,
-      "HARDWARE\nDisplay: %s  Touch: %s\nScale: %s (%s)\n"
-      "ADC: %ld / %ld\nGross: %s g  %s\nCal: z=%ld f=%s",
-      status.display_ready ? "ST7796 ready" : "ERROR",
-      status.touch_configured ? "FT6336 ready" : "ERROR",
+      "Weight on scale: %s (%s)\nScale: %s, calibration %s\n"
+      "Raw reading: %ld (filtered %ld)\nZero: %ld   Factor: %s counts/g\n"
+      "Screen: %s   Touch: %s",
+      weight,
+      scale_quality,
       services::to_string(status.scale_state),
       status.scale_persistence_available ? "saved" : "not saved",
       static_cast<long>(status.scale_raw_counts),
       static_cast<long>(status.scale_filtered_counts),
-      weight,
-      scale_quality,
       static_cast<long>(status.scale_zero_offset_counts),
-      factor);
+      factor,
+      status.display_ready ? "OK" : "ERROR",
+      status.touch_configured ? "OK" : "ERROR");
+  lv_label_set_text_fmt(
+      system_label_,
+      "Running for: %luh %02lum\nStarts: %lu   Crash streak: %u\n"
+      "Last restart: %s\nSettings storage: %s   Files: %s\nSetup: %s",
+      uptime_minutes / 60UL,
+      uptime_minutes % 60UL,
+      static_cast<unsigned long>(status.boot_count),
+      status.crash_streak,
+      status.reset_reason,
+      status.nvs_ready ? "OK" : "ERROR",
+      status.filesystem_ready ? "OK" : "ERROR",
+      first_run_setup_.complete() ? "complete" : "not finished");
+  lv_label_set_text_fmt(
+      memory_label_,
+      "Free RAM: %lu KiB (lowest %lu, largest block %lu)\n"
+      "Free PSRAM: %lu of %lu KiB (lowest %lu)\nScreen buffers: %s",
+      static_cast<unsigned long>(status.free_heap_bytes / 1024U),
+      static_cast<unsigned long>(status.minimum_free_heap_bytes / 1024U),
+      static_cast<unsigned long>(
+          status.largest_free_internal_block_bytes / 1024U),
+      static_cast<unsigned long>(status.psram_free_bytes / 1024U),
+      static_cast<unsigned long>(status.psram_total_bytes / 1024U),
+      static_cast<unsigned long>(status.minimum_free_psram_bytes / 1024U),
+      buffers_in_psram_ ? "PSRAM" : "internal RAM");
 }
 
 void UiService::note_interaction(std::uint32_t now_ms) {

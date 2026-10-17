@@ -96,6 +96,7 @@ const char index_html[] = R"HTML(<!doctype html>
 <ol id="calibration-steps" class="calibration-steps">
 <li id="cal-step-empty" data-cal-step="empty">Empty platform</li><li id="cal-step-tare" data-cal-step="tare">Tare</li><li id="cal-step-reference" data-cal-step="reference">Place reference</li><li id="cal-step-stable" data-cal-step="stable">Stable signal</li><li id="cal-step-calibrate" data-cal-step="calibrate">Calibrate</li>
 </ol>
+<p class="hint">For the most accurate result, calibrate after the station has been switched on for about 15 minutes. The reading drifts while it warms up.</p>
 <button id="confirm-calibration" class="button primary calibration-submit" type="submit" disabled><span id="calibrate-action-label">Run calibration</span></button>
 </form>
 </section>

@@ -250,6 +250,7 @@ core::Result<void> ScaleService::initialize(
     set_error(initialized.error(), ScaleState::disconnected);
     return core::Result<void>::failure(initialized.error());
   }
+  operation_timeout_ms_ = operation_timeout_ms;
   const auto internal = adc_.internal_calibrate(operation_timeout_ms);
   if (!internal.ok()) {
     set_error(internal.error(), ScaleState::fault);
@@ -403,6 +404,15 @@ core::Result<void> ScaleService::begin_measurement(
   if (purpose == ScaleMeasurementPurpose::weigh && !calibration_.has_value()) {
     return core::Result<void>::failure(
         configuration_error("scale calibration is required before weighing"));
+  }
+  if (purpose == ScaleMeasurementPurpose::tare) {
+    // The ADC's offset drifts as the station warms up after power-on. Re-run
+    // its internal offset calibration right before a new zero is captured
+    // (TARE, and the zero step of CALIBRATE), so the zero and the reference
+    // measured after it share the same, current offset. A weigh never does
+    // this: it would shift the zero under a loaded platform.
+    const auto internal = adc_.internal_calibrate(operation_timeout_ms_);
+    if (!internal.ok()) return core::Result<void>::failure(internal.error());
   }
   reset_filter();
   calibration_session_reference_grams_ =

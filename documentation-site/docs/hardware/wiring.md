@@ -114,8 +114,8 @@ Install the firmware first: [Install the firmware over USB](../installation/web-
 
 1. **Touchscreen.** The screen shows the first-run setup. Tapping works.
 2. **Scale.** On the touchscreen open **Settings → About / Advanced**.
-   The **HARDWARE** block shows the scale state and two **ADC** numbers.
-   Press lightly on the platform: the numbers change.
+   The **SCALE AND SCREEN** section shows the scale state and the **Raw reading** (scroll down if
+   needed). Press lightly on the platform: the numbers change.
 3. **NFC reader.** The reader starts only after the station is connected to Wi-Fi,
    so finish [First boot and Wi-Fi](../getting-started/first-boot.md) first.
    Then open **Settings → Wi-Fi & services** and tap **Next** until the step **NFC READER**.

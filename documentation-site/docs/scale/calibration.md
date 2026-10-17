@@ -12,6 +12,9 @@ the station, and again only when something changes.
   cell's capacity is accepted; a weight close to a full spool (around 1000 g) is a practical choice.
   Weigh it on a kitchen scale if you are not sure.
 - The platform is empty: no spool, no reference weight.
+- The station has been switched on for about 15 minutes. The board and the load cell warm up
+  after power-on, and the reading drifts while they do. A calibration made right after switching
+  on can read a few grams low or high later.
 
 ## Choose the load-cell size
 
@@ -94,6 +97,8 @@ comes from Spoolman (see
 - Browser: Dashboard **Weigh → Scale setup → Tare**.
 
 Tare only with an empty platform. The station refuses a tare while the reading is still moving.
+Each tare, including the one at the start of a calibration, first re-runs the scale converter's
+own offset calibration, so the new zero matches the converter's current temperature.
 You do not need to tare before every weigh: when the empty platform has drifted a little, the
 station corrects the zero by itself.
 
