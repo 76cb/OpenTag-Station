@@ -80,6 +80,19 @@ void review_warns_from_writer_preview() {
   TEST_ASSERT_EQUAL(std::string::npos,s.body.find("Keep the tag"));
   TEST_ASSERT_EQUAL_STRING("WRITE TAG",s.buttons[1].text.c_str());
 }
+// The main forward action is drawn in the primary colour; erase stays red and
+// is never primary; BACK and DONE stay neutral.
+void action_buttons_are_coloured_by_role() {
+  TagFlow h;receive(h,R"({"phase":"preview","spool_id":31,"previous_spool_id":0,"repurpose":false})");
+  auto s=h.screen();TEST_ASSERT_EQUAL_STRING("BACK",s.buttons[0].text.c_str());TEST_ASSERT_FALSE(s.buttons[0].primary);
+  TEST_ASSERT_EQUAL_STRING("WRITE TAG",s.buttons[1].text.c_str());TEST_ASSERT_TRUE(s.buttons[1].primary);TEST_ASSERT_FALSE(s.buttons[1].destructive);
+  TagFlow c;receive(c,R"({"phase":"clear_preview"})");s=c.screen();
+  bool erase=false;for(std::size_t i=0;i<s.count;++i)if(s.buttons[i].text=="ERASE TAG"){erase=true;TEST_ASSERT_TRUE(s.buttons[i].destructive);TEST_ASSERT_FALSE(s.buttons[i].primary);}
+  TEST_ASSERT_TRUE(erase);
+  TagFlow b;b.lifecycle=services::TagLifecycle::blank_compatible;s=b.screen();
+  TEST_ASSERT_TRUE(s.count>0);TEST_ASSERT_TRUE(s.buttons[0].primary);
+  for(std::size_t i=1;i<s.count;++i)TEST_ASSERT_FALSE(s.buttons[i].primary);
+}
 // Created spool -> its tag review with no "REVIEW TAG WRITE" stop, sent
 // exactly once, and never for a spool another client created.
 void created_spool_previews_once() {
@@ -251,7 +264,7 @@ void production_sink_full_gzip_integrity() {
 #include "rc10_cases.hpp"
 #include "train_cases.hpp"
 void setUp() {} void tearDown() {}
-int main() {UNITY_BEGIN();RUN_TEST(lifecycle);RUN_TEST(sensible_actions);RUN_TEST(bounded_paging_and_selection);RUN_TEST(reassign_review);RUN_TEST(review_warns_from_writer_preview);RUN_TEST(created_spool_previews_once);RUN_TEST(reading_and_two_tags);RUN_TEST(loading_spool_says_what_it_does);RUN_TEST(spool_colour_ring);RUN_TEST(exact_confirmation);RUN_TEST(clear_retry_to_immediate_assign);RUN_TEST(filament_and_community_create);RUN_TEST(stale_operation_rejected);RUN_TEST(keyboard_geometry);RUN_TEST(keyboard_value_and_validation);RUN_TEST(gzip_chunked_integrity_and_limits);RUN_TEST(gzip_explicit_completion_and_error);RUN_TEST(community_catalog_status_download_and_retry);RUN_TEST(production_sink_closes_on_disposition);RUN_TEST(production_sink_full_gzip_integrity);RUN_TEST(rc10::assignment_dialog_only_affirmative_labels_confirm);RUN_TEST(rc10::progress_never_shows_blocks_for_spoolman_work);RUN_TEST(rc10::filament_review_formats_diameter);RUN_TEST(rc10::unknown_empty_spool_weight_must_be_entered);RUN_TEST(rc10::vendor_search_is_kept_while_paging);RUN_TEST(rc10::destructive_and_duplicate_actions);RUN_TEST(rc10::recovery_can_be_skipped_explicitly);RUN_TEST(rc10::metadata_candidates_can_be_chosen_on_the_touchscreen);
+int main() {UNITY_BEGIN();RUN_TEST(lifecycle);RUN_TEST(sensible_actions);RUN_TEST(bounded_paging_and_selection);RUN_TEST(reassign_review);RUN_TEST(review_warns_from_writer_preview);RUN_TEST(action_buttons_are_coloured_by_role);RUN_TEST(created_spool_previews_once);RUN_TEST(reading_and_two_tags);RUN_TEST(loading_spool_says_what_it_does);RUN_TEST(spool_colour_ring);RUN_TEST(exact_confirmation);RUN_TEST(clear_retry_to_immediate_assign);RUN_TEST(filament_and_community_create);RUN_TEST(stale_operation_rejected);RUN_TEST(keyboard_geometry);RUN_TEST(keyboard_value_and_validation);RUN_TEST(gzip_chunked_integrity_and_limits);RUN_TEST(gzip_explicit_completion_and_error);RUN_TEST(community_catalog_status_download_and_retry);RUN_TEST(production_sink_closes_on_disposition);RUN_TEST(production_sink_full_gzip_integrity);RUN_TEST(rc10::assignment_dialog_only_affirmative_labels_confirm);RUN_TEST(rc10::progress_never_shows_blocks_for_spoolman_work);RUN_TEST(rc10::filament_review_formats_diameter);RUN_TEST(rc10::unknown_empty_spool_weight_must_be_entered);RUN_TEST(rc10::vendor_search_is_kept_while_paging);RUN_TEST(rc10::destructive_and_duplicate_actions);RUN_TEST(rc10::recovery_can_be_skipped_explicitly);RUN_TEST(rc10::metadata_candidates_can_be_chosen_on_the_touchscreen);
   RUN_TEST(train::nfc_error_does_not_replace_recovery_instructions);
   RUN_TEST(train::recovery_prompt_survives_leaving_and_failed_retries);
   RUN_TEST(train::different_tag_after_removal_restarts_the_flow);

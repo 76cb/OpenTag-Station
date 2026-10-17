@@ -3,7 +3,7 @@
 The release checklist. `VERSION` is the single source of the version; every other copy is
 generated from it.
 
-The candidate is `1.0.0-rc.21`.
+The candidate is `1.0.0-rc.22`.
 
 ## Prerequisites
 

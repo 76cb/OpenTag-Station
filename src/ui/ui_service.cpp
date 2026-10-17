@@ -49,6 +49,16 @@ void style_action(lv_obj_t* button, std::uint32_t fill, std::uint32_t label) {
   if (text != nullptr) lv_obj_set_style_text_color(text, lv_color_hex(label), 0);
 }
 
+// Every button uses the product palette instead of LVGL's default blue:
+// primary (mint) for the screen's main forward action, neutral otherwise.
+void style_role(lv_obj_t* button, bool primary) {
+  if (button == nullptr) return;
+  lv_obj_set_style_radius(button, 8, 0);
+  lv_obj_set_style_shadow_width(button, 0, 0);
+  style_action(button, primary ? primary_fill : neutral_fill,
+               primary ? primary_label : neutral_label);
+}
+
 void set_enabled(lv_obj_t* button, bool enabled) {
   if (button == nullptr) return;
   if (enabled) {
@@ -762,7 +772,9 @@ void UiService::draw_tags() {
     lv_obj_set_height(label,item.text.find('\n')==std::string::npos?20:40);
     lv_label_set_long_mode(label,LV_LABEL_LONG_DOT);lv_obj_center(label);
     if(item.enabled)lv_obj_clear_state(b,LV_STATE_DISABLED);else lv_obj_add_state(b,LV_STATE_DISABLED);
-    if(item.destructive)style_action(b,destructive_fill,destructive_label);else style_action(b,neutral_fill,neutral_label);
+    if(item.destructive)style_action(b,destructive_fill,destructive_label);
+    else if(item.primary)style_action(b,primary_fill,primary_label);
+    else style_action(b,neutral_fill,neutral_label);
   }
   const auto indicator=tag_screen_.indicator;
   if(indicator==TagIndicator::spinner)lv_obj_clear_flag(tag_spinner_,LV_OBJ_FLAG_HIDDEN);else lv_obj_add_flag(tag_spinner_,LV_OBJ_FLAG_HIDDEN);
@@ -923,6 +935,7 @@ void UiService::build_diagnostics_screen() {
   auto* sleep_label = lv_label_create(sleep_button);
   lv_label_set_text(sleep_label, "Sleep");
   lv_obj_center(sleep_label);
+  style_role(sleep_button, false);
 
   auto* setup_button = lv_btn_create(screen);
   lv_obj_set_size(setup_button, 104, 44);
@@ -932,6 +945,7 @@ void UiService::build_diagnostics_screen() {
   auto* setup_label = lv_label_create(setup_button);
   lv_label_set_text(setup_label, "Setup");
   lv_obj_center(setup_label);
+  style_role(setup_button, false);
 
   auto* main_button = lv_btn_create(screen);
   lv_obj_set_size(main_button, 104, 44);
@@ -941,6 +955,7 @@ void UiService::build_diagnostics_screen() {
   auto* main_label = lv_label_create(main_button);
   lv_label_set_text(main_label, "Home");
   lv_obj_center(main_label);
+  style_role(main_button, true);
 }
 
 lv_obj_t* UiService::create_setup_textarea(
@@ -1063,7 +1078,8 @@ void UiService::build_setup_screen() {
   const auto make_button = [this, screen](
                                const char* text,
                                std::int16_t x,
-                               lv_event_cb_t callback) {
+                               lv_event_cb_t callback,
+                               bool primary) {
     auto* button = lv_btn_create(screen);
     lv_obj_set_size(button, 110, 46);
     lv_obj_align(button, LV_ALIGN_BOTTOM_LEFT, x, -10);
@@ -1071,14 +1087,15 @@ void UiService::build_setup_screen() {
     auto* label = lv_label_create(button);
     lv_label_set_text(label, text);
     lv_obj_center(label);
+    style_role(button, primary);
     return button;
   };
-  make_button("Back", 14, setup_back_callback);
-  make_button("Home", 185, setup_toggle_callback);
+  make_button("Back", 14, setup_back_callback, false);
+  make_button("Home", 185, setup_toggle_callback, false);
   make_button(
       step == services::SetupStep::ready ? "Finish" : "Next",
       356,
-      setup_next_callback);
+      setup_next_callback, true);
   if (setup_input_one_ != nullptr) {
     auto* save_button = lv_btn_create(screen);
     lv_obj_set_size(save_button, 156, 42);
@@ -1092,6 +1109,7 @@ void UiService::build_setup_screen() {
     auto* save_label = lv_label_create(save_button);
     lv_label_set_text(save_label, "Save");
     lv_obj_center(save_label);
+    style_role(save_button, true);
   }
   if (step == services::SetupStep::scale_calibration) {
     auto* calibrate = lv_btn_create(screen);
@@ -1109,6 +1127,7 @@ void UiService::build_setup_screen() {
     auto* label = lv_label_create(calibrate);
     lv_label_set_text(label, "CALIBRATE NOW");
     lv_obj_center(label);
+    style_role(calibrate, !configured.scale_calibration.has_value());
   }
   if (step == services::SetupStep::wifi) {
     auto* scan_button = lv_btn_create(screen);
@@ -1119,6 +1138,7 @@ void UiService::build_setup_screen() {
     auto* scan_label = lv_label_create(scan_button);
     lv_label_set_text(scan_label, "Scan");
     lv_obj_center(scan_label);
+    style_role(scan_button, false);
   }
 
 
@@ -1431,7 +1451,21 @@ void UiService::toolhead_callback(lv_event_t* event) {
       LV_EVENT_VALUE_CHANGED,
       self);
   lv_obj_set_width(message_box,448);
-  lv_obj_set_style_min_height(lv_msgbox_get_btns(message_box),48,0);
+  auto* choices = lv_msgbox_get_btns(message_box);
+  lv_obj_set_style_min_height(choices,48,0);
+  // Cancel is neutral. The confirming choice is mint for a plain assignment
+  // and red when it replaces a spool or overrides an active print. LVGL draws
+  // a button with the CHECKED control in the items' checked style.
+  lv_obj_set_style_bg_color(choices, lv_color_hex(neutral_fill), LV_PART_ITEMS);
+  lv_obj_set_style_text_color(choices, lv_color_hex(neutral_label), LV_PART_ITEMS);
+  const bool plain_assign = buttons == assignment_buttons;
+  lv_obj_set_style_bg_color(
+      choices, lv_color_hex(plain_assign ? primary_fill : destructive_fill),
+      LV_PART_ITEMS | LV_STATE_CHECKED);
+  lv_obj_set_style_text_color(
+      choices, lv_color_hex(plain_assign ? primary_label : destructive_label),
+      LV_PART_ITEMS | LV_STATE_CHECKED);
+  lv_btnmatrix_set_btn_ctrl(choices, 1, LV_BTNMATRIX_CTRL_CHECKED);
   lv_obj_center(message_box);
 }
 
