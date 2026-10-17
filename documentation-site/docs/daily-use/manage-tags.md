@@ -52,7 +52,8 @@ interrupted; see [Finish an interrupted tag operation](../troubleshooting/journa
    Spool rows read "#N Maker Name" and "NNN g remaining"; filament rows read "Maker Name" and
    the material and weight. [How search works](#how-search-works) explains what to type.
 4. Tap the row.
-    - A spool: "Use this spool?" shows its name, number and remaining weight. Tap **USE SPOOL**.
+    - A spool: the station reads the tag straight away ("Reading tag", with a progress bar) and
+      opens the review page (step 6).
     - A filament: "Use this filament?". Tap **CREATE A SPOOL**.
 5. Only after **CREATE A SPOOL**: the page "Create physical spool" shows three lines, each ending in **EDIT**.
    Tap a line to change its value.
@@ -63,17 +64,21 @@ interrupted; see [Finish an interrupted tag operation](../troubleshooting/journa
     | **Remaining** | The same as the initial weight. Lower it for a part-used spool. |
     | **Empty spool** | The filament's empty-spool weight, else the vendor's. Reads **NOT SET** when neither has one; you must enter it. |
 
-    Tap **CREATE SPOOL**. The station creates the spool in Spoolman and shows "Spool created" with
-    its new number. Tap **REVIEW TAG WRITE**.
+    Tap **CREATE SPOOL**. The station creates the spool in Spoolman, reads the tag and opens the
+    review page by itself.
 
-6. Only when moving a tag from one spool to another: "Move this tag?" shows "FROM #A …", "TO #B …"
-   and "The previous spool stays in inventory." Tap **CONTINUE**.
-7. Read the review page "Ready to write": the spool's name and number,
-   "Replaces the filament data on the tag." and "Keep the tag on the reader until it says done."
-   Tap **WRITE TAG**.
-8. Leave the tag alone. The page shows "Checking tag", then "Writing tag" with "Keep the tag on the
-   reader." and a block count, then "Saving link in Spoolman" with "The tag is already written."
-9. Done: "TAG READY", the spool's name and "Spool #N - verified".
+6. Read the review page. It shows the spool's name and number and a ring in the spool's colour.
+    - Normally the title is "Ready to write" with "Replaces the filament data on the tag."
+    - When the tag belongs to another spool, the title is "Move this tag?" with
+      "From spool #A to #B. Spool #A stays in your inventory."
+    - When the tag holds another spool's data that Spoolman does not link: "This tag holds another
+      spool's data. Writing replaces it."
+
+    Tap **WRITE TAG**. This is the only confirmation.
+7. Leave the tag on the reader. The page shows "Checking tag", then "Writing tag" with
+   "Keep the tag on the reader." and a progress bar, then "Saving link in Spoolman" with
+   "The tag is already written."
+8. Done: "TAG READY", the spool's name, "Spool #N - verified" and the colour ring.
    Tap **WEIGH**, **ASSIGN TO PRINTER** or **DONE**.
 
 **BACK** takes you one page back at any point before **WRITE TAG**.
@@ -92,8 +97,9 @@ After the tag is written and checked, the station saves the link in Spoolman:
 You can start in three places: **Write a new tag** on an empty Dashboard, a button in the
 **Manage tag** dialog, or the **Inventory** page, which holds the same picker.
 
-The dialog is titled "Create OpenPrintTag" and shows five steps:
-**Select → Review → Preview → Write → Verified**.
+The dialog is titled "Create OpenPrintTag" and shows four steps:
+**Select → Preview → Write → Done**. An **Edit** step appears only while you edit a spool or
+filament.
 
 1. **Select.** Choose a tab: **Spools**, **Filaments** or **Vendors**.
    Type into **Search** and, if you like, **Material** (for example `PETG`), then click **Search**.
@@ -104,20 +110,23 @@ The dialog is titled "Create OpenPrintTag" and shows five steps:
 2. If the filament has no spool yet, open **Create new physical spool**, fill in
    **Initial filament (g)**, **Used weight (g)**, **Empty spool (g)** and, if you want,
    **Price (Spoolman currency)**, **Location**, **Lot / batch** and **Notes**.
-   Click **Create spool** and confirm "Create this physical spool in Spoolman?".
-   The dialog then moves on to Review by itself.
-3. If you selected an existing spool, click **Continue**.
-4. **Review.** Check the spool. Click **Preview tag**.
-   (**Update consumed weight** instead prepares a write that only refreshes the used weight on the tag.)
-5. **Preview.** The station reads the tag and shows what will change. Click **Write this tag** and
-   confirm the question "Write tag … for spool #N? … Keep tag and power in place."
-   When the tag currently belongs to another spool, the question adds
-   "Move the tag from spool #A to #N. The previous spool stays in inventory."
-6. **Write.** "Keep the tag on the reader. Do not remove power."
-7. **Verified.** The heading reads "✓ OpenPrintTag written and verified" and the banner
+   Click **Create spool**. The dialog then shows the new spool; click **Preview tag**.
+3. If you selected an existing spool, click **Continue**. The station reads the tag at once
+   (a progress bar fills while it reads).
+4. **Preview.** "Ready to write" shows the spool, a spool picture in its colour and what the tag
+   will contain. Click **Write tag**. For an ordinary write there is no further question.
+   The browser asks once more, with the button in red, only when the write replaces something:
+   when the tag belongs to another spool ("Move the tag from spool #A to #N. The previous spool
+   stays in inventory."), or when it holds other data or an interrupted write.
+5. **Write.** The banner shows the step and a block count, for example "Writing tag · 12 / 40
+   blocks", and "Keep the tag on the reader." While the link is saved: "The tag is written. Saving
+   the link in Spoolman…"
+6. **Done.** The heading reads "✓ OpenPrintTag written and verified" and the banner
    "Tag and Spoolman association verified; ready to weigh and assign". Click **Done**.
 
-**Cancel**, **Back to Select** and **Back to Review** leave or step back without writing.
+**Edit Spool** and **Edit filament** on the Select step open the editor; **Update consumed
+weight** prepares a write that only refreshes the used weight on the tag.
+**Cancel** and **Back to Select** leave or step back without writing.
 
 ## How search works
 

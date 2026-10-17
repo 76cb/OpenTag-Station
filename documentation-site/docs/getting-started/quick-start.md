@@ -19,19 +19,19 @@ Stick the tag on the spool and put the spool on the station with the tag over th
 
 1. Home shows "COMPATIBLE BLANK TAG — Ready to assign". Tap **ASSIGN TAG**.
 2. Tap **MY SPOOLS**. Find the spool with **PREV** / **NEXT** or **SEARCH**, and tap it.
-3. On "Use this spool?", tap **USE SPOOL**.
-4. On "Ready to write", tap **WRITE TAG**. Keep the tag on the reader until it says done.
-5. The screen shows **TAG READY** with the spool number and "verified".
+   The station reads the tag.
+3. On "Ready to write", tap **WRITE TAG**. Keep the tag on the reader while the bar fills.
+4. The screen shows **TAG READY** with the spool number, "verified" and the spool's colour.
 
 No spool in Spoolman yet? Tap **MY FILAMENTS** instead, choose the filament, tap
-**CREATE A SPOOL**, check the three weights, tap **CREATE SPOOL**, then **REVIEW TAG WRITE**.
+**CREATE A SPOOL**, check the three weights and tap **CREATE SPOOL**; "Ready to write" follows.
 
 **Browser**
 
 1. The Dashboard shows "Blank tag — Ready to assign". Click **Assign tag**.
 2. In the **Create OpenPrintTag** dialog, choose the spool on the **Spools** tab and click
-   **Continue**.
-3. Click **Preview tag**, then **Write this tag**, and confirm.
+   **Continue**. The station reads the tag.
+3. Click **Write tag**.
 4. Wait for "✓ OpenPrintTag written and verified", then click **Done**.
 
 The station has now written the tag, checked it, and stored the link on the spool in Spoolman.

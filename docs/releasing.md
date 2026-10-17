@@ -122,16 +122,16 @@ commit (browser: **Settings → Advanced**, card **Device**) and pass or fail fo
 ### Write
 
 4. Place one blank tag. Touchscreen shows `BLANK TAG`. Start a write for an existing spool, once
-   from the touchscreen (**ASSIGN TAG** → **MY SPOOLS**) and once from the browser
-   (**Preview tag**).
+   from the touchscreen (**ASSIGN TAG** → **MY SPOOLS** → tap the spool) and once from the browser
+   (select the spool → **Continue**).
 5. Check the preview: tag UID, spool, the listed values, 80 × 4 bytes, preserved blocks 78–79.
 6. Negative checks before confirming. Each must refuse without changing any tag:
    - swap the tag for another one after the preview, then confirm;
    - place two tags;
    - place a tag that holds other data (for example a URL written by a phone);
    - preview, wait, change the spool's extra-field keys in the station settings, then confirm.
-7. Confirm (**WRITE TAG** / **Write this tag**) and keep tag and power in place. Progress counts
-   blocks. The result is `TAG READY` on the touchscreen and `✓ OpenPrintTag written and verified`
+7. Confirm (**WRITE TAG** / **Write tag**; an ordinary write asks nothing more) and keep tag and
+   power in place. Progress counts blocks. The result is `TAG READY` on the touchscreen and `✓ OpenPrintTag written and verified`
    in the browser.
 8. In Spoolman, the spool's `opentag_instance_uuid` and `nfc_uid` hold the values shown by the
    station. No other spool has them.
