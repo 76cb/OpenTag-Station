@@ -24,7 +24,10 @@ void NfcWorker::run_once() {
       tag_generation_ = generation;
       measurement_requested_ = false;
     }
-    if (!handoff_.submitted() || !measurement_requested_) {
+    // The Spoolman lookup never waits for this weight (the handoff queues it
+    // as soon as the tag is identified). The automatic weigh only supplies a
+    // physical weight for reconciliation; it never updates Spoolman.
+    if (!handoff_.weight_attached() || !measurement_requested_) {
       const auto scale = diagnostics_.scale_snapshot();
       const auto now = millis();
       // A serialized backend request can outlive a successful scale sample's
@@ -62,8 +65,8 @@ void NfcWorker::run_once() {
       // may satisfy it. Only successful-but-aged samples are refreshed above.
     }
   }
-  handoff_.observe(current, weight);
   const auto now = millis();
+  handoff_.observe(current, weight, now);
   if (static_cast<std::uint32_t>(now - last_log_) >= 5000U) {
     last_log_ = now;
     Serial.printf(

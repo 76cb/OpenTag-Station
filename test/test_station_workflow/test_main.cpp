@@ -1,5 +1,6 @@
 #include <unity.h>
 
+#include <cmath>
 #include <optional>
 #include <string>
 #include <utility>
@@ -222,8 +223,11 @@ void test_complete_decoded_tag_to_verified_t3_assignment_slice() {
   TEST_ASSERT_EQUAL_INT(1, printers.assignment_calls);
 }
 
-void test_unstable_scale_defers_spoolman_resolution() {
+void test_unstable_scale_still_resolves_spool() {
   FakeResolver resolver;
+  resolver.next = Result<SpoolResolution>::success({
+      SpoolResolutionStatus::matched, SpoolMatchSource::configured_identity_field,
+      {spool()}});
   FakePrinterBackend printers;
   StationWorkflow workflow(resolver, printers);
 
@@ -231,10 +235,12 @@ void test_unstable_scale_defers_spoolman_resolution() {
       material(), Uid{}, {900.0F, false}, {}, {5.0F, 20.0F});
 
   TEST_ASSERT_EQUAL(
-      static_cast<int>(WorkflowStage::waiting_for_stable_weight),
+      static_cast<int>(WorkflowStage::spool_ready),
       static_cast<int>(state.stage));
   TEST_ASSERT_TRUE(state.openprinttag_available);
-  TEST_ASSERT_EQUAL_INT(0, resolver.calls);
+  TEST_ASSERT_EQUAL_INT(1, resolver.calls);
+  TEST_ASSERT_FALSE(state.physical_weight.stable);
+  TEST_ASSERT_FALSE(state.reconciliation.measured_remaining_grams.has_value());
 }
 
 void test_spoolman_outage_preserves_tag_and_physical_weight() {
@@ -452,14 +458,16 @@ void test_stale_printer_revision_rejects_assignment() {
       std::string::npos, result.error().message.find("changed"));
 }
 
-void test_nfc_handoff_waits_submits_once_and_clears() {
+void test_nfc_handoff_submits_once_without_weight_and_clears() {
   FakeResolver resolver;
   FakePrinterBackend printers;
   StationWorkflow workflow(resolver, printers);
   int submissions = 0;
+  bool submitted_weight_stable = true;
   opentag::services::NfcWorkflowHandoff handoff(workflow,
       [&](const opentag::nfc::IdentifiedTag& tag, opentag::domain::WeightReading weight, std::uint64_t generation) {
         ++submissions;
+        submitted_weight_stable = weight.stable;
         (void)workflow.accept_identified_spool(tag.decoded.material,tag.uid,weight,{}, {},generation);
         return true;
       });
@@ -470,11 +478,16 @@ void test_nfc_handoff_waits_submits_once_and_clears() {
   handoff.observe(s,std::nullopt);
   const auto generation = workflow.snapshot().spool_generation;
   TEST_ASSERT_TRUE(workflow.snapshot().openprinttag_available);
-  TEST_ASSERT_EQUAL_INT(static_cast<int>(WorkflowStage::waiting_for_stable_weight), static_cast<int>(workflow.snapshot().stage));
+  // Looked up at once, without a weight.
+  TEST_ASSERT_EQUAL(1,submissions);
+  TEST_ASSERT_FALSE(submitted_weight_stable);
   handoff.observe(s,opentag::domain::WeightReading{900,false});
-  TEST_ASSERT_EQUAL(0,submissions);
+  TEST_ASSERT_FALSE(handoff.weight_attached());
   for (int i=0;i<20;++i) handoff.observe(s,opentag::domain::WeightReading{900,true});
   TEST_ASSERT_EQUAL(1,submissions);
+  TEST_ASSERT_TRUE(handoff.weight_attached());
+  TEST_ASSERT_TRUE(workflow.snapshot().physical_weight.stable);
+  TEST_ASSERT_FLOAT_WITHIN(0.01F, 900.0F, workflow.snapshot().physical_weight.gross_grams);
   TEST_ASSERT_EQUAL(generation,workflow.snapshot().spool_generation);
   s.tag.reset();
   handoff.observe(s,std::nullopt);
@@ -482,6 +495,157 @@ void test_nfc_handoff_waits_submits_once_and_clears() {
   const auto cleared = workflow.snapshot().spool_generation;
   handoff.observe(s,std::nullopt);
   TEST_ASSERT_EQUAL(cleared,workflow.snapshot().spool_generation);
+}
+
+void test_uncalibrated_scale_still_resolves_spool() {
+  // An uncalibrated scale or a failed automatic weigh never supplies a weight.
+  FakeResolver resolver;
+  resolver.next = Result<SpoolResolution>::success({
+      SpoolResolutionStatus::matched, SpoolMatchSource::configured_identity_field,
+      {spool()}});
+  FakePrinterBackend printers;
+  StationWorkflow workflow(resolver, printers);
+  int submissions = 0;
+  opentag::services::NfcWorkflowHandoff handoff(workflow,
+      [&](const opentag::nfc::IdentifiedTag& tag, opentag::domain::WeightReading weight, std::uint64_t generation) {
+        ++submissions;
+        (void)workflow.accept_identified_spool(tag.decoded.material,tag.uid,weight,{}, {5.0F, 20.0F},generation);
+        return true;
+      });
+  auto tag = std::make_shared<opentag::nfc::IdentifiedTag>();
+  tag->generation = 3;
+  tag->decoded.material = material();
+  opentag::nfc::ReadSnapshot s;
+  s.tag = tag;
+  for (std::uint32_t t = 0; t < 60000U; t += 250U) handoff.observe(s, std::nullopt, t);
+  TEST_ASSERT_EQUAL(1, submissions);
+  auto state = workflow.snapshot();
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(WorkflowStage::spool_ready), static_cast<int>(state.stage));
+  TEST_ASSERT_TRUE(state.spool.has_value());
+  TEST_ASSERT_EQUAL_INT32(147, state.spool->id);
+  TEST_ASSERT_FALSE(state.reconciliation.measured_remaining_grams.has_value());
+  // A weight measured later is attached for reconciliation only.
+  handoff.observe(s, opentag::domain::WeightReading{900, true}, 60000U);
+  TEST_ASSERT_EQUAL(1, submissions);
+  state = workflow.snapshot();
+  TEST_ASSERT_TRUE(state.reconciliation.measured_remaining_grams.has_value());
+  TEST_ASSERT_FLOAT_WITHIN(0.01F, 700.0F, *state.reconciliation.measured_remaining_grams);
+}
+
+void test_lookup_repeats_once_spoolman_returns() {
+  FakeResolver resolver;
+  resolver.next = Result<SpoolResolution>::failure(
+      {ErrorCategory::network, "Spoolman unreachable", true});
+  FakePrinterBackend printers;
+  StationWorkflow workflow(resolver, printers);
+  // Queue model: submissions are queued and run later, like the backend owner.
+  std::vector<std::pair<opentag::nfc::IdentifiedTag, std::uint64_t>> queue;
+  opentag::services::NfcWorkflowHandoff handoff(workflow,
+      [&](const opentag::nfc::IdentifiedTag& tag, opentag::domain::WeightReading, std::uint64_t generation) {
+        queue.emplace_back(tag, generation);
+        return true;
+      });
+  auto drain = [&] {
+    for (auto& entry : queue)
+      (void)workflow.accept_identified_spool(entry.first.decoded.material, entry.first.uid,
+          {NAN, false}, {}, {5.0F, 20.0F}, entry.second);
+    queue.clear();
+  };
+  auto tag = std::make_shared<opentag::nfc::IdentifiedTag>();
+  tag->generation = 5;
+  tag->decoded.material = material();
+  opentag::nfc::ReadSnapshot s;
+  s.tag = tag;
+  handoff.observe(s, std::nullopt, 0U);
+  TEST_ASSERT_EQUAL_UINT(1U, queue.size());
+  drain();
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(WorkflowStage::spool_resolution_unavailable),
+      static_cast<int>(workflow.snapshot().stage));
+  // Spoolman still offline: no retry however long the tag stays.
+  for (std::uint32_t t = 250U; t < 60000U; t += 250U) handoff.observe(s, std::nullopt, t);
+  TEST_ASSERT_EQUAL_UINT(0U, queue.size());
+  TEST_ASSERT_EQUAL_INT(1, resolver.calls);
+  // The backend probe reports Spoolman reachable again: one lookup is queued.
+  workflow.set_spoolman_probe(true);
+  resolver.next = Result<SpoolResolution>::success({
+      SpoolResolutionStatus::matched, SpoolMatchSource::configured_identity_field,
+      {spool()}});
+  for (std::uint32_t t = 60000U; t < 90000U; t += 250U) handoff.observe(s, std::nullopt, t);
+  TEST_ASSERT_EQUAL_UINT(1U, queue.size());  // never two concurrent lookups
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(WorkflowStage::resolving_spool),
+      static_cast<int>(workflow.snapshot().stage));
+  drain();
+  TEST_ASSERT_EQUAL_INT(2, resolver.calls);
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(WorkflowStage::spool_ready),
+      static_cast<int>(workflow.snapshot().stage));
+  for (std::uint32_t t = 90000U; t < 150000U; t += 250U) handoff.observe(s, std::nullopt, t);
+  TEST_ASSERT_EQUAL_UINT(0U, queue.size());
+}
+
+void test_lookup_retry_is_spaced_and_requeued_when_queue_is_full() {
+  FakeResolver resolver;
+  resolver.next = Result<SpoolResolution>::failure(
+      {ErrorCategory::invalid_response, "Spoolman answered 500", true});
+  FakePrinterBackend printers;
+  StationWorkflow workflow(resolver, printers);
+  int submissions = 0;
+  bool accept = true;
+  opentag::services::NfcWorkflowHandoff handoff(workflow,
+      [&](const opentag::nfc::IdentifiedTag& tag, opentag::domain::WeightReading weight, std::uint64_t generation) {
+        ++submissions;
+        if (!accept) return false;
+        (void)workflow.accept_identified_spool(tag.decoded.material, tag.uid, weight, {}, {}, generation);
+        return true;
+      });
+  auto tag = std::make_shared<opentag::nfc::IdentifiedTag>();
+  tag->generation = 6;
+  opentag::nfc::ReadSnapshot s;
+  s.tag = tag;
+  handoff.observe(s, std::nullopt, 1000U);
+  TEST_ASSERT_EQUAL(1, submissions);
+  // Even with every probe reporting Spoolman online, a failing lookup is
+  // repeated at most once per retry interval (at 11, 21, 31 and 41 s).
+  for (std::uint32_t t = 1000U; t <= 41000U; t += 250U) {
+    workflow.set_spoolman_probe(true);
+    handoff.observe(s, std::nullopt, t);
+  }
+  TEST_ASSERT_EQUAL(5, submissions);
+  // A retry that cannot be queued shows the failure again and is tried later.
+  accept = false;
+  workflow.set_spoolman_probe(true);
+  handoff.observe(s, std::nullopt, 52000U);
+  TEST_ASSERT_EQUAL(6, submissions);
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(WorkflowStage::spool_resolution_unavailable),
+      static_cast<int>(workflow.snapshot().stage));
+}
+
+void test_scan_report_is_claimed_once_per_placement() {
+  FakeResolver resolver;
+  FakePrinterBackend printers;
+  StationWorkflow workflow(resolver, printers);
+  const auto generation = workflow.begin_identified_spool(material(), Uid{});
+  TEST_ASSERT_TRUE(workflow.claim_scan_report(generation));
+  TEST_ASSERT_FALSE(workflow.claim_scan_report(generation));  // retried lookup
+  TEST_ASSERT_FALSE(workflow.claim_scan_report(0U));
+  workflow.clear();
+  TEST_ASSERT_FALSE(workflow.claim_scan_report(generation));  // tag removed
+  const auto next = workflow.begin_identified_spool(material(), Uid{});
+  TEST_ASSERT_TRUE(workflow.claim_scan_report(next));
+}
+
+void test_failed_resolution_workspace_never_stays_resolving() {
+  FakeResolver resolver;
+  FakePrinterBackend printers;
+  StationWorkflow workflow(resolver, printers);
+  const auto generation = workflow.begin_identified_spool(material(), Uid{});
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(WorkflowStage::resolving_spool),
+      static_cast<int>(workflow.snapshot().stage));
+  workflow.fail_resolution(generation, {ErrorCategory::backend_unavailable, "no workspace", true});
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(WorkflowStage::spool_resolution_unavailable),
+      static_cast<int>(workflow.snapshot().stage));
+  workflow.set_spoolman_probe(true);
+  TEST_ASSERT_TRUE(workflow.begin_lookup_retry(generation));
+  TEST_ASSERT_FALSE(workflow.begin_lookup_retry(generation));
 }
 
 void test_removed_tag_rejects_queued_and_inflight_resolution() {
@@ -529,7 +693,7 @@ void test_mapping_completion_does_not_restore_removed_or_replaced_tag() {
   TEST_ASSERT_TRUE(unassigned.value().verified());
   TEST_ASSERT_TRUE(workflow.snapshot().uid == replacement);
   TEST_ASSERT_FALSE(workflow.snapshot().last_assignment.has_value());
-  TEST_ASSERT_EQUAL_INT(static_cast<int>(WorkflowStage::waiting_for_stable_weight),
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(WorkflowStage::resolving_spool),
       static_cast<int>(workflow.snapshot().stage));
 }
 
@@ -657,6 +821,9 @@ void test_blank_tag_linked_in_spoolman_is_shown_as_its_spool() {
       [&](const opentag::nfc::IdentifiedTag& tag, opentag::domain::WeightReading weight, std::uint64_t generation) {
         ++submissions;
         TEST_ASSERT_FALSE(tag.decoded.material.material_name.has_value());
+        // While it is looked up the tag stays shown as blank.
+        TEST_ASSERT_FALSE(workflow.snapshot().openprinttag_available);
+        TEST_ASSERT_TRUE(workflow.snapshot().uid_only);
         (void)workflow.accept_identified_spool(tag.decoded.material, tag.uid, weight, {}, {}, generation);
         return true;
       });
@@ -667,10 +834,6 @@ void test_blank_tag_linked_in_spoolman_is_shown_as_its_spool() {
   s.uid = Uid{{0xE0, 0x04, 1, 2, 3, 4, 5, 6}};
   s.generation = 4;
   handoff.observe(s, std::nullopt);
-  // While it is looked up the tag stays shown as blank.
-  TEST_ASSERT_FALSE(workflow.snapshot().openprinttag_available);
-  TEST_ASSERT_TRUE(workflow.snapshot().uid_only);
-  handoff.observe(s, opentag::domain::WeightReading{900, true});
   TEST_ASSERT_EQUAL(1, submissions);
   const auto snapshot = workflow.snapshot();
   TEST_ASSERT_TRUE(snapshot.openprinttag_available);
@@ -746,7 +909,7 @@ int main(int, char**) {
   RUN_TEST(test_removal_preserves_discovery_and_reinsertion_can_assign);
   RUN_TEST(test_explicit_spool_confirmation_is_generation_fenced);
   RUN_TEST(test_complete_decoded_tag_to_verified_t3_assignment_slice);
-  RUN_TEST(test_unstable_scale_defers_spoolman_resolution);
+  RUN_TEST(test_unstable_scale_still_resolves_spool);
   RUN_TEST(test_spoolman_outage_preserves_tag_and_physical_weight);
   RUN_TEST(test_ambiguous_spools_are_never_selected_silently);
   RUN_TEST(test_filabridge_outage_keeps_identification_and_never_queues_assignment);
@@ -755,7 +918,12 @@ int main(int, char**) {
   RUN_TEST(test_workflow_unassignment_uses_shared_verified_safety_path);
   RUN_TEST(test_stale_workflow_generation_rejects_assignment);
   RUN_TEST(test_stale_printer_revision_rejects_assignment);
-  RUN_TEST(test_nfc_handoff_waits_submits_once_and_clears);
+  RUN_TEST(test_nfc_handoff_submits_once_without_weight_and_clears);
+  RUN_TEST(test_uncalibrated_scale_still_resolves_spool);
+  RUN_TEST(test_lookup_repeats_once_spoolman_returns);
+  RUN_TEST(test_lookup_retry_is_spaced_and_requeued_when_queue_is_full);
+  RUN_TEST(test_scan_report_is_claimed_once_per_placement);
+  RUN_TEST(test_failed_resolution_workspace_never_stays_resolving);
   RUN_TEST(test_removed_tag_rejects_queued_and_inflight_resolution);
   RUN_TEST(test_mapping_completion_does_not_restore_removed_or_replaced_tag);
   RUN_TEST(test_verified_mapping_updates_the_printer_cache_after_tag_removal);
