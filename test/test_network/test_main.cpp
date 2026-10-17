@@ -95,7 +95,7 @@ void test_provisioning_policy_covers_first_boot_fallback_and_ap_grace() {
   policy.initialize(true);
   policy.connected(32000U);
   TEST_ASSERT_FALSE(policy.active());
-  policy.request_setup();
+  policy.request_setup(32000U);
   TEST_ASSERT_TRUE(policy.active());
   TEST_ASSERT_EQUAL_INT(
       static_cast<int>(ProvisioningReason::requested),
@@ -123,6 +123,75 @@ void test_provisioning_grace_deadline_is_millis_wrap_safe() {
   TEST_ASSERT_TRUE(policy.active());
   policy.poll(19999U);
   TEST_ASSERT_FALSE(policy.active());
+}
+
+void test_requested_setup_on_connected_station_times_out_and_can_stop() {
+  using opentag::network::SetupStopResult;
+  constexpr auto timeout = ProvisioningPolicy::requested_timeout_ms;
+  TEST_ASSERT_EQUAL_UINT32(10U * 60U * 1000U, timeout);
+  ProvisioningPolicy policy;
+  policy.initialize(true);
+  policy.connected(1000U);
+  TEST_ASSERT_FALSE(policy.active());
+  TEST_ASSERT_EQUAL_UINT32(0U, policy.requested_remaining_ms(1000U));
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(SetupStopResult::not_active),
+      static_cast<int>(policy.stop_requested_setup()));
+
+  // Requested on a connected station: closes on its own after the timeout.
+  policy.request_setup(5000U);
+  TEST_ASSERT_TRUE(policy.active());
+  TEST_ASSERT_EQUAL_UINT32(timeout, policy.requested_remaining_ms(5000U));
+  TEST_ASSERT_EQUAL_UINT32(timeout - 1000U, policy.requested_remaining_ms(6000U));
+  policy.poll(5000U + timeout - 1U);
+  TEST_ASSERT_TRUE(policy.active());
+  TEST_ASSERT_EQUAL_UINT32(1U, policy.requested_remaining_ms(5000U + timeout - 1U));
+  policy.poll(5000U + timeout);
+  TEST_ASSERT_FALSE(policy.active());
+  TEST_ASSERT_EQUAL_UINT32(0U, policy.requested_remaining_ms(5000U + timeout));
+
+  // A repeated request restarts the window; Stop closes it at once.
+  policy.request_setup(UINT32_MAX - 100U);
+  policy.request_setup(UINT32_MAX - 50U);
+  policy.poll(timeout - 102U);  // wrapped past the first deadline only
+  TEST_ASSERT_TRUE(policy.active());
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(SetupStopResult::stopped),
+      static_cast<int>(policy.stop_requested_setup()));
+  TEST_ASSERT_FALSE(policy.active());
+  TEST_ASSERT_EQUAL_UINT32(0U, policy.requested_remaining_ms(timeout - 102U));
+}
+
+void test_setup_stop_is_refused_without_working_wifi() {
+  using opentag::network::SetupStopResult;
+  ProvisioningPolicy policy;
+  policy.initialize(false);
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(SetupStopResult::refused),
+      static_cast<int>(policy.stop_requested_setup()));
+  // A request does not downgrade an unconfigured station to a timed one.
+  policy.request_setup(0U);
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(ProvisioningReason::unconfigured),
+      static_cast<int>(policy.reason()));
+  TEST_ASSERT_EQUAL_UINT32(0U, policy.requested_remaining_ms(0U));
+  policy.poll(ProvisioningPolicy::requested_timeout_ms + 1U);
+  TEST_ASSERT_TRUE(policy.active());
+
+  policy.initialize(true);
+  policy.request_setup(0U);
+  for (std::uint32_t i = 0U; i < ProvisioningPolicy::failure_threshold; ++i) {
+    policy.connection_failed();
+  }
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(ProvisioningReason::connection_failures),
+      static_cast<int>(policy.reason()));
+  TEST_ASSERT_EQUAL_UINT32(0U, policy.requested_remaining_ms(10U));
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(SetupStopResult::refused),
+      static_cast<int>(policy.stop_requested_setup()));
+  policy.poll(ProvisioningPolicy::requested_timeout_ms + 1U);
+  TEST_ASSERT_TRUE(policy.active());
 }
 
 void test_setup_provisioning_authority_requires_peer_and_local_ap_addresses() {
@@ -443,6 +512,8 @@ int main(int, char**) {
   RUN_TEST(test_diagnostic_counters_saturate_instead_of_wrapping);
   RUN_TEST(test_provisioning_policy_covers_first_boot_fallback_and_ap_grace);
   RUN_TEST(test_provisioning_grace_deadline_is_millis_wrap_safe);
+  RUN_TEST(test_requested_setup_on_connected_station_times_out_and_can_stop);
+  RUN_TEST(test_setup_stop_is_refused_without_working_wifi);
   RUN_TEST(
       test_setup_provisioning_authority_requires_peer_and_local_ap_addresses);
   RUN_TEST(

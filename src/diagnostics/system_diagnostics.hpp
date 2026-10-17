@@ -396,6 +396,7 @@ struct SystemSnapshot : ScaleDiagnosticSnapshot {
       network::ProvisioningReason::none};
   std::uint32_t provisioning_failures{0U};
   std::uint32_t provisioning_grace_remaining_ms{0U};
+  std::uint32_t provisioning_requested_remaining_ms{0U};
   std::string setup_ap_ssid;
   std::string setup_ap_ip;
   std::uint32_t wifi_scan_generation{0U};

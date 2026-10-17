@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <limits>
 #include <string>
 #include <utility>
@@ -194,12 +195,16 @@ core::Result<void> ScaleService::initialize(
     std::uint32_t operation_timeout_ms) {
   // A measurement ended by reconfigure_hardware() stays failed across the
   // re-initialisation that follows it, until the next session begins.
-  const bool interrupted = status_.state == ScaleState::uninitialized &&
+  // Likewise one failed by a lost ADC stays failed across the recovery
+  // re-initialisation, so its owner still sees the terminal state.
+  const bool interrupted = (status_.state == ScaleState::uninitialized ||
+                            status_.state == ScaleState::disconnected) &&
       status_.measurement_state == ScaleMeasurementState::failed;
   const auto interrupted_purpose = status_.measurement_purpose;
   const auto interrupted_error = status_.measurement_error;
   status_ = {};
   zero_pending_after_offset_calibration_ = false;
+  consecutive_poll_failures_ = 0U;
   if (interrupted) {
     status_.measurement_purpose = interrupted_purpose;
     status_.measurement_state = ScaleMeasurementState::failed;
@@ -418,6 +423,23 @@ core::Result<void> ScaleService::begin_measurement(
     return core::Result<void>::failure(unstable(
         "The scale needs a new zero. Empty the platform, then use Tare in Settings > Calibrate scale and retry."));
   }
+  if (purpose == ScaleMeasurementPurpose::tare && calibration_.has_value() &&
+      status_.tare_ready && status_.sample.gross_grams.has_value() &&
+      status_.samples_in_filter > 0U &&
+      static_cast<std::uint32_t>(now_ms - status_.sample.sampled_at_ms) <=
+          config_.sample_timeout_ms &&
+      *status_.sample.gross_grams > tare_maximum_load_grams) {
+    // A tare stores the current reading as zero. Refuse it while something
+    // is on the platform (checked against the current zero, so a negative
+    // drift can still be corrected). An uncalibrated scale cannot tell.
+    char message[112];
+    std::snprintf(
+        message, sizeof(message),
+        "The platform is not empty (reads %.0f g). Remove everything, then "
+        "tare.",
+        static_cast<double>(*status_.sample.gross_grams));
+    return core::Result<void>::failure(unstable(message));
+  }
   if (purpose == ScaleMeasurementPurpose::tare) {
     // The ADC's offset drifts as the station warms up after power-on. Re-run
     // its internal offset calibration right before a new zero is captured
@@ -589,28 +611,43 @@ void ScaleService::push_sample(std::int32_t raw_counts, std::uint32_t now_ms) {
       std::fabs(*status_.sample.drift_from_stable_grams) > config_.creep_warning_grams;
 }
 
+void ScaleService::record_poll_failure(core::Error error) {
+  set_error(std::move(error), ScaleState::disconnected);
+  consecutive_poll_failures_ =
+      std::min(consecutive_poll_failures_ + 1U, reinitialize_after_failed_polls);
+  if (consecutive_poll_failures_ >= reinitialize_after_failed_polls) {
+    // A NAU7802 reset or brown-out powers its analog front end down, so no
+    // sample will ever become ready again. Require a full initialize().
+    status_.adc_ready = false;
+    status_.last_error = unavailable(
+        "The scale stopped responding. Reconnecting to it; weighing is "
+        "unavailable until it answers again.");
+  }
+}
+
 core::Result<bool> ScaleService::poll(std::uint32_t now_ms) {
   if (!status_.adc_ready) {
     return core::Result<bool>::failure(unavailable("NAU7802 is not initialized"));
   }
   const auto ready = adc_.sample_ready();
   if (!ready.ok()) {
-    set_error(ready.error(), ScaleState::disconnected);
+    record_poll_failure(ready.error());
     return core::Result<bool>::failure(ready.error());
   }
   if (!ready.value()) {
     if (static_cast<std::uint32_t>(now_ms - last_sample_ms_) > config_.sample_timeout_ms) {
       const auto error = unavailable("NAU7802 sample timeout");
-      set_error(error, ScaleState::disconnected);
+      record_poll_failure(error);
       return core::Result<bool>::failure(error);
     }
     return core::Result<bool>::success(false);
   }
   const auto raw = adc_.read_raw();
   if (!raw.ok()) {
-    set_error(raw.error(), ScaleState::disconnected);
+    record_poll_failure(raw.error());
     return core::Result<bool>::failure(raw.error());
   }
+  consecutive_poll_failures_ = 0U;
   last_sample_ms_ = now_ms;
   status_.adc_ready = true;
   status_.state = calibration_.has_value()

@@ -34,6 +34,19 @@ CommandReceipt ScaleCommandQueue::submit(Command command, OperationKind kind) {
 }
 
 CommandReceipt ScaleCommandQueue::submit_weigh(std::uint32_t now_ms, bool explicit_request) {
+  const char* refusal =
+      explicit_request && weigh_refusal ? weigh_refusal() : nullptr;
+  if (refusal != nullptr) {
+    // Refuse up front with a receipt that carries the reason, instead of
+    // queueing a session that WeighSync::begin() would silently discard.
+    const auto operation_id = operations_.begin(
+        OperationKind::scale_weigh, now_ms, "Scale measurement refused");
+    if (operation_id == 0U) return {false, 0U};
+    operations_.fail(
+        operation_id, now_ms,
+        {core::ErrorCategory::conflict, refusal, true});
+    return {false, operation_id};
+  }
   Command command;
   command.type = CommandType::weigh;
   command.explicit_request=explicit_request;
@@ -160,6 +173,16 @@ void ScaleCommandQueue::process_one(std::uint32_t now_ms) {
           ? services::ScaleMeasurementPurpose::tare
           : services::ScaleMeasurementPurpose::calibration;
   // Only a calibration command carries a reference weight; it is 0 otherwise.
+  const char* refusal = command.type == CommandType::weigh &&
+          command.explicit_request && weigh_refusal
+      ? weigh_refusal()
+      : nullptr;
+  if (refusal != nullptr) {
+    operations_.fail(
+        command.operation_id, now_ms,
+        {core::ErrorCategory::conflict, refusal, true});
+    return;
+  }
   const auto started =
       scale_.begin_measurement(purpose, now_ms, command.reference_grams);
   if (!started.ok()) {

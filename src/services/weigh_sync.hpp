@@ -22,6 +22,9 @@ struct WeighSyncSnapshot {
 inline const char *weigh_button_label(const WeighSyncSnapshot &snapshot) {
   return snapshot.measurement_id == 0 ? "WEIGH" : "WEIGH AGAIN";
 }
+// Shown when Weigh is pressed while the previous weight is still being saved.
+inline constexpr const char *weigh_while_updating_message =
+    "Saving the previous weight to Spoolman. Try again in a moment.";
 // Explicit measurement sessions only. The backend owns HTTP; scale callbacks
 // only publish bounded state. A consumed session can never mutate again.
 class WeighSync final {
@@ -30,6 +33,9 @@ public:
   void capture(std::uint64_t id, domain::WeightReading reading);
   void fail(std::uint64_t id, const std::string &message);
   WeighSyncSnapshot snapshot() const;
+  // Non-null while a new explicit Weigh must be refused (an Update Spoolman
+  // is in flight and begin() would otherwise discard the new session).
+  const char *weigh_refusal() const;
   core::Result<void>
   update(std::uint64_t id, integrations::ISpoolInventory &inventory,
          const std::function<bool(const WeighSyncSnapshot &)> &fence);

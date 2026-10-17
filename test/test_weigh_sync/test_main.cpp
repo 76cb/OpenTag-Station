@@ -289,6 +289,35 @@ void weigh_button_says_again_only_after_a_measurement() {
   failed.sync.fail(1, "Scale timeout");
   TEST_ASSERT_EQUAL_STRING("WEIGH AGAIN", services::weigh_button_label(failed.sync.snapshot()));
 }
+void weigh_is_refused_while_update_spoolman_is_in_flight() {
+  Fixture f;
+  TEST_ASSERT_NULL(f.sync.weigh_refusal());
+  f.capture();
+  TEST_ASSERT_NULL(f.sync.weigh_refusal());
+  const char *during = nullptr;
+  bool begun_during = true;
+  f.inventory.after_get = [&] {
+    during = f.sync.weigh_refusal();
+    // What a queued Weigh would do now: begin() discards it silently, which
+    // is why the scale command queue refuses it up front instead.
+    auto next = f.initial();
+    next.measurement_id = 2;
+    begun_during = f.sync.begin(next);
+  };
+  f.sync.capture(1, {700, true});  // ignored: already captured
+  TEST_ASSERT_TRUE(f.update().ok());
+  TEST_ASSERT_NOT_NULL(during);
+  TEST_ASSERT_EQUAL_STRING(
+      "Saving the previous weight to Spoolman. Try again in a moment.",
+      during);
+  TEST_ASSERT_FALSE(begun_during);
+  // Once the update finished, Weigh is allowed again.
+  TEST_ASSERT_EQUAL_STRING("updated", f.sync.snapshot().phase.c_str());
+  TEST_ASSERT_NULL(f.sync.weigh_refusal());
+  auto next = f.initial();
+  next.measurement_id = 2;
+  TEST_ASSERT_TRUE(f.sync.begin(next));
+}
 void setUp() {}
 void tearDown() {}
 int main() {
@@ -309,5 +338,6 @@ int main() {
   RUN_TEST(mutation_capability_required);
   RUN_TEST(invalid_and_stale_measurements_refused);
   RUN_TEST(weigh_button_says_again_only_after_a_measurement);
+  RUN_TEST(weigh_is_refused_while_update_spoolman_is_in_flight);
   return UNITY_END();
 }

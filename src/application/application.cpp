@@ -140,6 +140,7 @@ void Application::setup() {
   configuration_task_started_ = configuration_worker_.start();
   backend_task_started_ = backend_worker_.start(nfc_worker_);
   scale_commands_.weigh_started=[this](std::uint64_t id){backend_worker_.begin_weigh(id);};
+  scale_commands_.weigh_refusal=[this]{return backend_worker_.weigh_refusal();};
   scale_commands_.weigh_finished=[this](std::uint64_t id,std::optional<float> grams){backend_worker_.complete_weigh(id,grams);};
   scale_commands_ready_ = scale_commands_.initialize();
   // A timed-out or failed OTA-owner start leaves bootloader reconciliation
@@ -601,6 +602,13 @@ void Application::scale_task_entry(void* context) {
     } else if (initialized) {
       const auto poll_result = application->scale_.poll(now_ms);
       sample_updated = poll_result.ok() && poll_result.value();
+      if (application->scale_.reinitialization_required()) {
+        // Repeated poll failures (NAU7802 reset/brown-out): re-run
+        // initialize() on the normal retry timer, which also reloads the
+        // stored calibration.
+        initialized = false;
+        last_initialize_attempt_ms = now_ms;
+      }
     }
     application->scale_commands_.process_one(now_ms);
     const auto measurement_state =

@@ -36,6 +36,9 @@ core::Error conflict_error(const char* message) {
   return {core::ErrorCategory::conflict, message, false};
 }
 
+constexpr const char* ledger_full_message =
+    "The station is still running many earlier requests; wait for them to "
+    "finish, then try again";
 constexpr std::size_t constant_time_token_bytes = 512U;
 
 bool constant_time_token_match(
@@ -291,6 +294,8 @@ void write_system(JsonObject object, const diagnostics::SystemSnapshot& value) {
   provisioning["grace_active"] = value.provisioning_grace_active;
   provisioning["grace_remaining_ms"] =
       value.provisioning_grace_remaining_ms;
+  provisioning["requested_remaining_ms"] =
+      value.provisioning_requested_remaining_ms;
   provisioning["ap_ssid"] = value.setup_ap_ssid;
   provisioning["ap_ip"] = value.setup_ap_ip;
   network["scan_running"] = value.wifi_scan_running;
@@ -1265,6 +1270,38 @@ core::Result<api::OperationReceipt> ApplicationApiContext::submit_fresh(
       }
       return core::Result<api::OperationReceipt>::success({operation_id});
     }
+    case api::MutationKind::network_setup_stop: {
+      // Refuse up front when the setup network is what keeps the station
+      // reachable; the network task re-checks this authoritatively.
+      const auto network_status = diagnostics_.snapshot(now_ms);
+      if (network_status.provisioning_reason ==
+              network::ProvisioningReason::unconfigured ||
+          network_status.provisioning_reason ==
+              network::ProvisioningReason::connection_failures) {
+        return core::Result<api::OperationReceipt>::failure(conflict_error(
+            "The setup network stays on while the station has no working "
+            "Wi-Fi. Connect the station to Wi-Fi first."));
+      }
+      const auto operation_id = operations_.begin(
+          application::OperationKind::network_setup_mode,
+          now_ms,
+          "Stopping setup network");
+      if (operation_id == 0U) {
+        return core::Result<api::OperationReceipt>::failure(unavailable(
+            core::ErrorCategory::configuration,
+            "Operation registry is full",
+            true));
+      }
+      if (!network_.request_setup_stop(operation_id)) {
+        operations_.fail(
+            operation_id,
+            now_ms,
+            {core::ErrorCategory::network,
+             "Setup network control is busy; try again in a moment",
+             true});
+      }
+      return core::Result<api::OperationReceipt>::success({operation_id});
+    }
     case api::MutationKind::network_connect: {
       const auto& payload =
           std::get<api::NetworkConnectMutation>(mutation.payload);
@@ -1392,6 +1429,24 @@ core::Result<api::OperationReceipt> ApplicationApiContext::submit_fresh(
       "Unsupported API mutation"));
 }
 
+IdempotencyAdmissionResult ApplicationApiContext::admit_idempotency(
+    std::string_view key,
+    std::uint64_t payload_digest,
+    std::uint32_t now_ms,
+    bool retain) {
+  // A retained key whose operation is terminal (or already recycled by the
+  // operation registry) may be evicted, oldest first. Live work is never
+  // evicted, so a duplicate of a running request still replays.
+  return idempotency_.admit(
+      key, payload_digest, now_ms, retain,
+      [this](std::uint64_t operation_id) {
+        const auto operation = operations_.get(operation_id);
+        return !operation.has_value() ||
+            (operation->state != application::OperationState::queued &&
+             operation->state != application::OperationState::running);
+      });
+}
+
 core::Result<api::OperationReceipt> ApplicationApiContext::submit(
     const api::Mutation& mutation) {
   if (!api::valid_idempotency_key(mutation.idempotency_key)) {
@@ -1401,21 +1456,26 @@ core::Result<api::OperationReceipt> ApplicationApiContext::submit(
   }
   const auto now_ms = millis();
   const std::lock_guard<std::mutex> lock(idempotency_mutex_);
-  const auto existing = idempotency_.lookup(
-      mutation.idempotency_key, mutation.payload_digest, now_ms);
-  if (existing.status == IdempotencyLookupStatus::same) {
+  const auto admission = admit_idempotency(
+      mutation.idempotency_key, mutation.payload_digest, now_ms,
+      !mutation.idempotency_exempt);
+  if (admission.decision == IdempotencyAdmission::replay) {
     return core::Result<api::OperationReceipt>::success(
-        {existing.operation_id});
+        {admission.operation_id});
   }
-  if (existing.status == IdempotencyLookupStatus::conflict) {
+  if (admission.decision == IdempotencyAdmission::conflict) {
     return core::Result<api::OperationReceipt>::failure(unavailable(
         core::ErrorCategory::conflict,
         "Idempotency-Key was already used with a different request payload"));
   }
-  if (!idempotency_.has_capacity(now_ms)) {
+  if (admission.decision == IdempotencyAdmission::proceed_unretained) {
+    // Read-only request: a replay is harmless, so it never takes a slot.
+    return submit_fresh(mutation, now_ms);
+  }
+  if (admission.decision == IdempotencyAdmission::full) {
     return core::Result<api::OperationReceipt>::failure(unavailable(
         core::ErrorCategory::conflict,
-        "Idempotency ledger is full; wait for a retained request key to expire",
+        ledger_full_message,
         true));
   }
 
@@ -1452,9 +1512,9 @@ ApplicationApiContext::begin_streaming_upload(
   const auto now_ms = millis();
   const auto digest = streaming_upload_digest(request);
   const std::lock_guard<std::mutex> lock(idempotency_mutex_);
-  const auto existing = idempotency_.lookup(
-      request.idempotency_key, digest, now_ms);
-  if (existing.status == IdempotencyLookupStatus::same) {
+  const auto existing = admit_idempotency(
+      request.idempotency_key, digest, now_ms, true);
+  if (existing.decision == IdempotencyAdmission::replay) {
     const auto current = ota_worker_.snapshot();
     return core::Result<StreamingUploadSession>::success({
         {existing.operation_id, current.generation},
@@ -1465,14 +1525,14 @@ ApplicationApiContext::begin_streaming_upload(
             : std::nullopt,
     });
   }
-  if (existing.status == IdempotencyLookupStatus::conflict) {
+  if (existing.decision == IdempotencyAdmission::conflict) {
     return core::Result<StreamingUploadSession>::failure(conflict_error(
         "Idempotency-Key was already used with different firmware metadata"));
   }
-  if (!idempotency_.has_capacity(now_ms)) {
+  if (existing.decision == IdempotencyAdmission::full) {
     return core::Result<StreamingUploadSession>::failure(unavailable(
         core::ErrorCategory::conflict,
-        "Idempotency ledger is full; wait for a retained request key to expire",
+        ledger_full_message,
         true));
   }
 
