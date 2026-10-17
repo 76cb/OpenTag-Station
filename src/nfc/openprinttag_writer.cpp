@@ -5,8 +5,14 @@
 
 namespace opentag::nfc {
 namespace {
+// The reader counts bus errors since boot and never resets the counter. A
+// transaction refuses only an error that occurred during itself, never one
+// from an earlier read or hours ago (the weight fence works the same way).
+constexpr const char *bus_error_message =
+    "The tag reader reported an error during this step. Try again.";
 struct WriterFieldScope {
   IWriterReader &reader;
+  std::uint32_t bus_errors_at_start;
   bool closed{false};
   ~WriterFieldScope() {
     if (!closed)
@@ -20,10 +26,9 @@ struct WriterFieldScope {
     auto health = reader.health();
     if (!health.ok())
       return health;
-    if (reader.bus_errors())
+    if (reader.bus_errors() != bus_errors_at_start)
       return core::Result<void>::failure(
-          {core::ErrorCategory::nfc_communication,
-           "NFC bus errors after field shutdown", false});
+          {core::ErrorCategory::nfc_communication, bus_error_message, false});
     return core::Result<void>::success();
   }
 };
@@ -49,9 +54,8 @@ core::Result<void> OpenPrintTagWriter::fence(const WriterPlan &p) {
   auto health = reader_.health();
   if (!health.ok())
     return health;
-  if (reader_.bus_errors())
-    return fail("NFC bus errors must be zero",
-                core::ErrorCategory::nfc_communication);
+  if (reader_.bus_errors() != bus_errors_at_start_)
+    return fail(bus_error_message, core::ErrorCategory::nfc_communication);
   auto tags = reader_.inventory();
   if (!tags.ok())
     return core::Result<void>::failure(tags.error());
@@ -95,7 +99,8 @@ core::Result<void> OpenPrintTagWriter::read(WriterPlan &p,
                                             const WriterPlan *interrupted,
                                             const Progress *progress) {
   started_ms_ = reader_.now_ms();
-  WriterFieldScope field{reader_};
+  bus_errors_at_start_ = reader_.bus_errors();
+  WriterFieldScope field{reader_, bus_errors_at_start_};
   p.attempted = p.verified = false;
   p.recovery = false;
   p.journal_state = WriterPlan::JournalState::none;
@@ -264,7 +269,8 @@ core::Result<void> OpenPrintTagWriter::execute(WriterPlan &p,
   if (p.verified)
     return core::Result<void>::success();
   started_ms_ = reader_.now_ms();
-  WriterFieldScope field{reader_};
+  bus_errors_at_start_ = reader_.bus_errors();
+  WriterFieldScope field{reader_, bus_errors_at_start_};
   auto enabled = reader_.field_on();
   if (!enabled.ok())
     return enabled;

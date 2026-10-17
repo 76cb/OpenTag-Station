@@ -86,5 +86,7 @@ private:
   IWriterReader &reader_;
   std::function<std::uint64_t()> generation_;
   std::uint32_t started_ms_{0};
+  // Reader bus-error count when the current read/execute began.
+  std::uint32_t bus_errors_at_start_{0};
 };
 } // namespace opentag::nfc

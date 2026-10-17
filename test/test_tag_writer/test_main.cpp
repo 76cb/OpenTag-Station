@@ -214,11 +214,41 @@ void removed_mid_write() {
   TEST_ASSERT_EQUAL(1, f.reader.writes);
 }
 void bus_error_refuses() {
+  // A bus error during the transaction refuses it before any block changes.
   Fixture f;
   f.prepare();
-  f.reader.errors = 1;
-  TEST_ASSERT_FALSE(f.execute().ok());
+  f.reader.before_inventory = [&] { if (f.reader.errors == 0) ++f.reader.errors; };
+  const auto result = f.execute();
+  TEST_ASSERT_FALSE(result.ok());
   TEST_ASSERT_EQUAL(0, f.reader.writes);
+  TEST_ASSERT_EQUAL_STRING(
+      "The tag reader reported an error during this step. Try again.",
+      result.error().message.c_str());
+}
+void bus_error_mid_write_stops_the_write() {
+  Fixture f;
+  f.prepare();
+  f.reader.before_write = [&] { if (f.reader.writes == 1) ++f.reader.errors; };
+  TEST_ASSERT_FALSE(f.execute().ok());
+  TEST_ASSERT_EQUAL(2, f.reader.writes);
+  TEST_ASSERT_FALSE(f.plan.verified);
+}
+void earlier_bus_errors_do_not_latch_the_writer() {
+  // The reader counter is monotonic since boot: an error before this
+  // transaction (e.g. during an earlier read) must not block writes until a
+  // restart.
+  Fixture f;
+  f.reader.errors = 3;
+  f.prepare();
+  f.reader.errors = 7;
+  TEST_ASSERT_TRUE(f.execute().ok());
+  TEST_ASSERT_TRUE(f.plan.verified);
+}
+void bus_error_during_preview_read_refuses() {
+  Fixture f;
+  f.reader.errors = 2;
+  f.reader.before_inventory = [&] { if (f.reader.errors == 2) ++f.reader.errors; };
+  TEST_ASSERT_FALSE(f.writer.read(f.plan).ok());
 }
 void preserved_plan_refused() {
   Fixture f;
@@ -1787,12 +1817,21 @@ void clear_confirmation_physical_fences() {
       ++f.reader.system;
     if (fault == 4)
       f.reader.locks[30] = 1;
-    if (fault == 5)
-      f.reader.errors = 1;
+    if (fault == 5)  // an error during the confirmation itself
+      f.reader.before_inventory = [&] { if (f.reader.errors == 0) ++f.reader.errors; };
     TEST_ASSERT_FALSE(f.confirm().ok());
     TEST_ASSERT_EQUAL(0, f.reader.writes);
     TEST_ASSERT_EQUAL(0, f.http.patches);
   }
+}
+void clear_is_not_latched_by_earlier_bus_errors() {
+  ClearFixture f;
+  f.reader.errors = 4;  // e.g. a glitch while the tag was first read
+  f.preview();
+  f.reader.errors = 9;
+  auto r = f.confirm();
+  TEST_ASSERT_TRUE_MESSAGE(r.ok(), r.ok() ? "" : r.error().message.c_str());
+  TEST_ASSERT_GREATER_THAN(0, f.reader.writes);
 }
 void clear_requires_every_exact_confirmation_value() {
   for (auto key : {"uid", "generation", "current_checksum", "target_checksum"}) {
@@ -3020,6 +3059,7 @@ int main() {
   RUN_TEST(clear_already_blank_zero_writes);
   RUN_TEST(clear_refuses_unsupported_sources);
   RUN_TEST(clear_confirmation_physical_fences);
+  RUN_TEST(clear_is_not_latched_by_earlier_bus_errors);
   RUN_TEST(clear_requires_every_exact_confirmation_value);
   RUN_TEST(clear_readback_faults_stop_unlink);
   RUN_TEST(clear_power_loss_recovery);
@@ -3075,6 +3115,9 @@ int main() {
   RUN_TEST(final_mismatch_stops);
   RUN_TEST(removed_mid_write);
   RUN_TEST(bus_error_refuses);
+  RUN_TEST(bus_error_mid_write_stops_the_write);
+  RUN_TEST(earlier_bus_errors_do_not_latch_the_writer);
+  RUN_TEST(bus_error_during_preview_read_refuses);
   RUN_TEST(native_write_links_the_tag_and_fills_the_extra_fields);
   RUN_TEST(native_write_works_without_the_extra_fields);
   RUN_TEST(older_spoolman_without_fields_still_refuses_before_writing);
