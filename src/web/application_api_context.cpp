@@ -769,7 +769,14 @@ bool ApplicationApiContext::authorize_mutation(
 }
 
 bool ApplicationApiContext::authorize_provisioning() {
-  return diagnostics_.snapshot(millis()).provisioning_active;
+  // The setup network is open. Joining it skips the access token only on a
+  // station that has never had Wi-Fi saved. When it reappears on a configured
+  // station (Wi-Fi failures, or started on request), a station that has an
+  // access token still requires it, so someone in radio range cannot move the
+  // station to another network.
+  const auto snapshot = diagnostics_.snapshot(millis());
+  return snapshot.provisioning_active &&
+      snapshot.provisioning_reason == network::ProvisioningReason::unconfigured;
 }
 
 bool ApplicationApiContext::acknowledge_network_connect_receipt(

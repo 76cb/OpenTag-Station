@@ -662,7 +662,7 @@ void UiService::build_tags_page() {
   lv_obj_set_height(nfc_detail_,LV_SIZE_CONTENT);
   for(auto& button:tag_buttons_)button=product_button(screen,{16,212,448,44},"",tag_action_callback,this);
   // Built once per page and only shown/restyled by draw_tags: no per-refresh
-  // LVGL allocation. The spinner animates only while it is visible.
+  // LVGL allocation. Hidden objects are not redrawn; the spinner's small animation timer keeps running.
   tag_spinner_=lv_spinner_create(screen,1000,60);place(tag_spinner_,layout::tag_spinner);
   lv_obj_set_style_arc_width(tag_spinner_,6,LV_PART_MAIN);lv_obj_set_style_arc_width(tag_spinner_,6,LV_PART_INDICATOR);
   lv_obj_set_style_arc_color(tag_spinner_,lv_color_hex(neutral_fill),LV_PART_MAIN);

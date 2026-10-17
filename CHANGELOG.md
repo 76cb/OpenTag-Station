@@ -102,6 +102,8 @@ The release candidates below were development builds made for testing before 1.0
 
 **Setup and About**
 - The setup network `OpenTag-Setup-XXXX` is open; there is no password to read off the screen.
+  When it comes back on a station that already has Wi-Fi saved, a station with an access token
+  still requires the token over it.
 - The first setup page no longer shows "Configuration schema 3". It says "Tap Next to start", or,
   on a station that is set up, that you can review a step or go Home.
 - **About this station** is one scrolling column in a larger font, one value per line, in the
@@ -109,7 +111,8 @@ The release candidates below were development builds made for testing before 1.0
 
 **Scale**
 - Every tare, including the zero step of a calibration, first re-runs the scale converter's own
-  offset calibration, so the zero matches the converter's current temperature.
+  offset calibration, so the zero matches the converter's current temperature. If that tare then
+  does not finish, weighing asks for a new tare instead of using a zero that no longer fits.
 - Both calibration screens advise calibrating after the station has been on for about 15 minutes.
   Troubleshooting explains warm-up drift and load-cell creep.
 

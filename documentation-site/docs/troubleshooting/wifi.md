@@ -6,7 +6,7 @@ Use this page when the station does not join your Wi-Fi, or when you cannot open
 
 - The station uses **2.4 GHz** Wi-Fi only. WPA3-only networks are not supported.
 - When it has no working Wi-Fi it opens its own setup network, `OpenTag-Setup-XXXX`.
-  The password is shown **only on the touchscreen** and is a new one every time the station starts.
+  It has no password.
 - The setup network appears when no Wi-Fi is set up, and again after three failed connection
   attempts in a row. It closes about 30 seconds after the station has connected.
 - The tag reader starts only once the station is on your Wi-Fi and the setup network has closed.
@@ -60,7 +60,7 @@ another Wi-Fi from your phone:
 
 1. Browser: **Settings** → **Advanced** → **Device controls** → **Start setup access point**.
 2. Confirm "Start the temporary setup access point? Normal Wi-Fi remains active."
-3. Read the name and password from the touchscreen **Settings** page.
+3. Read its name from the touchscreen **Settings** page and join it; it has no password.
 
 ## Tags are ignored after Wi-Fi trouble
 

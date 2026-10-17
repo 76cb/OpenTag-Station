@@ -555,8 +555,10 @@ bool WifiService::start_setup_ap() {
       ssid, sizeof(ssid), "OpenTag-Setup-%04X",
       static_cast<unsigned int>(identifier));
   // The setup network is open (no password) so anyone setting the station up
-  // can join it without reading a code off the screen. It only runs while the
-  // station has no working Wi-Fi, and it closes once the station is online.
+  // can join it without reading a code off the screen. It runs when no Wi-Fi
+  // is saved, after repeated connection failures, or on request, and closes
+  // once the station is online. On a configured station with an access token,
+  // the token is still required over it (ApplicationApiContext).
   const IPAddress address(192U, 168U, 4U, 1U);
   const IPAddress netmask(255U, 255U, 255U, 0U);
   if (!WiFi.softAPConfig(address, address, netmask) ||

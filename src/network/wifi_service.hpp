@@ -50,8 +50,6 @@ struct WifiStatus {
   std::uint32_t provisioning_failures{0U};
   std::uint32_t provisioning_grace_remaining_ms{0U};
   std::string setup_ap_ssid;
-  // WPA2 passphrase of the setup access point. Shown only on the station's
-  // own touchscreen; never serialized into the local API.
   std::string setup_ap_ip;
   std::uint32_t scan_generation{0U};
   std::uint32_t scan_attempt_generation{0U};

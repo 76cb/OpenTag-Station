@@ -72,7 +72,7 @@ function wizard(){const p=S.snapshot.phase,n=S.step,locked=lockedModal();
 const retryRead=p==='failed'&&S.lastAction==='preview'&&n===3&&!!S.spool;visible('writer-retry-read',retryRead);byId('writer-retry-read').disabled=locked;
 for(let i=1;i<=5;i++){const node=byId('writer-step-'+i);node.setAttribute('aria-current',i===n?'step':'false');node.dataset.complete=String(i<n);}visible('writer-step-2',n===2);
 visible('writer-inventory',n===1);visible('writer-selection-pane',n<3);
-['preview','update'].forEach(k=>visible('writer-'+k,n===2&&!S.editor));visible('writer-continue',n===1&&p!=='import_preview');byId('writer-continue').disabled=locked||!S.spool;
+['preview','update'].forEach(k=>visible('writer-'+k,n===2&&!S.editor));visible('writer-continue',n===1&&p!=='import_preview');byId('writer-continue').disabled=locked||!S.spool||!!S.editor;
 visible('writer-back',n>1&&(n<4||p==='failed'));byId('writer-back').disabled=locked;visible('writer-dismiss',n===1||n===4);['close','dismiss'].forEach(k=>byId('writer-'+k).disabled=locked);
 visible('writer-done',n===5);byId('writer-done').disabled=locked;visible('writer-check',locked&&!S.busy);visible('writer-advanced',n>=3);setText('writer-footer-selection',S.spool?'Spool #'+S.spool:'Select a physical spool');
 const phys=PHYS.includes(p),t=S.snapshot.total_blocks;visible('writer-activity',locked);setText('writer-activity-title',ST[p]||'Working…');setText('writer-activity-detail',phys?'Keep the tag on the reader.':p==='associating'?'The tag is written. Saving the link in Spoolman…':S.snapshot.message||'Please wait.');
