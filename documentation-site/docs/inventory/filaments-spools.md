@@ -41,8 +41,8 @@ Archived spools are not listed.
 [How search works](../daily-use/manage-tags.md#how-search-works) has the details and a checklist for
 a filament that does not show up.
 
-On the touchscreen the same lists appear while you write a tag: **MANAGE TAG**, then **ASSIGN TAG**,
-**LINK TO A SPOOL** or **REASSIGN**, then **MY SPOOLS** or **MY FILAMENTS**.
+On the touchscreen the same lists appear while you write a tag: **MANAGE TAG**, then **WRITE TAG**,
+**LINK TO A SPOOL** or **USE FOR ANOTHER SPOOL**, then **MY SPOOLS** or **MY FILAMENTS**.
 A tag must be on the reader. The lists show three rows per screen, with **SEARCH** but no material
 filter.
 

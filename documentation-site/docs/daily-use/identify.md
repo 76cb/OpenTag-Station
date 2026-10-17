@@ -22,7 +22,7 @@ Until then tags are ignored; see [Tag is not detected](../troubleshooting/tag.md
 | Station is looking the spool up | "Finding this spool in Spoolman..." | "Looking up spool…" | Wait. |
 | Tag has filament data but no Spoolman spool is linked | "Not linked yet: Manage tag > Link to a spool" | "Not yet linked", "Not linked to Spoolman" | Link it. See [below](#link-a-tag-the-station-does-not-recognise). |
 | Spoolman cannot be reached | "Spoolman unavailable; spool not looked up" | "Spoolman resolution failed. Check the backend connection, then reinsert the spool or confirm its ID." | Fix the connection ([Spoolman problems](../troubleshooting/spoolman.md)), then lift the spool and put it back. |
-| Blank tag | "COMPATIBLE BLANK TAG", "Ready to assign", "Open Manage tag to choose a spool". The first button reads **ASSIGN TAG**. | "Blank tag", "Ready to assign". The first button reads **Assign tag**. | [Write the tag](manage-tags.md). |
+| Blank tag | "COMPATIBLE BLANK TAG", "Ready to write", "Open Manage tag to choose a spool". The first button reads **WRITE TAG**. | "Blank tag", "Ready to write". The first button reads **Write tag**. | [Write the tag](manage-tags.md). |
 | Blank tag, or tag with other data, that Spoolman links to a spool | The spool's name, "Spool #N" and "NNN g remaining", with the normal **WEIGH** button | The spool's name, "Spool #N", its weight and "Linked to Spoolman", with the normal **Weigh** button | Weigh it, or [write the tag](manage-tags.md) to put the filament data on it. See [below](#tags-spoolman-links-to-a-spool). |
 | Tag the station cannot use | On the **Tag** page: "This tag can't be used as it is", a reason, and "Use a blank NXP ICODE SLIX2 tag." | Dashboard: "Reading spool…" and "Tag needs attention". In **Manage tag**: "Unsupported" and "OpenPrintTag decode failed / unsupported" | Use a blank NXP ICODE SLIX2 tag. See [Which tags work](../openprinttag/supported-tags.md). |
 | Two or more tags on the reader | Home keeps showing "Place a spool". The **Tag** page shows "Two tags on the reader. Remove one." | In **Manage tag**: "Multiple NFC-V tags detected" and "Remove extra tags and present exactly one tag." | Leave one tag on the reader. |
@@ -49,7 +49,7 @@ or unusable tag, as in the table above.
 
 You can weigh the spool and assign it to a toolhead as usual.
 **Manage tag** still shows the tag as it really is (a blank tag shows "BLANK TAG" and
-**ASSIGN TAG**), because the tag itself holds no filament data.
+**WRITE TAG**), because the tag itself holds no filament data.
 
 ## Buttons on the main page
 

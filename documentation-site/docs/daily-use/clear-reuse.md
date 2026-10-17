@@ -52,7 +52,7 @@ write the tag for a spool; otherwise the write is refused.
 3. Click the red **Clear tag**, or **Cancel**.
 4. Keep the tag on the reader and the station powered while the progress line counts the blocks.
 5. Done: the title reads "Tag ready to reuse · verified".
-   Click **Assign tag to a spool** to write it again straight away, or **Done**.
+   Click **Write tag for a spool** to write it again straight away, or **Done**.
 
 ## If Spoolman cannot be reached in the middle
 

@@ -122,7 +122,7 @@ commit (browser: **Settings → Advanced**, card **Device**) and pass or fail fo
 ### Write
 
 4. Place one blank tag. Touchscreen shows `BLANK TAG`. Start a write for an existing spool, once
-   from the touchscreen (**ASSIGN TAG** → **MY SPOOLS** → tap the spool) and once from the browser
+   from the touchscreen (**WRITE TAG** → **MY SPOOLS** → tap the spool) and once from the browser
    (select the spool → **Continue**).
 5. Check the preview: tag UID, spool, the listed values, 80 × 4 bytes, preserved blocks 78–79.
 6. Negative checks before confirming. Each must refuse without changing any tag:
@@ -145,7 +145,7 @@ commit (browser: **Settings → Advanced**, card **Device**) and pass or fail fo
 12. Change the spool's used weight in Spoolman. In the browser choose **Update consumed weight**,
     review and confirm. The consumed weight on the tag changes; everything else, including blocks
     78–79, is unchanged.
-13. Write the tag of spool A for spool B (**REASSIGN**). The preview names both spools. After the
+13. Write the tag of spool A for spool B (**USE FOR ANOTHER SPOOL**). The preview names both spools. After the
     write, Spoolman lists the UID only on spool B; spool A keeps its UUID.
 
 ### Interruption and recovery

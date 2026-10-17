@@ -20,8 +20,8 @@ Browser: click **Manage tag** on the Dashboard.
 | Tag on the reader | Touchscreen shows | Touchscreen buttons | Browser buttons |
 |---|---|---|---|
 | None | "PLACE A TAG", "Set an NFC tag on the reader." | **DONE** | — |
-| Blank | "BLANK TAG", "Ready to use" and the tag's UID | **ASSIGN TAG** | **Assign tag to a spool** |
-| Linked to a spool | The filament and "Linked to spool #N" | **UPDATE TAG**, **REASSIGN**, **CLEAR / REUSE** | **Update tag**, **Reassign**, **Clear / Reuse** |
+| Blank | "BLANK TAG", "Ready to use" and the tag's UID | **WRITE TAG** | **Write tag for a spool** |
+| Linked to a spool | The filament and "Linked to spool #N" | **UPDATE TAG**, **USE FOR ANOTHER SPOOL**, **CLEAR / REUSE** | **Update tag**, **Use for another spool**, **Clear / Reuse** |
 | Filament data, no spool linked | "Not linked to a Spoolman spool yet" | **LINK TO A SPOOL**, **CLEAR / REUSE** | **Link to a spool**, **Clear / Reuse** |
 | Filament data, likely matches found | "This may be one of your Spoolman spools." | **CHOOSE WHICH SPOOL**, **LINK TO A SPOOL**, **CLEAR / REUSE** | **Link to a spool**, **Clear / Reuse** |
 | Cannot be used | "This tag can't be used as it is" | **DONE** | — |
@@ -30,7 +30,7 @@ A blank tag always shows as **Blank** here, even when Spoolman links it to a spo
 that spool (see [Identify a spool](identify.md#tags-spoolman-links-to-a-spool)): the tag itself
 holds no filament data yet.
 
-**ASSIGN TAG**, **LINK TO A SPOOL** and **REASSIGN** all lead to the same steps below.
+**WRITE TAG**, **LINK TO A SPOOL** and **USE FOR ANOTHER SPOOL** all lead to the same steps below.
 **CLEAR / REUSE** is covered in [Clear and reuse a tag](clear-reuse.md).
 If the page shows "Finish writing this tag" or a similar title instead, an earlier operation was
 interrupted; see [Finish an interrupted tag operation](../troubleshooting/journal.md).
@@ -41,8 +41,8 @@ interrupted; see [Finish an interrupted tag operation](../troubleshooting/journa
 
 ## Write a tag on the touchscreen
 
-1. Tap **ASSIGN TAG** (blank tag), **LINK TO A SPOOL** or **REASSIGN**.
-   From Home with a blank tag, the first button already reads **ASSIGN TAG**.
+1. Tap **WRITE TAG** (blank tag), **LINK TO A SPOOL** or **USE FOR ANOTHER SPOOL**.
+   From Home with a blank tag, the first button already reads **WRITE TAG**.
 2. Answer "How do you want to choose the filament?":
     - **MY SPOOLS** if the physical spool already exists in Spoolman.
     - **MY FILAMENTS** if Spoolman has the filament but not this spool yet.
@@ -176,7 +176,7 @@ What ends up on the tag is listed in [What is stored on a tag](../openprinttag/o
 
 ## Move a tag to another spool
 
-Use **REASSIGN** (touchscreen) or **Reassign** (browser) on a linked tag and pick the new spool.
+Use **USE FOR ANOTHER SPOOL** (touchscreen) or **Use for another spool** (browser) on a linked tag and pick the new spool.
 The station asks you to confirm the move, rewrites the tag for the new spool and moves the link
 in Spoolman (on Spoolman 0.27 or later, also from the old spool's tag list to the new one's).
 The previous spool stays in Spoolman; it just no longer has a tag.
