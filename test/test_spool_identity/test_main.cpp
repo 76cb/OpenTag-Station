@@ -24,6 +24,7 @@ using opentag::domain::ConfirmedSpoolMapping;
 using opentag::domain::Spool;
 using opentag::domain::SpoolIdentity;
 using opentag::integrations::BackendCapabilities;
+using opentag::integrations::BackendCapability;
 using opentag::integrations::CreateSpoolRequest;
 using opentag::integrations::ExtraFieldDefinition;
 using opentag::integrations::ISpoolInventory;
@@ -93,7 +94,8 @@ class FakeInventory final : public ISpoolInventory {
   Result<std::vector<ExtraFieldDefinition>> list_extra_fields() override {
     return Result<std::vector<ExtraFieldDefinition>>::success({});
   }
-  BackendCapabilities capabilities() const override { return {}; }
+  BackendCapabilities caps;
+  BackendCapabilities capabilities() const override { return caps; }
 };
 
 class MemoryMappings final : public ISpoolIdentityMappingStore {
@@ -398,9 +400,133 @@ void test_nfc_uid_owner_with_same_instance_in_other_letter_case_matches() {
   TEST_ASSERT_EQUAL_INT32(9, result.value().match()->id);
 }
 
+void test_native_tag_list_is_asked_first_on_spoolman_with_tags() {
+  FakeInventory inventory;
+  inventory.caps.add(BackendCapability::native_tags);
+  MemoryMappings mappings;
+  inventory.find_results.push_back(spool_result({spool(17)}));
+  SpoolIdentityResolver resolver(inventory, mappings, settings());
+  SpoolIdentity identity;
+  identity.instance_uuid = "00112233-4455-6677-8899-aabbccddeeff";
+  identity.nfc_uid = "E004010203040506";
+  const auto result = resolver.resolve(identity);
+  TEST_ASSERT_TRUE(result.ok());
+  TEST_ASSERT_EQUAL(static_cast<int>(SpoolMatchSource::native_tag),
+                    static_cast<int>(result.value().source));
+  TEST_ASSERT_EQUAL_INT32(17, result.value().match()->id);
+  TEST_ASSERT_EQUAL_UINT(1U, inventory.filters.size());
+  TEST_ASSERT_EQUAL_STRING("E004010203040506", inventory.filters[0].tag->c_str());
+  TEST_ASSERT_TRUE(inventory.filters[0].allow_archived);
+  TEST_ASSERT_TRUE(inventory.filters[0].extra_json.empty());
+}
+
+void test_native_tag_lookup_also_tries_the_reversed_byte_order() {
+  FakeInventory inventory;
+  inventory.caps.add(BackendCapability::native_tags);
+  MemoryMappings mappings;
+  inventory.find_results.push_back(spool_result({}));
+  inventory.find_results.push_back(spool_result({spool(21)}));
+  SpoolIdentityResolver resolver(inventory, mappings, settings());
+  SpoolIdentity identity;
+  identity.nfc_uid = "E004010203040506";
+  const auto result = resolver.resolve(identity);
+  TEST_ASSERT_TRUE(result.ok());
+  TEST_ASSERT_EQUAL_INT32(21, result.value().match()->id);
+  TEST_ASSERT_EQUAL_STRING("06050403020104E0",
+                           inventory.filters[1].tag->c_str());
+}
+
+void test_native_miss_falls_back_to_the_extra_fields() {
+  FakeInventory inventory;
+  inventory.caps.add(BackendCapability::native_tags);
+  MemoryMappings mappings;
+  inventory.find_results.push_back(spool_result({}));
+  inventory.find_results.push_back(spool_result({}));
+  inventory.find_results.push_back(spool_result({spool(17)}));
+  SpoolIdentityResolver resolver(inventory, mappings, settings());
+  SpoolIdentity identity;
+  identity.instance_uuid = "00112233-4455-6677-8899-aabbccddeeff";
+  identity.nfc_uid = "E004010203040506";
+  const auto result = resolver.resolve(identity);
+  TEST_ASSERT_TRUE(result.ok());
+  TEST_ASSERT_EQUAL(static_cast<int>(SpoolMatchSource::configured_identity_field),
+                    static_cast<int>(result.value().source));
+  TEST_ASSERT_EQUAL_INT32(17, result.value().match()->id);
+}
+
+void test_native_owner_of_an_earlier_tag_use_is_a_conflict() {
+  FakeInventory inventory;
+  inventory.caps.add(BackendCapability::native_tags);
+  MemoryMappings mappings;
+  auto stale = spool(17);
+  stale.openprinttag_instance_uuid = "ffffffff-4455-6677-8899-aabbccddeeff";
+  inventory.find_results.push_back(spool_result({stale}));
+  SpoolIdentityResolver resolver(inventory, mappings, settings());
+  SpoolIdentity identity;
+  identity.instance_uuid = "00112233-4455-6677-8899-aabbccddeeff";
+  identity.nfc_uid = "E004010203040506";
+  const auto result = resolver.resolve(identity);
+  TEST_ASSERT_TRUE(result.ok());
+  TEST_ASSERT_EQUAL(static_cast<int>(SpoolResolutionStatus::conflict),
+                    static_cast<int>(result.value().status));
+  TEST_ASSERT_NULL(result.value().match());
+}
+
+void test_missing_extra_fields_are_skipped_when_spoolman_has_tags() {
+  FakeInventory inventory;
+  inventory.caps.add(BackendCapability::native_tags);
+  MemoryMappings mappings;
+  const auto missing = Result<std::vector<Spool>>::failure(
+      {ErrorCategory::configuration, "Spoolman is missing the Spool extra fields", false});
+  inventory.find_results.push_back(spool_result({}));  // tag, canonical
+  inventory.find_results.push_back(spool_result({}));  // tag, reversed
+  inventory.find_results.push_back(missing);           // instance UUID field
+  inventory.find_results.push_back(missing);           // NFC UID field
+  inventory.find_results.push_back(spool_result({spool(30)}));  // metadata
+  SpoolIdentityResolver resolver(inventory, mappings, settings());
+  SpoolIdentity identity;
+  identity.instance_uuid = "00112233-4455-6677-8899-aabbccddeeff";
+  identity.nfc_uid = "E004010203040506";
+  identity.brand_name = "Prusament";
+  identity.material_name = "PETG";
+  const auto result = resolver.resolve(identity);
+  TEST_ASSERT_TRUE(result.ok());
+  TEST_ASSERT_EQUAL(static_cast<int>(SpoolResolutionStatus::ambiguous),
+                    static_cast<int>(result.value().status));
+
+  // Without tag support the same error still stops resolution.
+  FakeInventory old;
+  old.find_results.push_back(missing);
+  SpoolIdentityResolver old_resolver(old, mappings, settings());
+  TEST_ASSERT_FALSE(old_resolver.resolve(identity).ok());
+}
+
+void test_uid_only_identity_never_falls_back_to_metadata() {
+  FakeInventory inventory;
+  inventory.caps.add(BackendCapability::native_tags);
+  MemoryMappings mappings;
+  inventory.find_results.push_back(spool_result({}));
+  inventory.find_results.push_back(spool_result({}));
+  inventory.find_results.push_back(spool_result({}));  // nfc_uid extra field
+  SpoolIdentityResolver resolver(inventory, mappings, settings());
+  SpoolIdentity identity;
+  identity.nfc_uid = "E004010203040506";
+  const auto result = resolver.resolve(identity);
+  TEST_ASSERT_TRUE(result.ok());
+  TEST_ASSERT_EQUAL(static_cast<int>(SpoolResolutionStatus::not_found),
+                    static_cast<int>(result.value().status));
+  TEST_ASSERT_EQUAL_UINT(3U, inventory.filters.size());
+}
+
 int main(int, char**) {
   UNITY_BEGIN();
   RUN_TEST(test_empty_metadata_never_selects_arbitrary_inventory);
+  RUN_TEST(test_native_tag_list_is_asked_first_on_spoolman_with_tags);
+  RUN_TEST(test_native_tag_lookup_also_tries_the_reversed_byte_order);
+  RUN_TEST(test_native_miss_falls_back_to_the_extra_fields);
+  RUN_TEST(test_native_owner_of_an_earlier_tag_use_is_a_conflict);
+  RUN_TEST(test_missing_extra_fields_are_skipped_when_spoolman_has_tags);
+  RUN_TEST(test_uid_only_identity_never_falls_back_to_metadata);
   RUN_TEST(test_configured_instance_uuid_is_first_and_unique_match_wins);
   RUN_TEST(test_duplicate_instance_uuid_is_reported_as_conflict);
   RUN_TEST(test_confirmed_instance_cache_precedes_nfc_and_metadata);

@@ -20,6 +20,8 @@ enum class SpoolMatchSource {
   configured_identity_field,
   confirmed_identity_cache,
   nfc_uid,
+  // Spoolman 0.27+ tag list (GET /spool?tag=).
+  native_tag,
   package_or_material_identity,
   metadata,
 };
@@ -76,6 +78,9 @@ class SpoolIdentityResolver final : public ISpoolIdentityResolver {
       const std::string& key,
       const std::string& value,
       SpoolMatchSource source);
+  // The spool Spoolman links this tag to, in either byte order.
+  [[nodiscard]] core::Result<SpoolResolution> native_tag_match(
+      const std::string& nfc_uid);
   [[nodiscard]] core::Result<SpoolResolution> cached_match(
       const domain::SpoolIdentity& identity,
       bool by_nfc_uid);
