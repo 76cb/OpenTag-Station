@@ -1168,15 +1168,94 @@ void stored_uid_spelling_does_not_turn_same_tag_into_repurpose() {
     TEST_ASSERT_EQUAL_MESSAGE(0, f.view["changed_blocks"].size(), spelling);
   }
 }
-void oversized_catalog_page_fails_with_a_specific_message() {
+int requested_limit(const std::string &url) {
+  const auto at = url.find("limit=");
+  TEST_ASSERT_TRUE(at != std::string::npos);
+  return std::stoi(url.substr(at + 6));
+}
+int requested_offset(const std::string &url) {
+  const auto at = url.find("&offset=");
+  TEST_ASSERT_TRUE(at != std::string::npos);
+  return std::stoi(url.substr(at + 8));
+}
+// Spoolman-like page: `limit` rows from `offset`, each with a padded comment.
+std::string padded_page(const network::HttpRequest &request,
+                        std::size_t padding, int total = 100) {
+  const auto limit = requested_limit(request.url);
+  const auto offset = requested_offset(request.url);
+  std::string page = "[";
+  for (int i = offset; i < std::min(total, offset + limit); ++i)
+    page += std::string(i > offset ? "," : "") + "{\"id\":" +
+            std::to_string(i + 1) + ",\"comment\":\"" +
+            std::string(padding, 'x') + "\"}";
+  return page + "]";
+}
+void oversized_catalog_page_is_shown_with_fewer_rows() {
   ServiceFixture f;
-  // Eight valid rows that fit the 24576-byte HTTP limit but not the snapshot.
-  f.http.custom = [](const network::HttpRequest &) {
-    std::string page = "[";
-    for (int i = 1; i <= 8; ++i)
-      page += std::string(i > 1 ? "," : "") + "{\"id\":" + std::to_string(i) +
-              ",\"comment\":\"" + std::string(3040, 'x') + "\"}";
-    return page + "]";
+  // Eight rows fit the 24576-byte HTTP limit but not the 24000-byte view;
+  // four rows do.
+  f.http.custom = [](const network::HttpRequest &request) {
+    return padded_page(request, 3040);
+  };
+  auto result = f.run(R"({"action":"catalog","entity":"spool","offset":0})");
+  TEST_ASSERT_TRUE_MESSAGE(result.ok(), result.ok() ? "" : result.error().message.c_str());
+  TEST_ASSERT_EQUAL_STRING("catalog", f.view["phase"].as<const char *>());
+  TEST_ASSERT_EQUAL(4, f.view["items"].size());
+  TEST_ASSERT_EQUAL(4, f.view["limit"].as<int>());
+  TEST_ASSERT_EQUAL(0, f.view["offset"].as<int>());
+  TEST_ASSERT_EQUAL(4, f.view["next_offset"].as<int>());
+  TEST_ASSERT_TRUE(f.view["has_more"].as<bool>());
+  TEST_ASSERT_EQUAL(2, f.http.urls.size());
+  TEST_ASSERT_EQUAL(8, requested_limit(f.http.urls[0]));
+  TEST_ASSERT_EQUAL(4, requested_limit(f.http.urls[1]));
+  // The next page starts exactly after the rows shown: nothing is skipped.
+  result = f.run(R"({"action":"catalog","entity":"spool","offset":4})");
+  TEST_ASSERT_TRUE(result.ok());
+  TEST_ASSERT_EQUAL(5, f.view["items"][0]["id"].as<int>());
+  TEST_ASSERT_EQUAL(8, f.view["next_offset"].as<int>());
+  // An ordinary page is still shown with eight rows afterwards.
+  f.http.custom = nullptr;
+  TEST_ASSERT_TRUE(
+      f.run(R"({"action":"catalog","entity":"spool","offset":0})").ok());
+  TEST_ASSERT_EQUAL(8, f.view["items"].size());
+  TEST_ASSERT_EQUAL(8, f.view["limit"].as<int>());
+  TEST_ASSERT_EQUAL(8, f.view["next_offset"].as<int>());
+}
+void last_short_page_after_shrinking_has_no_more() {
+  ServiceFixture f;
+  f.http.custom = [](const network::HttpRequest &request) {
+    return padded_page(request, 3040, 7);  // 7 rows in total
+  };
+  TEST_ASSERT_TRUE(
+      f.run(R"({"action":"catalog","entity":"spool","offset":4})").ok());
+  TEST_ASSERT_EQUAL(3, f.view["items"].size());
+  TEST_ASSERT_EQUAL(7, f.view["next_offset"].as<int>());
+  TEST_ASSERT_FALSE(f.view["has_more"].as<bool>());
+}
+void catalog_page_over_the_transport_limit_is_retried_with_fewer_rows() {
+  ServiceFixture f;
+  f.http.enforce_response_limit = true;
+  // 8 rows = 56 kB and 4 rows = 28 kB exceed the HTTP limit; 2 rows fit.
+  f.http.custom = [](const network::HttpRequest &request) {
+    return padded_page(request, 7000);
+  };
+  const auto result =
+      f.run(R"({"action":"catalog","entity":"spool","offset":16})");
+  TEST_ASSERT_TRUE_MESSAGE(result.ok(), result.ok() ? "" : result.error().message.c_str());
+  TEST_ASSERT_EQUAL(2, f.view["items"].size());
+  TEST_ASSERT_EQUAL(2, f.view["limit"].as<int>());
+  TEST_ASSERT_EQUAL(18, f.view["next_offset"].as<int>());
+  TEST_ASSERT_EQUAL(17, f.view["items"][0]["id"].as<int>());
+  TEST_ASSERT_EQUAL(3, f.http.urls.size());
+  for (const auto &url : f.http.urls)
+    TEST_ASSERT_EQUAL(16, requested_offset(url));
+}
+void oversized_single_row_fails_with_a_specific_message() {
+  ServiceFixture f;
+  // One row fits the HTTP limit but not the view, at every page size.
+  f.http.enforce_response_limit = true;
+  f.http.custom = [](const network::HttpRequest &request) {
+    return padded_page(request, requested_limit(request.url) == 1 ? 24300 : 30000);
   };
   const auto result =
       f.run(R"({"action":"catalog","entity":"spool","offset":0})");
@@ -1187,12 +1266,8 @@ void oversized_catalog_page_fails_with_a_specific_message() {
   TEST_ASSERT_EQUAL_STRING("This page is too large to show; narrow the search.",
                            f.view["message"].as<const char *>());
   TEST_ASSERT_TRUE(f.view["items"].isNull());
-  // An ordinary page is still shown afterwards.
-  f.http.custom = nullptr;
-  TEST_ASSERT_TRUE(
-      f.run(R"({"action":"catalog","entity":"spool","offset":0})").ok());
-  TEST_ASSERT_EQUAL_STRING("catalog", f.view["phase"].as<const char *>());
-  TEST_ASSERT_EQUAL(8, f.view["items"].size());
+  TEST_ASSERT_EQUAL(4, f.http.urls.size());
+  TEST_ASSERT_EQUAL(1, requested_limit(f.http.urls.back()));
 }
 void catalog_page_over_the_transport_limit_says_narrow_the_search() {
   ServiceFixture f;
@@ -1205,6 +1280,23 @@ void catalog_page_over_the_transport_limit_says_narrow_the_search() {
   TEST_ASSERT_FALSE(result.ok());
   TEST_ASSERT_EQUAL_STRING("This page is too large to show; narrow the search.",
                            result.error().message.c_str());
+  TEST_ASSERT_EQUAL(4, f.http.urls.size());
+}
+void vendor_fallback_survives_a_smaller_page() {
+  ServiceFixture f;
+  f.http.custom = [](const network::HttpRequest &request) -> std::string {
+    if (request.url.find("vendor.name=Polymaker") == std::string::npos)
+      return "[]";
+    return padded_page(request, 3040);
+  };
+  TEST_ASSERT_TRUE(f.run(
+      R"({"action":"catalog","entity":"filament","offset":0,"search":"Polymaker"})").ok());
+  TEST_ASSERT_EQUAL_STRING("vendor", f.view["search_field"].as<const char *>());
+  TEST_ASSERT_EQUAL(4, f.view["items"].size());
+  TEST_ASSERT_EQUAL(4, f.view["next_offset"].as<int>());
+  // name (8, empty) -> vendor (8, too large) -> vendor (4).
+  TEST_ASSERT_EQUAL(3, f.http.urls.size());
+  TEST_ASSERT_TRUE(f.http.urls.back().find("vendor.name=Polymaker") != std::string::npos);
 }
 void diameter_current_key_and_legacy_compatibility() {
   Fixture f;
@@ -3331,7 +3423,11 @@ int main() {
   RUN_TEST(recovery_snapshot_holds_only_recovery_fields);
   RUN_TEST(pending_clear_with_changed_spoolman_settings_can_be_skipped);
   RUN_TEST(stored_uid_spelling_does_not_turn_same_tag_into_repurpose);
-  RUN_TEST(oversized_catalog_page_fails_with_a_specific_message);
+  RUN_TEST(oversized_catalog_page_is_shown_with_fewer_rows);
+  RUN_TEST(last_short_page_after_shrinking_has_no_more);
+  RUN_TEST(catalog_page_over_the_transport_limit_is_retried_with_fewer_rows);
+  RUN_TEST(oversized_single_row_fails_with_a_specific_message);
+  RUN_TEST(vendor_fallback_survives_a_smaller_page);
   RUN_TEST(catalog_page_over_the_transport_limit_says_narrow_the_search);
   RUN_TEST(pending_write_with_changed_spoolman_settings_stays_skippable);
   RUN_TEST(writer_read_reports_monotonic_progress_over_both_passes);
