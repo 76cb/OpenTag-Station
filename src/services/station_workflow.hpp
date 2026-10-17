@@ -87,6 +87,20 @@ class StationWorkflow final {
       ReconciliationTolerances tolerances,
       std::optional<std::uint64_t> expected_generation = std::nullopt,
       const domain::Spool* confirmed_spool = nullptr);
+  // Weight measured after the lookup was queued (or after it finished).
+  // Only a stable, finite reading of the current generation is kept.
+  void attach_physical_weight(std::uint64_t generation,
+                              domain::WeightReading weight);
+  // When the current generation's lookup failed and Spoolman has since been
+  // reported reachable again, moves the stage back to resolving_spool and
+  // returns true: the caller queues one more lookup of the same tag.
+  [[nodiscard]] bool begin_lookup_retry(std::uint64_t generation);
+  // The retry could not be queued; show the failed lookup again.
+  void abort_lookup_retry(std::uint64_t generation);
+  // The queued lookup could not run (no workspace); never leave it resolving.
+  void fail_resolution(std::uint64_t generation, core::Error error);
+  // Claims the once-per-placement Spoolman scan report for a generation.
+  [[nodiscard]] bool claim_scan_report(std::uint64_t generation);
   [[nodiscard]] WorkflowSnapshot refresh_printers();
   void set_spoolman_probe(
       bool online,
@@ -133,6 +147,8 @@ class StationWorkflow final {
   WorkflowSnapshot state_;
   std::uint64_t next_spool_generation_{1U};
   std::uint64_t next_printer_revision_{1U};
+  std::uint64_t scan_reported_generation_{0U};
+  ReconciliationTolerances tolerances_{};
 };
 
 }  // namespace opentag::services

@@ -1,5 +1,8 @@
 #pragma once
+#include <cmath>
+#include <cstdint>
 #include <functional>
+#include <optional>
 
 #include "nfc/read_only_service.hpp"
 #include "services/station_workflow.hpp"
@@ -13,8 +16,13 @@ class NfcWorkflowHandoff {
                                     domain::WeightReading, std::uint64_t)>;
   NfcWorkflowHandoff(StationWorkflow& workflow, Submit submit)
       : workflow_(workflow), submit_(std::move(submit)) {}
+  // Minimum spacing between lookups of the same tag after a failure. A retry
+  // only starts once the backend probe reports Spoolman reachable again.
+  static constexpr std::uint32_t retry_interval_ms = 10000U;
+
   void observe(const nfc::ReadSnapshot& s,
-               std::optional<domain::WeightReading> weight) {
+               std::optional<domain::WeightReading> weight,
+               std::uint32_t now_ms = 0U) {
     // A tag without OpenPrintTag data is looked up by UID alone; the
     // workflow keeps it hidden unless Spoolman links it to a spool.
     const auto uid_only = nfc::uid_only_generation(s);
@@ -22,6 +30,7 @@ class NfcWorkflowHandoff {
       if (tag_generation_ != 0) workflow_.clear();
       tag_generation_ = 0;
       submitted_ = false;
+      weight_attached_ = false;
       return;
     }
     nfc::IdentifiedTag by_uid;
@@ -35,17 +44,48 @@ class NfcWorkflowHandoff {
       workflow_generation_ = workflow_.begin_identified_spool(
           tag.decoded.material, tag.uid, !s.tag);
       submitted_ = false;
+      weight_attached_ = false;
     }
-    if (!submitted_ && weight && weight->stable &&
-        std::isfinite(weight->gross_grams))
-      submitted_ = submit_(tag, *weight, workflow_generation_);
+    const bool usable = weight && weight->stable &&
+                        std::isfinite(weight->gross_grams);
+    // The lookup is queued as soon as the tag is identified. A weight is
+    // optional: one already measured travels with it, a later one is
+    // attached for reconciliation without another Spoolman request.
+    if (!submitted_) {
+      const auto reading =
+          usable ? *weight : domain::WeightReading{NAN, false};
+      submitted_ = submit_(tag, reading, workflow_generation_);
+      if (submitted_) {
+        last_submit_ms_ = now_ms;
+        weight_attached_ = usable;
+      }
+      return;
+    }
+    if (usable && !weight_attached_) {
+      workflow_.attach_physical_weight(workflow_generation_, *weight);
+      weight_attached_ = true;
+    }
+    // A lookup that failed while Spoolman was unreachable is repeated once
+    // Spoolman is back. begin_lookup_retry() moves the stage off
+    // spool_resolution_unavailable, so at most one lookup is in flight.
+    if (static_cast<std::uint32_t>(now_ms - last_submit_ms_) <
+            retry_interval_ms ||
+        !workflow_.begin_lookup_retry(workflow_generation_))
+      return;
+    last_submit_ms_ = now_ms;
+    if (!submit_(tag, domain::WeightReading{NAN, false}, workflow_generation_))
+      workflow_.abort_lookup_retry(workflow_generation_);
   }
   bool submitted() const { return submitted_; }
+  // True once a stable weight reached the workflow for the current tag.
+  bool weight_attached() const { return weight_attached_; }
 
  private:
   StationWorkflow& workflow_;
   Submit submit_;
   std::uint64_t tag_generation_{0}, workflow_generation_{0};
+  std::uint32_t last_submit_ms_{0};
   bool submitted_{false};
+  bool weight_attached_{false};
 };
 }  // namespace opentag::services

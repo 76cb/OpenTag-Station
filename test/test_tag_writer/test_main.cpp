@@ -214,11 +214,41 @@ void removed_mid_write() {
   TEST_ASSERT_EQUAL(1, f.reader.writes);
 }
 void bus_error_refuses() {
+  // A bus error during the transaction refuses it before any block changes.
   Fixture f;
   f.prepare();
-  f.reader.errors = 1;
-  TEST_ASSERT_FALSE(f.execute().ok());
+  f.reader.before_inventory = [&] { if (f.reader.errors == 0) ++f.reader.errors; };
+  const auto result = f.execute();
+  TEST_ASSERT_FALSE(result.ok());
   TEST_ASSERT_EQUAL(0, f.reader.writes);
+  TEST_ASSERT_EQUAL_STRING(
+      "The tag reader reported an error during this step. Try again.",
+      result.error().message.c_str());
+}
+void bus_error_mid_write_stops_the_write() {
+  Fixture f;
+  f.prepare();
+  f.reader.before_write = [&] { if (f.reader.writes == 1) ++f.reader.errors; };
+  TEST_ASSERT_FALSE(f.execute().ok());
+  TEST_ASSERT_EQUAL(2, f.reader.writes);
+  TEST_ASSERT_FALSE(f.plan.verified);
+}
+void earlier_bus_errors_do_not_latch_the_writer() {
+  // The reader counter is monotonic since boot: an error before this
+  // transaction (e.g. during an earlier read) must not block writes until a
+  // restart.
+  Fixture f;
+  f.reader.errors = 3;
+  f.prepare();
+  f.reader.errors = 7;
+  TEST_ASSERT_TRUE(f.execute().ok());
+  TEST_ASSERT_TRUE(f.plan.verified);
+}
+void bus_error_during_preview_read_refuses() {
+  Fixture f;
+  f.reader.errors = 2;
+  f.reader.before_inventory = [&] { if (f.reader.errors == 2) ++f.reader.errors; };
+  TEST_ASSERT_FALSE(f.writer.read(f.plan).ok());
 }
 void preserved_plan_refused() {
   Fixture f;
@@ -603,6 +633,126 @@ void confirmation_mismatch_refuses() {
   f.view["target_checksum"] = "00000000";
   TEST_ASSERT_FALSE(f.confirm().ok());
   TEST_ASSERT_EQUAL(0, f.reader.writes);
+}
+// Preview of spool 12 with one filament value changed; returns the view.
+void preview_dropped(ServiceFixture &f) {
+  auto r = f.run(R"({"action":"preview","spool_id":12})");
+  TEST_ASSERT_TRUE_MESSAGE(r.ok(), r.ok() ? "" : r.error().message.c_str());
+  TEST_ASSERT_EQUAL_STRING("preview", f.view["phase"].as<const char *>());
+  TEST_ASSERT_TRUE(f.view["dropped_fields"].is<JsonArrayConst>());
+}
+bool has_warning(ServiceFixture &f, const std::string &text) {
+  for (auto w : f.view["warnings"].as<JsonArrayConst>())
+    if (text == w.as<const char *>())
+      return true;
+  return false;
+}
+void expect_single_drop(ServiceFixture &f, const char *field,
+                        const char *value, const char *reason,
+                        const char *warning) {
+  preview_dropped(f);
+  auto dropped = f.view["dropped_fields"].as<JsonArrayConst>();
+  TEST_ASSERT_EQUAL_MESSAGE(1, dropped.size(), field);
+  TEST_ASSERT_EQUAL_STRING(field, dropped[0]["field"].as<const char *>());
+  TEST_ASSERT_EQUAL_STRING(value, dropped[0]["value"].as<const char *>());
+  TEST_ASSERT_EQUAL_STRING(reason, dropped[0]["reason"].as<const char *>());
+  TEST_ASSERT_TRUE_MESSAGE(has_warning(f, warning), warning);
+}
+void dropped_fields_none_for_a_clean_spool() {
+  ServiceFixture f;
+  preview_dropped(f);
+  TEST_ASSERT_EQUAL(0, f.view["dropped_fields"].size());
+  for (auto w : f.view["warnings"].as<JsonArrayConst>())
+    TEST_ASSERT_TRUE(std::string(w.as<const char *>()).find("will not be written") ==
+                     std::string::npos);
+}
+void dropped_fields_name() {
+  ServiceFixture f;
+  const std::string name(64, 'n');
+  f.http.spool["filament"]["name"] = name;
+  expect_single_drop(f, "name", name.c_str(), "longer than 63 characters",
+                     ("Name \"" + name + "\" is longer than 63 characters and "
+                      "will not be written to the tag.").c_str());
+  TEST_ASSERT_TRUE(f.view["proposed"]["material_name"].isNull());
+}
+void dropped_fields_vendor() {
+  ServiceFixture f;
+  const std::string vendor = "Very Long Vendor Name Industries Inc";
+  f.http.spool["filament"]["vendor"]["name"] = vendor;
+  expect_single_drop(f, "vendor", vendor.c_str(), "longer than 31 characters",
+                     ("Vendor \"" + vendor + "\" is longer than 31 characters "
+                      "and will not be written to the tag.").c_str());
+}
+void dropped_fields_material_and_type() {
+  ServiceFixture f;
+  f.http.spool["filament"]["material"] = "PLA Matte";
+  preview_dropped(f);
+  auto dropped = f.view["dropped_fields"].as<JsonArrayConst>();
+  TEST_ASSERT_EQUAL(2, dropped.size());
+  TEST_ASSERT_EQUAL_STRING("material", dropped[0]["field"].as<const char *>());
+  TEST_ASSERT_EQUAL_STRING("PLA Matte", dropped[0]["value"].as<const char *>());
+  TEST_ASSERT_EQUAL_STRING("longer than 7 characters",
+                           dropped[0]["reason"].as<const char *>());
+  TEST_ASSERT_EQUAL_STRING("material_type", dropped[1]["field"].as<const char *>());
+  TEST_ASSERT_TRUE(has_warning(f, "Material \"PLA Matte\" is longer than 7 "
+                                  "characters and will not be written to the tag."));
+  // Never inferred from a prefix.
+  TEST_ASSERT_TRUE(f.view["proposed"]["material_type"].isNull());
+  TEST_ASSERT_TRUE(f.view["proposed"]["material_abbreviation"].isNull());
+}
+void dropped_fields_material_type() {
+  ServiceFixture f;
+  f.http.spool["filament"]["material"] = "PLA+";
+  expect_single_drop(
+      f, "material_type", "PLA+",
+      "not one of the material types the tag can store (PLA, PETG, TPU, ABS, "
+      "ASA, PC, PCTG, PP, PA6, PA11, PA12)",
+      "No material type will be written to the tag: \"PLA+\" is not one of the "
+      "material types the tag can store (PLA, PETG, TPU, ABS, ASA, PC, PCTG, "
+      "PP, PA6, PA11, PA12).");
+  TEST_ASSERT_EQUAL_STRING("PLA+", f.view["proposed"]["material_abbreviation"]
+                                       .as<const char *>());
+}
+void dropped_fields_article_number() {
+  ServiceFixture f;
+  f.http.spool["filament"]["article_number"] = "SKU-1234567890-XL";
+  expect_single_drop(f, "article_number", "SKU-1234567890-XL",
+                     "longer than 16 characters",
+                     "Article number \"SKU-1234567890-XL\" is longer than 16 "
+                     "characters and will not be written to the tag.");
+}
+void dropped_fields_multi_colour() {
+  ServiceFixture f;
+  f.http.spool["filament"]["color_hex"] = nullptr;
+  f.http.spool["filament"]["multi_color_hexes"] = "FF0000,00FF00";
+  expect_single_drop(f, "color", "FF0000,00FF00",
+                     "multi-colour filaments cannot be stored on the tag",
+                     "Colour \"FF0000,00FF00\" has several colours; no colour "
+                     "will be written to the tag.");
+}
+void dropped_fields_counts_bytes_for_non_ascii() {
+  ServiceFixture f;
+  // 20 characters, 40 bytes: the limit is in bytes.
+  std::string vendor;
+  for (int i = 0; i < 20; ++i)
+    vendor += "\xC3\xA4";
+  f.http.spool["filament"]["vendor"]["name"] = vendor;
+  preview_dropped(f);
+  auto dropped = f.view["dropped_fields"].as<JsonArrayConst>();
+  TEST_ASSERT_EQUAL(1, dropped.size());
+  TEST_ASSERT_EQUAL_STRING("longer than 31 bytes",
+                           dropped[0]["reason"].as<const char *>());
+  TEST_ASSERT_EQUAL_STRING(vendor.c_str(), dropped[0]["value"].as<const char *>());
+}
+void dropped_fields_not_reported_for_mutable_update() {
+  ServiceFixture f;
+  TEST_ASSERT_TRUE(f.run(R"({"action":"preview","spool_id":12})").ok());
+  TEST_ASSERT_TRUE(f.confirm().ok());
+  f.http.spool["filament"]["material"] = "PLA Matte";
+  auto r = f.run(R"({"action":"preview","spool_id":12,"mode":"update"})");
+  TEST_ASSERT_TRUE_MESSAGE(r.ok(), r.ok() ? "" : r.error().message.c_str());
+  TEST_ASSERT_EQUAL_STRING("update", f.view["mode"].as<const char *>());
+  TEST_ASSERT_EQUAL(0, f.view["dropped_fields"].size());
 }
 void catalog_pagination_and_search() {
   ServiceFixture f;
@@ -1018,15 +1168,94 @@ void stored_uid_spelling_does_not_turn_same_tag_into_repurpose() {
     TEST_ASSERT_EQUAL_MESSAGE(0, f.view["changed_blocks"].size(), spelling);
   }
 }
-void oversized_catalog_page_fails_with_a_specific_message() {
+int requested_limit(const std::string &url) {
+  const auto at = url.find("limit=");
+  TEST_ASSERT_TRUE(at != std::string::npos);
+  return std::stoi(url.substr(at + 6));
+}
+int requested_offset(const std::string &url) {
+  const auto at = url.find("&offset=");
+  TEST_ASSERT_TRUE(at != std::string::npos);
+  return std::stoi(url.substr(at + 8));
+}
+// Spoolman-like page: `limit` rows from `offset`, each with a padded comment.
+std::string padded_page(const network::HttpRequest &request,
+                        std::size_t padding, int total = 100) {
+  const auto limit = requested_limit(request.url);
+  const auto offset = requested_offset(request.url);
+  std::string page = "[";
+  for (int i = offset; i < std::min(total, offset + limit); ++i)
+    page += std::string(i > offset ? "," : "") + "{\"id\":" +
+            std::to_string(i + 1) + ",\"comment\":\"" +
+            std::string(padding, 'x') + "\"}";
+  return page + "]";
+}
+void oversized_catalog_page_is_shown_with_fewer_rows() {
   ServiceFixture f;
-  // Eight valid rows that fit the 24576-byte HTTP limit but not the snapshot.
-  f.http.custom = [](const network::HttpRequest &) {
-    std::string page = "[";
-    for (int i = 1; i <= 8; ++i)
-      page += std::string(i > 1 ? "," : "") + "{\"id\":" + std::to_string(i) +
-              ",\"comment\":\"" + std::string(3040, 'x') + "\"}";
-    return page + "]";
+  // Eight rows fit the 24576-byte HTTP limit but not the 24000-byte view;
+  // four rows do.
+  f.http.custom = [](const network::HttpRequest &request) {
+    return padded_page(request, 3040);
+  };
+  auto result = f.run(R"({"action":"catalog","entity":"spool","offset":0})");
+  TEST_ASSERT_TRUE_MESSAGE(result.ok(), result.ok() ? "" : result.error().message.c_str());
+  TEST_ASSERT_EQUAL_STRING("catalog", f.view["phase"].as<const char *>());
+  TEST_ASSERT_EQUAL(4, f.view["items"].size());
+  TEST_ASSERT_EQUAL(4, f.view["limit"].as<int>());
+  TEST_ASSERT_EQUAL(0, f.view["offset"].as<int>());
+  TEST_ASSERT_EQUAL(4, f.view["next_offset"].as<int>());
+  TEST_ASSERT_TRUE(f.view["has_more"].as<bool>());
+  TEST_ASSERT_EQUAL(2, f.http.urls.size());
+  TEST_ASSERT_EQUAL(8, requested_limit(f.http.urls[0]));
+  TEST_ASSERT_EQUAL(4, requested_limit(f.http.urls[1]));
+  // The next page starts exactly after the rows shown: nothing is skipped.
+  result = f.run(R"({"action":"catalog","entity":"spool","offset":4})");
+  TEST_ASSERT_TRUE(result.ok());
+  TEST_ASSERT_EQUAL(5, f.view["items"][0]["id"].as<int>());
+  TEST_ASSERT_EQUAL(8, f.view["next_offset"].as<int>());
+  // An ordinary page is still shown with eight rows afterwards.
+  f.http.custom = nullptr;
+  TEST_ASSERT_TRUE(
+      f.run(R"({"action":"catalog","entity":"spool","offset":0})").ok());
+  TEST_ASSERT_EQUAL(8, f.view["items"].size());
+  TEST_ASSERT_EQUAL(8, f.view["limit"].as<int>());
+  TEST_ASSERT_EQUAL(8, f.view["next_offset"].as<int>());
+}
+void last_short_page_after_shrinking_has_no_more() {
+  ServiceFixture f;
+  f.http.custom = [](const network::HttpRequest &request) {
+    return padded_page(request, 3040, 7);  // 7 rows in total
+  };
+  TEST_ASSERT_TRUE(
+      f.run(R"({"action":"catalog","entity":"spool","offset":4})").ok());
+  TEST_ASSERT_EQUAL(3, f.view["items"].size());
+  TEST_ASSERT_EQUAL(7, f.view["next_offset"].as<int>());
+  TEST_ASSERT_FALSE(f.view["has_more"].as<bool>());
+}
+void catalog_page_over_the_transport_limit_is_retried_with_fewer_rows() {
+  ServiceFixture f;
+  f.http.enforce_response_limit = true;
+  // 8 rows = 56 kB and 4 rows = 28 kB exceed the HTTP limit; 2 rows fit.
+  f.http.custom = [](const network::HttpRequest &request) {
+    return padded_page(request, 7000);
+  };
+  const auto result =
+      f.run(R"({"action":"catalog","entity":"spool","offset":16})");
+  TEST_ASSERT_TRUE_MESSAGE(result.ok(), result.ok() ? "" : result.error().message.c_str());
+  TEST_ASSERT_EQUAL(2, f.view["items"].size());
+  TEST_ASSERT_EQUAL(2, f.view["limit"].as<int>());
+  TEST_ASSERT_EQUAL(18, f.view["next_offset"].as<int>());
+  TEST_ASSERT_EQUAL(17, f.view["items"][0]["id"].as<int>());
+  TEST_ASSERT_EQUAL(3, f.http.urls.size());
+  for (const auto &url : f.http.urls)
+    TEST_ASSERT_EQUAL(16, requested_offset(url));
+}
+void oversized_single_row_fails_with_a_specific_message() {
+  ServiceFixture f;
+  // One row fits the HTTP limit but not the view, at every page size.
+  f.http.enforce_response_limit = true;
+  f.http.custom = [](const network::HttpRequest &request) {
+    return padded_page(request, requested_limit(request.url) == 1 ? 24300 : 30000);
   };
   const auto result =
       f.run(R"({"action":"catalog","entity":"spool","offset":0})");
@@ -1037,12 +1266,8 @@ void oversized_catalog_page_fails_with_a_specific_message() {
   TEST_ASSERT_EQUAL_STRING("This page is too large to show; narrow the search.",
                            f.view["message"].as<const char *>());
   TEST_ASSERT_TRUE(f.view["items"].isNull());
-  // An ordinary page is still shown afterwards.
-  f.http.custom = nullptr;
-  TEST_ASSERT_TRUE(
-      f.run(R"({"action":"catalog","entity":"spool","offset":0})").ok());
-  TEST_ASSERT_EQUAL_STRING("catalog", f.view["phase"].as<const char *>());
-  TEST_ASSERT_EQUAL(8, f.view["items"].size());
+  TEST_ASSERT_EQUAL(4, f.http.urls.size());
+  TEST_ASSERT_EQUAL(1, requested_limit(f.http.urls.back()));
 }
 void catalog_page_over_the_transport_limit_says_narrow_the_search() {
   ServiceFixture f;
@@ -1055,6 +1280,23 @@ void catalog_page_over_the_transport_limit_says_narrow_the_search() {
   TEST_ASSERT_FALSE(result.ok());
   TEST_ASSERT_EQUAL_STRING("This page is too large to show; narrow the search.",
                            result.error().message.c_str());
+  TEST_ASSERT_EQUAL(4, f.http.urls.size());
+}
+void vendor_fallback_survives_a_smaller_page() {
+  ServiceFixture f;
+  f.http.custom = [](const network::HttpRequest &request) -> std::string {
+    if (request.url.find("vendor.name=Polymaker") == std::string::npos)
+      return "[]";
+    return padded_page(request, 3040);
+  };
+  TEST_ASSERT_TRUE(f.run(
+      R"({"action":"catalog","entity":"filament","offset":0,"search":"Polymaker"})").ok());
+  TEST_ASSERT_EQUAL_STRING("vendor", f.view["search_field"].as<const char *>());
+  TEST_ASSERT_EQUAL(4, f.view["items"].size());
+  TEST_ASSERT_EQUAL(4, f.view["next_offset"].as<int>());
+  // name (8, empty) -> vendor (8, too large) -> vendor (4).
+  TEST_ASSERT_EQUAL(3, f.http.urls.size());
+  TEST_ASSERT_TRUE(f.http.urls.back().find("vendor.name=Polymaker") != std::string::npos);
 }
 void diameter_current_key_and_legacy_compatibility() {
   Fixture f;
@@ -1787,12 +2029,21 @@ void clear_confirmation_physical_fences() {
       ++f.reader.system;
     if (fault == 4)
       f.reader.locks[30] = 1;
-    if (fault == 5)
-      f.reader.errors = 1;
+    if (fault == 5)  // an error during the confirmation itself
+      f.reader.before_inventory = [&] { if (f.reader.errors == 0) ++f.reader.errors; };
     TEST_ASSERT_FALSE(f.confirm().ok());
     TEST_ASSERT_EQUAL(0, f.reader.writes);
     TEST_ASSERT_EQUAL(0, f.http.patches);
   }
+}
+void clear_is_not_latched_by_earlier_bus_errors() {
+  ClearFixture f;
+  f.reader.errors = 4;  // e.g. a glitch while the tag was first read
+  f.preview();
+  f.reader.errors = 9;
+  auto r = f.confirm();
+  TEST_ASSERT_TRUE_MESSAGE(r.ok(), r.ok() ? "" : r.error().message.c_str());
+  TEST_ASSERT_GREATER_THAN(0, f.reader.writes);
 }
 void clear_requires_every_exact_confirmation_value() {
   for (auto key : {"uid", "generation", "current_checksum", "target_checksum"}) {
@@ -3020,6 +3271,7 @@ int main() {
   RUN_TEST(clear_already_blank_zero_writes);
   RUN_TEST(clear_refuses_unsupported_sources);
   RUN_TEST(clear_confirmation_physical_fences);
+  RUN_TEST(clear_is_not_latched_by_earlier_bus_errors);
   RUN_TEST(clear_requires_every_exact_confirmation_value);
   RUN_TEST(clear_readback_faults_stop_unlink);
   RUN_TEST(clear_power_loss_recovery);
@@ -3075,6 +3327,9 @@ int main() {
   RUN_TEST(final_mismatch_stops);
   RUN_TEST(removed_mid_write);
   RUN_TEST(bus_error_refuses);
+  RUN_TEST(bus_error_mid_write_stops_the_write);
+  RUN_TEST(earlier_bus_errors_do_not_latch_the_writer);
+  RUN_TEST(bus_error_during_preview_read_refuses);
   RUN_TEST(native_write_links_the_tag_and_fills_the_extra_fields);
   RUN_TEST(native_write_works_without_the_extra_fields);
   RUN_TEST(older_spoolman_without_fields_still_refuses_before_writing);
@@ -3110,6 +3365,15 @@ int main() {
   RUN_TEST(duplicate_uuid_refuses_before_write);
   RUN_TEST(confirmation_mismatch_refuses);
   RUN_TEST(catalog_pagination_and_search);
+  RUN_TEST(dropped_fields_none_for_a_clean_spool);
+  RUN_TEST(dropped_fields_name);
+  RUN_TEST(dropped_fields_vendor);
+  RUN_TEST(dropped_fields_material_and_type);
+  RUN_TEST(dropped_fields_material_type);
+  RUN_TEST(dropped_fields_article_number);
+  RUN_TEST(dropped_fields_multi_colour);
+  RUN_TEST(dropped_fields_counts_bytes_for_non_ascii);
+  RUN_TEST(dropped_fields_not_reported_for_mutable_update);
   RUN_TEST(catalog_malformed_and_timeout);
   RUN_TEST(catalog_search_falls_back_to_vendor_name);
 #if OPENTAG_ENABLE_COMMUNITY
@@ -3159,7 +3423,11 @@ int main() {
   RUN_TEST(recovery_snapshot_holds_only_recovery_fields);
   RUN_TEST(pending_clear_with_changed_spoolman_settings_can_be_skipped);
   RUN_TEST(stored_uid_spelling_does_not_turn_same_tag_into_repurpose);
-  RUN_TEST(oversized_catalog_page_fails_with_a_specific_message);
+  RUN_TEST(oversized_catalog_page_is_shown_with_fewer_rows);
+  RUN_TEST(last_short_page_after_shrinking_has_no_more);
+  RUN_TEST(catalog_page_over_the_transport_limit_is_retried_with_fewer_rows);
+  RUN_TEST(oversized_single_row_fails_with_a_specific_message);
+  RUN_TEST(vendor_fallback_survives_a_smaller_page);
   RUN_TEST(catalog_page_over_the_transport_limit_says_narrow_the_search);
   RUN_TEST(pending_write_with_changed_spoolman_settings_stays_skippable);
   RUN_TEST(writer_read_reports_monotonic_progress_over_both_passes);
