@@ -27,6 +27,9 @@ import urllib.request
 import uuid
 
 LINES = []
+# Talk to the station directly, never through a proxy configured on this
+# computer: a proxy cannot reach a device on your home network.
+OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
 
 def say(text=""):
@@ -45,7 +48,7 @@ def request(base, method, path, token=None, body=None, timeout=10):
         req.add_header("Authorization", "Bearer " + token)
     started = time.monotonic()
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as response:
+        with OPENER.open(req, timeout=timeout) as response:
             raw = response.read()
             status = response.status
     except urllib.error.HTTPError as error:
@@ -204,9 +207,9 @@ def main():
     args = parser.parse_args()
     base = f"http://{args.host}:{args.port}"
     say(f"OpenTag Station check of {base} at {time.strftime('%Y-%m-%d %H:%M:%S')}")
-    status, _, raw, _ = request(base, "GET", "/api/v1/health", args.token, timeout=5)
-    if status is None:
-        say(f"Cannot reach the station: {raw}")
+    status, parsed, raw, _ = request(base, "GET", "/api/v1/health", args.token, timeout=5)
+    if status is None or not isinstance(parsed, dict):
+        say(f"Cannot reach the station: {status or ''} {(raw or '')[:200]}")
         say("Check the address (try --host with the IP shown on the touchscreen Settings page).")
         return 1
     reads = check_reads(base, args.token)
@@ -217,7 +220,10 @@ def main():
     say(f"Firmware: {version} ({sha})")
     auth_required = check_auth(base, args.token)
     check_catalog_burst(base, args.token, args.burst, auth_required is True)
-    check_events(args.host, args.port)
+    try:
+        check_events(args.host, args.port)
+    except OSError as error:
+        say(f"  Live-update test could not connect: {type(error).__name__}: {error}")
     output = os.path.join(os.path.dirname(os.path.abspath(__file__)), "station-check.txt")
     with open(output, "w", encoding="utf-8") as handle:
         handle.write("\n".join(LINES) + "\n")
