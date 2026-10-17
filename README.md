@@ -72,8 +72,7 @@ There is no reference enclosure; you design the scale platform yourself. Details
 2. **Install the firmware.** Connect the board with a USB data cable and open the
    [USB installer](https://76cb.github.io/OpenTag-Station/) in desktop Chrome or Edge
    ([guide](https://76cb.github.io/OpenTag-Station-Docs/installation/web-flasher/)).
-   A USB install erases all settings and the scale calibration. Until the first release, the
-   installer offers an older candidate; see [Project status](#project-status).
+   A USB install erases all settings and the scale calibration.
 3. **Join your Wi-Fi.** The touchscreen shows a setup network named `OpenTag-Setup-XXXX` and its
    password. Enter your Wi-Fi on the touchscreen, or join that network and open
    `http://192.168.4.1/` ([guide](https://76cb.github.io/OpenTag-Station-Docs/getting-started/first-boot/)).
@@ -123,9 +122,10 @@ working on the firmware are in [`docs/`](docs/README.md).
 ## Project status
 
 Release candidate; [`VERSION`](VERSION) holds the version on `main` and the
-[changelog](CHANGELOG.md) lists what changed. No release has been published yet, so the Releases
-page has no update file and the USB installer still offers an earlier candidate. Until then,
-build the firmware from source (below). What remains before 1.0 is listed in
+[changelog](CHANGELOG.md) lists what changed. The USB installer carries the current release
+candidate. No release has been published yet, so the Releases page has no update file: to move an
+existing station to a newer candidate, reinstall it with the USB installer (this erases its
+settings and calibration) or build from source (below). What remains before 1.0 is listed in
 [`docs/releasing.md`](docs/releasing.md).
 
 ## Build from source

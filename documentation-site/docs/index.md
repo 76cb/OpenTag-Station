@@ -25,10 +25,11 @@ toolhead.
 
 ## Project status
 
-This manual describes the release candidate shown in the footer. No release has been published
-yet, so the [Releases page](https://github.com/76cb/OpenTag-Station/releases) has no update file and
-the [USB installer](https://76cb.github.io/OpenTag-Station/) still offers an earlier candidate.
-Until then, [build the firmware from source](contributing/build.md).
+This manual describes the release candidate shown in the footer, which is also what the
+[USB installer](https://76cb.github.io/OpenTag-Station/) installs. No release has been published
+yet, so the [Releases page](https://github.com/76cb/OpenTag-Station/releases) has no update file.
+To move a station to a newer candidate, reinstall it with the USB installer (this erases its
+settings and calibration) or [build the firmware from source](contributing/build.md).
 
 ## Links
 
