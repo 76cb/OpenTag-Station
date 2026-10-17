@@ -10,7 +10,7 @@ When you write a tag, the station builds the tag content from the Spoolman spool
 
 | On the tag | Taken from Spoolman | Note |
 |---|---|---|
-| Unique ID of this tag's content | Spool extra field `opentag_instance_uuid` | The station creates one if the spool has none. Used to link tag and spool. |
+| Unique ID of this tag's content | Spool extra field `opentag_instance_uuid`, if it exists | The station creates one if the spool has none. Used to link tag and spool. |
 | Kind of material | — | Always "filament" |
 | Filament name | Filament **name** | Left out if empty or longer than 63 bytes |
 | Brand | Vendor **name** | Left out if empty or longer than 31 bytes |
@@ -41,17 +41,20 @@ If nothing has changed, the station says `Tag already up to date` and writes not
 
 ## How a tag is linked to a spool
 
-After the tag is written and checked, the station saves two values on the spool in Spoolman:
+After the tag is written and checked, the station saves the link on the spool in Spoolman, in one
+or both of these places:
 
-| Spoolman extra field | Contains |
-|---|---|
-| `nfc_uid` | The tag's permanent ID |
-| `opentag_instance_uuid` | The unique ID the station wrote to the tag |
+| Where in Spoolman | Contains | When |
+|---|---|---|
+| The spool's tag list | The tag's permanent ID | Spoolman 0.27 or later |
+| Spool extra field `nfc_uid` | The tag's permanent ID | When the extra fields exist |
+| Spool extra field `opentag_instance_uuid` | The unique ID the station wrote to the tag | When the extra fields exist |
 
-When you place a tag, the station looks for the spool that carries these values.
-That is how it knows which spool is on the scale.
-Both fields must exist in Spoolman before you write the first tag:
-[Required extra fields](../inventory/custom-fields.md).
+When you place a tag, the station looks for the spool that holds these values, starting with
+Spoolman's tag list. That is how it knows which spool is on the scale.
+On Spoolman older than 0.27 both extra fields must exist before you write the first tag; on 0.27
+or later they are optional. See [Required extra fields](../inventory/custom-fields.md).
+Without the extra fields, the unique ID is kept only on the tag and on the station.
 
 A tag with valid OpenPrintTag data but no matching spool shows
 `Not linked to a Spoolman spool yet`. Use **LINK TO A SPOOL** (browser: **Link to a spool**).
@@ -61,7 +64,7 @@ A tag with valid OpenPrintTag data but no matching spool shows
 - The station reads a tag by itself when you place it. Reading never changes the tag.
 - It writes only after you confirm on the screen.
   After writing, it reads the whole tag again and compares it before it reports success.
-- Clearing sets the data area to zeros and removes the two values from the spool in Spoolman.
+- Clearing sets the data area to zeros and removes the link from the spool in Spoolman.
   The spool itself stays in Spoolman. The tag's permanent ID does not change.
   See [Clear and reuse a tag](../daily-use/clear-reuse.md).
 

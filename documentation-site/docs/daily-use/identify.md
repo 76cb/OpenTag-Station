@@ -23,7 +23,7 @@ Until then tags are ignored; see [Tag is not detected](../troubleshooting/tag.md
 | Tag has filament data but no Spoolman spool is linked | "Not linked yet: Manage tag > Link to a spool" | "Not yet linked", "Not linked to Spoolman" | Link it. See [below](#link-a-tag-the-station-does-not-recognise). |
 | Spoolman cannot be reached | "Spoolman unavailable; spool not looked up" | "Spoolman resolution failed. Check the backend connection, then reinsert the spool or confirm its ID." | Fix the connection ([Spoolman problems](../troubleshooting/spoolman.md)), then lift the spool and put it back. |
 | Blank tag | "COMPATIBLE BLANK TAG", "Ready to assign", "Open Manage tag to choose a spool". The first button reads **ASSIGN TAG**. | "Blank tag", "Ready to assign". The first button reads **Assign tag**. | [Write the tag](manage-tags.md). |
-| Blank tag, or tag with other data, that Spoolman links to a spool | The spool's name, "Spool #N" and "NNN g remaining", with the normal **WEIGH** button | The spool's name and weight, "Linked to Spoolman" and "Blank tag". The first button still reads **Assign tag**. | Weigh it on the touchscreen, or [write the tag](manage-tags.md) to put the filament data on it. See [below](#tags-spoolman-links-to-a-spool). |
+| Blank tag, or tag with other data, that Spoolman links to a spool | The spool's name, "Spool #N" and "NNN g remaining", with the normal **WEIGH** button | The spool's name, its weight and "Linked to Spoolman". For a blank tag the first button still reads **Assign tag**. | Weigh it (for a blank tag, on the touchscreen), or [write the tag](manage-tags.md) to put the filament data on it. See [below](#tags-spoolman-links-to-a-spool). |
 | Tag the station cannot use | On the **Tag** page: "This tag can't be used as it is", a reason, and "Use a blank NXP ICODE SLIX2 tag." | Dashboard: "Reading spool…" and "Tag needs attention". In **Manage tag**: "Unsupported" and "OpenPrintTag decode failed / unsupported" | Use a blank NXP ICODE SLIX2 tag. See [Which tags work](../openprinttag/supported-tags.md). |
 | Two or more tags on the reader | Home keeps showing "Place a spool". The **Tag** page shows "Reading tag..." and does not finish. | In **Manage tag**: "Multiple NFC-V tags detected" and "Remove extra tags and present exactly one tag." | Leave one tag on the reader. |
 
@@ -41,7 +41,7 @@ the station cannot use, is placed, the station still looks its UID up in Spoolma
 is steady. It shows the spool only for an exact link:
 
 - on Spoolman 0.27 or later, the tag is in the spool's tag list in Spoolman (for example because
-  you added it there yourself, or scanned it with your phone);
+  you added it there yourself);
 - on any version, the spool's `nfc_uid` extra field holds the tag's UID.
 
 A similar filament name is never enough for such a tag. If nothing links it, it is shown as a blank

@@ -17,7 +17,7 @@ toolhead.
 | See what it does and what you need | [What the station does and what you need](getting-started/overview.md) |
 | Build one | [Parts list](hardware/bill-of-materials.md), then [Wiring](hardware/wiring.md) |
 | Install the firmware | [Install the firmware over USB](installation/web-flasher.md), then [First boot and Wi-Fi](getting-started/first-boot.md) |
-| Set it up | [Connect Spoolman and FilaBridge](getting-started/initial-setup.md) and the [required extra fields](inventory/custom-fields.md) |
+| Set it up | [Connect Spoolman and FilaBridge](getting-started/initial-setup.md) and, on Spoolman older than 0.27, the [extra fields](inventory/custom-fields.md) |
 | Write your first tag | [Your first spool](getting-started/quick-start.md) |
 | Use it day to day | [Identify](daily-use/identify.md), [Weigh](daily-use/weigh.md), [Write a tag](daily-use/manage-tags.md), [Clear a tag](daily-use/clear-reuse.md), [Assign a toolhead](daily-use/assign.md) |
 | Fix a problem | [Find your problem](troubleshooting/index.md) |

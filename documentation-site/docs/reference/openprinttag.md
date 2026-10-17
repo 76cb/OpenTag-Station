@@ -50,7 +50,7 @@ A full write builds a new 312-byte image from the Spoolman spool. The mapping li
 
 | Region, key | Tag field | Source in Spoolman | Rule |
 |---|---|---|---|
-| Main 0 | Instance UUID (16 bytes) | The spool's `opentag_instance_uuid` extra field | Always written |
+| Main 0 | Instance UUID (16 bytes) | With the extra fields: the spool's `opentag_instance_uuid`, else the tag's current UUID if the spool's `nfc_uid` already names this tag. Without them: the tag's current UUID if Spoolman's tag list already links this tag to the target spool. Otherwise a new random UUID. | Always written |
 | Main 8 | Material class | Fixed: FFF filament | Always written |
 | Main 9 | Material type | Filament `material` | Only if exactly PLA, PETG, TPU, ABS, ASA, PC, PCTG, PP, PA6, PA11 or PA12 |
 | Main 10 | Material name | Filament `name` | At most 63 bytes |
@@ -113,13 +113,16 @@ key 30 (mm); if both are present they must agree.
 
 ## Link between tag and spool
 
-Two Spoolman extra fields on the Spool entity tie a tag to a spool.
-See [Required extra fields](../inventory/custom-fields.md).
+Two places in Spoolman tie a tag to a spool. The Spool extra fields are required on Spoolman
+< 0.27 and optional on 0.27+; the tag list exists only on 0.27+. Both are kept when both exist.
+See [Required extra fields](../inventory/custom-fields.md) and
+[Native tag list](spoolman.md#native-tag-list-spoolman-027).
 
-| Default key | Content |
+| Where | Content |
 |---|---|
-| `opentag_instance_uuid` | The UUID written to main key 0 |
-| `nfc_uid` | The tag's UID |
+| Spool extra field `opentag_instance_uuid` (default key) | The UUID written to main key 0 |
+| Spool extra field `nfc_uid` (default key) | The tag's UID |
+| Spool tag list (Spoolman 0.27+) | The tag's UID, format `openprinttag` |
 
 ## Specification revisions
 

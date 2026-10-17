@@ -51,8 +51,21 @@ No. Tags are written from Spoolman spools and weights are saved to Spoolman.
 Without it the station can only read a tag and show the scale reading.
 
 **Which Spoolman version do I need?**
-Saving weights is enabled for Spoolman 0.26.1 only.
+Saving weights is enabled for Spoolman 0.26 and 0.27 (any 0.26.x or 0.27.x release).
+On Spoolman 0.27 or later the station also uses Spoolman's own tag list.
 See [Supported versions](upstream.md).
+
+**Do I need the extra fields?**
+Only on Spoolman older than 0.27. On 0.27 or later they are optional: the station links tags in
+Spoolman's tag list, and still fills the fields if they exist.
+See [Required extra fields](../inventory/custom-fields.md).
+
+**Does it work with Spoolman's own tag scanning?**
+Yes, on Spoolman 0.27 or later. Tags the station writes appear on their spool in Spoolman, tags you
+link to a spool in Spoolman are recognised by the station, and each tag the station identifies is
+reported to Spoolman with the station's host name as the reader. Pair a browser with that reader
+in Spoolman's **Settings → Tag Scanning** and it jumps to the spool you put on the station.
+See [What Spoolman 0.27 adds](../inventory/spoolman.md#what-spoolman-027-adds).
 
 **Can I use the station without FilaBridge?**
 Yes. FilaBridge is only needed to assign a spool to a printer toolhead.

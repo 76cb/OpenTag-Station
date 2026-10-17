@@ -7,9 +7,10 @@ and what it switches off when it meets a different one.
 
 | | |
 |---|---|
-| Accepted version | `0.26.1` |
-| Rule | The `version` string from Spoolman's `/api/v1/info` must be exactly `0.26.1`. |
-| On any other version | The station stays connected and can still read. Saving weights is off. |
+| Accepted versions | Any `0.26.x` or `0.27.x` release |
+| Rule | The `version` string from Spoolman's `/api/v1/info` must parse as `MAJOR.MINOR.PATCH` (digits only, optional leading `v`) with major `0` and minor `26` or `27`. Suffixes such as `-dev` do not parse. |
+| On any other version | The station stays connected and can still read, write and clear tags. Saving weights is off. |
+| Native tag list | Used automatically on `0.27.0` or later (any version that parses and is at least 0.27.0). The two Spool extra fields are then optional. See [Spoolman integration](spoolman.md#native-tag-list-spoolman-027). |
 
 What you see on another version:
 
@@ -82,7 +83,8 @@ The firmware is built with C++17 on the Arduino framework.
 Change the version in the file named above.
 A change to `platformio.ini`, `third_party/` or `web-flasher/` needs a version bump;
 see [Contributing changes](../contributing/pull-requests.md).
-The accepted Spoolman version is the constant `tested_version` in
+The accepted Spoolman versions are the constants `tested_major` and `tested_minors`, and the
+native tag threshold is `native_tags_minor`, all in
 `src/integrations/spoolman/spoolman_adapter.cpp`.
 The accepted FilaBridge versions are `tested_version` plus the literals compared in
 `FilaBridgeAdapter::probe()` in `src/integrations/filabridge/filabridge_adapter.cpp`.

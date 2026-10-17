@@ -7,6 +7,8 @@ Weighing on its own never changes Spoolman, and saving a weight never rewrites t
 
 - The scale is calibrated. See [Tare and calibrate](../scale/calibration.md).
 - The tag is linked to a Spoolman spool. See [Write or update a tag](manage-tags.md).
+- To save the weight, Spoolman runs version 0.26 or 0.27. Other versions can be weighed against
+  but not saved to; see [Connect Spoolman](../inventory/spoolman.md#supported-spoolman-versions).
 - The spool has an initial weight in Spoolman, and its empty-spool weight is known
   (see [Where the empty-spool weight comes from](#where-the-empty-spool-weight-comes-from)).
 - The whole spool rests on the platform. Nothing else touches it, and no filament end or cable
@@ -120,7 +122,7 @@ cannot be saved.
 | "Spoolman has no remaining weight for this spool. Set its initial weight in Spoolman, then weigh again." | Spoolman cannot work out a remaining weight. | Set the spool's initial weight in Spoolman. |
 | "The scale reads less than the empty spool weight. Check that the spool is on the scale and its empty weight is right." | The reading is lighter than an empty reel. | Seat the spool on the platform. Check the empty-spool weight in Spoolman. |
 | "The weight tolerance setting is invalid. Check Settings." | The tolerance value is not usable. | Browser: **Settings → Scale → Weight updates**, fix **Inventory matching tolerance (g)**. |
-| "Saving weights is turned off: this Spoolman version has not been tested with this firmware, or Spoolman is offline. See Settings." | Shown after you ask to save. Spoolman is unreachable or is a version the station does not save weights to. | See [Connect Spoolman](../inventory/spoolman.md#supported-spoolman-version). |
+| "Saving weights is turned off: this Spoolman version has not been tested with this firmware, or Spoolman is offline. See Settings." | Shown after you ask to save. Spoolman is unreachable, or its version is not 0.26 or 0.27 (the only versions the station saves weights to). | Check that Spoolman is reachable and runs version 0.26 or 0.27. See [Connect Spoolman](../inventory/spoolman.md#supported-spoolman-versions). |
 | "The spool on the station changed. Weigh again." | The tag was removed or swapped, or settings changed, after measuring. | Put the spool back and weigh again. |
 | "Spoolman already matches this weight. Nothing to update." | The difference is within the tolerance. | Nothing. |
 | "The measured filament (N g) is more than this spool's initial weight in Spoolman (M g). Check the empty spool weight, or correct the initial weight in Spoolman." | The result is more than 10 g above the initial weight. | Correct the empty-spool weight or the initial weight in Spoolman. |

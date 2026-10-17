@@ -32,6 +32,7 @@ In the browser the same situations look like this:
 | `Retry pending association first` | Finish **Link not saved yet** first. |
 | `Retry pending unlink first` | Finish **Unlink not finished** first. |
 | `Finish Clear / Reuse recovery before another operation` | Finish **Finish clearing this tag** first. |
+| A message about Spoolman's tag list, for example `Spoolman already links this tag to spool #N. Remove it from that spool in Spoolman, then try again.` or `Spoolman still links this tag after removing it; try again` | Spoolman 0.27 or later holds a link that does not fit. See [Tag links in Spoolman's tag list](spoolman.md#tag-links-in-spoolmans-tag-list-spoolman-027-or-later), fix it in Spoolman, then retry. |
 | `Clearing this tag was interrupted and the Spoolman settings have changed since. Restore the earlier Spoolman settings to finish, or choose Skip recovery on the station's Tag screen.` | Set the Spoolman settings (address, extra field names) back to what they were when you started the clear, then finish. Or skip recovery. |
 
 ## Skip recovery
@@ -51,7 +52,7 @@ It changes neither the tag nor Spoolman, so what is left depends on where it sto
 |---|---|---|
 | **Finish writing this tag** or **Finish clearing this tag** | The tag may be half-written. The station cannot finish it, and may not be able to write or clear it either. | Skip only if the tag is lost or damaged. If you still have it, place it again; discard it if the station says it can't be used. |
 | **Link not saved yet** | The tag is written, but Spoolman does not know it belongs to the spool. | Link it later: **Manage tag → LINK TO A SPOOL** (browser: **Link to a spool**). |
-| **Unlink not finished** | The tag is erased, but Spoolman may still list it on the old spool. | In Spoolman, open the old spool and empty its `nfc_uid` and `opentag_instance_uuid` fields. |
+| **Unlink not finished** | The tag is erased, but Spoolman may still list it on the old spool. | In Spoolman, open the old spool, empty its `nfc_uid` and `opentag_instance_uuid` fields, and on Spoolman 0.27 or later remove the tag from its tag list. |
 
 ## Good to know
 

@@ -102,6 +102,18 @@ uses `SpoolIdentityResolver` and `SpoolmanAdapter` to find the spool. `StationWo
 `awaiting_spool`, `waiting_for_stable_weight`, `resolving_spool`, `spool_resolution_unavailable`,
 `spool_not_found`, `spool_selection_required`, `spool_ready`, `assignment_complete`.
 
+`NfcWorkflowHandoff` (`src/services/nfc_workflow_handoff.hpp`) submits one identify command per tag
+placement, after the scale reports a stable weight. A tag without OpenPrintTag data (read state
+blank or unsupported, see `nfc::uid_only_generation()`) is submitted by UID alone; the workflow
+marks it `uid_only` and shows it as a spool only for a single exact match, otherwise it stays
+blank/unsupported (`spool_not_found`). `SpoolIdentityResolver::resolve()` order: with the
+`native_tags` capability (Spoolman 0.27+), the Spoolman tag list (`?tag=`, canonical then
+byte-reversed UID); then the instance-UUID extra field, the local cache by UUID, the NFC-UID
+extra field, the local cache by UID, and vendor/material suggestions (never for `uid_only`).
+After the identify command, `BackendWorker` calls `SpoolmanAdapter::report_tag_scan()`
+(`POST /tag/scan`, best effort, `native_tags` only). Details:
+<https://76cb.github.io/OpenTag-Station-Docs/reference/spoolman/>.
+
 **Weigh.** Touchscreen or `POST` to the API → `ScaleCommandQueue` → scale task (`ScaleService`
 waits for a stable reading). The queue's `weigh_started`/`weigh_finished` hooks call
 `BackendWorker::begin_weigh()`/`complete_weigh()`, which fill a `WeighSync` session. Saving is a
@@ -111,7 +123,8 @@ separate command, `submit_weight_update()`, handled on the backend task by
 **Write or clear a tag.** `BackendWorker::submit_writer(json)` from `UiService` or from
 `POST /api/v1/tag-writer` → `process_writer()` → `TagWriterService::process()` →
 `OpenPrintTagWriter` → `I2cReader::commit_openprinttag_block()`. The Spoolman link is saved or
-removed by `TagWriterService` over the same `SpoolmanAdapter`. The recovery record is stored by
+removed by `TagWriterService` over the same `SpoolmanAdapter`: in the Spool extra fields when they
+exist and, with `native_tags`, in Spoolman's tag list (see [tag-writer.md](tag-writer.md)). The recovery record is stored by
 `src/platform/storage/writer_journal.cpp`.
 
 **Assign a toolhead.** `BackendWorker::submit_assignment_operation()` →

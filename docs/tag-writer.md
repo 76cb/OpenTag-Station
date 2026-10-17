@@ -51,11 +51,19 @@ the queue (`Write confirmation expired in queue`).
 
 ## Write
 
-1. **Preview** (`preview`): read the tag, load the spool from Spoolman, check that both Spool
-   extra fields exist, choose the instance UUID (the spool's existing one, else the tag's if the
-   spool already names this UID, else a new random UUID), check that no other spool uses that
-   UUID, find the current owner of the UID, build the target image, plan the changed blocks.
+1. **Preview** (`preview`): read the tag, load the spool from Spoolman, check the Spool extra
+   fields (`require_identity_fields()`: required without `native_tags`; with `native_tags` a
+   missing field sets `extras_ = false` and every extra-field step is skipped), choose the
+   instance UUID (with the fields: the spool's existing one, else the tag's if the spool already
+   names this UID; without them: the tag's if the native tag list already links this tag to the
+   target spool; else a new random UUID), check that no other spool uses that UUID (fields only),
+   find the current owner of the UID (`prepare_uid_owner()`: the `nfc_uid` owner and, with
+   `native_tags`, the tag-list holders), build the target image, plan the changed blocks.
    `mode` is `initialize` (blank tag), `rewrite`, or `update` (consumed weight only).
+   With `native_tags` the preview is refused, before any NFC write, when a filament holds the tag,
+   when two spools hold it, or when the field owner and the tag-list owner are different spools
+   other than the target (messages in the
+   [Spoolman reference](https://76cb.github.io/OpenTag-Station-Docs/reference/spoolman/)).
 2. **Confirm** (`write`): the request must repeat `uid`, `generation`, `spool_id`,
    `previous_spool_id` and `target_checksum` from the preview. A mismatch, changed Spoolman
    settings, or a recovery record for a different tag refuses the write.
@@ -67,14 +75,25 @@ the queue (`Write confirmation expired in queue`).
    instance UUID, then block 0. Bytes 312–319 must be equal in original and target.
 5. **Verify**: read all 80 blocks, compare with the target, decode, and check instance UUID and
    consumed weight against the plan.
-6. **Link** (`associating`): if the UID belonged to another spool, clear `nfc_uid` there first.
-   Then `GET` the target spool, `PATCH` both extra fields, `GET` again and compare, check that
-   the UUID and the UID each have exactly one owner, store the mapping in the local settings,
-   delete the recovery record. Phase `complete`.
+6. **Link** (`associating`), `associate()`:
+    - With the extra fields (`associate_extra_fields()`): if the UID belonged to another spool,
+      clear `nfc_uid` there first. Then `GET` the target spool, `PATCH` both extra fields, `GET`
+      again and compare, check that the UUID and the UID each have exactly one owner.
+    - With `native_tags` (`link_native()`, after the fields): find the holders
+      (`GET /spool?allow_archived=true&tag=<form>&limit=2&offset=0` for the canonical `E004…` UID
+      and its byte-reversed form; each result is a `NativeHold` of spool ID and form). A holder
+      other than the target must be the preview's `previous_spool_id` and is removed with
+      `DELETE /spool/{id}/tag/{form}` (404 = removed). If the target holds neither form,
+      `POST /spool/{id}/tag` `{"uid": "<canonical>", "format": "openprinttag"}` (409 and 404 are
+      mapped to messages). Read back: the target must be the only holder.
+    - Store the mapping in the local settings, delete the recovery record. Phase `complete`.
 
 If step 4 is refused before any block was written, the recovery record is deleted again.
-If linking fails, the phase is `association_pending`; the tag is correct and only
-`retry_association` (no NFC write) or `discard_recovery` is accepted.
+If linking fails (fields or native), the phase is `association_pending`; the tag is correct and
+only `retry_association` (no NFC write) or `discard_recovery` is accepted. A retry repeats the
+whole link step, including the native holder lookup. The native steps keep nothing in the
+recovery record beyond the previous owner spool ID; holders are looked up again on every retry.
+The writer only adds and removes links on spools; it never removes a filament's tag link.
 
 ## Clear
 
@@ -85,11 +104,14 @@ If linking fails, the phase is `association_pending`; the tag is correct and onl
 3. Save the recovery record, then execute as for a write. Payload blocks first, block 0 last.
    Final check: all 312 bytes zero.
 4. **Unlink** (`unlinking`), in this order: save the record with "cleanup pending"; check the
-   Spool extra fields exist; find the spool that owns the UID (or, failing that, the cleared
-   instance UUID); refuse if that spool now names another tag or another UUID; save the record
-   with the owner bound; `PATCH` both extra fields to `null`; `GET` and compare; check that
-   neither the UID nor the UUID has an owner; remove the local mapping; delete the record.
-   Phase `cleared`.
+   Spool extra fields (required only without `native_tags`); find the spool that owns the UID by
+   field and, with `native_tags`, by tag list (refused if they name different spools; failing
+   both, by the cleared instance UUID when the fields exist); refuse if that spool now names
+   another tag or another UUID; save the record with the owner bound; with the fields, `PATCH`
+   both to `null` and `GET` and compare; with `native_tags` (`unlink_native()`), `DELETE` every
+   holder in both byte orders (every holder must be the bound spool) and read back that none
+   remains; with the fields, check that neither the UID nor the UUID has an owner; remove the
+   local mapping; delete the record. Phase `cleared`.
 
 The physical result is recorded before the first Spoolman request. If Spoolman fails, the phase
 is `unlink_pending` and the message says the tag is already cleared

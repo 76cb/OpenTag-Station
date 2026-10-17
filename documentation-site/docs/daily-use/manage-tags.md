@@ -6,7 +6,8 @@ writing and only then saves the link in Spoolman.
 
 ## Before you start
 
-- Spoolman is connected and has the two [required extra fields](../inventory/custom-fields.md).
+- Spoolman is connected. On Spoolman older than 0.27 it also needs the two
+  [extra fields](../inventory/custom-fields.md).
 - You have a blank NXP ICODE SLIX2 tag, or a tag the station wrote before.
   See [Which tags work](../openprinttag/supported-tags.md).
 - Exactly one tag is on the reader, and it stays there until the station says it is done.
@@ -24,6 +25,10 @@ Browser: click **Manage tag** on the Dashboard.
 | Filament data, no spool linked | "Not linked to a Spoolman spool yet" | **LINK TO A SPOOL**, **CLEAR / REUSE** | **Link to a spool**, **Clear / Reuse** |
 | Filament data, likely matches found | "This may be one of your Spoolman spools." | **CHOOSE WHICH SPOOL**, **LINK TO A SPOOL**, **CLEAR / REUSE** | **Link to a spool**, **Clear / Reuse** |
 | Cannot be used | "This tag can't be used as it is" | **DONE** | — |
+
+A blank tag always shows as **Blank** here, even when Spoolman links it to a spool and Home shows
+that spool (see [Identify a spool](identify.md#tags-spoolman-links-to-a-spool)): the tag itself
+holds no filament data yet.
 
 **ASSIGN TAG**, **LINK TO A SPOOL** and **REASSIGN** all lead to the same steps below.
 **CLEAR / REUSE** is covered in [Clear and reuse a tag](clear-reuse.md).
@@ -73,6 +78,14 @@ interrupted; see [Finish an interrupted tag operation](../troubleshooting/journa
 
 **BACK** takes you one page back at any point before **WRITE TAG**.
 Nothing is written to the tag before that tap.
+
+## Where the link is saved
+
+After the tag is written and checked, the station saves the link in Spoolman:
+
+- If the spool extra fields `nfc_uid` and `opentag_instance_uuid` exist, it fills them.
+- On Spoolman 0.27 or later it also adds the tag to the spool's tag list, so you can see the tag
+  on the spool in Spoolman. It then checks that the tag is linked to this spool and no other.
 
 ## Write a tag in the browser
 
@@ -156,7 +169,8 @@ What ends up on the tag is listed in [What is stored on a tag](../openprinttag/o
 
 Use **REASSIGN** (touchscreen) or **Reassign** (browser) on a linked tag and pick the new spool.
 The station asks you to confirm the move, rewrites the tag for the new spool and moves the link
-in Spoolman. The previous spool stays in Spoolman; it just no longer has a tag.
+in Spoolman (on Spoolman 0.27 or later, also from the old spool's tag list to the new one's).
+The previous spool stays in Spoolman; it just no longer has a tag.
 
 If you want an empty tag instead, use [Clear and reuse a tag](clear-reuse.md).
 
@@ -167,7 +181,10 @@ In the browser the message appears in the banner at the top of the dialog.
 
 | What you see | What it means | What to do |
 |---|---|---|
-| "Spoolman is missing the Spool extra field …" | The two extra fields do not exist in Spoolman, or are not of type Text. | See [Required extra fields](../inventory/custom-fields.md). |
+| "Spoolman is missing the Spool extra field …" | Your Spoolman is older than 0.27 and the two extra fields do not exist, or are not of type Text. | See [Required extra fields](../inventory/custom-fields.md). |
+| "Spoolman links this tag to filament #N. Remove it from that filament in Spoolman first." | In Spoolman, the tag is linked to a filament, not a spool. Nothing was written. | In Spoolman, remove the tag from that filament, then start again. The station never removes it for you. |
+| "Spoolman links this tag to two different spools; remove one of the links in Spoolman first" | Two spools in Spoolman's tag list hold this tag. Nothing was written. | In Spoolman, remove the tag from the spool it is not on, then start again. |
+| "This tag is linked to spool #A by its extra field and to spool #B in Spoolman's tag list. Remove one of the links in Spoolman first." | The `nfc_uid` field and Spoolman's tag list name different spools. Nothing was written. | In Spoolman, remove the wrong link (empty the field, or remove the tag from the spool), then start again. |
 | "Enter the empty spool weight first (weigh an empty reel of the same type, or use the maker's value)." | You tapped **CREATE SPOOL** with **Empty spool: NOT SET**. | Tap the line and enter the weight of the empty reel. |
 | "Check the spool weights: remaining cannot be more than initial, and none can be above 100000 g." | The three weights do not fit together. | Correct them and tap **CREATE SPOOL** again. |
 | "Station is busy. Please try again." | Another request was still running. | Try again. |

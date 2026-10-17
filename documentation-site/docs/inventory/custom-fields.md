@@ -1,7 +1,8 @@
 # Required extra fields
 
-The station remembers which tag belongs to which spool by storing two values on the spool in
-Spoolman, in two extra fields. The station never creates them for you.
+The station can remember which tag belongs to which spool by storing two values on the spool in
+Spoolman, in two extra fields. Spoolman 0.27 and later also has its own tag list, which the station
+uses as well. The station never creates the extra fields for you.
 
 ## Do you need them?
 

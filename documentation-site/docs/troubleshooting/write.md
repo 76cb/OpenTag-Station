@@ -44,7 +44,10 @@ Fix the record in Spoolman, then write again.
 | `Canonical filament color is malformed` | The filament colour is not 6 or 8 hex digits. | Correct the colour in Spoolman. |
 | `Canonical used_weight is missing or invalid` | The spool has no valid used weight. | Set the used weight in Spoolman (0 for a new spool). |
 | `Canonical active Spoolman spool required` | The spool is archived. | Un-archive it in Spoolman or choose another spool. |
-| `Spoolman is missing the Spool extra field…` | The two extra fields do not exist in Spoolman. | [Required extra fields](../inventory/custom-fields.md) |
+| `Spoolman is missing the Spool extra field…` | Your Spoolman is older than 0.27 and the two extra fields do not exist. | [Required extra fields](../inventory/custom-fields.md) |
+| `Spoolman links this tag to filament #N. Remove it from that filament in Spoolman first.` | Spoolman 0.27 or later links the tag to a filament. Nothing was written. | Remove it from the filament in Spoolman. See [Tag links in Spoolman's tag list](spoolman.md#tag-links-in-spoolmans-tag-list-spoolman-027-or-later). |
+| `Spoolman links this tag to two different spools; remove one of the links in Spoolman first` | Two spools in Spoolman's tag list hold the tag. Nothing was written. | Remove the wrong link in Spoolman. Same page as above. |
+| `This tag is linked to spool #A by its extra field and to spool #B in Spoolman's tag list. Remove one of the links in Spoolman first.` | The `nfc_uid` field and Spoolman's tag list disagree. Nothing was written. | Remove the wrong link in Spoolman. Same page as above. |
 | `Multiple NFC UID owners; clean up Spoolman before continuing` | Two or more spools in Spoolman carry this tag's `nfc_uid`. | In Spoolman, empty `nfc_uid` and `opentag_instance_uuid` on the spool that should not have the tag. |
 | `Instance UUID belongs to another Spoolman spool` | The unique ID for this tag is already saved on a different spool. | The same. |
 
