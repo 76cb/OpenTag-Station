@@ -287,6 +287,15 @@ bool WifiService::request_setup_mode(std::uint64_t operation_id) {
   return true;
 }
 
+bool WifiService::request_setup_stop(std::uint64_t operation_id) {
+  if (!initialized_.load(std::memory_order_acquire) ||
+      !setup_operation_.try_claim(operation_id)) {
+    return false;
+  }
+  setup_stop_requested_.store(true, std::memory_order_release);
+  return true;
+}
+
 bool WifiService::request_reconfigure(
     const config::DeviceSettings& device,
     const config::WifiSettings& wifi,
@@ -515,6 +524,33 @@ void WifiService::complete_setup_mode_request(std::uint32_t now_ms) {
   }
 }
 
+void WifiService::complete_setup_stop_request(std::uint32_t now_ms) {
+  const auto operation_id = setup_operation_.operation_id();
+  const auto result = provisioning_.stop_requested_setup();
+  if (operation_id != 0U) {
+    if (result == SetupStopResult::refused) {
+      operations_.fail(
+          operation_id, now_ms,
+          {core::ErrorCategory::conflict,
+           "The setup network stays on while the station has no working "
+           "Wi-Fi. Connect the station to Wi-Fi first.",
+           false});
+    } else {
+      operations_.succeed(
+          operation_id, now_ms,
+          result == SetupStopResult::stopped
+              ? "Setup network stopped"
+              : "Setup network was not running");
+    }
+    (void)setup_operation_.release(operation_id);
+  }
+  Serial.printf(
+      "setup_ap=stop_requested result=%s\n",
+      result == SetupStopResult::stopped      ? "stopped"
+      : result == SetupStopResult::not_active ? "not_active"
+                                              : "refused");
+}
+
 void WifiService::succeed_reconfigure(
     std::uint32_t now_ms,
     const char* message) {
@@ -598,6 +634,8 @@ void WifiService::update_provisioning_status(std::uint32_t now_ms) {
   status_.provisioning_failures = provisioning_.failures();
   status_.provisioning_grace_remaining_ms =
       provisioning_.grace_remaining_ms(now_ms);
+  status_.provisioning_requested_remaining_ms =
+      provisioning_.requested_remaining_ms(now_ms);
 }
 
 void WifiService::poll(std::uint32_t now_ms) {
@@ -610,12 +648,16 @@ void WifiService::poll(std::uint32_t now_ms) {
       operations_.mark_running(
           operation_id, now_ms, "Starting setup access point");
     }
-    provisioning_.request_setup();
+    provisioning_.request_setup(now_ms);
     if (scan_state_.running()) {
       setup_mode_pending_ = true;
     } else {
       complete_setup_mode_request(now_ms);
     }
+  }
+
+  if (setup_stop_requested_.exchange(false, std::memory_order_acq_rel)) {
+    complete_setup_stop_request(now_ms);
   }
 
   std::optional<PendingConfiguration> pending;

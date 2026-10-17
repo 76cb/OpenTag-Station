@@ -841,6 +841,14 @@ void test_session_failure_is_terminal_and_tare_invalidates_retained_weight() {
   }
   TEST_ASSERT_TRUE(service.status().last_completed_grams.has_value());
 
+  // A tare is refused while the spool is still on the platform.
+  const auto loaded = service.begin_measurement(
+      ScaleMeasurementPurpose::tare, 1500U);
+  TEST_ASSERT_FALSE(loaded.ok());
+  // The platform is emptied before the tare.
+  for (std::uint32_t index = 0U; index < 10U; ++index) {
+    sample(service, adc, 132000, 1510U + index * 9U);
+  }
   TEST_ASSERT_TRUE(service.begin_measurement(
       ScaleMeasurementPurpose::tare, 1600U).ok());
   for (std::uint32_t index = 0U; index < 10U; ++index) {
@@ -1292,8 +1300,152 @@ void test_calibration_timeout_on_a_still_platform_asks_for_the_reference() {
       service.status().measurement_error->message.c_str());
 }
 
+void test_tare_is_refused_while_the_calibrated_platform_is_loaded() {
+  FakeAdc adc;
+  FakeStore store;
+  store.stored = physical_calibration();
+  ScaleService service(adc, store, measurement_config());
+  TEST_ASSERT_TRUE(service.initialize(0U, 1000U).ok());
+  const auto calibrations_before = adc.calibration_calls;
+  for (std::uint32_t index = 0U; index < 10U; ++index) {
+    sample(service, adc, physical_raw_for_grams(500.0F), (index + 1U) * 100U);
+  }
+  const auto refused = service.begin_measurement(
+      ScaleMeasurementPurpose::tare, 1000U);
+  TEST_ASSERT_FALSE(refused.ok());
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(ErrorCategory::scale_unstable),
+      static_cast<int>(refused.error().category));
+  TEST_ASSERT_EQUAL_STRING(
+      "The platform is not empty (reads 500 g). Remove everything, then tare.",
+      refused.error().message.c_str());
+  // Nothing changed: no offset calibration, zero still trusted, no session.
+  TEST_ASSERT_EQUAL_UINT(calibrations_before, adc.calibration_calls);
+  TEST_ASSERT_TRUE(service.status().tare_ready);
+  TEST_ASSERT_EQUAL_INT(132000, store.stored->zero_offset_counts);
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(ScaleMeasurementState::idle),
+      static_cast<int>(service.status().measurement_state));
+  // Weighing still works after the refusal.
+  TEST_ASSERT_TRUE(service.begin_measurement(
+      ScaleMeasurementPurpose::weigh, 1000U).ok());
+  for (std::uint32_t index = 0U; index < 15U; ++index) {
+    sample(service, adc, physical_raw_for_grams(500.0F), 1100U + index * 100U);
+  }
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(ScaleMeasurementState::completed),
+      static_cast<int>(service.status().measurement_state));
+
+  // A small residual load (below 50 g) and a negative zero shift may be
+  // tared away.
+  for (std::uint32_t index = 0U; index < 10U; ++index) {
+    sample(service, adc, physical_raw_for_grams(40.0F), 2700U + index * 100U);
+  }
+  TEST_ASSERT_TRUE(service.begin_measurement(
+      ScaleMeasurementPurpose::tare, 3600U).ok());
+  TEST_ASSERT_EQUAL_UINT(calibrations_before + 1U, adc.calibration_calls);
+
+  FakeAdc negative_adc;
+  FakeStore negative_store;
+  negative_store.stored = physical_calibration();
+  ScaleService negative(negative_adc, negative_store, measurement_config());
+  TEST_ASSERT_TRUE(negative.initialize(0U, 1000U).ok());
+  for (std::uint32_t index = 0U; index < 10U; ++index) {
+    sample(negative, negative_adc, physical_raw_for_grams(-300.0F),
+           (index + 1U) * 100U);
+  }
+  TEST_ASSERT_TRUE(negative.begin_measurement(
+      ScaleMeasurementPurpose::tare, 1000U).ok());
+}
+
+void test_uncalibrated_first_tare_is_not_load_checked() {
+  FakeAdc adc;
+  FakeStore store;
+  ScaleService service(adc, store, measurement_config());
+  TEST_ASSERT_TRUE(service.initialize(0U, 1000U).ok());
+  for (std::uint32_t index = 0U; index < 10U; ++index) {
+    sample(service, adc, 900000, (index + 1U) * 100U);
+  }
+  TEST_ASSERT_TRUE(service.begin_measurement(
+      ScaleMeasurementPurpose::tare, 1000U).ok());
+}
+
+void test_repeated_poll_failures_require_reinitialization_and_recover() {
+  FakeAdc adc;
+  FakeStore store;
+  store.stored = calibration(10.0, 5000.0F);
+  ScaleService service(adc, store, test_config());
+  TEST_ASSERT_TRUE(service.initialize(0U, 1000U).ok());
+  TEST_ASSERT_EQUAL_UINT(5U, ScaleService::reinitialize_after_failed_polls);
+  TEST_ASSERT_TRUE(service.begin_measurement(
+      ScaleMeasurementPurpose::weigh, 0U).ok());
+
+  // A transient failure streak shorter than the limit recovers by itself.
+  adc.ready_fails = true;
+  for (std::uint32_t index = 0U; index < 4U; ++index) {
+    TEST_ASSERT_FALSE(service.poll(1U + index).ok());
+  }
+  TEST_ASSERT_TRUE(service.status().adc_ready);
+  TEST_ASSERT_FALSE(service.reinitialization_required());
+  adc.ready_fails = false;
+  sample(service, adc, 1000, 10U);
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(ScaleState::sampling),
+      static_cast<int>(service.status().state));
+
+  // The counter restarted, so four more failures still do not escalate.
+  adc.ready_fails = true;
+  for (std::uint32_t index = 0U; index < 4U; ++index) {
+    TEST_ASSERT_FALSE(service.poll(20U + index).ok());
+  }
+  TEST_ASSERT_FALSE(service.reinitialization_required());
+
+  // NAU7802 reset: samples never become ready again (sample timeout path).
+  adc.ready_fails = false;
+  std::uint32_t now = 30U;
+  for (std::uint32_t index = 0U; index < 5U; ++index) {
+    now += 60U;  // beyond the 50 ms sample timeout
+    TEST_ASSERT_FALSE(service.poll(now).ok());
+  }
+  TEST_ASSERT_FALSE(service.status().adc_ready);
+  TEST_ASSERT_TRUE(service.reinitialization_required());
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(ScaleState::disconnected),
+      static_cast<int>(service.status().state));
+  TEST_ASSERT_TRUE(service.status().last_error.has_value());
+  TEST_ASSERT_EQUAL_STRING(
+      "The scale stopped responding. Reconnecting to it; weighing is "
+      "unavailable until it answers again.",
+      service.status().last_error->message.c_str());
+  // The interrupted weigh ended terminally; new weighs are refused.
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(ScaleMeasurementState::failed),
+      static_cast<int>(service.status().measurement_state));
+  TEST_ASSERT_FALSE(service.begin_measurement(
+      ScaleMeasurementPurpose::weigh, now).ok());
+  TEST_ASSERT_FALSE(service.poll(now + 10U).ok());
+
+  // The owner's retry re-runs initialize(): calibration reloads from storage
+  // and the failed session stays visible until the next one begins.
+  const auto reinit = service.initialize(now + 5000U, 1000U);
+  TEST_ASSERT_TRUE_MESSAGE(reinit.ok(), reinit.ok() ? "" : reinit.error().message.c_str());
+  TEST_ASSERT_TRUE(service.status().adc_ready);
+  TEST_ASSERT_TRUE(service.status().calibration_loaded);
+  TEST_ASSERT_FALSE(service.reinitialization_required());
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(ScaleMeasurementState::failed),
+      static_cast<int>(service.status().measurement_state));
+  sample(service, adc, 1000, now + 5010U);
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(ScaleState::sampling),
+      static_cast<int>(service.status().state));
+}
+
 int main(int, char**) {
   UNITY_BEGIN();
+  RUN_TEST(test_tare_is_refused_while_the_calibrated_platform_is_loaded);
+  RUN_TEST(test_uncalibrated_first_tare_is_not_load_checked);
+  RUN_TEST(test_repeated_poll_failures_require_reinitialization_and_recover);
   RUN_TEST(test_i2c_scan_result_is_bounded_and_tracks_target);
   RUN_TEST(test_i2c_diagnostic_prefers_expected_bus_target);
   RUN_TEST(test_i2c_diagnostic_reports_reversed_target);

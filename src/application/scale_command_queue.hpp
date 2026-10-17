@@ -29,6 +29,9 @@ class ScaleCommandQueue final {
   [[nodiscard]] CommandReceipt submit_weigh(std::uint32_t now_ms, bool explicit_request = true);
   std::function<void(std::uint64_t)> weigh_started;
   std::function<void(std::uint64_t, std::optional<float>)> weigh_finished;
+  // Returns a user-facing reason when an explicit Weigh must be refused right
+  // now (nullptr otherwise). Checked at submit and again at session start.
+  std::function<const char*()> weigh_refusal;
   [[nodiscard]] CommandReceipt submit_tare(std::uint32_t now_ms);
   [[nodiscard]] CommandReceipt submit_calibration(
       float reference_grams,

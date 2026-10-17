@@ -28,21 +28,53 @@ enum class ProvisioningReason : std::uint8_t {
   return "none";
 }
 
+enum class SetupStopResult : std::uint8_t {
+  stopped,      // a requested setup network was stopped
+  not_active,   // nothing to stop
+  refused,      // setup network is needed: no working Wi-Fi
+};
+
 class ProvisioningPolicy {
  public:
   static constexpr std::uint32_t failure_threshold = 3U;
   static constexpr std::uint32_t connected_grace_ms = 30000U;
+  // A setup network started on request (the station already has Wi-Fi
+  // settings) is open, so it closes on its own after this long.
+  static constexpr std::uint32_t requested_timeout_ms = 10U * 60U * 1000U;
 
   void initialize(bool wifi_configured) {
     failures_ = 0U;
     grace_active_ = false;
+    requested_timer_active_ = false;
     reason_ = wifi_configured ? ProvisioningReason::none
                               : ProvisioningReason::unconfigured;
   }
 
-  void request_setup() {
+  void request_setup(std::uint32_t now_ms) {
+    // An unconfigured or failing station already runs the setup network for
+    // a stronger reason; a request must not shorten or weaken that.
+    if (reason_ == ProvisioningReason::unconfigured ||
+        reason_ == ProvisioningReason::connection_failures) {
+      return;
+    }
     grace_active_ = false;
     reason_ = ProvisioningReason::requested;
+    requested_timer_active_ = true;
+    requested_deadline_ms_ = now_ms + requested_timeout_ms;
+  }
+
+  // Stops a setup network that was started on request. A setup network that
+  // runs because Wi-Fi is missing or failing cannot be stopped.
+  [[nodiscard]] SetupStopResult stop_requested_setup() {
+    if (reason_ == ProvisioningReason::unconfigured ||
+        reason_ == ProvisioningReason::connection_failures) {
+      return SetupStopResult::refused;
+    }
+    if (reason_ == ProvisioningReason::none) {
+      return SetupStopResult::not_active;
+    }
+    clear();
+    return SetupStopResult::stopped;
   }
 
   void begin_connection_attempt() { grace_active_ = false; }
@@ -53,6 +85,7 @@ class ProvisioningPolicy {
     if (reason_ != ProvisioningReason::unconfigured &&
         failures_ >= failure_threshold) {
       reason_ = ProvisioningReason::connection_failures;
+      requested_timer_active_ = false;
     }
   }
 
@@ -67,8 +100,12 @@ class ProvisioningPolicy {
   void poll(std::uint32_t now_ms) {
     if (grace_active_ &&
         static_cast<std::int32_t>(now_ms - grace_deadline_ms_) >= 0) {
-      grace_active_ = false;
-      reason_ = ProvisioningReason::none;
+      clear();
+    }
+    if (requested_timer_active_ &&
+        reason_ == ProvisioningReason::requested &&
+        static_cast<std::int32_t>(now_ms - requested_deadline_ms_) >= 0) {
+      clear();
     }
   }
 
@@ -85,12 +122,31 @@ class ProvisioningPolicy {
     }
     return grace_deadline_ms_ - now_ms;
   }
+  // Time left before a requested setup network closes on its own; 0 when the
+  // setup network is not running on request.
+  [[nodiscard]] std::uint32_t requested_remaining_ms(
+      std::uint32_t now_ms) const {
+    if (!requested_timer_active_ ||
+        reason_ != ProvisioningReason::requested ||
+        static_cast<std::int32_t>(now_ms - requested_deadline_ms_) >= 0) {
+      return 0U;
+    }
+    return requested_deadline_ms_ - now_ms;
+  }
 
  private:
+  void clear() {
+    grace_active_ = false;
+    requested_timer_active_ = false;
+    reason_ = ProvisioningReason::none;
+  }
+
   ProvisioningReason reason_{ProvisioningReason::none};
   std::uint32_t failures_{0U};
   std::uint32_t grace_deadline_ms_{0U};
+  std::uint32_t requested_deadline_ms_{0U};
   bool grace_active_{false};
+  bool requested_timer_active_{false};
 };
 
 struct WifiNetwork {

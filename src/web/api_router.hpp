@@ -298,6 +298,8 @@ enum class MutationKind : std::uint8_t {
   network_scan,
   network_connect,
   network_setup_mode,
+  // POST /api/v1/network/setup-mode with {"stop": true}
+  network_setup_stop,
 };
 
 using MutationPayload = std::variant<
@@ -319,6 +321,10 @@ struct Mutation {
   std::uint64_t payload_digest{0U};
   MutationPayload payload{EmptyMutation{}};
   bool provisioning_transport{false};
+  // Read-only requests (writer catalog search/paging) still honour an
+  // existing retained key but never consume an idempotency ledger slot:
+  // replaying them is harmless and browsing must not exhaust the ledger.
+  bool idempotency_exempt{false};
 };
 
 struct OperationReceipt {

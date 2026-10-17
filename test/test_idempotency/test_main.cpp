@@ -1,5 +1,6 @@
 #include <unity.h>
 
+#include <algorithm>
 #include <atomic>
 #include <cstdint>
 #include <limits>
@@ -12,6 +13,16 @@
 namespace {
 using opentag::web::IdempotencyLedger;
 using opentag::web::IdempotencyLookupStatus;
+using opentag::web::IdempotencyAdmission;
+
+// Simulates the operation registry: operations listed here are still live.
+struct LiveOperations {
+  std::vector<std::uint64_t> live;
+  bool operator()(std::uint64_t id) const {
+    for (const auto value : live) if (value == id) return false;
+    return true;
+  }
+};
 }  // namespace
 
 void setUp() {}
@@ -195,6 +206,106 @@ void test_concurrent_lookup_and_insert_remain_coherent() {
   TEST_ASSERT_EQUAL_UINT(1U, ledger.size(100U));
 }
 
+void test_read_only_catalog_requests_never_consume_slots_then_write_accepted() {
+  IdempotencyLedger ledger;
+  LiveOperations ops;
+  std::uint64_t next_op = 1U;
+  // A previous write is still running and retained.
+  TEST_ASSERT_TRUE(ledger.insert("write-0", 1U, next_op, 0U));
+  ops.live.push_back(next_op++);
+  for (std::uint32_t index = 0U; index < 40U; ++index) {
+    const auto admission = ledger.admit(
+        "catalog-" + std::to_string(index), 500U + index, index, false, ops);
+    TEST_ASSERT_EQUAL(
+        static_cast<int>(IdempotencyAdmission::proceed_unretained),
+        static_cast<int>(admission.decision));
+    // Catalog operations stay live and are never inserted.
+    ops.live.push_back(next_op++);
+  }
+  TEST_ASSERT_EQUAL_UINT(1U, ledger.size(40U));
+  const auto write = ledger.admit("write-1", 2U, 41U, true, ops);
+  TEST_ASSERT_EQUAL(
+      static_cast<int>(IdempotencyAdmission::proceed),
+      static_cast<int>(write.decision));
+  TEST_ASSERT_TRUE(ledger.insert("write-1", 2U, next_op, 41U));
+  // A read-only request reusing a retained key still replays/conflicts.
+  TEST_ASSERT_EQUAL(
+      static_cast<int>(IdempotencyAdmission::replay),
+      static_cast<int>(ledger.admit("write-1", 2U, 42U, false, ops).decision));
+  TEST_ASSERT_EQUAL(
+      static_cast<int>(IdempotencyAdmission::conflict),
+      static_cast<int>(ledger.admit("write-1", 3U, 42U, false, ops).decision));
+}
+
+void test_full_ledger_evicts_oldest_finished_entry_and_keeps_live_replay() {
+  IdempotencyLedger ledger;
+  LiveOperations ops;
+  for (std::size_t index = 0U; index < IdempotencyLedger::capacity; ++index) {
+    TEST_ASSERT_TRUE(ledger.insert(
+        "key-" + std::to_string(index), index + 100U, index + 1U,
+        static_cast<std::uint32_t>(index * 10U)));
+    ops.live.push_back(index + 1U);
+  }
+  constexpr std::uint32_t now = 1000U;
+  // Operations for key-3 and key-7 have finished; key-3 is older.
+  ops.live.erase(std::remove(ops.live.begin(), ops.live.end(), 4U), ops.live.end());
+  ops.live.erase(std::remove(ops.live.begin(), ops.live.end(), 8U), ops.live.end());
+  TEST_ASSERT_FALSE(ledger.has_capacity(now));
+  const auto first = ledger.admit("new-1", 1U, now, true, ops);
+  TEST_ASSERT_EQUAL(
+      static_cast<int>(IdempotencyAdmission::proceed),
+      static_cast<int>(first.decision));
+  TEST_ASSERT_TRUE(ledger.insert("new-1", 1U, 900U, now));
+  ops.live.push_back(900U);
+  TEST_ASSERT_EQUAL(
+      static_cast<int>(IdempotencyLookupStatus::miss),
+      static_cast<int>(ledger.lookup("key-3", 103U, now).status));
+  TEST_ASSERT_EQUAL(
+      static_cast<int>(IdempotencyLookupStatus::same),
+      static_cast<int>(ledger.lookup("key-7", 107U, now).status));
+  // Live duplicates still replay their original operation.
+  const auto replay = ledger.admit("key-0", 100U, now, true, ops);
+  TEST_ASSERT_EQUAL(
+      static_cast<int>(IdempotencyAdmission::replay),
+      static_cast<int>(replay.decision));
+  TEST_ASSERT_EQUAL_UINT64(1U, replay.operation_id);
+  // Next eviction takes key-7, then nothing finished remains.
+  TEST_ASSERT_EQUAL(
+      static_cast<int>(IdempotencyAdmission::proceed),
+      static_cast<int>(ledger.admit("new-2", 2U, now, true, ops).decision));
+  TEST_ASSERT_TRUE(ledger.insert("new-2", 2U, 901U, now));
+  ops.live.push_back(901U);
+  TEST_ASSERT_EQUAL(
+      static_cast<int>(IdempotencyLookupStatus::miss),
+      static_cast<int>(ledger.lookup("key-7", 107U, now).status));
+  TEST_ASSERT_EQUAL(
+      static_cast<int>(IdempotencyAdmission::full),
+      static_cast<int>(ledger.admit("new-3", 3U, now, true, ops).decision));
+  TEST_ASSERT_EQUAL_UINT(IdempotencyLedger::capacity, ledger.size(now));
+}
+
+void test_full_ledger_refuses_while_every_operation_is_live() {
+  IdempotencyLedger ledger;
+  LiveOperations ops;
+  for (std::size_t index = 0U; index < IdempotencyLedger::capacity; ++index) {
+    TEST_ASSERT_TRUE(ledger.insert(
+        "live-" + std::to_string(index), index, index + 1U, 0U));
+    ops.live.push_back(index + 1U);
+  }
+  TEST_ASSERT_EQUAL(
+      static_cast<int>(IdempotencyAdmission::full),
+      static_cast<int>(ledger.admit("extra", 1U, 5U, true, ops).decision));
+  // Read-only requests are still admitted without a slot.
+  TEST_ASSERT_EQUAL(
+      static_cast<int>(IdempotencyAdmission::proceed_unretained),
+      static_cast<int>(ledger.admit("extra", 1U, 5U, false, ops).decision));
+  // Expiry still frees slots as before.
+  TEST_ASSERT_EQUAL(
+      static_cast<int>(IdempotencyAdmission::proceed),
+      static_cast<int>(ledger.admit(
+          "extra", 1U, IdempotencyLedger::ttl_ms, true, ops).decision));
+}
+
 int main(int, char**) {
   UNITY_BEGIN();
   RUN_TEST(test_same_payload_reuses_operation_and_different_payload_conflicts);
@@ -205,5 +316,10 @@ int main(int, char**) {
   RUN_TEST(
       test_capacity_churn_stress_remains_bounded_across_clock_wrap);
   RUN_TEST(test_concurrent_lookup_and_insert_remain_coherent);
+  RUN_TEST(
+      test_read_only_catalog_requests_never_consume_slots_then_write_accepted);
+  RUN_TEST(
+      test_full_ledger_evicts_oldest_finished_entry_and_keeps_live_replay);
+  RUN_TEST(test_full_ledger_refuses_while_every_operation_is_live);
   return UNITY_END();
 }
