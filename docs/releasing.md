@@ -8,9 +8,8 @@ The candidate is `1.0.0-rc.20`.
 ## Prerequisites
 
 - Push access to `76cb/OpenTag-Station` and `76cb/OpenTag-Station-Docs`.
-- The `github-pages` environment of the firmware repository allows deployments from `main` and
-  from tags matching `v*` (Settings → Environments → github-pages → Deployment branches and tags).
-  Without the tag rule the installer deployment fails on the tag.
+- The `github-pages` environment of the firmware repository allows deployments from `main`
+  (Settings → Environments → github-pages → Deployment branches and tags).
 - A station to run the [hardware acceptance](#hardware-acceptance) on.
 
 ## 1. Set the version
@@ -25,8 +24,8 @@ version that is not higher than the current one, and build metadata (`+...`).
 
 Then, by hand:
 
-1. Add or finish the `## <version>` section in `CHANGELOG.md`. The whole file becomes the text of
-   the GitHub release.
+1. Add or finish the `## <version>` section in `CHANGELOG.md`. That section becomes the text of
+   the GitHub release; the release fails if it is missing.
 2. For the 1.0.0 release, remove the "Not released yet." line from the `## 1.0.0` changelog
    section (and its copy in the manual, which the next step regenerates).
 3. Copy the changelog into the manual and check the copy:
@@ -41,33 +40,36 @@ Then, by hand:
 5. Update the status text in `README.md` ("Project status") and
    `documentation-site/docs/index.md`.
 
-## 2. CI
+## 2. Merge
 
 Open a pull request, let the CI jobs pass (`version-policy`, `documentation`, `ui-review`,
-`firmware`) and merge to `main`. Download the artifact `opentag-production-release` from the CI
-run on `main` if you want to run the hardware acceptance before tagging: it contains the files
-the release will contain.
+`firmware`) and merge to `main`. Do not push a tag: the release workflow creates it.
 
-## 3. Tag
+To run the hardware acceptance before merging, download the artifact
+`opentag-production-release` from the pull request's CI run: it contains the files the release
+will contain.
 
-```sh
-git checkout main && git pull
-git tag v<version>
-git push origin v<version>
-```
+## 3. What gets published
 
-The tag must be `v` followed by the exact content of `VERSION`, for example `v1.0.0`.
-`tools/release_version.py --tag` refuses a tag that differs from `VERSION`, a checkout that is
-not the tagged commit, and modified tracked files.
+A merge to `main` that changes `VERSION` starts `.github/workflows/release.yml`:
 
-## 4. What gets published
+1. **version**: checks `VERSION` against the installer manifest and whether the release
+   `v<VERSION>` already exists. A tag `v<VERSION>` without a release stops the run; bump the
+   version instead of reusing it.
+2. **validate**: runs the `documentation`, `ui-review` and `firmware` jobs of `ci.yml` on that
+   commit (`version-policy` runs only on pull requests).
+3. **publish**: downloads that run's `opentag-production-release` artifact, checks it with
+   `tools/verify_release_artifacts.py` and `sha256sum --check`, and creates the GitHub release
+   "OpenTag Station v<version>" and its tag at that commit. The notes are the version's changelog
+   section, after two lines on how to update. A version with a hyphen becomes a pre-release.
+4. **installer** and **deploy-installer**: build the page at <https://76cb.github.io/OpenTag-Station/>
+   from the release's own `opentag-station-factory.bin` and `manifest.json` and deploy it. See
+   [web-flasher.md](web-flasher.md).
 
-The tag starts two workflows independently.
-
-| Workflow | Result |
-|---|---|
-| `.github/workflows/release.yml` | Runs the `documentation`, `ui-review` and `firmware` jobs of `ci.yml` on the tag (`version-policy` runs only on pull requests), downloads that run's `opentag-production-release` artifact, checks it with `tools/verify_release_artifacts.py` and `sha256sum --check`, and creates the GitHub release "OpenTag Station v<version>" with `CHANGELOG.md` as notes. A version with a hyphen becomes a pre-release. |
-| `.github/workflows/web-flasher-pages.yml` | Builds the installer bundle from the tag and deploys it to <https://76cb.github.io/OpenTag-Station/>. See [web-flasher.md](web-flasher.md). |
+A failed step stops everything after it, so the installer never shows a build that has no
+release. If the installer deployment fails on its own, run the workflow by hand on `main`
+(Actions → Release → Run workflow): with the release already published, it only redeploys the
+installer from it.
 
 Release files:
 
@@ -79,19 +81,16 @@ Release files:
 | `build-metadata.json` | Version and source commit of the build |
 | `SHA256SUMS` | Checksums |
 
-Because the two workflows are independent, the installer can deploy even when the release job
-fails. Check both.
-
 After the workflows finish:
 
 - The release exists, has the files listed above, and `SHA256SUMS` matches.
-- `manifest.json` on the installer page shows the new version and the tagged commit.
+- `manifest.json` on the installer page shows the new version and the release's commit.
 - Install with the USB installer on a station, then update the same station from the browser with
   the application file.
 
 If something is wrong, fix it and release a higher version. Do not move a published tag.
 
-## 5. Publish the manual
+## 4. Publish the manual
 
 The manual is not deployed from this repository. Export it and commit the export to
 `76cb/OpenTag-Station-Docs`, whose own workflow deploys <https://76cb.github.io/OpenTag-Station-Docs/>.

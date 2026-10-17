@@ -1,49 +1,170 @@
-name: Production release
+name: Release
+
+# One path publishes everything, so the GitHub release and the USB installer always carry the
+# same build:
+#
+#   merge to main that changes VERSION
+#     -> full CI (ci.yml) on that commit
+#     -> GitHub release v<VERSION> (pre-release for -rc.N) with the files CI built; this also
+#        creates the tag
+#     -> USB installer page assembled from that release's own files and deployed to GitHub Pages
+#
+# Nobody needs to push a tag. A manual run (Actions -> Release -> Run workflow) on main does the
+# same for the current VERSION; when that release already exists it only redeploys the installer
+# from the release's files. The github-pages environment must allow deployments from main.
 on:
   push:
-    tags: ['v*']
+    branches: [main]
+    paths: [VERSION]
+  workflow_dispatch:
+
 permissions:
   contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 jobs:
   version:
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+      exists: ${{ steps.version.outputs.exists }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-        with:
-          fetch-depth: 0
-      - run: python tools/release_version.py --tag "$RELEASE_TAG"
+      - run: python tools/release_version.py
+      - id: version
         env:
-          RELEASE_TAG: ${{ github.ref_name }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="$(tr -d '[:space:]' < VERSION)"
+          tag="v${version}"
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            exists=true
+          elif git ls-remote --exit-code --tags origin "refs/tags/${tag}" >/dev/null 2>&1; then
+            echo "::error::Tag ${tag} exists without a release. Bump VERSION instead of reusing it."
+            exit 1
+          else
+            exists=false
+          fi
+          {
+            echo "version=${version}"
+            echo "tag=${tag}"
+            echo "exists=${exists}"
+          } >> "$GITHUB_OUTPUT"
+          echo "Version ${version}, release already published: ${exists}"
+
   validate:
     needs: version
+    if: needs.version.outputs.exists == 'false'
     uses: ./.github/workflows/ci.yml
+
   publish:
-    needs: validate
+    needs: [version, validate]
+    if: needs.version.outputs.exists == 'false'
     runs-on: ubuntu-24.04
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-        with:
-          fetch-depth: 0
       - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
         with:
           name: opentag-production-release
           path: release
-      - name: Verify tagged source and downloaded production files
+      - name: Verify the files CI built for this commit
         env:
-          RELEASE_TAG: ${{ github.ref_name }}
+          VERSION_EXPECTED: ${{ needs.version.outputs.version }}
         run: |
-          python tools/release_version.py --tag "$RELEASE_TAG"
+          python tools/release_version.py
           python tools/verify_release_artifacts.py release
           (cd release && sha256sum --check SHA256SUMS)
-      - name: Publish accepted production version
+          test -f "release/opentag-station-${VERSION_EXPECTED}-application.bin"
+      - name: Release notes from this version's changelog section
+        env:
+          VERSION_EXPECTED: ${{ needs.version.outputs.version }}
+        run: |
+          awk -v heading="## ${VERSION_EXPECTED}" '
+            $0 == heading { found = 1; next }
+            found && /^## / { exit }
+            found { print }
+          ' CHANGELOG.md > section.md
+          if ! grep -q '[^[:space:]]' section.md; then
+            echo "::error::CHANGELOG.md has no '## ${VERSION_EXPECTED}' section"
+            exit 1
+          fi
+          {
+            echo "**Update a running station** (keeps settings and calibration): in the station's web page open"
+            echo "Settings → Update and upload \`opentag-station-${VERSION_EXPECTED}-application.bin\` from this release."
+            echo ""
+            echo "**New station or recovery** (erases settings and calibration): use the"
+            echo "[USB installer](https://76cb.github.io/OpenTag-Station/), which installs this same build."
+            echo ""
+            cat section.md
+          } > notes.md
+      - name: Create the release and its tag
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ github.ref_name }}
+          TAG: ${{ needs.version.outputs.tag }}
         run: |
-          # Release candidates (vX.Y.Z-rc.N) are published as pre-releases so
-          # users can download the application image for OTA updates.
           prerelease=""
-          case "$RELEASE_TAG" in *-*) prerelease="--prerelease" ;; esac
-          gh release create "$RELEASE_TAG" --verify-tag --target "$GITHUB_SHA" $prerelease --title "OpenTag Station $RELEASE_TAG" --notes-file CHANGELOG.md release/*
+          case "$TAG" in *-*) prerelease="--prerelease" ;; esac
+          gh release create "$TAG" --target "$GITHUB_SHA" $prerelease \
+            --title "OpenTag Station $TAG" --notes-file notes.md release/*
+
+  installer:
+    needs: [version, publish]
+    # Runs after a new release, or on its own when the release already existed.
+    if: >-
+      always() && needs.version.result == 'success' &&
+      (needs.publish.result == 'success' ||
+       (needs.publish.result == 'skipped' && needs.version.outputs.exists == 'true'))
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.12"
+      - name: Assemble the installer page from the release's own files
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.version.outputs.tag }}
+        run: |
+          mkdir -p downloaded pages
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --dir downloaded \
+            --pattern opentag-station-factory.bin --pattern manifest.json --pattern SHA256SUMS
+          (cd downloaded && grep -E ' (opentag-station-factory\.bin|manifest\.json)$' SHA256SUMS | sha256sum --check)
+          cp downloaded/opentag-station-factory.bin downloaded/manifest.json pages/
+          cp web-flasher/index.html pages/index.html
+          : > pages/.nojekyll
+          python tools/web_flasher.py validate-pages --bundle-dir pages --maximum-size 16777216
+          python - "$TAG" <<'PY'
+          import json, sys
+          manifest = json.load(open('pages/manifest.json'))
+          assert 'v' + manifest['version'] == sys.argv[1], (manifest['version'], sys.argv[1])
+          print('Installer manifest', manifest['version'], manifest.get('source_commit'))
+          PY
+      - uses: actions/upload-pages-artifact@7b1f4a764d45c48632c6b24a0339c27f5614fb0b # v4.0.0
+        with:
+          path: pages
+
+  deploy-installer:
+    needs: installer
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5.0.0
+      - name: Deploy the installer page
+        id: deployment
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4.0.5

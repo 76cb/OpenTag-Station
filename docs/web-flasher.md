@@ -59,27 +59,19 @@ The `web-flasher` target refuses every environment except `wt32-sc01-plus`.
 
 ## Deployment
 
-`.github/workflows/web-flasher-pages.yml`:
+The installer is deployed only by `.github/workflows/release.yml`, from the files of a published
+GitHub release, so the installer and the release always carry the same build.
 
-| Trigger | Build job | Deploy job |
-|---|---|---|
-| Push of a tag matching `v*` | runs | runs: publishes to GitHub Pages |
-| Manual run (`workflow_dispatch`) on `main` or a `v*` tag | runs | runs: publishes to GitHub Pages |
-| Manual run on any other branch | runs | skipped |
-| Push to `main`, pull request | – | – |
+| Trigger | Result |
+|---|---|
+| Merge to `main` that changes `VERSION` | Full CI on that commit, then the release `v<VERSION>`, then the installer built from that release's files |
+| Manual run (Actions → Release → Run workflow) on `main` | The same for the current `VERSION`; if that release already exists, only the installer is redeployed from it |
+| Any other push, pull request | Nothing is deployed |
 
-The build job checks the tag against `VERSION` (on a tag run), runs the release-packaging tests, the browser
-asset and transport tests, `pio test --environment native`, the NFC write allow-list (source and
-ELF), the build identity check, the stack checks `tools/analyze_stack_usage.py` and
-`tools/check_production_nfc_stack_usage.py`, then builds and validates the bundle as above
-and uploads `.pio/build/web-flasher-pages` as the Pages artifact.
-
-The `github-pages` environment must allow deployments from `main` and from tags matching `v*`.
-To refresh the installer between releases, start the workflow by hand on `main`
-(Actions → Web flasher Pages → Run workflow).
-
-This workflow is independent of `release.yml`, which runs the `documentation`, `ui-review` and
-`firmware` jobs of `ci.yml` before publishing the release files. See [releasing.md](releasing.md).
+The `installer` job downloads `opentag-station-factory.bin`, `manifest.json` and `SHA256SUMS`
+from the release, checks the checksums, adds `index.html` from `web-flasher/` and `.nojekyll`,
+runs `validate-pages`, and checks that the manifest version equals the release tag. The
+`github-pages` environment must allow deployments from `main`.
 
 CI also builds and validates the bundle on every pull request and push to `main` (job `firmware`
 in `ci.yml`) without deploying it.
