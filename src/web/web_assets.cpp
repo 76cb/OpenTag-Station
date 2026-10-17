@@ -3029,7 +3029,7 @@ setConfigState(CONFIG_STATE.READY);
 }
 
 function startHomeWeigh() {
-if(spoolIdentity().t.blank_compatible)return window.OpenTagWriter.openModal();
+const home=spoolIdentity();if(home.t.blank_compatible&&!home.spool)return window.OpenTagWriter.openModal();
 const scale = asObject(state.scale);
 const calibrated = first(scale.calibrated, scale.calibration_loaded,
 asObject(scale.calibration).configured, false) === true;
@@ -3382,7 +3382,7 @@ function renderCurrentSpool() {
   setText('current-name',name);setText('manage-material',name);
   setText('current-vendor',first(s.vendor,t.brand_name,t.brand,''));
   setText('current-material',first(s.material,t.material_abbreviation,''));
-  setText('current-number',blank?'Ready to assign':s.id?'Spool #'+s.id:'Not yet linked');
+  setText('current-number',blank&&!s.id?'Ready to assign':s.id?'Spool #'+s.id:'Not yet linked');
   setText('current-remaining',remaining===null?'—':Math.round(Number(remaining)));
   const percentage=remaining!==null&&Number(initial)>0?Math.max(0,Math.min(100,Math.round(Number(remaining)/Number(initial)*100))):null;
   byId('remaining-summary').hidden=percentage===null;
@@ -3400,8 +3400,9 @@ function renderCurrentSpool() {
   setText('dashboard-printer',assignments.length?assignments.join(', '):'Choose a toolhead to assign this spool.');
   const v=state.weighSync||{}, sameWeight=s.id&&Number(v.spool_id)===Number(s.id);
   setText('dashboard-weight',sameWeight&&v.measured!=null?formatGrams(v.measured)+' measured · '+formatGrams(v.canonical_remaining)+' in Spoolman':'Weigh this spool to compare it with your inventory.');
-  setText('home-action-label',blank?'Assign tag':state.scale?.measurement?.active?'Weighing…':'Weigh');
-  if(blank)byId('home-weigh').disabled=!!state.maintenance;
+  // A blank tag that Spoolman links to a spool is weighed as that spool.
+  setText('home-action-label',blank&&!s.id?'Assign tag':state.scale?.measurement?.active?'Weighing…':'Weigh');
+  if(blank&&!s.id)byId('home-weigh').disabled=!!state.maintenance;
   byId('spool-edit').disabled=!s.id;byId('tag-update').disabled=!s.id;
   byId('spool-assign').disabled=!s.id||state.maintenance;
 }
