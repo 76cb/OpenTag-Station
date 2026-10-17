@@ -44,6 +44,8 @@ def request(base, method, path, token=None, body=None, timeout=10):
     if body is not None:
         req.add_header("Content-Type", "application/json")
         req.add_header("Idempotency-Key", str(uuid.uuid4()))
+        # The station accepts changes only from its own web page's requests.
+        req.add_header("X-OpenTag-Request", "web")
     if token:
         req.add_header("Authorization", "Bearer " + token)
     started = time.monotonic()
