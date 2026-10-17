@@ -119,6 +119,13 @@ class ApplicationApiContext final : public api::IApiContext {
   [[nodiscard]] core::Result<api::OperationReceipt> submit_fresh(
       const api::Mutation& mutation,
       std::uint32_t now_ms);
+  // Admission decision against the idempotency ledger; evicts the oldest
+  // finished entry when full. Call under idempotency_mutex_.
+  [[nodiscard]] IdempotencyAdmissionResult admit_idempotency(
+      std::string_view key,
+      std::uint64_t payload_digest,
+      std::uint32_t now_ms,
+      bool retain);
   [[nodiscard]] core::Result<api::OperationReceipt> receipt_result(
       application::CommandReceipt receipt,
       const char* unavailable_message);

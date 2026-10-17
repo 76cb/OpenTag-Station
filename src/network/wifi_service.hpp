@@ -49,6 +49,7 @@ struct WifiStatus {
   ProvisioningReason provisioning_reason{ProvisioningReason::none};
   std::uint32_t provisioning_failures{0U};
   std::uint32_t provisioning_grace_remaining_ms{0U};
+  std::uint32_t provisioning_requested_remaining_ms{0U};
   std::string setup_ap_ssid;
   std::string setup_ap_ip;
   std::uint32_t scan_generation{0U};
@@ -73,6 +74,9 @@ class WifiService {
   [[nodiscard]] bool request_scan(std::uint64_t operation_id);
   void request_setup_mode();
   [[nodiscard]] bool request_setup_mode(std::uint64_t operation_id);
+  // Stops a setup network started on request. The network task completes the
+  // operation (refused when Wi-Fi is missing or failing).
+  [[nodiscard]] bool request_setup_stop(std::uint64_t operation_id);
   [[nodiscard]] bool request_reconfigure(
       const config::DeviceSettings& device,
       const config::WifiSettings& wifi,
@@ -96,6 +100,7 @@ class WifiService {
       bool asynchronous_scan_started,
       std::uint32_t elapsed_ms);
   void complete_setup_mode_request(std::uint32_t now_ms);
+  void complete_setup_stop_request(std::uint32_t now_ms);
   void succeed_reconfigure(std::uint32_t now_ms, const char* message);
   void fail_reconfigure(std::uint32_t now_ms, core::Error error);
   bool start_setup_ap();
@@ -134,6 +139,7 @@ class WifiService {
   CorrelatedOperationClaim setup_operation_;
   std::uint64_t active_scan_operation_id_{0U};
   std::atomic_bool setup_requested_{false};
+  std::atomic_bool setup_stop_requested_{false};
   std::atomic<std::uint64_t> pending_reconfigure_operation_id_{0U};
   std::atomic<std::uint64_t> active_reconfigure_operation_id_{0U};
   std::atomic<std::uint64_t> completed_reconfigure_operation_id_{0U};

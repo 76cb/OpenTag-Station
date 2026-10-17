@@ -42,17 +42,23 @@ It is a warning only and does not protect the load cell from too much weight.
    opens the same panel. During first-run setup it is **CALIBRATE NOW**.
 2. With the platform empty, watch the yellow guidance line:
    "1. Waiting for stable empty platform" becomes "2. Ready to tare".
-3. Tap **TARE EMPTY PLATFORM**. The line changes to "3. Tare complete - place reference weight".
-4. Put the reference weight on the middle of the platform. The line reads
+3. Tap **TARE EMPTY PLATFORM**. The line then reads "3. Tare complete - place reference weight".
+   If the tare fails, the line starts with "Tare failed:" and gives the reason, for example
+   "The platform is not empty (reads X g). Remove everything, then tare. If it is empty, tare again
+   within 15 seconds."; it stays until your next tap. If the platform really is empty (the zero
+   itself has moved), tap **TARE EMPTY PLATFORM** again within 15 seconds.
+4. Put the reference weight on the middle of the platform. The line may read
    "4. Waiting for stable reference weight".
 5. Check the number in the field under "CALIBRATION". It starts at the weight you used last time,
    or 1000. Tap the field to change it ("Calibration weight") and enter your reference weight in
    grams.
-6. When the line reads "5. Ready to calibrate", tap **RUN CALIBRATION**.
-   If it reads "Enter the known reference mass" instead, the number is missing or larger than the
+6. When the reading is steady, tap **RUN CALIBRATION** (the line may read "5. Ready to
+   calibrate"). The button can be tapped only once the reading is steady and the number is valid.
+   If the line reads "Enter the known reference mass", the number is missing or larger than the
    load cell's capacity.
 7. Wait a few seconds. When the calibration has worked, the panel closes by itself and the first
-   button on Home reads **WEIGH**.
+   button on Home reads **WEIGH**. If it fails, the panel stays open and the line reads
+   "Calibration failed:" followed by the reason, until your next tap.
 
 **RUN CALIBRATION** can be tapped only after the tare, with a steady reading and a valid reference
 weight. **Close** leaves the panel without calibrating.
@@ -97,6 +103,10 @@ comes from Spoolman (see
 - Browser: Dashboard **Weigh → Scale setup → Tare**.
 
 Tare only with an empty platform. The station refuses a tare while the reading is still moving.
+Once the scale is calibrated, it also refuses a tare while the platform reads more than 50 g:
+"The platform is not empty (reads X g). Remove everything, then tare. If it is empty, tare again within 15 seconds." (On the touchscreen this
+follows "Tare failed:".) Remove the spool and anything else, then tare again. Before the first
+calibration the station cannot tell the weight, so make sure the platform is empty yourself.
 Each tare, including the one at the start of a calibration, first re-runs the scale converter's
 own offset calibration, so the new zero matches the converter's current temperature.
 You do not need to tare before every weigh: when the empty platform has drifted a little, the
@@ -136,8 +146,10 @@ The station accepts a weight only when it is steady: the reading must stay withi
 | "Scale hardware unavailable" / "Scale hardware is unavailable." | The station gets no readings from the scale electronics. | Check the wiring: [Wiring](../hardware/wiring.md). |
 | "Enter the known reference mass" or "Enter a reference weight within the selected load-cell capacity." | The reference weight is empty, zero or above the capacity. | Enter the weight in grams, up to the capacity. |
 | "No reference weight detected. Place the reference weight on the platform and retry." | The reading did not change after the tare. | Put the reference weight on the platform, then calibrate. |
-| After **RUN CALIBRATION** the panel stays open and goes back to an earlier numbered line (touchscreen), or a pop-up gives the reason (browser) | The scale refused the calibration. | Tare the empty platform again, place the weight, wait for a steady reading and retry. |
-| "Tare request rejected or the scale queue is full" | Another scale action was still running. | Wait a moment and tap again. |
+| After **RUN CALIBRATION** the panel stays open with "Calibration failed: …" (touchscreen), or a pop-up gives the reason (browser) | The scale refused the calibration. | Tare the empty platform again, place the weight, wait for a steady reading and retry. |
+| "The platform is not empty (reads X g). Remove everything, then tare. If it is empty, tare again within 15 seconds." | Something is on the platform, or the zero has moved. | Remove it, then tare. If the platform is empty, tare again within 15 seconds. |
+| "The scale is busy. Try TARE again in a moment." or "The scale is busy. Try calibrating again in a moment." | Another scale action was still running. | Wait a moment and tap again. |
+| "The scale stopped responding. Reconnecting to it; weighing is unavailable until it answers again." | The scale electronics stopped answering, for example after a short power drop. | Wait. The station reconnects by itself and keeps the calibration. If the message stays, check the [wiring](../hardware/wiring.md). |
 
 More: [Weight looks wrong](../troubleshooting/weight.md).
 For the exact timings and limits see [Scale behaviour](../reference/scale.md).

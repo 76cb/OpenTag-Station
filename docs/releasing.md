@@ -3,7 +3,7 @@
 The release checklist. `VERSION` is the single source of the version; every other copy is
 generated from it.
 
-The candidate is `1.0.0-rc.22`.
+The candidate is `1.0.0-rc.23`.
 
 ## Prerequisites
 
@@ -116,15 +116,38 @@ commit (browser: **Settings → Advanced**, card **Device**) and pass or fail fo
    network's name. Complete setup from the touchscreen or at `http://192.168.4.1/`.
 2. Restart. The station joins Wi-Fi, the tag reader becomes ready, Spoolman and FilaBridge show
    as connected, and there is no restart loop.
+   - Browser **Settings → Advanced → Device controls → Start setup access point**, confirm. The
+     touchscreen **Settings** line reads `Setup Wi-Fi … (no password) - closes in 10 min`; the
+     browser shows `Setup network open for 10 more min.` and **Stop setup network**. Click
+     **Stop setup network**: the setup network disappears and normal Wi-Fi stays connected.
+   - Start it again and leave it: it closes by itself after 10 minutes, and normal Wi-Fi stays
+     connected.
+   - With Wi-Fi details that cannot connect (or none saved), the setup network runs and
+     `POST /api/v1/network/setup-mode` with `{"stop": true}` returns `409`.
 3. Calibrate the scale with a known weight. Weigh the same object several times in different
    positions on the platform and after ten minutes; note the spread.
+   - Before calibrating (or after deleting the calibration by changing the load-cell size),
+     place a linked tag: the station identifies the spool (name and `Spool #N` on Home) although
+     the Home button reads **CALIBRATE**.
+   - With the scale calibrated, put a spool on the platform and tap **TARE EMPTY PLATFORM**
+     (browser: **Tare**): refused with `The platform is not empty (reads X g). Remove everything,
+     then tare.`, and the touchscreen keeps `Tare failed: …` visible. The zero is unchanged
+     (weigh a known object afterwards).
+   - With the station running, unplug and replug the scale's power (NAU7802 VCC). The station
+     shows `The scale stopped responding. Reconnecting to it; weighing is unavailable until it
+     answers again.`, then recovers by itself without a restart; a known weight reads as before
+     (calibration kept).
 
 ### Write
 
 4. Place one blank tag. Touchscreen shows `BLANK TAG`. Start a write for an existing spool, once
-   from the touchscreen (**ASSIGN TAG** → **MY SPOOLS** → tap the spool) and once from the browser
+   from the touchscreen (**WRITE TAG** → **MY SPOOLS** → tap the spool) and once from the browser
    (select the spool → **Continue**).
 5. Check the preview: tag UID, spool, the listed values, 80 × 4 bytes, preserved blocks 78–79.
+   Preview a spool whose filament material in Spoolman is `PLA Matte`: the touchscreen review
+   shows `Not written: material, material type`, the browser lists both under
+   `Not written to the tag:`. After writing, the tag holds no material and no material type; the
+   other values are written.
 6. Negative checks before confirming. Each must refuse without changing any tag:
    - swap the tag for another one after the preview, then confirm;
    - place two tags;
@@ -137,6 +160,10 @@ commit (browser: **Settings → Advanced**, card **Device**) and pass or fail fo
    station. No other spool has them.
 9. Remove the tag and place it again. The station identifies the same spool without any manual
    step.
+   - Leave the spool on the station and stop Spoolman, then lift and replace the spool. Touchscreen
+     **Manage tag** and the browser Dashboard say `Spoolman is not reachable…` (not "not linked").
+     Start Spoolman again without touching the spool: within about 30 seconds after Spoolman
+     answers, the station shows the spool again by itself.
 10. Change one mapped value of the spool's filament in Spoolman (for example the colour). Start
     **UPDATE TAG**. The preview shows the change and the same UUID. Confirm; only the changed
     blocks are written.
@@ -145,7 +172,7 @@ commit (browser: **Settings → Advanced**, card **Device**) and pass or fail fo
 12. Change the spool's used weight in Spoolman. In the browser choose **Update consumed weight**,
     review and confirm. The consumed weight on the tag changes; everything else, including blocks
     78–79, is unchanged.
-13. Write the tag of spool A for spool B (**REASSIGN**). The preview names both spools. After the
+13. Write the tag of spool A for spool B (**USE FOR ANOTHER SPOOL**). The preview names both spools. After the
     write, Spoolman lists the UID only on spool B; spool A keeps its UUID.
 
 ### Interruption and recovery
@@ -194,6 +221,10 @@ commit (browser: **Settings → Advanced**, card **Device**) and pass or fail fo
 29. Update from the browser with the application file. Settings and calibration survive. After
     the restart the update shows as confirmed after 30 seconds.
 30. Upload the factory image to the updater: it is refused.
+    With an access token set, upload the application file with a wrong token (browser: enter a
+    wrong token when asked; or `curl` with a wrong `Authorization: Bearer`): refused with
+    `401 authentication_required`, `GET /api/v1/update` shows no new upload, and the station keeps
+    running the current firmware.
 31. Cut power within 30 seconds of the restart after an update: the station starts the previous
     firmware and `GET /api/v1/update` reports `rolled_back`. This is the intended bootloader rollback; no
     automated test covers it.
@@ -203,3 +234,6 @@ commit (browser: **Settings → Advanced**, card **Device**) and pass or fail fo
     of minimum free heap, no NFC bus errors, touchscreen and browser stay responsive.
 33. Check every touchscreen view for clipped text and unresponsive buttons, and the browser page
     on a desktop and a phone.
+34. Run `curl -i http://<station>/api/v1/events` (plain HTTP, no WebSocket upgrade). It returns
+    promptly instead of hanging, the station stays responsive, and afterwards a browser tab still
+    gets live updates (the request does not use up one of the two WebSocket client places).

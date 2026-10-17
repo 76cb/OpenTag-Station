@@ -154,6 +154,7 @@ const char* mutation_name(MutationKind kind) {
     case MutationKind::network_scan: return "network_scan";
     case MutationKind::network_connect: return "network_connect";
     case MutationKind::network_setup_mode: return "network_setup_mode";
+    case MutationKind::network_setup_stop: return "network_setup_stop";
   }
   return "unknown";
 }
@@ -959,6 +960,8 @@ core::Result<Mutation> parse_mutation(
     if ((action == "clear_preview" || action == "retry_unlink") && object.size() != 1)
       return core::Result<Mutation>::failure(invalid_request("Clear preview and unlink retry accept only the action"));
     mutation.kind = MutationKind::tag_writer;
+    mutation.idempotency_exempt = action == "catalog" ||
+        action == "community_status" || action == "community_search";
     mutation.payload = TagWriterMutation{request.body};
     return core::Result<Mutation>::success(std::move(mutation));
   }
@@ -967,6 +970,18 @@ core::Result<Mutation> parse_mutation(
     if (object.size()!=1 || !object["measurement_id"].is<std::uint64_t>() || !object["measurement_id"].as<std::uint64_t>())
       return core::Result<Mutation>::failure(invalid_request("An explicit measurement_id is required"));
     mutation.kind=MutationKind::scale_update;mutation.payload=WeightUpdateMutation{object["measurement_id"].as<std::uint64_t>()};
+    return core::Result<Mutation>::success(std::move(mutation));
+  }
+  if (request.path == "/api/v1/network/setup-mode" && object.size() != 0U) {
+    // {} starts the setup network; {"stop": true} stops one started on
+    // request.
+    if (object.size() != 1U || !has_key(object, "stop") ||
+        !object["stop"].is<bool>() || !object["stop"].as<bool>()) {
+      return core::Result<Mutation>::failure(invalid_request(
+          "setup mode accepts {} to start or {\"stop\": true} to stop"));
+    }
+    mutation.kind = MutationKind::network_setup_stop;
+    mutation.payload = EmptyMutation{};
     return core::Result<Mutation>::success(std::move(mutation));
   }
   if (request.path == "/api/v1/scale/weigh" ||

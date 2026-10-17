@@ -99,11 +99,19 @@ and its grace period have ended (`src/nfc/worker_startup.hpp`).
 **Read a tag.** `BackendWorker::poll_nfc()` → `NfcWorker::poll()` → `ReadOnlyService`: inventory,
 two full reads that must match, `Codec::decode`. The result is handed to `StationWorkflow`, which
 uses `SpoolIdentityResolver` and `SpoolmanAdapter` to find the spool. `StationWorkflow` stages:
-`awaiting_spool`, `waiting_for_stable_weight`, `resolving_spool`, `spool_resolution_unavailable`,
-`spool_not_found`, `spool_selection_required`, `spool_ready`, `assignment_complete`.
+`awaiting_spool`, `resolving_spool`, `spool_resolution_unavailable`, `spool_not_found`,
+`spool_selection_required`, `spool_ready`, `assignment_complete`. `waiting_for_stable_weight` is
+still in the enum and the API stage names but is no longer produced (rc.23).
 
 `NfcWorkflowHandoff` (`src/services/nfc_workflow_handoff.hpp`) submits one identify command per tag
-placement, after the scale reports a stable weight. A tag without OpenPrintTag data (read state
+placement as soon as the tag is identified; it does not wait for a stable weight, so an
+uncalibrated station identifies spools too. A stable weight already available travels with the
+command; otherwise the first stable weight is attached later with
+`StationWorkflow::attach_physical_weight()` for reconciliation, without another Spoolman request.
+If the lookup ends in `spool_resolution_unavailable`, the handoff repeats it once the backend probe
+(`BackendWorker::probe_interval_ms`, 30 s) reports Spoolman online again, at most every
+`retry_interval_ms` (10 s); `StationWorkflow::begin_lookup_retry()` moves the stage to
+`resolving_spool` first, so at most one lookup per tag is in flight. A tag without OpenPrintTag data (read state
 blank or unsupported, see `nfc::uid_only_generation()`) is submitted by UID alone; the workflow
 marks it `uid_only` and shows it as a spool only for a single exact match, otherwise it stays
 blank/unsupported (`spool_not_found`). `SpoolIdentityResolver::resolve()` order: with the

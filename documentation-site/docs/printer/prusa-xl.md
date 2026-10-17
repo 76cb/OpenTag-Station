@@ -28,6 +28,8 @@ The touchscreen is the easier way, because it lists the printers FilaBridge know
 4. Tap **Next** to reach "PRINTER" ("Choose the printer FilaBridge found.").
 5. Pick your printer from the list. This fills in **Printer ID**.
    If the list reads "No printers found yet", FilaBridge has not answered yet; check the address.
+   A printer that is already saved but that FilaBridge does not report is listed first as
+   "<printer ID> (not found)"; pick your printer from the rest of the list.
 6. Tap **Save**; the status reads "Printer ID saved". Tap **Home**.
 
 ### Browser

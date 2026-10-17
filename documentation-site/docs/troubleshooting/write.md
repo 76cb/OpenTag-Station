@@ -51,6 +51,22 @@ Fix the record in Spoolman, then write again.
 | `Multiple NFC UID owners; clean up Spoolman before continuing` | Two or more spools in Spoolman carry this tag's `nfc_uid`. | In Spoolman, empty `nfc_uid` and `opentag_instance_uuid` on the spool that should not have the tag. |
 | `Instance UUID belongs to another Spoolman spool` | The unique ID for this tag is already saved on a different spool. | The same. |
 
+## Some details are not written to the tag
+
+This is a notice, not an error. The review page lists details from Spoolman that the tag cannot
+store: "Not written: …" on the touchscreen, a box headed "Not written to the tag:" in the browser.
+The rest of the tag is written normally.
+
+| You see | Why | What to do |
+|---|---|---|
+| material, material type (for example the material is "PLA Matte") | The material is longer than 7 characters, and only PLA, PETG, TPU, ABS, ASA, PC, PCTG, PP, PA6, PA11 and PA12 can be stored as a material type. | Write the tag anyway, or set the filament's material in Spoolman to one of those types (put "Matte" in the name instead) and write again. |
+| name | The filament name is longer than 63 characters. | Shorten it in Spoolman if you want it on the tag. |
+| maker | The vendor name is longer than 31 characters. | The same. |
+| article number | Longer than 16 characters. | The same. |
+| color | The filament has several colours; a tag holds one. | Nothing to do; the colours stay in Spoolman. |
+
+Details: [Details that are not written to the tag](../daily-use/manage-tags.md#details-that-are-not-written-to-the-tag).
+
 ## Writing or clearing stopped part-way
 
 Part of the tag may already be changed.
@@ -65,7 +81,7 @@ and use it. See [Finish an interrupted tag operation](journal.md).
 | `Final blank verification failed` | After clearing, the tag is not blank. | The same. |
 | `Tag removed, replaced, or multiple tags present` | The tag moved or was swapped, or a second tag came into range. | Put the **same** tag back, alone. If the station offers to finish, do so; otherwise start again. |
 | `Physical NFC operation exceeded its bounded deadline` | The operation took longer than two minutes. | Reposition the tag. If the station offers to finish, do so; otherwise try again. |
-| `NFC bus errors must be zero` | The connection to the reader module is unreliable. | Check the NFC [wiring](../hardware/wiring.md) and [power](../hardware/power.md). |
+| `The tag reader reported an error during this step. Try again.` | The reader module reported a communication error while this write or clear was running. Errors from earlier reads do not count. | Keep the tag still on the reader and try again. If the station offers **FINISH WRITING** / **FINISH CLEARING**, use it. If the message comes back often, check the NFC [wiring](../hardware/wiring.md) and [power](../hardware/power.md). |
 | `Torn/unknown block differs from both journal images; refusing rewrite` | Part of the tag matches neither the old nor the new data. | The tag cannot be finished. Use **SKIP RECOVERY** and discard the tag. See [Finish an interrupted tag operation](journal.md#skip-recovery). |
 
 ## The station is busy

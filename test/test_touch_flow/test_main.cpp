@@ -45,6 +45,22 @@ void bounded_paging_and_selection() {
   receive(f,R"({"phase":"preview","spool_id":22})");TEST_ASSERT_TRUE(f.page==TagPage::review);
   f.act(TagAction::back);TEST_ASSERT_TRUE(f.page==TagPage::catalog);TEST_ASSERT_EQUAL(0,f.row);
 }
+// rc.23: a shrunk page (fewer than 8 rows) pages with next_offset, and PREV
+// returns to the exact earlier offset.
+void short_pages_use_next_offset() {
+  TagFlow f;command(f.act(TagAction::spools));
+  receive(f,R"({"phase":"catalog","offset":0,"items":[{"id":1},{"id":2}],"has_more":true,"next_offset":2})");
+  auto c=command(f.act(TagAction::next));TEST_ASSERT_EQUAL(2,c["offset"].as<int>());
+  receive(f,R"({"phase":"catalog","offset":2,"items":[{"id":3},{"id":4},{"id":5},{"id":6}],"has_more":true,"next_offset":6})");
+  TEST_ASSERT_TRUE(f.act(TagAction::next).empty());TEST_ASSERT_EQUAL(3,f.row);
+  c=command(f.act(TagAction::next));TEST_ASSERT_EQUAL(6,c["offset"].as<int>());
+  receive(f,R"({"phase":"catalog","offset":6,"items":[{"id":7}],"has_more":false,"next_offset":7})");
+  c=command(f.act(TagAction::previous));TEST_ASSERT_EQUAL(2,c["offset"].as<int>());
+  receive(f,R"({"phase":"catalog","offset":2,"items":[{"id":3},{"id":4},{"id":5},{"id":6}],"has_more":true,"next_offset":6})");
+  f.row=0;c=command(f.act(TagAction::previous));TEST_ASSERT_EQUAL(0,c["offset"].as<int>());
+  receive(f,R"({"phase":"catalog","offset":0,"items":[{"id":1},{"id":2}],"has_more":true,"next_offset":2})");
+  f.row=0;TEST_ASSERT_TRUE(f.act(TagAction::previous).empty());
+}
 // rc.21: the move warning is part of the single review page (no separate
 // "Move this tag?" + CONTINUE step), and BACK returns to the list.
 void reassign_review() {
@@ -92,6 +108,13 @@ void action_buttons_are_coloured_by_role() {
   TagFlow b;b.lifecycle=services::TagLifecycle::blank_compatible;s=b.screen();
   TEST_ASSERT_TRUE(s.count>0);TEST_ASSERT_TRUE(s.buttons[0].primary);
   for(std::size_t i=1;i<s.count;++i)TEST_ASSERT_FALSE(s.buttons[i].primary);
+}
+// Spoolman answered but the lookup failed: say why and still offer linking.
+void failed_lookup_still_offers_linking() {
+  TagFlow f;f.lifecycle=services::TagLifecycle::unlinked;f.lookup=SpoolLookup::failed;f.lookup_error="Spoolman answered 500";
+  auto s=f.screen();TEST_ASSERT_NOT_EQUAL(std::string::npos,s.body.find("The Spoolman lookup failed"));
+  TEST_ASSERT_TRUE(has(s,TagAction::sources));
+  f.lookup=SpoolLookup::unavailable;s=f.screen();TEST_ASSERT_FALSE(has(s,TagAction::sources));
 }
 // Created spool -> its tag review with no "REVIEW TAG WRITE" stop, sent
 // exactly once, and never for a spool another client created.
@@ -263,8 +286,9 @@ void production_sink_full_gzip_integrity() {
 }
 #include "rc10_cases.hpp"
 #include "train_cases.hpp"
+#include "rc23_cases.hpp"
 void setUp() {} void tearDown() {}
-int main() {UNITY_BEGIN();RUN_TEST(lifecycle);RUN_TEST(sensible_actions);RUN_TEST(bounded_paging_and_selection);RUN_TEST(reassign_review);RUN_TEST(review_warns_from_writer_preview);RUN_TEST(action_buttons_are_coloured_by_role);RUN_TEST(created_spool_previews_once);RUN_TEST(reading_and_two_tags);RUN_TEST(loading_spool_says_what_it_does);RUN_TEST(spool_colour_ring);RUN_TEST(exact_confirmation);RUN_TEST(clear_retry_to_immediate_assign);RUN_TEST(filament_and_community_create);RUN_TEST(stale_operation_rejected);RUN_TEST(keyboard_geometry);RUN_TEST(keyboard_value_and_validation);RUN_TEST(gzip_chunked_integrity_and_limits);RUN_TEST(gzip_explicit_completion_and_error);RUN_TEST(community_catalog_status_download_and_retry);RUN_TEST(production_sink_closes_on_disposition);RUN_TEST(production_sink_full_gzip_integrity);RUN_TEST(rc10::assignment_dialog_only_affirmative_labels_confirm);RUN_TEST(rc10::progress_never_shows_blocks_for_spoolman_work);RUN_TEST(rc10::filament_review_formats_diameter);RUN_TEST(rc10::unknown_empty_spool_weight_must_be_entered);RUN_TEST(rc10::vendor_search_is_kept_while_paging);RUN_TEST(rc10::destructive_and_duplicate_actions);RUN_TEST(rc10::recovery_can_be_skipped_explicitly);RUN_TEST(rc10::metadata_candidates_can_be_chosen_on_the_touchscreen);
+int main() {UNITY_BEGIN();RUN_TEST(lifecycle);RUN_TEST(sensible_actions);RUN_TEST(bounded_paging_and_selection);RUN_TEST(short_pages_use_next_offset);RUN_TEST(reassign_review);RUN_TEST(review_warns_from_writer_preview);RUN_TEST(action_buttons_are_coloured_by_role);RUN_TEST(failed_lookup_still_offers_linking);RUN_TEST(created_spool_previews_once);RUN_TEST(reading_and_two_tags);RUN_TEST(loading_spool_says_what_it_does);RUN_TEST(spool_colour_ring);RUN_TEST(exact_confirmation);RUN_TEST(clear_retry_to_immediate_assign);RUN_TEST(filament_and_community_create);RUN_TEST(stale_operation_rejected);RUN_TEST(keyboard_geometry);RUN_TEST(keyboard_value_and_validation);RUN_TEST(gzip_chunked_integrity_and_limits);RUN_TEST(gzip_explicit_completion_and_error);RUN_TEST(community_catalog_status_download_and_retry);RUN_TEST(production_sink_closes_on_disposition);RUN_TEST(production_sink_full_gzip_integrity);RUN_TEST(rc10::assignment_dialog_only_affirmative_labels_confirm);RUN_TEST(rc10::progress_never_shows_blocks_for_spoolman_work);RUN_TEST(rc10::filament_review_formats_diameter);RUN_TEST(rc10::unknown_empty_spool_weight_must_be_entered);RUN_TEST(rc10::vendor_search_is_kept_while_paging);RUN_TEST(rc10::destructive_and_duplicate_actions);RUN_TEST(rc10::recovery_can_be_skipped_explicitly);RUN_TEST(rc10::metadata_candidates_can_be_chosen_on_the_touchscreen);
   RUN_TEST(train::nfc_error_does_not_replace_recovery_instructions);
   RUN_TEST(train::recovery_prompt_survives_leaving_and_failed_retries);
   RUN_TEST(train::different_tag_after_removal_restarts_the_flow);
@@ -272,4 +296,10 @@ int main() {UNITY_BEGIN();RUN_TEST(lifecycle);RUN_TEST(sensible_actions);RUN_TES
   RUN_TEST(train::recovery_ended_elsewhere_and_foreign_writes_are_respected);
   RUN_TEST(train::failed_paging_and_create_mistakes_leave_no_trace);
   RUN_TEST(train::stall_timer_restarts_with_each_phase);
+  RUN_TEST(rc23::weigh_result_belongs_to_the_spool_on_the_station);
+  RUN_TEST(rc23::weigh_is_refused_while_saving);
+  RUN_TEST(rc23::review_names_fields_that_are_not_written);
+  RUN_TEST(rc23::tag_actions_use_plain_names);
+  RUN_TEST(rc23::unlinked_tag_waits_for_spoolman);
+  RUN_TEST(rc23::writer_errors_are_shown_in_plain_words);
   if(!opentag::config::community_enabled)export_touch_fixtures();return UNITY_END();}

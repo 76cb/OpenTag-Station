@@ -59,8 +59,18 @@ If the station is connected but you want the setup network anyway — for exampl
 another Wi-Fi from your phone:
 
 1. Browser: **Settings** → **Advanced** → **Device controls** → **Start setup access point**.
-2. Confirm "Start the temporary setup access point? Normal Wi-Fi remains active."
-3. Read its name from the touchscreen **Settings** page and join it; it has no password.
+2. Confirm "Open the temporary setup network? It has no password and closes by itself after
+   10 minutes. Normal Wi-Fi stays connected."
+3. Read its name from the touchscreen **Settings** page and join it; it has no password. The
+   line reads "Setup Wi-Fi … (no password) - closes in N min".
+
+A setup network you started yourself closes by itself after 10 minutes. While it is open the
+browser shows "Setup network open for N more min." and a **Stop setup network** button that
+closes it straight away.
+
+You cannot stop the setup network while the station has no working Wi-Fi (no Wi-Fi saved, or three
+failed connection attempts in a row). In that case the setup network is the only way to reach the
+station, so it stays on until the station connects to your Wi-Fi.
 
 ## Tags are ignored after Wi-Fi trouble
 

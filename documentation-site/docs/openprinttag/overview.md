@@ -22,10 +22,12 @@ When you write a tag, the station builds the tag content from the Spoolman spool
 | Empty spool weight | Spool **empty weight**; if not set, the filament's; if not set, the vendor's | |
 | Density | Filament **density** | |
 | Diameter | Filament **diameter** | Must be a whole number of micrometres, for example 1.75 mm |
-| Colour | Filament **colour** | 6 or 8 hex digits |
+| Colour | Filament **colour** | 6 or 8 hex digits. A filament with several colours gets no colour on the tag. |
 | Filament used so far | Spool **used weight** | Required |
 
-Text that is too long is left out, not shortened.
+Text that is too long is left out, not shortened. Before you write, the review page lists every
+detail that will be left out ("Not written: …" on the touchscreen, "Not written to the tag:" in the
+browser). See [Details that are not written to the tag](../daily-use/manage-tags.md#details-that-are-not-written-to-the-tag).
 A plain letter or digit is one byte; an accented or non-Latin letter counts as two or more.
 Archived spools cannot be written to a tag.
 

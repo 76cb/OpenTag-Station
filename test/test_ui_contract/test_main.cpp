@@ -361,6 +361,81 @@ void test_tag_activity_and_colour_are_built_once() {
   TEST_ASSERT_TRUE(flow.find("Keep the tag on the reader until it says done") == std::string::npos);
 }
 
+// rc.23: touchscreen results, settings and wording.
+void test_rc23_scale_results_follow_the_spool_and_stay_visible() {
+  const auto source = read_source("src/ui/ui_service.cpp");
+  const auto refresh = method(source, "void UiService::refresh_workflow()", "bool UiService::track_scale_operation()");
+  // P3-02 / B2-09: the Weigh page uses the spool-aware view, never the raw
+  // measurement name or save state.
+  TEST_ASSERT_TRUE(refresh.find("weigh_view(measured, weigh_station())") != std::string::npos);
+  TEST_ASSERT_TRUE(refresh.find("measured.name.empty()") == std::string::npos);
+  TEST_ASSERT_TRUE(refresh.find("!busy && !view.saving") != std::string::npos);
+  const auto update = method(source, "void UiService::weight_update_callback", "void UiService::weight_policy_callback");
+  TEST_ASSERT_TRUE(update.find("weigh_view(measured,self->weigh_station()).can_save") != std::string::npos);
+  // UI-6: finished tare/calibration results are shown after the request ends.
+  TEST_ASSERT_TRUE(refresh.find("(busy || feedback_terminal_)") != std::string::npos);
+  const auto tracking = method(source, "bool UiService::track_scale_operation()", "bool UiService::home_shows_blank_tag()");
+  TEST_ASSERT_TRUE(tracking.find("feedback_terminal_ = true") != std::string::npos);
+  const auto build = method(source, "void UiService::build_current_screen()", "void UiService::build_display_self_test_screen()");
+  TEST_ASSERT_TRUE(build.find("if (active_page_ != feedback_page_)") != std::string::npos);
+  const auto printer = method(source, "void UiService::refresh_printer_page()", "void UiService::refresh_settings_page()");
+  TEST_ASSERT_TRUE(printer.find("assignment_operation_id_.reset()") != std::string::npos);
+  // One-liners: calibration never hides the Settings Auto-update button, and
+  // Settings refresh copies no workflow snapshot.
+  const auto drawer = method(source, "void UiService::set_scale_calibration_panel_open", "void UiService::calibrate_callback");
+  TEST_ASSERT_TRUE(drawer.find("weight_policy_") == std::string::npos);
+  const auto settings = method(source, "void UiService::refresh_settings_page()", "void UiService::refresh_diagnostics");
+  TEST_ASSERT_TRUE(settings.find("workflow_.snapshot()") == std::string::npos);
+  TEST_ASSERT_TRUE(settings.find("system.provisioning_requested_remaining_ms") != std::string::npos);
+}
+
+void test_rc23_setup_waits_for_its_save_and_selects_the_printer() {
+  const auto source = read_source("src/ui/ui_service.cpp");
+  const auto next = method(source, "void UiService::setup_next_callback", "void UiService::finish_setup_step()");
+  TEST_ASSERT_TRUE(next.find("setup_advance_after_save_ = self->submit_setup_save()") != std::string::npos);
+  TEST_ASSERT_TRUE(next.find("first_run_setup_.next()") == std::string::npos);
+  const auto refresh = method(source, "void UiService::refresh_setup()", "void UiService::refresh_current(");
+  TEST_ASSERT_TRUE(refresh.find("if (advance) {") != std::string::npos);
+  TEST_ASSERT_TRUE(refresh.find("rebuild_setup_printers()") != std::string::npos);
+  const auto printers = method(source, "void UiService::rebuild_setup_printers()", "void UiService::sync_setup_printer_field()");
+  TEST_ASSERT_TRUE(printers.find("lv_dropdown_set_selected(") != std::string::npos);
+  const auto setup = method(source, "void UiService::build_setup_screen()", "void UiService::setup_back_callback");
+  TEST_ASSERT_TRUE(setup.find("lv_obj_set_size(save_button, 156, 46)") != std::string::npos);
+  TEST_ASSERT_TRUE(setup.find("lv_obj_set_size(scan_button, 156, 46)") != std::string::npos);
+}
+
+void test_rc23_brightness_is_saved_and_follows_settings() {
+  const auto source = read_source("src/ui/ui_service.cpp");
+  const auto settings = method(source, "void UiService::build_settings_page()", "void UiService::build_workflow_screen()");
+  TEST_ASSERT_TRUE(settings.find("brightness_callback,LV_EVENT_RELEASED") != std::string::npos);
+  TEST_ASSERT_TRUE(settings.find("configuration_.snapshot()") == std::string::npos);
+  const auto about = method(source, "void UiService::build_diagnostics_screen()", "lv_obj_t* UiService::create_setup_textarea(");
+  TEST_ASSERT_TRUE(about.find("lv_slider_create") == std::string::npos);
+  const auto loop = method(source, "void UiService::run_once(", "}  // namespace opentag::ui");
+  TEST_ASSERT_TRUE(loop.find("apply_display_settings();") != std::string::npos);
+  const auto apply = method(source, "void UiService::apply_display_settings()", "void UiService::sleep_callback");
+  for (const char* token : {"dim_after_ms_ = current.device.dim_after_ms", "sleep_after_ms_ = current.device.sleep_after_ms",
+                            "lv_slider_set_value(brightness_slider_"})
+    TEST_ASSERT_TRUE_MESSAGE(apply.find(token) != std::string::npos, token);
+}
+
+void test_rc23_touchscreen_wording_is_plain() {
+  const auto source = read_source("src/ui/ui_service.cpp") + read_source("src/ui/tag_flow.hpp");
+  for (const char* jargon : {"Scanning asynchronously", "Save queued", "review persisted settings",
+                             "scale queue is full", "Configuration queue is unavailable",
+                             "FilaBridge readback", "Assignment unavailable", "\"ASSIGN TAG\"",
+                             "\"REASSIGN\"", "\"Assign tag\"", "\"Reassign tag\"", "Ready to assign"})
+    TEST_ASSERT_TRUE_MESSAGE(source.find(jargon) == std::string::npos, jargon);
+  for (const char* plain : {"\"WRITE TAG\"", "\"USE FOR ANOTHER SPOOL\"", "\"Write tag\"", "\"Use for another spool\""})
+    TEST_ASSERT_TRUE_MESSAGE(source.find(plain) != std::string::npos, plain);
+  // The failure page shows writer errors through the plain-language map.
+  TEST_ASSERT_TRUE(source.find("s.body = plain_error(message);") != std::string::npos);
+  // Only ASCII on the touchscreen: the built-in fonts have no ellipsis,
+  // middle dot or arrow.
+  for (const char* glyph : {"\u2026", "\u00b7", "\u2192"})
+    TEST_ASSERT_TRUE_MESSAGE(source.find(glyph) == std::string::npos, glyph);
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -380,5 +455,9 @@ int main(int argc, char** argv) {
   RUN_TEST(test_printer_dialogs_do_not_prefix_the_toolhead_name);
   RUN_TEST(test_weight_fence_counts_only_its_own_bus_errors_and_drops_the_field);
   RUN_TEST(test_tag_activity_and_colour_are_built_once);
+  RUN_TEST(test_rc23_scale_results_follow_the_spool_and_stay_visible);
+  RUN_TEST(test_rc23_setup_waits_for_its_save_and_selects_the_printer);
+  RUN_TEST(test_rc23_brightness_is_saved_and_follows_settings);
+  RUN_TEST(test_rc23_touchscreen_wording_is_plain);
   return UNITY_END();
 }

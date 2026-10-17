@@ -68,7 +68,10 @@ A full write builds a new 312-byte image from the Spoolman spool. The mapping li
 Rules that apply to every row:
 
 - A missing Spoolman value is left out. A real zero is written as zero.
-- Text longer than its limit, or empty, is left out. It is never shortened.
+- Text longer than its limit, or empty, is left out. It is never shortened. The write preview
+  reports each value that will be left out (name, vendor, material, material type, article number,
+  or the colour of a multi-colour filament) in `dropped_fields`; see the
+  [Tag writer API](api.md).
 - Numbers must be finite and not negative.
 - Archived spools are refused: `Canonical active Spoolman spool required`.
 

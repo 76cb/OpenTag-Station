@@ -28,7 +28,7 @@ The browser's **Unassign** question does the same.
 4. Tap the toolhead you loaded the spool into.
 5. Confirm the question "Assign spool?" with **Assign**. **Cancel** changes nothing.
 6. The status line reads "Assigning; checking with FilaBridge...", then
-   "Assignment verified by FilaBridge readback".
+   "Assigned. FilaBridge confirmed the spool is on this toolhead."
 
 ### Browser
 
@@ -117,7 +117,8 @@ In the browser, **Assign** on the Dashboard is unavailable until the spool is li
 | "No printer configured" and "Choose a printer in Settings." | No printer is selected. | See [Set up FilaBridge for a Prusa XL](../printer/prusa-xl.md). |
 | "Printer unavailable. Check FilaBridge in Settings, then try again. Nothing has been assigned." | The browser has no printer to show. | Check the FilaBridge address and printer in Settings. |
 | "Station is busy. Try the assignment again." | Another request was still running. | Wait a moment and try again. |
-| "Assignment unavailable" | No linked spool on the station, or the selected printer is not in FilaBridge's list. | Put the linked spool on the station. Check the printer selection. |
+| "Place a spool that is linked in Spoolman on the station first." | No linked spool on the station. | Put the linked spool on the station. |
+| "Choose a printer in Settings > Wi-Fi & services first." | No printer is selected, or the selected printer is not in FilaBridge's list. | Choose the printer again: **Settings → Wi-Fi & services**, **PRINTER** step. |
 | "FilaBridge is offline; toolhead assignment was not queued" | FilaBridge cannot be reached. Nothing was sent. | Check FilaBridge, then assign again. |
 | "FilaBridge is connected read-only; mapping capability is unavailable and no assignment was queued" | Your FilaBridge version is not one the station assigns with. | See [supported FilaBridge versions](../printer/prusa-xl.md#supported-filabridge-versions). |
 | "Sent to FilaBridge but could not be verified (reason). Refresh printers before retrying." | The request was sent but the check afterwards failed. The toolhead may or may not have changed. | Look at the toolhead on the Assign or Printer page before trying again. |

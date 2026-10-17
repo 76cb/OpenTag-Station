@@ -65,6 +65,67 @@ browser), `opentag-station-factory.bin` (USB installer image), `manifest.json`,
 
 The release candidates below were development builds made for testing before 1.0.0.
 
+## 1.0.0-rc.23
+
+The fixes for 1.0 found when the open issues were re-checked (#84). This candidate also contains
+rc.22 (touchscreen button colours), which was not published separately.
+
+**Safety**
+- The setup network you start from the browser now closes by itself after 10 minutes, and
+  **Stop setup network** closes it at once. The touchscreen Settings line shows "closes in N min".
+  It can't be stopped while it is the only way to reach a station that has no working Wi-Fi.
+- Tagging many spools in a row from the browser no longer ends in "Idempotency ledger is full":
+  browsing and searching the spool list no longer use up request slots, and slots of finished
+  requests are reused.
+
+**Finding the spool**
+- A tagged spool is looked up in Spoolman as soon as it is placed. Before, the lookup waited for a
+  steady weight, so an uncalibrated scale (or one waiting for a tare) meant tags were never
+  identified.
+- If Spoolman or Wi-Fi was down when the spool was placed, the station looks the spool up again
+  by itself when Spoolman is back (up to three times, spaced further apart each time). You no
+  longer need to lift and replace the spool. If Spoolman answers but the lookup fails, both
+  interfaces say "The Spoolman lookup failed: …" and still let you link the tag by hand.
+- While Spoolman is unreachable or the lookup is running, the touchscreen Manage tag page and the
+  browser dashboard say so ("Spoolman is not reachable…", "Looking up this spool in Spoolman…")
+  instead of calling the tag "not linked".
+
+**Writing tags**
+- The preview lists anything that will not be written to the tag: a name, vendor, material or
+  article number that is too long, a material type the tag can't store (such as "PLA Matte" or
+  "PLA+"), or several colours. Browser: "Not written to the tag:"; touchscreen: "Not written: …".
+  Before, these were left out without a word.
+- A single tag-reader error no longer blocks every write and erase until a restart. A write fails
+  only if the reader reports an error during that write: "The tag reader reported an error during
+  this step. Try again."
+- Spool lists with large entries no longer fail a whole page: the station fetches fewer rows at a
+  time, and both interfaces page correctly through shorter pages.
+- Tag actions are named after what they do. "Assign" is only used for printer toolheads:
+  **WRITE TAG** / **Write tag** for a blank tag, **USE FOR ANOTHER SPOOL** for a linked tag,
+  **Write tag for a spool** in the browser.
+
+**Scale and weighing**
+- Tare is refused when the platform is not empty: "The platform is not empty (reads X g). Remove
+  everything, then tare. If it is empty, tare again within 15 seconds." A second tare within 15
+  seconds is accepted, for the case where the zero itself has moved.
+- After a power glitch to the scale, the station reconnects to it by itself instead of needing a
+  restart.
+- Weigh can't be started while a weight is still being saved to Spoolman; the button reads
+  "Saving to Spoolman…" and a refused weigh says why.
+- The touchscreen Weigh page only shows a result for the spool that is on the station. After a
+  swap it no longer offers to save the previous spool's weight.
+- Tare and calibration results, including failures, stay on the touchscreen until your next tap.
+
+**Touchscreen**
+- Main actions are mint, erasing is red and other choices are grey on every screen (rc.22),
+  including the setup guide, About and the toolhead question.
+- Setup: **Next** waits for the save and stays on the step with the reason if it failed. The printer
+  list shows the printer that is saved.
+- The brightness set in Settings is kept after a restart, and display settings saved in the
+  browser apply at once. About no longer has its own brightness slider.
+- About ten messages that described the software's internals are rewritten in plain words, and
+  common errors on the tag failure page are explained.
+
 ## 1.0.0-rc.22
 
 **Touchscreen button colours**

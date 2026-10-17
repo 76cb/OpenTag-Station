@@ -135,6 +135,15 @@ struct ScaleStatus {
 
 class ScaleService {
  public:
+  // Consecutive failed polls (bus error or sample timeout) after which the
+  // ADC is treated as reset/lost: adc_ready drops so the owner re-runs
+  // initialize() on its retry timer. One transient failure still recovers on
+  // the next sample without re-initialisation.
+  static constexpr std::uint32_t reinitialize_after_failed_polls = 5U;
+  // A tare on a calibrated scale is refused when the platform reads more
+  // than this above the current zero.
+  static constexpr float tare_maximum_load_grams = 50.0F;
+
   ScaleService(
       IScaleAdc& adc,
       IScaleCalibrationStore& store,
@@ -148,6 +157,10 @@ class ScaleService {
   [[nodiscard]] core::Result<void> reconfigure_hardware(
       const ScaleHardwareSettings& settings);
   [[nodiscard]] core::Result<bool> poll(std::uint32_t now_ms);
+  // True after repeated poll failures: the ADC must be initialized again.
+  [[nodiscard]] bool reinitialization_required() const {
+    return !status_.adc_ready && status_.state == ScaleState::disconnected;
+  }
   // calibration_reference_grams: the reference a calibration session waits
   // for, when the caller already knows it; 0 leaves the plateau check on
   // ADC counts alone.
@@ -202,10 +215,16 @@ class ScaleService {
   std::size_t sample_count_{0U};
   std::uint32_t last_sample_ms_{0U};
   std::uint32_t operation_timeout_ms_{1000U};
+  std::uint32_t consecutive_poll_failures_{0U};
+  void record_poll_failure(core::Error error);
   // Set when a tare session re-ran the ADC offset calibration and has not yet
   // captured the new zero. If the session ends any other way, the stored zero
   // belongs to the old offset and a tare is required before weighing.
   bool zero_pending_after_offset_calibration_{false};
+  // When a tare was last refused for a loaded platform; a second tare within
+  // tare_confirm_window_ms is accepted.
+  std::optional<std::uint32_t> tare_refused_at_ms_;
+  static constexpr std::uint32_t tare_confirm_window_ms = 15000U;
   void invalidate_zero_if_offset_changed();
   std::optional<std::uint32_t> stable_candidate_since_ms_;
   std::optional<float> stable_baseline_grams_;

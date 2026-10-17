@@ -38,6 +38,11 @@ Weighing on its own never changes Spoolman, and saving a weight never rewrites t
    Tap **UPDATE SPOOLMAN** to save. The message changes to "Saved to Spoolman."
 5. To measure again instead, tap **WEIGH AGAIN**.
 
+The Weigh page shows a result only for the spool that is on the station now. If you swap the
+spool after weighing, the old result and **UPDATE SPOOLMAN** disappear and the page says
+"Tap WEIGH to measure this spool." With no spool on the station it says
+"Place a tagged spool on the station, then tap WEIGH."
+
 ### Browser
 
 1. On the Dashboard, click **Weigh**. The **Weigh spool** dialog opens and starts measuring.
@@ -65,6 +70,10 @@ Weighing on its own never changes Spoolman, and saving a weight never rewrites t
 ## Good to know
 
 - Each measurement can be saved once. To save again, weigh again.
+- While a weight is being saved, you cannot start a new weigh. The browser's **Weigh** button is
+  greyed out and reads "Saving to Spoolman…"; on the touchscreen the message reads
+  "Saving to Spoolman...". If you ask anyway, the station says "Saving the previous weight to
+  Spoolman. Try again in a moment."
 - Leave the spool and its tag in place until the weight is saved.
   The station checks that the same tag is still on the reader before it writes to Spoolman.
 - A measurement gives up after 20 seconds if the weight never settles.
@@ -117,6 +126,8 @@ cannot be saved.
 | "The weight did not settle. Keep the spool still and weigh again." | The reading kept moving. | Steady the spool, check nothing touches it, weigh again. |
 | "Measurement failed or timed out. No inventory update" | No stable weight within 20 seconds, or the scale reported a fault. | Weigh again. If it repeats, see [Weight looks wrong](../troubleshooting/weight.md). |
 | "The scale is busy. Try again in a moment." | Another scale action is still running. | Wait, then weigh again. |
+| "Saving the previous weight to Spoolman. Try again in a moment." | The last weight is still being saved. | Wait a few seconds, then weigh again. |
+| "The scale stopped responding. Reconnecting to it; weighing is unavailable until it answers again." | The scale electronics stopped answering, for example after a short power drop. | Wait. The station reconnects by itself. |
 | "This spool is not linked to Spoolman yet. Link the tag to a spool (Manage tag), then weigh again." | The tag is not linked to a spool. The same message appears when no tag is on the reader or Spoolman cannot be reached. | Link the tag ([Write or update a tag](manage-tags.md)), or check the tag and Spoolman, then weigh again. |
 | "The empty spool weight is unknown. Set it on the spool in Spoolman, then weigh again." | Neither Spoolman (spool, filament, vendor) nor the tag holds an empty-spool weight. | Set the empty-spool weight on the spool in Spoolman. |
 | "Spoolman has no remaining weight for this spool. Set its initial weight in Spoolman, then weigh again." | Spoolman cannot work out a remaining weight. | Set the spool's initial weight in Spoolman. |

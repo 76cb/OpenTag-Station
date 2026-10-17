@@ -96,6 +96,9 @@ class BackendWorker final {
   [[nodiscard]] CommandReceipt submit_refresh();
   [[nodiscard]] CommandReceipt submit_spool_confirmation(domain::SpoolId, std::uint64_t);
   void begin_weigh(std::uint64_t id);
+  [[nodiscard]] const char* weigh_refusal() const {
+    return weigh_sync_.weigh_refusal();
+  }
   void complete_weigh(std::uint64_t id, std::optional<float> grams);
   CommandReceipt submit_weight_update(std::uint64_t id);
   void write_weigh_snapshot(JsonObject out) const;

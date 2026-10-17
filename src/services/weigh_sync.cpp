@@ -62,6 +62,10 @@ void WeighSync::fail(std::uint64_t id, const std::string &message) {
     state_.message = message;
   }
 }
+const char *WeighSync::weigh_refusal() const {
+  std::lock_guard<std::mutex> lock(mutex_);
+  return state_.phase == "updating" ? weigh_while_updating_message : nullptr;
+}
 WeighSyncSnapshot WeighSync::snapshot() const {
   std::lock_guard<std::mutex> lock(mutex_);
   return state_;

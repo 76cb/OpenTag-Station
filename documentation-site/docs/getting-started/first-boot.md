@@ -32,7 +32,8 @@ You can now enter your Wi-Fi in either of two ways.
 1. On the **WI-FI** step, tap **Scan** and choose your network from the list, or type its name
    into **Wi-Fi network name**.
 2. Type the password into **Wi-Fi password**.
-3. Tap **Save**.
+3. Tap **Save**. The status line reads "Saving and connecting to Wi-Fi...". This can take up to
+   about a minute and a half while the station tries to connect.
 4. Wait until the status line shows the connection state and an address ("IP: …").
 5. Tap **Next** and continue through the remaining steps:
 
@@ -47,6 +48,13 @@ You can now enter your Wi-Fi in either of two ways.
 
 **Next** moves on even when a step is not filled in, and **Home** leaves the guide at any time.
 You can come back later: **Settings** → **Wi-Fi & services**.
+
+If you typed something on a step and tap **Next** without tapping **Save**, **Next** saves it for
+you first. The status line shows "Saving..." (on the **WI-FI** step "Saving and connecting to
+Wi-Fi...", which can take up to about a minute and a half), and the guide moves on only once the
+save has worked. If it fails, you stay on the step and the status line says why, for example
+"Saved, but the station could not connect to this Wi-Fi network. Check the name and password."
+If the station is busy, it says "The station is busy. Try Save again in a moment."
 
 !!! note "The tag reader waits for Wi-Fi"
     The tag reader starts once the station has joined your Wi-Fi. Right after first setup it also
@@ -89,6 +97,10 @@ The setup network closes about 30 seconds after the station has connected.
 After three failed connection attempts in a row the station starts the setup network again.
 Its name is on the touchscreen **Settings** page ("Setup Wi-Fi … (no password)"). Use either option
 above to enter working Wi-Fi details.
+
+You can also open the setup network yourself while the station is connected, for example to move
+it to another Wi-Fi: see [Open the setup network on purpose](../troubleshooting/wifi.md#open-the-setup-network-on-purpose).
+That setup network closes by itself after 10 minutes.
 
 ## Change the Wi-Fi later
 

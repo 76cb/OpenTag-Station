@@ -585,6 +585,78 @@ void test_empty_mutations_are_strict_and_forward_typed_commands() {
       "invalid_request");
 }
 
+void test_setup_mode_route_starts_with_empty_body_and_stops_with_stop_true() {
+  FakeContext context;
+  Router router(context);
+  auto response = router.handle(mutation_request(
+      Method::post, "/api/v1/network/setup-mode", "{}"));
+  TEST_ASSERT_EQUAL_INT(202, response.status);
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(MutationKind::network_setup_mode),
+      static_cast<int>(context.last_mutation->kind));
+  response = router.handle(mutation_request(
+      Method::post, "/api/v1/network/setup-mode", R"({"stop":true})",
+      "setup-stop-1"));
+  TEST_ASSERT_EQUAL_INT(202, response.status);
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(MutationKind::network_setup_stop),
+      static_cast<int>(context.last_mutation->kind));
+  assert_body_contains(response, "\"kind\":\"network_setup_stop\"");
+  for (const char* body : {R"({"stop":false})", R"({"stop":1})",
+                           R"({"stop":true,"x":1})", R"({"start":true})"}) {
+    assert_versioned_error(
+        router.handle(mutation_request(
+            Method::post, "/api/v1/network/setup-mode", body, "setup-bad")),
+        400, "invalid_request");
+  }
+  // Stop uses the same bearer authorization as start, never provisioning.
+  context.provisioning_authorized = true;
+  auto unauthorized = mutation_request(
+      Method::post, "/api/v1/network/setup-mode", R"({"stop":true})",
+      "setup-stop-2", "wrong");
+  unauthorized.provisioning_transport = true;
+  assert_versioned_error(
+      router.handle(unauthorized), 401, "authentication_required");
+}
+
+void test_writer_catalog_is_idempotency_exempt_but_writes_are_retained() {
+  FakeContext context;
+  Router router(context);
+  TEST_ASSERT_EQUAL_INT(202, router.handle(mutation_request(
+      Method::post, "/api/v1/tag-writer",
+      R"({"action":"catalog","entity":"spool","offset":0,"search":"pla"})",
+      "catalog-1")).status);
+  TEST_ASSERT_TRUE(context.last_mutation->idempotency_exempt);
+  TEST_ASSERT_EQUAL_INT(202, router.handle(mutation_request(
+      Method::post, "/api/v1/tag-writer", R"({"action":"clear_preview"})",
+      "clear-preview-1")).status);
+  TEST_ASSERT_FALSE(context.last_mutation->idempotency_exempt);
+  TEST_ASSERT_EQUAL_INT(202, router.handle(mutation_request(
+      Method::post, "/api/v1/scale/tare", "{}", "tare-1")).status);
+  TEST_ASSERT_FALSE(context.last_mutation->idempotency_exempt);
+}
+
+void test_explicit_weigh_is_refused_while_weight_update_runs() {
+  // ScaleCommandQueue needs FreeRTOS, so pin the wiring by source: both the
+  // submit path (API 409 / touchscreen receipt) and the session start consult
+  // the refusal, and the application wires it to WeighSync.
+  const auto queue = read_project_source("src/application/scale_command_queue.cpp");
+  const auto submit = queue.find("CommandReceipt ScaleCommandQueue::submit_weigh(");
+  const auto submit_end = queue.find("Command command;", submit);
+  TEST_ASSERT_NOT_EQUAL(std::string::npos, submit);
+  TEST_ASSERT_NOT_EQUAL(std::string::npos,
+      queue.substr(submit, submit_end - submit).find("weigh_refusal()"));
+  TEST_ASSERT_NOT_EQUAL(std::string::npos,
+      queue.substr(submit, submit_end - submit).find("ErrorCategory::conflict"));
+  const auto start = queue.find("scale_.begin_measurement(purpose");
+  TEST_ASSERT_NOT_EQUAL(std::string::npos, start);
+  const auto refusal_at_start = queue.rfind("weigh_refusal()", start);
+  TEST_ASSERT_TRUE(refusal_at_start != std::string::npos && refusal_at_start > submit_end);
+  const auto app = read_project_source("src/application/application.cpp");
+  TEST_ASSERT_NOT_EQUAL(std::string::npos,
+      app.find("scale_commands_.weigh_refusal=[this]{return backend_worker_.weigh_refusal();};"));
+}
+
 void test_calibration_accepts_only_a_bounded_numeric_reference() {
   FakeContext context;
   Router router(context);
@@ -1712,6 +1784,9 @@ int main(int, char**) {
       test_tokenless_local_mutations_are_allowed_without_authorization_header);
   RUN_TEST(test_mutation_headers_are_required_and_idempotency_is_bounded);
   RUN_TEST(test_empty_mutations_are_strict_and_forward_typed_commands);
+  RUN_TEST(test_setup_mode_route_starts_with_empty_body_and_stops_with_stop_true);
+  RUN_TEST(test_writer_catalog_is_idempotency_exempt_but_writes_are_retained);
+  RUN_TEST(test_explicit_weigh_is_refused_while_weight_update_runs);
   RUN_TEST(test_calibration_accepts_only_a_bounded_numeric_reference);
   RUN_TEST(test_assignment_captures_all_stale_state_preconditions);
   RUN_TEST(test_toolhead_paths_and_assignment_shapes_are_strict);

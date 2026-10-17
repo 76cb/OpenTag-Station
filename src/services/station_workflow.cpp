@@ -68,7 +68,8 @@ std::uint64_t StationWorkflow::begin_identified_spool(
   pending->uid_only = uid_only;
   pending->material = material;
   pending->uid = uid;
-  pending->stage = WorkflowStage::waiting_for_stable_weight;
+  // The Spoolman lookup is queued right away; it never waits for a weight.
+  pending->stage = WorkflowStage::resolving_spool;
   std::lock_guard<std::mutex> lock(mutex_);
   pending->spool_generation = next_spool_generation_++;
   pending->filabridge = state_.filabridge;
@@ -97,12 +98,16 @@ WorkflowSnapshot StationWorkflow::accept_identified_spool(
     if (state_.spool_generation != generation ||
         !(state_.openprinttag_available || state_.uid_only) ||
         state_.uid != uid) return state_;
-    state_.physical_weight = physical_weight;
-    state_.weight_snapshot.physical = physical_weight;
-    state_.stage = physical_weight.stable ? WorkflowStage::resolving_spool
-        : WorkflowStage::waiting_for_stable_weight;
+    // Identification never waits for the scale: an uncalibrated scale or a
+    // failed automatic weigh must not keep the spool unidentified. A weight
+    // attached meanwhile is kept unless this request carries a stable one.
+    if (physical_weight.stable && std::isfinite(physical_weight.gross_grams)) {
+      state_.physical_weight = physical_weight;
+      state_.weight_snapshot.physical = physical_weight;
+    }
+    tolerances_ = tolerances;
+    state_.stage = WorkflowStage::resolving_spool;
   }
-  if (!physical_weight.stable) return snapshot();
 
   const auto identity = identity_from_openprinttag(material, uid);
   auto resolution = confirmed_spool
@@ -117,6 +122,8 @@ WorkflowSnapshot StationWorkflow::accept_identified_spool(
                           ? BackendAvailability::offline
                           : BackendAvailability::unknown;
     state_.spoolman_error = resolution.error();
+    state_.lookup_error = resolution.error();
+    state_.lookup_failed_unreachable = connection_failure(resolution.error());
     return state_;
   }
 
@@ -178,6 +185,56 @@ WorkflowSnapshot StationWorkflow::accept_identified_spool(
     state_.stage = WorkflowStage::spool_ready;
     return state_;
   }
+}
+
+void StationWorkflow::attach_physical_weight(std::uint64_t generation,
+                                             domain::WeightReading weight) {
+  if (!weight.stable || !std::isfinite(weight.gross_grams)) return;
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (state_.spool_generation != generation ||
+      !(state_.openprinttag_available || state_.uid_only)) return;
+  state_.physical_weight = weight;
+  state_.weight_snapshot.physical = weight;
+  if (state_.spool)
+    state_.reconciliation =
+        WeightReconciler::compare(state_.weight_snapshot, tolerances_);
+}
+
+bool StationWorkflow::begin_lookup_retry(std::uint64_t generation) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (state_.spool_generation != generation ||
+      state_.stage != WorkflowStage::spool_resolution_unavailable ||
+      state_.spoolman != BackendAvailability::online ||
+      !state_.lookup_failure_is_connection()) return false;
+  state_.stage = WorkflowStage::resolving_spool;
+  return true;
+}
+
+void StationWorkflow::abort_lookup_retry(std::uint64_t generation) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (state_.spool_generation == generation &&
+      state_.stage == WorkflowStage::resolving_spool)
+    state_.stage = WorkflowStage::spool_resolution_unavailable;
+}
+
+void StationWorkflow::fail_resolution(std::uint64_t generation,
+                                      core::Error error) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (state_.spool_generation != generation ||
+      state_.stage != WorkflowStage::resolving_spool) return;
+  state_.stage = WorkflowStage::spool_resolution_unavailable;
+  state_.spoolman = BackendAvailability::unknown;
+  state_.lookup_failed_unreachable = connection_failure(error);
+  state_.lookup_error = error;
+  state_.spoolman_error = std::move(error);
+}
+
+bool StationWorkflow::claim_scan_report(std::uint64_t generation) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (generation == 0U || state_.spool_generation != generation ||
+      scan_reported_generation_ == generation) return false;
+  scan_reported_generation_ = generation;
+  return true;
 }
 
 WorkflowSnapshot StationWorkflow::refresh_printers() {

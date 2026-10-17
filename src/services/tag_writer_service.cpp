@@ -165,6 +165,21 @@ const char *physical_status(const char *phase) {
     return "Checking tag contents";
   return "Working with tag";
 }
+// Kept out of prepare()'s frame: the strings live only for this call.
+__attribute__((noinline)) void write_dropped_fields(JsonArray dropped,
+                                                    JsonArray warnings,
+                                                    JsonObjectConst spool,
+                                                    bool mutable_only) {
+  if (mutable_only)
+    return;
+  for (const auto &field : nfc::openprinttag::dropped_fields(spool)) {
+    auto entry = dropped.add<JsonObject>();
+    entry["field"] = field.field;
+    entry["value"] = field.value;
+    entry["reason"] = field.reason;
+    warnings.add(field.warning);
+  }
+}
 } // namespace
 core::Result<network::BackendDocument>
 TagWriterService::api(const char *method, const std::string &path,
@@ -263,10 +278,9 @@ Result TagWriterService::catalog(JsonObjectConst c) {
     search_field = "name";
   const std::string prefix = entity == "spool" ? "filament." : "";
   const std::string search = c["search"] | "";
-  const auto build = [&](const std::string &field) {
-  std::string path = "/" + entity +
-                     "?limit=8&offset=" + std::to_string(offset) +
-                     "&sort=id:asc";
+  const auto build = [&](const std::string &field, unsigned limit) {
+  std::string path = "/" + entity + "?limit=" + std::to_string(limit) +
+                     "&offset=" + std::to_string(offset) + "&sort=id:asc";
   // Spoolman matches case-insensitive substrings. Rows show "Vendor Name",
   // so a search that finds no names is retried against the vendor.
   if (!search.empty())
@@ -285,44 +299,57 @@ Result TagWriterService::catalog(JsonObjectConst c) {
   }
   return path;
   };
-  // One verbose page can exceed what the station can hold; say so instead of
-  // reporting a transport fault that no retry can clear.
-  const auto unavailable = [](const core::Error &error) {
-    return error.message == "HTTP response exceeds configured limit"
-               ? fail(catalog_page_too_large)
-               : Result::failure(error);
+  // One verbose page can exceed what the station can hold. The same offset
+  // is then asked again with fewer rows (8, 4, 2, 1); the reply carries the
+  // rows actually returned, "limit" and "next_offset", so paging stays exact.
+  // Only a single row that is still too large reports the page as too large.
+  const auto too_large = [](const core::Error &error) {
+    return error.message == "HTTP response exceeds configured limit";
   };
-  auto page = api("GET", build(search_field));
-  if (!page.ok())
-    return unavailable(page.error());
-  if (!page.value().is<JsonArray>() || page.value().size() > 8)
-    return fail("Spoolman pagination contract changed");
-  if (page.value().size() == 0 && !search.empty() && offset == 0 &&
-      entity != "vendor" && search_field == "name") {
-    auto by_vendor = api("GET", build("vendor"));
-    if (!by_vendor.ok())
-      return unavailable(by_vendor.error());
-    if (!by_vendor.value().is<JsonArray>() || by_vendor.value().size() > 8)
+  for (const unsigned limit : {8U, 4U, 2U, 1U}) {
+    auto page = api("GET", build(search_field, limit));
+    if (!page.ok()) {
+      if (too_large(page.error()))
+        continue;
+      return Result::failure(page.error());
+    }
+    if (!page.value().is<JsonArray>() || page.value().size() > limit)
       return fail("Spoolman pagination contract changed");
-    search_field = "vendor";
-    page = std::move(by_vendor);
-  }
-  for (auto item : page.value().as<JsonArrayConst>())
-    if (!item["id"].is<int>() || item["id"].as<int>() <= 0)
-      return fail("Malformed Spoolman catalog item");
-  view_.clear();
-  view_["entity"] = entity;
-  view_["offset"] = offset;
-  view_["next_offset"] = offset + page.value().size();
-  view_["has_more"] = page.value().size() == 8;
-  view_["search_field"] = search_field;
-  view_["items"].set(page.value());
-  if (view_.overflowed() || measureJson(view_) > writer_view_maximum_bytes) {
+    if (page.value().size() == 0 && !search.empty() && offset == 0 &&
+        entity != "vendor" && search_field == "name") {
+      // Fewer rows of the name search cannot become non-empty: smaller
+      // retries query the vendor directly.
+      search_field = "vendor";
+      auto by_vendor = api("GET", build(search_field, limit));
+      if (!by_vendor.ok()) {
+        if (too_large(by_vendor.error()))
+          continue;
+        return Result::failure(by_vendor.error());
+      }
+      if (!by_vendor.value().is<JsonArray>() ||
+          by_vendor.value().size() > limit)
+        return fail("Spoolman pagination contract changed");
+      page = std::move(by_vendor);
+    }
+    for (auto item : page.value().as<JsonArrayConst>())
+      if (!item["id"].is<int>() || item["id"].as<int>() <= 0)
+        return fail("Malformed Spoolman catalog item");
     view_.clear();
-    return fail(catalog_page_too_large);
+    view_["entity"] = entity;
+    view_["offset"] = offset;
+    view_["limit"] = limit;
+    view_["next_offset"] = offset + page.value().size();
+    view_["has_more"] = page.value().size() == limit;
+    view_["search_field"] = search_field;
+    view_["items"].set(page.value());
+    if (view_.overflowed() || measureJson(view_) > writer_view_maximum_bytes) {
+      view_.clear();
+      continue;
+    }
+    publish("catalog");
+    return Result::success();
   }
-  publish("catalog");
-  return Result::success();
+  return fail(catalog_page_too_large);
 }
 Result TagWriterService::import_preview(JsonObjectConst c) {
   auto source = c["entry"].as<JsonObjectConst>();
@@ -1570,9 +1597,10 @@ Result TagWriterService::prepare(JsonObjectConst c) {
                  "spool UUID is retained.");
   warnings.add("Writing is not atomic. Keep this tag on the reader and power "
                "connected until complete.");
-  warnings.add("Names exceeding OpenPrintTag limits and metadata without an "
-               "exact supported mapping are omitted, never truncated. Review "
-               "proposed values.");
+  // One explicit warning per Spoolman value a full write leaves off the tag
+  // (omitted, never truncated); a mutable update writes no metadata.
+  write_dropped_fields(view_["dropped_fields"].to<JsonArray>(), warnings,
+                       spool.value().as<JsonObjectConst>(), mutable_only);
   auto proposed = view_["proposed"].to<JsonObject>();
   const auto &m = plan_->proposed.material;
   nfc::openprinttag::material_json(proposed, m);

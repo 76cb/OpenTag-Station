@@ -22,7 +22,7 @@ The tag's ID is permanent; writing or clearing does not change it.
 ## What "blank" means
 
 For the station, blank means **every byte of the data area is zero**.
-It then shows `BLANK TAG` / `Ready to use` on the touchscreen (browser: **Blank tag**, **Ready to assign**).
+It then shows `BLANK TAG` / `Ready to use` on the touchscreen (browser: **Blank tag**, **Ready to write**).
 
 Many NFC stickers are sold for phones and arrive "formatted" or with a web link stored on them.
 Those are not blank. The station shows `This tag can't be used as it is`,
@@ -55,8 +55,8 @@ and it cannot erase them: **CLEAR / REUSE** only works on tags that hold OpenPri
 
 1. Place **one** tag on the reader.
 2. Touchscreen: tap **MANAGE TAG**. Browser: the Dashboard shows the tag.
-3. A usable new tag shows `BLANK TAG` / `Ready to use` and the button **ASSIGN TAG**
-   (browser: **Blank tag** and **Assign tag**).
+3. A usable new tag shows `BLANK TAG` / `Ready to use` and the button **WRITE TAG**
+   (browser: **Blank tag** and **Write tag**).
 
 In the browser, **Manage tag → Tag metadata & advanced details** shows the tag ID and memory size.
 

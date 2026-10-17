@@ -487,11 +487,11 @@ void BackendWorker::process(Command& command) {
       return;
     }
     const auto& state = *state_storage;
+    // A weight is not required: identification no longer waits for the scale.
     if (!state.openprinttag_available || state.spool_generation != command.expected_spool_generation ||
-        !state.physical_weight.stable ||
         static_cast<std::uint32_t>(millis() - command.enqueued_at_ms) > destructive_command_expiry_ms) {
       operations_.fail(command.operation_id, millis(), {core::ErrorCategory::conflict,
-          "Spool changed or weight is not ready; refresh before confirming", false});
+          "Spool changed; refresh before confirming", false});
       return;
     }
     const auto selected = spoolman_.get_spool(command.expected_spool_id.value_or(0));
@@ -520,12 +520,15 @@ void BackendWorker::process(Command& command) {
         {configured.reconciliation.normal_tolerance_grams,
          configured.reconciliation.warning_tolerance_grams},
         command.expected_spool_generation); });
-    if (!state) workflow_.set_spoolman_probe(false, core::Error{
-        core::ErrorCategory::backend_unavailable, "Spool resolution workspace unavailable; retry", true});
+    if (!state && command.expected_spool_generation)
+      workflow_.fail_resolution(*command.expected_spool_generation, core::Error{
+          core::ErrorCategory::backend_unavailable, "Spool resolution workspace unavailable; retry", true});
     // Spoolman 0.27+: a Spoolman page paired with this station jumps to the
-    // tag's spool. Once per placement, only when the lookup just reached
-    // Spoolman (an unreachable server would cost another timeout).
-    if (state && state->spoolman == services::BackendAvailability::online)
+    // tag's spool. Once per placement (a lookup repeated after an outage
+    // does not report again), only when the lookup just reached Spoolman
+    // (an unreachable server would cost another timeout).
+    if (state && state->spoolman == services::BackendAvailability::online &&
+        workflow_.claim_scan_report(command.expected_spool_generation.value_or(0U)))
       spoolman_.report_tag_scan(command.uid.hex(), configured.device.hostname,
                                 "OpenTag Station");
     return;
