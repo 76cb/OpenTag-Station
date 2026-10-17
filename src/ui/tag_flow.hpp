@@ -19,7 +19,6 @@ enum class TagPage {
   selected,
   create,
   created,
-  move,
   review,
   progress,
   import_review,
@@ -60,6 +59,31 @@ enum class TagAction {
   skip,
   choose
 };
+// Activity drawn under the body text: an endless spinner while waiting, or a
+// determinate bar when the writer reports block progress.
+enum class TagIndicator : std::uint8_t { none, spinner, bar };
+inline constexpr std::uint32_t neutral_spool_rgb = 0x788583;
+// Spoolman color_hex ("RRGGBB" or "RRGGBBAA", optional '#'); alpha ignored.
+inline std::uint32_t parse_spool_rgb(const char* text, std::uint32_t fallback = neutral_spool_rgb) {
+  if (!text)
+    return fallback;
+  if (*text == '#')
+    ++text;
+  std::uint32_t rgb = 0;
+  std::size_t n = 0;
+  for (; text[n] && n < 9; ++n) {
+    const char c = text[n];
+    const int digit = c >= '0' && c <= '9'   ? c - '0'
+                      : c >= 'a' && c <= 'f' ? c - 'a' + 10
+                      : c >= 'A' && c <= 'F' ? c - 'A' + 10
+                                             : -1;
+    if (digit < 0)
+      return fallback;
+    if (n < 6)
+      rgb = (rgb << 4) | static_cast<std::uint32_t>(digit);
+  }
+  return n == 6 || n == 8 ? rgb : fallback;
+}
 // Destructive buttons (clear, skip recovery) are drawn in a distinct colour.
 struct TagButton {
   layout::Box box{};
@@ -72,6 +96,11 @@ struct TagScreen {
   std::string title, body;
   std::array<TagButton, 8> buttons{};
   std::size_t count{0};
+  TagIndicator indicator{TagIndicator::none};
+  std::uint16_t done{0}, total{0};
+  // Spool colour ring beside the body (review and TAG READY pages).
+  bool art{false};
+  std::uint32_t art_rgb{neutral_spool_rgb};
   void button(layout::Box box, std::string text, TagAction action, bool enabled = true,
               bool destructive = false) {
     buttons[count++] = {box, std::move(text), action, enabled, destructive};
@@ -99,7 +128,13 @@ inline layout::Box tag_body_box(const TagScreen& screen) {
   for (std::size_t i = 0; i < screen.count; ++i)
     if (screen.buttons[i].box.y > 48)
       bottom = std::min(bottom, screen.buttons[i].box.y);
-  return {16, 48, 448, static_cast<std::int16_t>(bottom - 56)};
+  // Text never runs under the activity indicator or the spool ring.
+  if (screen.indicator == TagIndicator::spinner)
+    bottom = std::min<std::int16_t>(bottom, layout::tag_spinner.y);
+  else if (screen.indicator == TagIndicator::bar)
+    bottom = std::min<std::int16_t>(bottom, layout::tag_bar.y);
+  const std::int16_t width = screen.art ? layout::tag_art.x - 16 - 12 : 448;
+  return {16, 48, width, static_cast<std::int16_t>(bottom - 56)};
 }
 inline std::string weight_text(double value) {
   char buffer[32];
@@ -115,7 +150,7 @@ class TagFlow {
  public:
   TagFlow() {}
   TagPage page{TagPage::tag};
-  TagPage review_return{TagPage::tag}, move_return{TagPage::selected};
+  TagPage review_return{TagPage::tag};
   services::TagLifecycle lifecycle{services::TagLifecycle::no_tag};
   std::string uid, material, query, entity{"spool"}, message, phase, catalog_state, catalog_version;
   // Field Spoolman actually matched ("name", or "vendor" after a fallback);
@@ -138,6 +173,11 @@ class TagFlow {
   // long time; offers a way back without abandoning physical work.
   bool stalled{false};
   bool land_on_last_rows{false};
+  // More than one tag in the field: nothing can be read until one is removed.
+  bool multiple_tags{false};
+  // Set when this station's own create_spool returned the new spool; the UI
+  // sends its tag preview once (take_auto_preview), with no extra stop.
+  bool auto_preview{false};
   // Spools that may belong to this tag (vendor/material or product match).
   // The user picks one; the UI submits it as an explicit confirmation.
   std::vector<std::pair<int, std::string>> candidates;
@@ -145,14 +185,14 @@ class TagFlow {
   // Shown on the create page when a required value is missing.
   std::string create_hint;
   int current_spool{0}, from_spool{0};
-  std::string from_name;
   std::string import_name;
   unsigned offset{0}, row{0};
   double initial{1000}, remaining{1000}, tare{0};
   // False until the empty-spool weight comes from Spoolman or the user. A
   // silent 0 g default overstated remaining filament on every later weigh.
   bool tare_known{false};
-  bool waiting{false}, rewrite{false}, community_request{false}, catalog_update_request{false};
+  bool waiting{false}, rewrite{false}, community_request{false}, catalog_update_request{false},
+      reading_request{false};
   std::uint64_t operation{0};
   // When the current touch request was queued, for the "taking longer than
   // usual" escape on Spoolman-only work.
@@ -311,6 +351,9 @@ class TagFlow {
     } else if (phase == "spool_selected") {
       selected.set(view["spool"]);
       page = TagPage::created;
+      // Only the answer to this screen's own request; a spool created in the
+      // browser must never start a touchscreen tag preview.
+      auto_preview = operation != 0;
     } else if (phase == "complete")
       page = TagPage::ready;
     else if (phase == "cleared") {
@@ -340,7 +383,6 @@ class TagFlow {
     switch (action) {
       case TagAction::sources:
         from_spool = current_spool;
-        from_name = material;
         rewrite = lifecycle == services::TagLifecycle::linked ||
                   lifecycle == services::TagLifecycle::unlinked;
         page = TagPage::sources;
@@ -404,6 +446,10 @@ class TagFlow {
           return {};
         selected.set(catalog_page["items"][index]);
         import_name.clear();
+        // A spool goes straight to the tag review: it shows the spool, any
+        // move from another spool, and the single WRITE TAG confirmation.
+        if (entity == "spool")
+          return preview_selected(TagPage::catalog);
         page = TagPage::selected;
         return {};
       }
@@ -421,17 +467,7 @@ class TagFlow {
           page = TagPage::create;
           return {};
         }
-        if ((page == TagPage::selected || page == TagPage::created) && from_spool > 0 &&
-            selected["id"].as<int>() != from_spool) {
-          move_return = page;
-          page = TagPage::move;
-          return {};
-        }
-        review_return = page;
-        command["action"] = "preview";
-        command["spool_id"] = selected["id"];
-        command["mode"] = rewrite ? "rewrite" : "blank";
-        break;
+        return preview_selected(page);
       case TagAction::update:
         if (current_spool <= 0)
           return {};
@@ -512,8 +548,6 @@ class TagFlow {
       case TagAction::back:
         if (page == TagPage::selected || page == TagPage::create)
           page = TagPage::catalog;
-        else if (page == TagPage::move)
-          page = move_return;
         else if (page == TagPage::catalog)
           page = TagPage::sources;
         else if (page == TagPage::review || page == TagPage::skip_review)
@@ -532,9 +566,23 @@ class TagFlow {
     }
     return encode(command);
   }
+  // The tag preview for a spool this screen just created, exactly once.
+  std::string take_auto_preview() {
+    const bool due = auto_preview && page == TagPage::created && !waiting;
+    auto_preview = false;
+    return due ? act(TagAction::use) : std::string();
+  }
   TagScreen screen() const;
 
  private:
+  std::string preview_selected(TagPage back_to) {
+    JsonDocument command(&allocator);
+    review_return = back_to;
+    command["action"] = "preview";
+    command["spool_id"] = selected["id"];
+    command["mode"] = rewrite ? "rewrite" : "blank";
+    return encode(command);
+  }
   void resume_recovery() {
     if (!recovery.phase.empty()) {
       phase = recovery.phase;
@@ -582,6 +630,8 @@ class TagFlow {
     stalled = false;
     community_request = std::string_view(command["action"] | "") == "community_search";
     catalog_update_request = std::string_view(command["action"] | "") == "community_update";
+    reading_request = std::string_view(command["action"] | "") == "preview" ||
+                      std::string_view(command["action"] | "") == "clear_preview";
     std::string result;
     serializeJson(command, result);
     return result;
@@ -591,6 +641,19 @@ inline std::string filament_name(JsonVariantConst item) {
   auto f = item["filament"].is<JsonObjectConst>() ? item["filament"] : item;
   std::string vendor = f["manufacturer"] | (f["vendor"]["name"] | "");
   return vendor + (vendor.empty() ? "" : " ") + std::string(f["name"] | "Unnamed filament");
+}
+// The spool's colour from a writer view: Spoolman's filament color_hex, else
+// the proposed OpenPrintTag primary colour, else neutral grey.
+inline std::uint32_t view_spool_rgb(JsonVariantConst view) {
+  const char* hex = view["spool"]["filament"]["color_hex"].as<const char*>();
+  if (hex && *hex)
+    return parse_spool_rgb(hex);
+  JsonVariantConst color = view["proposed"]["primary_color"];
+  if (color.is<JsonArrayConst>() && color.size() >= 3)
+    return (std::uint32_t(color[0].as<unsigned>() & 0xFFU) << 16) |
+           (std::uint32_t(color[1].as<unsigned>() & 0xFFU) << 8) |
+           std::uint32_t(color[2].as<unsigned>() & 0xFFU);
+  return neutral_spool_rgb;
 }
 inline std::string diameter_text(JsonVariantConst value) {
   char buffer[16];
@@ -625,6 +688,8 @@ inline TagScreen TagFlow::screen() const {
                                                 : "TRY UNLINKING AGAIN",
                TagAction::retry);
         s.button({16, 212, 448, 44}, "SKIP RECOVERY", TagAction::skip, true, true);
+      } else if (multiple_tags) {
+        s.body = "Two tags on the reader. Remove one.";
       } else if (lifecycle == services::TagLifecycle::blank_compatible) {
         s.body = "BLANK TAG\nReady to use\n" + uid;
         action(0, "ASSIGN TAG", TagAction::sources);
@@ -642,13 +707,16 @@ inline TagScreen TagFlow::screen() const {
         s.body = material + "\nNot linked to a Spoolman spool yet";
         action(0, "LINK TO A SPOOL", TagAction::sources);
         s.button({16, 162, 448, 44}, "CLEAR / REUSE", TagAction::clear, true, true);
-      } else
-        s.body = lifecycle == services::TagLifecycle::no_tag
-                     ? "PLACE A TAG\nSet an NFC tag on the reader."
-                 : lifecycle == services::TagLifecycle::unsupported
-                     ? "This tag can't be used as it is\n" + tag_error +
-                           "\nUse a blank NXP ICODE SLIX2 tag."
-                     : "Reading tag...\nKeep the tag on the reader.";
+      } else if (lifecycle == services::TagLifecycle::no_tag)
+        s.body = "PLACE A TAG\nSet an NFC tag on the reader.";
+      else if (lifecycle == services::TagLifecycle::unsupported)
+        s.body = "This tag can't be used as it is\n" + tag_error +
+                 "\nUse a blank NXP ICODE SLIX2 tag.";
+      else {
+        s.title = "Reading tag";
+        s.body = "Hold the spool still.";
+        s.indicator = TagIndicator::spinner;
+      }
       s.button({8, 266, 464, 46}, "DONE", TagAction::home);
       break;
     case TagPage::sources:
@@ -701,26 +769,17 @@ inline TagScreen TagFlow::screen() const {
                row + 3 < catalog_page["items"].size() || (catalog_page["has_more"] | false));
       break;
     case TagPage::selected:
-      s.title = entity == "spool" ? "Use this spool?" : "Use this filament?";
-      s.body = filament_name(selected);
-      if (entity == "spool")
-        s.body += "\nSpool #" + std::to_string(selected["id"].as<int>()) + " - " +
-                  (selected["remaining_weight"].isNull()
-                       ? std::string("remaining weight unknown")
-                       : grams_text(selected["remaining_weight"]) + " remaining");
-      else
-        s.body += "\n" + std::string(selected["material"] | "") + " - " +
-                  diameter_text(selected["diameter"]);
+      // Filaments and Community entries only: a spool row opens the review.
+      s.title = "Use this filament?";
+      s.body = filament_name(selected) + "\n" + std::string(selected["material"] | "") + " - " +
+               diameter_text(selected["diameter"]);
       if (entity == "community") {
         s.button({16, 212, 448, 44}, "EDIT DISPLAY NAME", TagAction::name);
         if (!import_name.empty())
           s.body += "\nSpoolman name: " + import_name;
       }
       back();
-      primary(entity == "community"  ? "REVIEW IMPORT"
-              : entity == "filament" ? "CREATE A SPOOL"
-                                     : "USE SPOOL",
-              TagAction::use);
+      primary(entity == "community" ? "REVIEW IMPORT" : "CREATE A SPOOL", TagAction::use);
       break;
     case TagPage::create:
       s.title = "Create physical spool";
@@ -739,18 +798,13 @@ inline TagScreen TagFlow::screen() const {
       primary("CREATE SPOOL", TagAction::create);
       break;
     case TagPage::created:
+      // Normally passed straight through to the review (take_auto_preview);
+      // shown only after BACK from that review, or if the preview was refused.
       s.title = "Spool created";
-      s.body = filament_name(selected) + "\nSpool #" + std::to_string(selected["id"].as<int>());
+      s.body = filament_name(selected) + "\nSpool #" + std::to_string(selected["id"].as<int>()) +
+               " is in Spoolman. The tag is not written yet.";
       back();
       primary("REVIEW TAG WRITE", TagAction::use);
-      break;
-    case TagPage::move:
-      s.title = "Move this tag?";
-      s.body = "FROM #" + std::to_string(from_spool) + " " + from_name + "\nTO #" +
-               std::to_string(selected["id"].as<int>()) + " " + filament_name(selected) +
-               "\nThe previous spool stays in inventory.";
-      back();
-      primary("CONTINUE", TagAction::use);
       break;
     case TagPage::import_review:
       s.title = "Add to Spoolman";
@@ -763,17 +817,39 @@ inline TagScreen TagFlow::screen() const {
     case TagPage::review: {
       const bool clearing = phase == "clear_preview";
       const bool unchanged = !clearing && (view["semantic_no_change"] | false);
+      const int target = view["spool_id"] | 0;
+      // The writer's own reading of the tag decides the warning: another
+      // spool owns this UID (previous_spool_id), or the tag holds another
+      // spool's data (repurpose). The screen's own REASSIGN start adds to it.
+      const int owner = view["previous_spool_id"] | 0;
+      const int moving_from =
+          owner > 0 ? owner : (from_spool > 0 && from_spool != target ? from_spool : 0);
+      const bool repurpose = view["repurpose"] | false;
+      const bool moving = !clearing && !unchanged && (moving_from > 0 || repurpose);
       s.title = clearing    ? "Erase this tag?"
                 : unchanged ? "Tag already up to date"
+                : moving    ? "Move this tag?"
                             : "Ready to write";
-      s.body =
-          clearing
-              ? "Erases the filament data on the tag and removes its link in Spoolman.\nThe spool itself stays in Spoolman."
-          : unchanged
-              ? filament_name(view["spool"]) + "\nNothing needs to be written."
-              : filament_name(view["spool"]) + "\nSpool #" +
-                    std::to_string(view["spool_id"].as<int>()) +
-                    "\nReplaces the filament data on the tag.\nKeep the tag on the reader until it says done.";
+      if (clearing)
+        s.body =
+            "Erases the filament data on the tag and removes its link in Spoolman.\nThe spool itself stays in Spoolman.";
+      else if (unchanged)
+        s.body = filament_name(view["spool"]) + "\nNothing needs to be written.";
+      else {
+        s.body = filament_name(view["spool"]) + "\nSpool #" + std::to_string(target);
+        if (moving_from > 0)
+          s.body += "\nFrom spool #" + std::to_string(moving_from) + " to #" +
+                    std::to_string(target) + ". Spool #" + std::to_string(moving_from) +
+                    " stays in your inventory.";
+        else if (repurpose)
+          s.body += "\nThis tag holds another spool's data. Writing replaces it.";
+        else
+          s.body += "\nReplaces the filament data on the tag.";
+      }
+      if (!clearing) {
+        s.art = true;
+        s.art_rgb = view_spool_rgb(view);
+      }
       back();
       primary(clearing    ? "ERASE TAG"
               : unchanged ? "NOTHING TO WRITE"
@@ -802,7 +878,7 @@ inline TagScreen TagFlow::screen() const {
         s.body = "More matches: choose in the browser.";
       back();
       break;
-    case TagPage::progress:
+    case TagPage::progress: {
       if (phase == "catalog_downloading") {
         s.title = "Downloading Community catalog";
         s.body = std::to_string(view["completed_blocks"] | 0) + "%\nThe station remains available.";
@@ -813,26 +889,41 @@ inline TagScreen TagFlow::screen() const {
         s.body = query + "\nSearching catalog. Please wait...";
         break;
       }
-      if (physical_phase(phase)) {
+      if (physical_phase(phase) || phase == "reading") {
         s.title = phase == "clearing"  ? "Clearing tag"
                   : phase == "writing" ? "Writing tag"
+                  : phase == "reading" ? "Reading tag"
                                        : "Checking tag";
         s.body = "Keep the tag on the reader.";
-        if ((view["total_blocks"] | 0) > 0)
-          s.body += "\n" + std::to_string(view["completed_blocks"] | 0) + " / " +
-                    std::to_string(view["total_blocks"] | 0) + " blocks";
+        const int total = view["total_blocks"] | 0, done = view["completed_blocks"] | 0;
+        s.indicator = TagIndicator::spinner;
+        if (total > 0) {
+          s.body += "\n" + std::to_string(done) + " / " + std::to_string(total) + " blocks";
+          s.indicator = TagIndicator::bar;
+          s.total = static_cast<std::uint16_t>(std::min(total, 65535));
+          s.done = static_cast<std::uint16_t>(std::clamp(done, 0, int(s.total)));
+        }
+        // Reading is not a physical change: it keeps the stall escape and
+        // never strands a screen following another client's request.
+        if (phase == "reading" && stalled)
+          s.body += "\nThis is taking longer than usual.";
+        if (phase == "reading" && (stalled || !waiting))
+          s.button({8, 266, 464, 46}, "BACK TO HOME", TagAction::home);
         break;
       }
+      const bool reading_wait = phase == "queued" && reading_request;
       s.title = phase == "associating"     ? "Saving link in Spoolman"
                 : phase == "unlinking"     ? "Removing link in Spoolman"
-                : phase == "reading"       ? "Reading tag"
+                : reading_wait             ? "Reading tag"
                 : phase == "loading_spool" ? "Checking Spoolman"
                                            : "Please wait";
-      s.body = phase == "associating" ? "The tag is already written."
-               : phase == "unlinking" ? "The tag is already erased."
-               : phase == "reading"   ? "Keep the tag on the reader."
-               : working.empty()      ? "Working on your request..."
-                                      : working;
+      s.body = phase == "associating"     ? "The tag is already written."
+               : phase == "unlinking"     ? "The tag is already erased."
+               : reading_wait             ? "Keep the tag on the reader."
+               : phase == "loading_spool" ? "Getting spool details from Spoolman..."
+               : working.empty()          ? "Working on your request..."
+                                          : working;
+      s.indicator = TagIndicator::spinner;
       if (stalled)
         s.body += "\nThis is taking longer than usual.";
       // Another client's request (not waiting) must not strand this screen.
@@ -840,6 +931,7 @@ inline TagScreen TagFlow::screen() const {
       if (stalled || (!waiting && phase != "associating" && phase != "unlinking"))
         s.button({8, 266, 464, 46}, "BACK TO HOME", TagAction::home);
       break;
+    }
     case TagPage::reuse:
       s.title = "TAG READY TO REUSE";
       s.body = "The old filament information is removed.\nWhat should this tag become?";
@@ -851,6 +943,8 @@ inline TagScreen TagFlow::screen() const {
       s.title = "TAG READY";
       s.body = filament_name(view["spool"]) + "\nSpool #" +
                std::to_string(view["spool_id"].as<int>()) + " - verified";
+      s.art = true;
+      s.art_rgb = view_spool_rgb(view);
       action(0, "WEIGH", TagAction::weigh);
       action(1, "ASSIGN TO PRINTER", TagAction::printer);
       // Wait for the internally refreshed physical/workflow identity before
@@ -873,6 +967,8 @@ inline TagScreen TagFlow::screen() const {
     s.title = "Please wait";
     s.body = working.empty() ? "Working on your request..." : working;
     s.count = 0;
+    s.art = false;
+    s.indicator = TagIndicator::spinner;
     if (stalled && !physical_phase(phase)) {
       s.body += "\nThis is taking longer than usual.";
       s.button({8, 266, 464, 46}, "BACK TO HOME", TagAction::home);

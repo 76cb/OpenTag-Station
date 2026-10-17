@@ -111,6 +111,9 @@ class UiService {
   std::array<lv_obj_t*,8> tag_buttons_{};
   lv_obj_t* tag_title_{nullptr};
   lv_obj_t* tag_details_{nullptr};
+  lv_obj_t* tag_spinner_{nullptr};
+  lv_obj_t* tag_bar_{nullptr};
+  lv_obj_t* tag_art_{nullptr};
   std::uint32_t writer_view_checksum_{0};
   std::uint64_t tag_candidate_generation_{0};
   // First-run setup: return to the setup screen after scale calibration.
