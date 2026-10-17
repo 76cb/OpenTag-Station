@@ -514,12 +514,17 @@ struct ServiceFixture {
   integrations::spoolman::SpoolmanAdapter adapter{http,
                                                   {"http://spoolman.test"}};
   network::BackendDocument view;
+  std::function<void(const network::BackendDocument &)> observe;
   Cache cache;
   int sync_calls = 0;
   services::TagWriterService service{
       adapter, reader, [this] { return reader.generation; },
       [](std::uint8_t *p, std::size_t n) { std::memset(p, 0x44, n); },
-      [this](const auto &b) { deserializeJson(view, b.data(), b.size()); }, nullptr, {},
+      [this](const auto &b) {
+        deserializeJson(view, b.data(), b.size());
+        if (observe)
+          observe(view);
+      }, nullptr, {},
       [this](const domain::ConfirmedSpoolMapping& mapping) {
         ++sync_calls;
         TEST_ASSERT_TRUE(service.physical_pass());
@@ -1656,6 +1661,7 @@ struct ClearFixture {
   integrations::spoolman::SpoolmanAdapter adapter{http,
                                                   {"http://spoolman.test"}};
   network::BackendDocument view;
+  std::function<void(const network::BackendDocument &)> observe;
   int mappings = 0;
   bool mapping_ok = true;
   Cache cache;
@@ -1676,6 +1682,8 @@ struct ClearFixture {
         [](std::uint8_t *, std::size_t) {},
         [this](const auto &body) {
           deserializeJson(view, body.data(), body.size());
+          if (observe)
+            observe(view);
         },
         &journal,
         [this](const std::string &uid, const std::string &instance,
@@ -2881,6 +2889,124 @@ void pending_write_with_changed_spoolman_settings_stays_skippable() {
   TEST_ASSERT_FALSE(f.journal.present);
 }
 
+// Records published snapshots; steps keep only the listed phases.
+struct PhaseLog {
+  std::vector<std::pair<std::size_t, std::size_t>> steps;
+  std::vector<std::string> messages;
+  std::function<void(const network::BackendDocument &)>
+  observer(std::vector<std::string> phases) {
+    return [this, phases](const network::BackendDocument &v) {
+      const std::string phase = v["phase"] | "";
+      messages.push_back(v["message"] | "");
+      if (std::find(phases.begin(), phases.end(), phase) != phases.end())
+        steps.emplace_back(v["completed_blocks"].as<std::size_t>(),
+                           v["total_blocks"].as<std::size_t>());
+    };
+  }
+  bool said(const char *message) const {
+    return std::find(messages.begin(), messages.end(), message) !=
+           messages.end();
+  }
+};
+void assert_reading_progress(const PhaseLog &log) {
+  // First publish is the phase announcement (0/0); the writer's reports follow.
+  TEST_ASSERT_GREATER_THAN(2, log.steps.size());
+  TEST_ASSERT_EQUAL(0, log.steps.front().second);
+  std::size_t last = 0;
+  for (std::size_t i = 1; i < log.steps.size(); ++i) {
+    TEST_ASSERT_EQUAL(160, log.steps[i].second);
+    TEST_ASSERT_LESS_OR_EQUAL(160, log.steps[i].first);
+    TEST_ASSERT_GREATER_OR_EQUAL(last, log.steps[i].first);
+    last = log.steps[i].first;
+  }
+  TEST_ASSERT_EQUAL(0, log.steps[1].first);
+  TEST_ASSERT_EQUAL(160, log.steps.back().first);
+  // Throttled: announcement, start, then every 8 blocks (160 is the last).
+  TEST_ASSERT_EQUAL(1 + 1 + 160 / 8, log.steps.size());
+}
+void assert_plain_messages(const PhaseLog &log) {
+  for (const auto &message : log.messages)
+    TEST_ASSERT_EQUAL(std::string::npos, message.find("Keep"));
+}
+void writer_read_reports_monotonic_progress_over_both_passes() {
+  Fixture f;
+  std::vector<std::size_t> done;
+  nfc::OpenPrintTagWriter::Progress progress =
+      [&](const char *phase, std::size_t d, std::size_t total) {
+        TEST_ASSERT_EQUAL_STRING("reading", phase);
+        TEST_ASSERT_EQUAL(160, total);
+        TEST_ASSERT_LESS_OR_EQUAL(total, d);
+        if (!done.empty())
+          TEST_ASSERT_GREATER_THAN(done.back(), d);
+        done.push_back(d);
+      };
+  TEST_ASSERT_TRUE(f.writer.read(f.plan, nullptr, &progress).ok());
+  TEST_ASSERT_EQUAL(160, f.reader.reads);
+  TEST_ASSERT_EQUAL(0, done.front());
+  TEST_ASSERT_EQUAL(160, done.back());
+  TEST_ASSERT_EQUAL(1 + 160 / 8, done.size());
+  // Without a callback the read is unchanged.
+  Fixture quiet;
+  TEST_ASSERT_TRUE(quiet.writer.read(quiet.plan).ok());
+  TEST_ASSERT_EQUAL(160, quiet.reader.reads);
+}
+void writer_read_progress_stops_at_failure() {
+  Fixture f;
+  int fences = 0; // tag lifted during the repeat pass
+  f.reader.before_inventory = [&] {
+    if (++fences > 100)
+      f.reader.count = 0;
+  };
+  std::size_t last = 0;
+  nfc::OpenPrintTagWriter::Progress progress =
+      [&](const char *, std::size_t d, std::size_t total) {
+        TEST_ASSERT_LESS_OR_EQUAL(total, d);
+        last = d;
+      };
+  TEST_ASSERT_FALSE(f.writer.read(f.plan, nullptr, &progress).ok());
+  TEST_ASSERT_GREATER_OR_EQUAL(80, last);
+  TEST_ASSERT_LESS_THAN(160, last);
+}
+void preview_publishes_reading_progress() {
+  ServiceFixture f;
+  PhaseLog log;
+  f.observe = log.observer({"reading"});
+  TEST_ASSERT_TRUE(f.run(R"({"action":"preview","spool_id":12})").ok());
+  f.observe = nullptr;
+  assert_reading_progress(log);
+  TEST_ASSERT_EQUAL_STRING("preview", f.view["phase"].as<const char *>());
+  TEST_ASSERT_TRUE(log.said("Reading tag"));
+  assert_plain_messages(log);
+}
+void write_progress_messages_are_plain() {
+  ServiceFixture f;
+  TEST_ASSERT_TRUE(f.run(R"({"action":"preview","spool_id":12})").ok());
+  PhaseLog log;
+  f.observe = log.observer({"writing"});
+  TEST_ASSERT_TRUE(f.confirm().ok());
+  f.observe = nullptr;
+  TEST_ASSERT_FALSE(log.steps.empty());
+  TEST_ASSERT_TRUE(log.said("Writing tag"));
+  TEST_ASSERT_TRUE(log.said("Verifying tag"));
+  assert_plain_messages(log);
+}
+void clear_preview_publishes_reading_progress_and_plain_erase() {
+  ClearFixture f;
+  PhaseLog log;
+  f.observe = log.observer({"reading"});
+  f.preview();
+  f.observe = nullptr;
+  assert_reading_progress(log);
+  assert_plain_messages(log);
+  PhaseLog erase;
+  f.observe = erase.observer({"clearing"});
+  TEST_ASSERT_TRUE(f.confirm().ok());
+  f.observe = nullptr;
+  TEST_ASSERT_FALSE(erase.steps.empty());
+  TEST_ASSERT_TRUE(erase.said("Erasing tag"));
+  assert_plain_messages(erase);
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(verified_association_repairs_stale_cache_after_remote_checks);
@@ -3036,5 +3162,10 @@ int main() {
   RUN_TEST(oversized_catalog_page_fails_with_a_specific_message);
   RUN_TEST(catalog_page_over_the_transport_limit_says_narrow_the_search);
   RUN_TEST(pending_write_with_changed_spoolman_settings_stays_skippable);
+  RUN_TEST(writer_read_reports_monotonic_progress_over_both_passes);
+  RUN_TEST(writer_read_progress_stops_at_failure);
+  RUN_TEST(preview_publishes_reading_progress);
+  RUN_TEST(write_progress_messages_are_plain);
+  RUN_TEST(clear_preview_publishes_reading_progress_and_plain_erase);
   return UNITY_END();
 }
