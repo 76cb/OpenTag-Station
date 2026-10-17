@@ -20,6 +20,8 @@ inline void export_touch_fixtures() {
   f.lifecycle=services::TagLifecycle::blank_compatible;emit("blank",f);
   f.lifecycle=services::TagLifecycle::linked;f.current_spool=28;emit("tag",f);
   f.lifecycle=services::TagLifecycle::unlinked;emit("unlinked",f);
+  f.lookup=SpoolLookup::resolving;emit("unlinked-resolving",f);
+  f.lookup=SpoolLookup::unavailable;emit("spoolman-unreachable",f);f.lookup=SpoolLookup::checked;
   f.act(TagAction::sources);emit("sources",f);
   auto load=[&](const char* json){network::ResponseBody b(json);f.consume(b);};
   f.entity="spool";load(R"({"phase":"catalog","items":[{"id":28,"remaining_weight":712,"filament":{"name":"PLA+ 2.0 Black","vendor":{"name":"SUNLU"}}},{"id":31,"remaining_weight":936,"filament":{"name":"PolyLite PETG Black","vendor":{"name":"Polymaker"}}},{"id":36,"remaining_weight":488,"filament":{"name":"PLA Galaxy Black","vendor":{"name":"Prusament"}}}],"has_more":true})");emit("spool-picker",f);
@@ -37,6 +39,7 @@ inline void export_touch_fixtures() {
 #endif
   f.from_spool=0;  // a blank tag: no move
   load(R"({"phase":"preview","uid":"E004000000000001","spool_id":31,"spool":{"filament":{"name":"PLA+ 2.0 Black","vendor":{"name":"SUNLU"},"color_hex":"D62828"}}})");emit("write-review",f);
+  load(R"({"phase":"preview","uid":"E004000000000001","spool_id":31,"dropped_fields":[{"field":"material","value":"PLA+ Silk Rainbow Shimmer","reason":"too long"},{"field":"name","value":"PLA+ 2.0 Black Extra Long Name","reason":"too long"}],"spool":{"filament":{"name":"PLA+ 2.0 Black","vendor":{"name":"SUNLU"},"color_hex":"D62828"}}})");emit("write-review-dropped",f);
   load(R"({"phase":"writing","message":"Keep the tag on the reader.","completed_blocks":17,"total_blocks":23})");emit("writing",f);
   load(R"({"phase":"verifying","message":"Reading every written block back.","completed_blocks":23,"total_blocks":23})");emit("verifying",f);
   load(R"({"phase":"associating","message":"Verifying the Spoolman association."})");emit("linking",f);
@@ -48,6 +51,7 @@ inline void export_touch_fixtures() {
   load(R"({"phase":"clear_preview","uid":"E004000000000001"})");emit("clear-review",f);
   f.waiting=true;emit("loading",f);f.stalled=true;f.page=TagPage::progress;f.phase="loading_spool";emit("stalled",f);f.stalled=false;f.waiting=false;
   f.fail("Spoolman is unavailable. Check the station connection and retry. Your tag has not been changed.");emit("error",f);
+  f.fail("Owner instance UUID changed; unlink refused");emit("error-plain",f);
   f.page=TagPage::selected;f.entity="filament";f.selected["name"]="A deliberately long filament name that remains readable in its scrollable review area";f.selected["vendor"]["name"]="Long manufacturer name";emit("long-name",f);
   for(auto mode:{InputMode::text,InputMode::numeric,InputMode::url,InputMode::password}) {
     auto keys=input_keys(mode,false,true);

@@ -4,9 +4,12 @@
 #include <cstddef>
 #include <cstdint>
 #include <optional>
+#include <string>
+#include <vector>
 
 #include <lvgl.h>
 #include "ui/tag_flow.hpp"
+#include "ui/weigh_view.hpp"
 #include "ui/touch_input_screen.hpp"
 
 #include "application/configuration_worker.hpp"
@@ -119,6 +122,30 @@ class UiService {
   // First-run setup: return to the setup screen after scale calibration.
   bool return_to_setup_after_calibration_{false};
   lv_obj_t* setup_printer_dropdown_{nullptr};
+  // Printer IDs in setup dropdown order, and what FilaBridge reported when
+  // the list was built (a change rebuilds it).
+  std::vector<std::string> setup_printer_ids_;
+  std::string setup_printer_signature_;
+  void rebuild_setup_printers();
+  void sync_setup_printer_field();
+  // The setup save being followed, and whether Next continues after it.
+  std::optional<std::uint64_t> setup_save_operation_;
+  bool setup_advance_after_save_{false};
+  bool submit_setup_save();
+  void finish_setup_step();
+  // Brightness from the slider not yet saved; the settings revision the
+  // display settings were last applied from.
+  bool brightness_save_pending_{false};
+  std::uint64_t display_revision_{0};
+  void save_brightness();
+  void apply_display_settings();
+  // A finished scale result shown until the next action, page change or
+  // measurement; the assignment request being followed.
+  bool feedback_terminal_{false};
+  std::uint64_t feedback_measurement_id_{0};
+  ProductPage feedback_page_{ProductPage::home};
+  std::optional<std::uint64_t> assignment_operation_id_;
+  WeighStation weigh_station() const;
   void start_weigh();
   TagScreen tag_screen_;
 
@@ -132,7 +159,7 @@ class UiService {
   void refresh_workflow();
   // Parts of refresh_workflow(); each returns to it.
   bool track_scale_operation();
-  // True when Home shows the compatible-blank-tag prompt (ASSIGN TAG).
+  // True when Home shows the compatible-blank-tag prompt (WRITE TAG).
   bool home_shows_blank_tag() const;
   void refresh_home_page(
       const diagnostics::ScaleDiagnosticSnapshot& scale, bool busy);
