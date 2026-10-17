@@ -124,12 +124,12 @@ working on the firmware are in [`docs/`](docs/README.md).
 
 ## Project status
 
-Release candidate; [`VERSION`](VERSION) holds the version on `main` and the
+Version 1.0.0 is the first release; [`VERSION`](VERSION) holds the version on `main` and the
 [changelog](CHANGELOG.md) lists what changed. Every version merged to `main` is published
 automatically from the same build in two places: the
-[Releases](https://github.com/76cb/OpenTag-Station/releases) page (as a pre-release, with the
-update file) and the [USB installer](https://76cb.github.io/OpenTag-Station/). What remains
-before 1.0 is listed in [`docs/releasing.md`](docs/releasing.md).
+[Releases](https://github.com/76cb/OpenTag-Station/releases) page, with the update file, and the
+[USB installer](https://76cb.github.io/OpenTag-Station/). Known follow-ups are tracked in
+[the issues](https://github.com/76cb/OpenTag-Station/issues).
 
 ## Build from source
 

@@ -3,7 +3,7 @@
 The release checklist. `VERSION` is the single source of the version; every other copy is
 generated from it.
 
-The candidate is `1.0.0-rc.23`.
+The candidate is `1.0.0`.
 
 ## Prerequisites
 
@@ -109,6 +109,10 @@ CI cannot test the reader, the scale, the display or live services. Run this scr
 with the files that will be released, a running Spoolman with both Spool extra fields, FilaBridge
 with a printer, and a few expendable blank NXP ICODE SLIX2 tags. Record the firmware version and
 commit (browser: **Settings → Advanced**, card **Device**) and pass or fail for every step.
+
+Start and finish with `python tools/station_check.py --host <station>` (add `--token` if one is
+set) and keep both reports. It only reads from the station and covers the version, the access-token
+check, a 40-request spool-list burst and the live-update connections.
 
 ### Install and start
 
