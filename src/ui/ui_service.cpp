@@ -64,7 +64,7 @@ const char* nfc_status_text(const nfc::ReadSnapshot& tag) {
     case nfc::ReadState::starting: return "NFC reader starting...";
     case nfc::ReadState::idle: return "NFC reader ready. Place a tag on it to test.";
     case nfc::ReadState::stabilizing:
-    case nfc::ReadState::reading: return "Reading tag...";
+    case nfc::ReadState::reading: return "Reading tag. Hold the spool still.";
     case nfc::ReadState::openprinttag: return "OpenPrintTag found. The reader works.";
     case nfc::ReadState::blank: return "Blank tag found. The reader works.";
     case nfc::ReadState::unsupported: return "Tag found, but it can't be used as it is.";
@@ -311,6 +311,7 @@ void UiService::build_current_screen() {
   workflow_identity_label_ = nullptr;
   workflow_status_label_ = nullptr;
   nfc_detail_ = nullptr;tag_title_=nullptr;tag_buttons_.fill(nullptr);
+  tag_spinner_=tag_bar_=tag_art_=nullptr;
   weight_update_=nullptr;weight_policy_=nullptr;
   display_test_touch_marker_ = nullptr;
   display_test_touch_label_ = nullptr;
@@ -660,6 +661,27 @@ void UiService::build_tags_page() {
   lv_label_set_long_mode(nfc_detail_,LV_LABEL_LONG_WRAP);
   lv_obj_set_height(nfc_detail_,LV_SIZE_CONTENT);
   for(auto& button:tag_buttons_)button=product_button(screen,{16,212,448,44},"",tag_action_callback,this);
+  // Built once per page and only shown/restyled by draw_tags: no per-refresh
+  // LVGL allocation. Hidden objects are not redrawn; the spinner's small animation timer keeps running.
+  tag_spinner_=lv_spinner_create(screen,1000,60);place(tag_spinner_,layout::tag_spinner);
+  lv_obj_set_style_arc_width(tag_spinner_,6,LV_PART_MAIN);lv_obj_set_style_arc_width(tag_spinner_,6,LV_PART_INDICATOR);
+  lv_obj_set_style_arc_color(tag_spinner_,lv_color_hex(neutral_fill),LV_PART_MAIN);
+  lv_obj_set_style_arc_color(tag_spinner_,lv_color_hex(accent_text),LV_PART_INDICATOR);
+  lv_obj_add_flag(tag_spinner_,LV_OBJ_FLAG_HIDDEN);
+  tag_bar_=lv_bar_create(screen);place(tag_bar_,layout::tag_bar);
+  lv_obj_set_style_bg_color(tag_bar_,lv_color_hex(neutral_fill),LV_PART_MAIN);
+  lv_obj_set_style_bg_color(tag_bar_,lv_color_hex(accent_text),LV_PART_INDICATOR);
+  lv_obj_add_flag(tag_bar_,LV_OBJ_FLAG_HIDDEN);
+  // Spool ring like the Home art: the filament colour with a dark hub.
+  tag_art_=lv_obj_create(screen);place(tag_art_,layout::tag_art);
+  lv_obj_set_style_radius(tag_art_,LV_RADIUS_CIRCLE,0);
+  lv_obj_set_style_border_color(tag_art_,lv_color_hex(0x788583),0);
+  lv_obj_set_style_border_width(tag_art_,5,0);lv_obj_set_style_pad_all(tag_art_,0,0);
+  lv_obj_clear_flag(tag_art_,LV_OBJ_FLAG_SCROLLABLE);lv_obj_clear_flag(tag_art_,LV_OBJ_FLAG_CLICKABLE);
+  auto* hub=lv_obj_create(tag_art_);lv_obj_set_size(hub,16,16);lv_obj_center(hub);
+  lv_obj_set_style_radius(hub,LV_RADIUS_CIRCLE,0);lv_obj_set_style_bg_color(hub,lv_color_hex(screen_background),0);
+  lv_obj_set_style_border_width(hub,0,0);lv_obj_clear_flag(hub,LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_add_flag(tag_art_,LV_OBJ_FLAG_HIDDEN);
   if(!tag_flow_){lv_label_set_text(nfc_detail_,"Tag workspace unavailable. Please restart.");build_product_rail();return;}
   refresh_tags();
 }
@@ -742,6 +764,17 @@ void UiService::draw_tags() {
     if(item.enabled)lv_obj_clear_state(b,LV_STATE_DISABLED);else lv_obj_add_state(b,LV_STATE_DISABLED);
     if(item.destructive)style_action(b,destructive_fill,destructive_label);else style_action(b,neutral_fill,neutral_label);
   }
+  const auto indicator=tag_screen_.indicator;
+  if(indicator==TagIndicator::spinner)lv_obj_clear_flag(tag_spinner_,LV_OBJ_FLAG_HIDDEN);else lv_obj_add_flag(tag_spinner_,LV_OBJ_FLAG_HIDDEN);
+  if(indicator==TagIndicator::bar) {
+    lv_bar_set_range(tag_bar_,0,tag_screen_.total>0?tag_screen_.total:1);
+    lv_bar_set_value(tag_bar_,tag_screen_.done,LV_ANIM_OFF);
+    lv_obj_clear_flag(tag_bar_,LV_OBJ_FLAG_HIDDEN);
+  } else lv_obj_add_flag(tag_bar_,LV_OBJ_FLAG_HIDDEN);
+  if(tag_screen_.art) {
+    lv_obj_set_style_bg_color(tag_art_,lv_color_hex(tag_screen_.art_rgb),0);
+    lv_obj_clear_flag(tag_art_,LV_OBJ_FLAG_HIDDEN);
+  } else lv_obj_add_flag(tag_art_,LV_OBJ_FLAG_HIDDEN);
 }
 void UiService::refresh_tags() {
   if(!tag_flow_||!nfc_detail_)return;
@@ -759,10 +792,13 @@ void UiService::refresh_tags() {
   });
   flow.material=tag.tag?tag.tag->decoded.material.material_name.value_or("Filament spool"):"";
   flow.lifecycle=services::tag_lifecycle({tag.present,tag.blank_compatible,bool(tag.tag),flow.current_spool>0,tag.state==nfc::ReadState::unsupported,flow.phase,false});
+  flow.multiple_tags=tag.state==nfc::ReadState::multiple;
   auto body=backend_worker_.writer_snapshot();
   const auto checksum=nfc::nfcv::diagnostic_checksum(reinterpret_cast<const std::uint8_t*>(body.data()),body.size());
   if(checksum!=writer_view_checksum_) {
     if(flow.consume(body))writer_view_checksum_=checksum;
+    // A spool this screen just created goes straight to its tag review.
+    tag_command(flow.take_auto_preview());
   }
   if(flow.operation) {
     const auto op=backend_worker_.writer_operation(flow.operation);
@@ -834,25 +870,38 @@ void UiService::build_diagnostics_screen() {
   lv_obj_set_style_text_font(version, &lv_font_montserrat_14, 0);
   lv_obj_align(version, LV_ALIGN_TOP_RIGHT, -14, 12);
 
-  system_label_ = lv_label_create(screen);
-  lv_obj_set_style_text_font(system_label_, &lv_font_montserrat_14, 0);
-  lv_obj_set_width(system_label_, 220);
-  lv_obj_align(system_label_, LV_ALIGN_TOP_LEFT, 18, 55);
-
-  memory_label_ = lv_label_create(screen);
-  lv_obj_set_style_text_font(memory_label_, &lv_font_montserrat_14, 0);
-  lv_obj_set_width(memory_label_, 220);
-  lv_obj_align(memory_label_, LV_ALIGN_TOP_RIGHT, -18, 55);
-
-  storage_label_ = lv_label_create(screen);
-  lv_obj_set_style_text_font(storage_label_, &lv_font_montserrat_14, 0);
-  lv_obj_set_width(storage_label_, 220);
-  lv_obj_align(storage_label_, LV_ALIGN_TOP_LEFT, 18, 148);
-
-  touch_label_ = lv_label_create(screen);
-  lv_obj_set_style_text_font(touch_label_, &lv_font_montserrat_14, 0);
-  lv_obj_set_width(touch_label_, 220);
-  lv_obj_align(touch_label_, LV_ALIGN_TOP_RIGHT, -18, 148);
+  // One scrolling column of short "name: value" lines in a 16 px font, with a
+  // heading per section. The former four-column 14 px block was unreadable.
+  auto* details = lv_obj_create(screen);
+  lv_obj_set_size(details, 460, 184);
+  lv_obj_align(details, LV_ALIGN_TOP_MID, 0, 42);
+  lv_obj_set_style_bg_color(details, lv_color_hex(recessed_fill), 0);
+  lv_obj_set_style_border_width(details, 0, 0);
+  lv_obj_set_style_radius(details, 10, 0);
+  lv_obj_set_style_pad_all(details, 12, 0);
+  lv_obj_set_style_pad_row(details, 4, 0);
+  lv_obj_set_flex_flow(details, LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_scroll_dir(details, LV_DIR_VER);
+  lv_obj_set_scrollbar_mode(details, LV_SCROLLBAR_MODE_ACTIVE);
+  const auto add_section = [details](const char* heading) {
+    auto* title_label = lv_label_create(details);
+    lv_label_set_text(title_label, heading);
+    lv_obj_set_style_text_font(title_label, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(title_label, lv_color_hex(accent_text), 0);
+    lv_obj_set_style_pad_top(title_label, 6, 0);
+    auto* body = lv_label_create(details);
+    lv_obj_set_width(body, lv_pct(100));
+    lv_label_set_long_mode(body, LV_LABEL_LONG_WRAP);
+    lv_obj_set_style_text_font(body, &lv_font_montserrat_16, 0);
+    lv_obj_set_style_text_color(body, lv_color_hex(primary_text), 0);
+    lv_obj_set_style_text_line_space(body, 4, 0);
+    lv_label_set_text(body, "");
+    return body;
+  };
+  storage_label_ = add_section("NETWORK");
+  touch_label_ = add_section("SCALE AND SCREEN");
+  system_label_ = add_section("SYSTEM");
+  memory_label_ = add_section("MEMORY");
 
   auto* brightness_label = lv_label_create(screen);
   lv_label_set_text(brightness_label, "Brightness");
@@ -1532,7 +1581,7 @@ void UiService::refresh_setup() {
       body = "PRINTER\nChoose the printer FilaBridge found.";
       break;
     case services::SetupStep::scale_calibration:
-      body = "SCALE CALIBRATION\nHave an object of known weight ready, then tap\nCALIBRATE NOW and follow the steps.";
+      body = "SCALE CALIBRATION\nHave a known weight ready, then tap CALIBRATE NOW.\nMost accurate after 15 minutes switched on.";
       break;
     case services::SetupStep::nfc_status:
       body = "NFC READER\nPlace a tag on the reader to check that it works.";
@@ -1553,12 +1602,11 @@ void UiService::refresh_setup() {
   switch (step) {
     case services::SetupStep::wifi:
       if (network.provisioning_active && !network.setup_ap_ssid.empty()) {
-        // Three short lines that fit above the Back/Home/Next buttons: the
-        // password is the only way to join the WPA2 setup network.
-        status = "Wi-Fi: " + network.setup_ap_ssid + "\nPassword: " +
-            network.setup_ap_password +
+        // Short lines that fit above the Back/Home/Next buttons. The setup
+        // network is open, so there is no password to show.
+        status = "Setup Wi-Fi: " + network.setup_ap_ssid + " (no password)" +
             (network.wifi_last_error ? "\n" + network.wifi_last_error->message
-             : setup_feedback_.empty() ? std::string("\nThen open 192.168.4.1") : std::string());
+             : setup_feedback_.empty() ? std::string("\nOr join it and open 192.168.4.1") : std::string());
       } else {
         status = std::string("State: ") + network::to_string(network.wifi_state) +
             "  scan results: " + std::to_string(network_.scan_results().size());
@@ -1595,11 +1643,12 @@ void UiService::refresh_setup() {
                  "Local browser control: ENABLED\n"
                  "Trusted LAN mode - set an API token in Configuration to require authentication.";
       }
-      if (first_run_setup_.complete()) status += "\nSetup previously confirmed";
+      if (first_run_setup_.complete()) status += "\nSetup is complete.";
       break;
     case services::SetupStep::welcome:
-      status = "Configuration schema " +
-          std::to_string(configured.schema_version);
+      status = first_run_setup_.complete()
+                   ? "This station is already set up.\nTap Next to review a step, or Home to leave."
+                   : "Tap Next to start.";
       break;
   }
   if (!setup_feedback_.empty()) status += "\n" + setup_feedback_;
@@ -1885,8 +1934,12 @@ void UiService::refresh_home_page(
   const bool present=workflow.openprinttag_available;
   const bool blank=home_shows_blank_tag();
   place(workflow_scale_indicator_,present?layout::home_art:layout::empty_art);
-  const auto color=workflow.material.primary_color;
-  lv_obj_set_style_bg_color(workflow_scale_indicator_,color?lv_color_make(color->red,color->green,color->blue):lv_color_hex(neutral_fill),0);
+  // The tag's own colour, else the Spoolman spool's (UID-linked spools).
+  const auto& tag_color=workflow.material.primary_color;
+  const domain::Color* spool_color=workflow.spool&&workflow.spool->primary_color?&*workflow.spool->primary_color:nullptr;
+  lv_obj_set_style_bg_color(workflow_scale_indicator_,
+      tag_color?lv_color_make(tag_color->red,tag_color->green,tag_color->blue):
+      spool_color?lv_color_make(spool_color->red,spool_color->green,spool_color->blue):lv_color_hex(neutral_fill),0);
   lv_obj_set_style_text_align(workflow_home_state_label_,present?LV_TEXT_ALIGN_LEFT:LV_TEXT_ALIGN_CENTER,0);
   lv_obj_set_style_text_align(workflow_material_label_,present?LV_TEXT_ALIGN_LEFT:LV_TEXT_ALIGN_CENTER,0);
   lv_obj_set_style_text_align(workflow_identity_label_,present?LV_TEXT_ALIGN_LEFT:LV_TEXT_ALIGN_CENTER,0);
@@ -1994,8 +2047,7 @@ void UiService::refresh_settings_page() {
     status += " - " + system.ip_address;
   }
   if (system.provisioning_active && !system.setup_ap_ssid.empty()) {
-    status = "Setup network " + system.setup_ap_ssid + "  password " +
-        system.setup_ap_password;
+    status = "Setup Wi-Fi " + system.setup_ap_ssid + " (no password)";
   }
   bool automatic=false;configuration_.visit([&](const auto& c,auto){automatic=c.reconciliation.auto_update_after_weigh;});
   lv_label_set_text(lv_obj_get_child(weight_policy_,0),automatic?"Auto-update ON":"Auto-update OFF");
@@ -2011,6 +2063,7 @@ void UiService::refresh_diagnostics(std::uint32_t now_ms) {
   char weight[24] = "not calibrated";
   if (status.scale_weight_available) {
     format_milli(weight, sizeof(weight), status.scale_gross_milligrams);
+    std::strncat(weight, " g", sizeof(weight) - std::strlen(weight) - 1U);
   }
   char factor[24] = "n/a";
   if (status.scale_calibrated) {
@@ -2018,63 +2071,64 @@ void UiService::refresh_diagnostics(std::uint32_t now_ms) {
         factor, sizeof(factor), status.scale_factor_millicounts_per_gram);
   }
   const char* scale_quality = status.scale_overload
-                                  ? "OVERLOAD"
+                                  ? "overload"
                                   : status.scale_negative
-                                        ? "NEGATIVE"
+                                        ? "below zero"
                                         : status.scale_creep_warning
-                                              ? "CREEP"
-                                              : status.scale_stable ? "stable" : "moving";
-  lv_label_set_text_fmt(
-      system_label_,
-      "SYSTEM\nReset: %s\nUptime: %lus\nBoots: %lu  crash streak: %u\n"
-      "Storage: NVS %s / FS %s  Setup: %s",
-      status.reset_reason,
-      static_cast<unsigned long>(status.uptime_ms / 1000U),
-      static_cast<unsigned long>(status.boot_count),
-      status.crash_streak,
-      status.nvs_ready ? "OK" : "ERR",
-      status.filesystem_ready ? "OK" : "ERR",
-      first_run_setup_.complete() ? "ready" : "incomplete");
-  lv_label_set_text_fmt(
-      memory_label_,
-      "MEMORY\nHeap: %lu KiB (min %lu, block %lu)\n"
-      "PSRAM: %lu KiB (min %lu, block %lu) / %lu\nLVGL buffers: %s",
-      static_cast<unsigned long>(status.free_heap_bytes / 1024U),
-      static_cast<unsigned long>(status.minimum_free_heap_bytes / 1024U),
-      static_cast<unsigned long>(
-          status.largest_free_internal_block_bytes / 1024U),
-      static_cast<unsigned long>(status.psram_free_bytes / 1024U),
-      static_cast<unsigned long>(status.minimum_free_psram_bytes / 1024U),
-      static_cast<unsigned long>(
-          status.largest_free_psram_block_bytes / 1024U),
-      static_cast<unsigned long>(status.psram_total_bytes / 1024U),
-      buffers_in_psram_ ? "PSRAM" : "internal fallback");
+                                              ? "drifting"
+                                              : status.scale_stable ? "steady" : "settling";
+  const auto uptime_minutes = static_cast<unsigned long>(status.uptime_ms / 60000U);
   lv_label_set_text_fmt(
       storage_label_,
-      "NETWORK\nWi-Fi: %s\nSSID: %s  RSSI: %ld\nIP: %s\nGateway: %s\n"
-      "DNS: %s\nmDNS: %s  NTP: %s",
+      "Wi-Fi: %s\nNetwork: %s (signal %ld dBm)\nAddress: %s\n"
+      "Router: %s   DNS: %s\nopentag-station.local: %s   Clock: %s",
       network::to_string(status.wifi_state),
       status.wifi_ssid.empty() ? "-" : status.wifi_ssid.c_str(),
       static_cast<long>(status.wifi_rssi_dbm),
       status.ip_address.empty() ? "-" : status.ip_address.c_str(),
       status.gateway.empty() ? "-" : status.gateway.c_str(),
       status.dns_server.empty() ? "-" : status.dns_server.c_str(),
-      status.mdns_ready ? "ready" : "pending",
-      status.ntp_ready ? "ready" : "pending");
+      status.mdns_ready ? "ready" : "waiting",
+      status.ntp_ready ? "set" : "waiting");
   lv_label_set_text_fmt(
       touch_label_,
-      "HARDWARE\nDisplay: %s  Touch: %s\nScale: %s (%s)\n"
-      "ADC: %ld / %ld\nGross: %s g  %s\nCal: z=%ld f=%s",
-      status.display_ready ? "ST7796 ready" : "ERROR",
-      status.touch_configured ? "FT6336 ready" : "ERROR",
+      "Weight on scale: %s (%s)\nScale: %s, calibration %s\n"
+      "Raw reading: %ld (filtered %ld)\nZero: %ld   Factor: %s counts/g\n"
+      "Screen: %s   Touch: %s",
+      weight,
+      scale_quality,
       services::to_string(status.scale_state),
       status.scale_persistence_available ? "saved" : "not saved",
       static_cast<long>(status.scale_raw_counts),
       static_cast<long>(status.scale_filtered_counts),
-      weight,
-      scale_quality,
       static_cast<long>(status.scale_zero_offset_counts),
-      factor);
+      factor,
+      status.display_ready ? "OK" : "ERROR",
+      status.touch_configured ? "OK" : "ERROR");
+  lv_label_set_text_fmt(
+      system_label_,
+      "Running for: %luh %02lum\nStarts: %lu   Crash streak: %u\n"
+      "Last restart: %s\nSettings storage: %s   Files: %s\nSetup: %s",
+      uptime_minutes / 60UL,
+      uptime_minutes % 60UL,
+      static_cast<unsigned long>(status.boot_count),
+      status.crash_streak,
+      status.reset_reason,
+      status.nvs_ready ? "OK" : "ERROR",
+      status.filesystem_ready ? "OK" : "ERROR",
+      first_run_setup_.complete() ? "complete" : "not finished");
+  lv_label_set_text_fmt(
+      memory_label_,
+      "Free RAM: %lu KiB (lowest %lu, largest block %lu)\n"
+      "Free PSRAM: %lu of %lu KiB (lowest %lu)\nScreen buffers: %s",
+      static_cast<unsigned long>(status.free_heap_bytes / 1024U),
+      static_cast<unsigned long>(status.minimum_free_heap_bytes / 1024U),
+      static_cast<unsigned long>(
+          status.largest_free_internal_block_bytes / 1024U),
+      static_cast<unsigned long>(status.psram_free_bytes / 1024U),
+      static_cast<unsigned long>(status.psram_total_bytes / 1024U),
+      static_cast<unsigned long>(status.minimum_free_psram_bytes / 1024U),
+      buffers_in_psram_ ? "PSRAM" : "internal RAM");
 }
 
 void UiService::note_interaction(std::uint32_t now_ms) {

@@ -65,6 +65,61 @@ browser), `opentag-station-factory.bin` (USB installer image), `manifest.json`,
 
 The release candidates below were development builds made for testing before 1.0.0.
 
+## 1.0.0-rc.21
+
+**Writing and erasing tags: fewer steps, one reminder**
+- Touchscreen: tapping a spool in **MY SPOOLS** reads the tag and opens the review page straight
+  away; "Use this spool?" is gone. After **CREATE SPOOL** the review page opens by itself.
+- Touchscreen: "Move this tag?" is now the review page itself, not an extra page before it. It also
+  appears when the station's preview finds that the tag belongs to another spool, and a tag that
+  holds another spool's data shows "This tag holds another spool's data. Writing replaces it."
+  Before, the touchscreen showed the generic text in those cases.
+- Browser: **Continue** reads the tag at once and shows the preview; the separate Review step and
+  its **Preview tag** click are gone. The steps are **Select → Preview → Write → Done**; an **Edit**
+  step appears only while editing. **Write tag** asks no further question for an ordinary write;
+  the extra question (and a red button) remains when the tag belongs to another spool, holds other
+  data, or has an interrupted write. "Create this physical spool in Spoolman?" is gone.
+- "Keep the tag on the reader." appears once, and only while the tag is read, written, checked or
+  erased. While only Spoolman is updated the browser now says "The tag is written. Saving the link
+  in Spoolman…" (or "The tag is erased. Removing the link in Spoolman…"); before, it still asked to
+  keep the tag on the reader.
+- After a finished clear in the browser, **Done** closes the dialog instead of reopening Manage tag.
+
+**Reading progress**
+- The full read before a write or clear reports its progress (160 block reads, both passes).
+  Touchscreen and browser show a progress bar; the background read shows a spinner with
+  "Reading tag" / "Hold the spool still."
+- Two tags on the reader now show "Two tags on the reader. Remove one." on the touchscreen and
+  "Tag not read" in the browser, instead of "Reading tag…" that never ends.
+- Progress messages from the station are plain: "Reading tag", "Checking tag", "Writing tag",
+  "Erasing tag", "Verifying tag".
+
+**Spool colour**
+- The touchscreen review and **TAG READY** pages show a ring in the spool's colour; the browser
+  preview and result show a spool picture in that colour.
+- Home on both interfaces uses the Spoolman spool's colour when the tag itself has none.
+  The spool API now includes `primary_color`.
+
+**Setup and About**
+- The setup network `OpenTag-Setup-XXXX` is open; there is no password to read off the screen.
+  When it comes back on a station that already has Wi-Fi saved, a station with an access token
+  still requires the token over it.
+- The first setup page no longer shows "Configuration schema 3". It says "Tap Next to start", or,
+  on a station that is set up, that you can review a step or go Home.
+- **About this station** is one scrolling column in a larger font, one value per line, in the
+  sections Network, Scale and screen, System and Memory.
+
+**Scale**
+- Every tare, including the zero step of a calibration, first re-runs the scale converter's own
+  offset calibration, so the zero matches the converter's current temperature. If that tare then
+  does not finish, weighing asks for a new tare instead of using a zero that no longer fits.
+- Both calibration screens advise calibrating after the station has been on for about 15 minutes.
+  Troubleshooting explains warm-up drift and load-cell creep.
+
+**Releases**
+- Every version merged to `main` is published automatically as a GitHub release (a pre-release
+  for candidates) with the update file, and the USB installer is built from that same release.
+
 ## 1.0.0-rc.20
 
 **Spoolman 0.27 tag support**

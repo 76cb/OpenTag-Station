@@ -10,17 +10,23 @@ inline void export_touch_fixtures() {
     scene["title"]=screen.title;scene["body"]=screen.body;
     const auto body=tag_body_box(screen);auto area=scene["body_box"].to<JsonArray>();for(auto n:{body.x,body.y,body.w,body.h})area.add(n);
     auto buttons=scene["buttons"].to<JsonArray>();
+    if(screen.indicator!=TagIndicator::none){const auto box=screen.indicator==TagIndicator::bar?layout::tag_bar:layout::tag_spinner;auto ind=scene["indicator"].to<JsonObject>();ind["kind"]=screen.indicator==TagIndicator::bar?"bar":"spinner";ind["done"]=screen.done;ind["total"]=screen.total;auto a=ind["box"].to<JsonArray>();for(auto n:{box.x,box.y,box.w,box.h})a.add(n);}
+    if(screen.art){auto art=scene["art"].to<JsonObject>();char hex[8];std::snprintf(hex,sizeof(hex),"#%06X",static_cast<unsigned>(screen.art_rgb));art["color"]=hex;auto a=art["box"].to<JsonArray>();for(auto n:{layout::tag_art.x,layout::tag_art.y,layout::tag_art.w,layout::tag_art.h})a.add(n);}
     for(std::size_t i=0;i<screen.count;++i){const auto& b=screen.buttons[i];auto item=buttons.add<JsonObject>();item["text"]=b.text;item["enabled"]=b.enabled;if(b.destructive)item["destructive"]=true;auto box=item["box"].to<JsonArray>();for(auto n:{b.box.x,b.box.y,b.box.w,b.box.h})box.add(n);}
   };
   TagFlow f;f.uid="E004000000000001";f.material="SUNLU PLA+ 2.0 Black";
   emit("no-tag",f);f.lifecycle=services::TagLifecycle::reading;emit("reading",f);
+  f.multiple_tags=true;emit("two-tags",f);f.multiple_tags=false;
   f.lifecycle=services::TagLifecycle::blank_compatible;emit("blank",f);
   f.lifecycle=services::TagLifecycle::linked;f.current_spool=28;emit("tag",f);
   f.lifecycle=services::TagLifecycle::unlinked;emit("unlinked",f);
   f.act(TagAction::sources);emit("sources",f);
   auto load=[&](const char* json){network::ResponseBody b(json);f.consume(b);};
   f.entity="spool";load(R"({"phase":"catalog","items":[{"id":28,"remaining_weight":712,"filament":{"name":"PLA+ 2.0 Black","vendor":{"name":"SUNLU"}}},{"id":31,"remaining_weight":936,"filament":{"name":"PolyLite PETG Black","vendor":{"name":"Polymaker"}}},{"id":36,"remaining_weight":488,"filament":{"name":"PLA Galaxy Black","vendor":{"name":"Prusament"}}}],"has_more":true})");emit("spool-picker",f);
-  f.act(TagAction::row1);emit("spool-confirm",f);f.from_spool=28;f.from_name="SUNLU PLA+ Red";f.act(TagAction::use);emit("reassign",f);
+  f.act(TagAction::row1);  // straight to the preview: no confirmation page
+  load(R"({"phase":"reading","completed_blocks":12,"total_blocks":80})");emit("reading-blocks",f);
+  load(R"({"phase":"loading_spool"})");emit("loading-spool",f);
+  load(R"({"phase":"preview","uid":"E004000000000001","spool_id":31,"previous_spool_id":28,"repurpose":true,"spool":{"filament":{"name":"PolyLite PETG Black","vendor":{"name":"Polymaker"},"color_hex":"1A1A1A"}}})");emit("reassign",f);
   f.entity="filament";load(R"({"phase":"catalog","items":[{"id":12,"name":"PLA+ 2.0 Black","vendor":{"name":"SUNLU"},"weight":1000,"spool_weight":130,"material":"PLA+","diameter":1.75}]})");emit("filament-picker",f);f.act(TagAction::row0);f.act(TagAction::use);emit("create-spool",f);
 #if OPENTAG_ENABLE_COMMUNITY
   f.entity="community";f.query="SUNLU PLA+";f.browse();f.page=TagPage::progress;f.phase="searching";emit("community-searching",f);
@@ -29,11 +35,12 @@ inline void export_touch_fixtures() {
   f.entity="community";load(R"({"phase":"community","items":[{"id":"sunlu-pla-black","manufacturer":"SUNLU","name":"PLA+ 2.0 Black","material":"PLA+","diameter":1.75,"density":1.24,"weight":1000}]})");emit("community-results",f);f.act(TagAction::row0);emit("community-result",f);
   load(R"({"phase":"import_preview","source":{"manufacturer":"SUNLU","name":"PLA+ 2.0 Black"},"proposed_filament":{"name":"PLA+ 2.0 Black"}})");emit("import-review",f);
 #endif
-  load(R"({"phase":"preview","uid":"E004000000000001","spool_id":31,"spool":{"filament":{"name":"PLA+ 2.0 Black","vendor":{"name":"SUNLU"}}}})");emit("write-review",f);
+  f.from_spool=0;  // a blank tag: no move
+  load(R"({"phase":"preview","uid":"E004000000000001","spool_id":31,"spool":{"filament":{"name":"PLA+ 2.0 Black","vendor":{"name":"SUNLU"},"color_hex":"D62828"}}})");emit("write-review",f);
   load(R"({"phase":"writing","message":"Keep the tag on the reader.","completed_blocks":17,"total_blocks":23})");emit("writing",f);
   load(R"({"phase":"verifying","message":"Reading every written block back.","completed_blocks":23,"total_blocks":23})");emit("verifying",f);
   load(R"({"phase":"associating","message":"Verifying the Spoolman association."})");emit("linking",f);
-  load(R"({"phase":"complete","uid":"E004000000000001","spool_id":31,"spool":{"filament":{"name":"PLA+ 2.0 Black","vendor":{"name":"SUNLU"}}}})");emit("write-success",f);
+  load(R"({"phase":"complete","uid":"E004000000000001","spool_id":31,"spool":{"filament":{"name":"PLA+ 2.0 Black","vendor":{"name":"SUNLU"},"color_hex":"D62828FF"}}})");emit("write-success",f);
   load(R"({"phase":"unlink_pending","message":"The tag is cleared. Removing its link in Spoolman is still pending: Spoolman is offline."})");emit("cleanup-pending",f);
   load(R"({"phase":"cleared","uid":"E004000000000001"})");emit("ready-to-reuse",f);
   load(R"({"phase":"write_recovery","message":"Place the same tag on the reader to finish writing it.","spool_id":31})");emit("recovery",f);

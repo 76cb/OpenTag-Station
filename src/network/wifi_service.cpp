@@ -554,19 +554,15 @@ bool WifiService::start_setup_ap() {
   std::snprintf(
       ssid, sizeof(ssid), "OpenTag-Setup-%04X",
       static_cast<unsigned int>(identifier));
-  // The setup AP can reappear on a configured station after repeated Wi-Fi
-  // failures and accepts network changes without the API token, so it is
-  // WPA2-protected. The passphrase is random per boot and shown only on the
-  // touchscreen, which proves physical access to the station.
-  if (setup_ap_password_.empty()) {
-    static constexpr char alphabet[] = "abcdefghjkmnpqrstuvwxyz23456789";
-    for (int index = 0; index < 10; ++index)
-      setup_ap_password_ += alphabet[esp_random() % (sizeof(alphabet) - 1U)];
-  }
+  // The setup network is open (no password) so anyone setting the station up
+  // can join it without reading a code off the screen. It runs when no Wi-Fi
+  // is saved, after repeated connection failures, or on request, and closes
+  // once the station is online. On a configured station with an access token,
+  // the token is still required over it (ApplicationApiContext).
   const IPAddress address(192U, 168U, 4U, 1U);
   const IPAddress netmask(255U, 255U, 255U, 0U);
   if (!WiFi.softAPConfig(address, address, netmask) ||
-      !WiFi.softAP(ssid, setup_ap_password_.c_str())) {
+      !WiFi.softAP(ssid)) {
     return false;
   }
   if (!captive_dns_.start(53U, "*", address)) {
@@ -575,7 +571,6 @@ bool WifiService::start_setup_ap() {
   }
   setup_ap_running_ = true;
   status_.setup_ap_ssid = ssid;
-  status_.setup_ap_password = setup_ap_password_;
   status_.setup_ap_ip = "192.168.4.1";
   Serial.printf(
       "setup_ap=started ssid=%s ip=%s\n",
@@ -590,7 +585,6 @@ void WifiService::stop_setup_ap() {
   WiFi.softAPdisconnect(true);
   setup_ap_running_ = false;
   status_.setup_ap_ssid.clear();
-  status_.setup_ap_password.clear();
   status_.setup_ap_ip.clear();
   (void)WiFi.mode(WIFI_STA);
   Serial.println("setup_ap=stopped grace=complete");

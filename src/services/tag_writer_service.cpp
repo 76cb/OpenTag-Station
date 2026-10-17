@@ -148,6 +148,23 @@ const char *const clear_settings_changed =
     "Clearing this tag was interrupted and the Spoolman settings have changed "
     "since. Restore the earlier Spoolman settings to finish, or choose Skip "
     "recovery on the station's Tag screen.";
+// Plain status text for physical progress phases. The UIs add the single
+// "keep the tag on the reader" reminder themselves.
+const char *physical_status(const char *phase) {
+  if (std::strcmp(phase, "reading") == 0)
+    return "Reading tag";
+  if (std::strcmp(phase, "validating") == 0)
+    return "Checking tag";
+  if (std::strcmp(phase, "writing") == 0)
+    return "Writing tag";
+  if (std::strcmp(phase, "clearing") == 0)
+    return "Erasing tag";
+  if (std::strcmp(phase, "verifying") == 0)
+    return "Verifying tag";
+  if (std::strcmp(phase, "decoding") == 0)
+    return "Checking tag contents";
+  return "Working with tag";
+}
 } // namespace
 core::Result<network::BackendDocument>
 TagWriterService::api(const char *method, const std::string &path,
@@ -1142,8 +1159,12 @@ __attribute__((noinline)) Result TagWriterService::prepare_clear() {
     return fail("Clear workspace unavailable");
   }
   view_.clear();
-  publish("reading", "Reading complete tag and protection state");
-  auto read = writer_.read(*plan_, previous.get());
+  publish("reading", physical_status("reading"));
+  const WriterProgress reading =
+      [this](const char *phase, std::size_t done, std::size_t total) {
+        publish(phase, physical_status(phase), done, total);
+      };
+  auto read = writer_.read(*plan_, previous.get(), &reading);
   if (!read.ok()) {
     plan_ = std::move(previous);
     return read;
@@ -1217,7 +1238,7 @@ TagWriterService::commit_clear(JsonObjectConst c) {
   clear_recovery_required_ = true;
   auto physical = writer_.execute(
       *plan_, [&](const char *phase, std::size_t done, std::size_t total) {
-        publish(phase, "Keep tag on reader. Do not remove power.", done, total);
+        publish(phase, physical_status(phase), done, total);
       });
   if (!physical.ok()) {
     // Refused before any block was written (for example the tag was lifted):
@@ -1421,8 +1442,12 @@ Result TagWriterService::prepare(JsonObjectConst c) {
     return fail("PSRAM writer workspace unavailable");
   }
   view_.clear();
-  publish("reading", "Reading complete tag and protection state");
-  auto read = writer_.read(*plan_, previous.get());
+  publish("reading", physical_status("reading"));
+  const WriterProgress reading =
+      [this](const char *phase, std::size_t done, std::size_t total) {
+        publish(phase, physical_status(phase), done, total);
+      };
+  auto read = writer_.read(*plan_, previous.get(), &reading);
   if (!read.ok()) {
     plan_ = std::move(previous);
     return read;
@@ -1683,7 +1708,7 @@ TagWriterService::commit_write(JsonObjectConst c) {
     }
     result = writer_.execute(
         *plan_, [&](const char *phase, std::size_t done, std::size_t total) {
-          publish(phase, "Keep tag present and power connected", done, total);
+          publish(phase, physical_status(phase), done, total);
         });
     if (result.ok()) {
       association_pending_ = true;

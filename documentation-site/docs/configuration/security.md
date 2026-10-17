@@ -52,12 +52,17 @@ Set a new one on the touchscreen; it does not ask for the old one:
 
 ## The setup network
 
-The temporary network `OpenTag-Setup-XXXX` is protected with WPA2. Its password is shown only on
-the touchscreen and changes every time the station starts, so only someone who can see the station
-can join it.
+The temporary network `OpenTag-Setup-XXXX` is open: it has no password, so anyone nearby can
+join it while it runs. It runs only while the station has no working Wi-Fi: on first start, after
+three failed connection attempts in a row, or when you start it yourself. It closes about
+30 seconds after the station connects to your Wi-Fi.
 
-Over the setup network, scanning for Wi-Fi and saving new Wi-Fi details work without the access
-token. Nothing else does, and an existing access token cannot be replaced that way.
+On a station that has never had Wi-Fi saved, scanning for Wi-Fi and saving Wi-Fi details work
+over the setup network without an access token (a new station has none). When the setup network
+comes back on a station that has Wi-Fi saved, after three failed connection attempts or because
+you started it, everything needs the access token as usual, if you set one. Without an access
+token, anyone who joins the open setup network can change the station's Wi-Fi, so set a token if
+other people are within Wi-Fi range of the station.
 
 ## Firmware files are not signed
 

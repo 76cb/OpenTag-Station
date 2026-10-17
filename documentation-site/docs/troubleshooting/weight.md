@@ -17,11 +17,12 @@ or the number is fine but cannot be saved to Spoolman.
 | `The scale is busy. Try again in a moment.` | Another measurement is running. | Wait and try again. |
 | The weight is steady but wrong by the same factor every time | The calibration is off, or the wrong cell size is selected. | Check **Settings → Scale → Edit Load-cell profile** in the browser (5 kg or 2 kg), then calibrate again with a known weight. |
 | The weight changes when you touch the case or move a cable | The platform is not free. | [Scale platform and enclosure](../hardware/mechanical.md) |
+| A known weight reads a few grams lower (or higher) some time after calibrating, and drifts slowly while it sits on the platform | Warm-up drift or load-cell creep. Right after power-on the board warms up for 10–15 minutes and the reading moves with it. A load cell under a steady load also creeps slowly, more so when it is close to a warm part or when the platform rubs on something. | Leave the station switched on for 15 minutes, then **tare** and calibrate again. Keep the load cell away from the touchscreen board and other warm parts, mount it only by its two screw pairs, and make sure the platform and cables touch nothing. If a known weight still moves by more than a few grams over ten minutes, the load cell itself may be poor; try another one. |
 
 ### Look at the raw numbers
 
 Browser: **Settings → Scale → Scale diagnostics** shows **Raw**, **Filtered**, **Zero** and **Factor**.
-Touchscreen: **Settings → About / Advanced**, block **HARDWARE**, line **ADC**.
+Touchscreen: **Settings → About / Advanced**, section **SCALE AND SCREEN**, line **Raw reading**.
 
 - Press on the platform: **Raw** must change. If it never changes, a load-cell wire is loose or
   on the wrong terminal.

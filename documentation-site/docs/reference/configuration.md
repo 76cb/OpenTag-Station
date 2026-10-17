@@ -158,7 +158,7 @@ The station joins 2.4 GHz networks only.
 |---|---|
 | Starts when | No Wi-Fi name is saved; or 3 connection attempts in a row fail; or it is requested (`POST /network/setup-mode`, **Start setup access point** in the browser). |
 | Name | `OpenTag-Setup-XXXX`; `XXXX` is the last four hex digits of the station's MAC address |
-| Security | WPA2. The 10-character password is generated once after each restart of the station and shown only on the touchscreen. It is not available over the API. |
+| Security | Open: no password. Without the access token, only Wi-Fi scan and Wi-Fi save work over it, and only while no Wi-Fi was ever saved. |
 | Address | `http://192.168.4.1/`. Every DNS name resolves to it, and unknown paths redirect to it. |
 | Home Wi-Fi | Stays active alongside the setup network. |
 | Stops | 30 seconds after the station joins your Wi-Fi. It stays up while the join fails. |

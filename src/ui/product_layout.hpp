@@ -35,6 +35,11 @@ inline constexpr Box tag_detail{16, 52, 448, 98};
 inline constexpr Box tag_update{16, 162, 216, 46};
 inline constexpr Box tag_clear{248, 162, 216, 46};
 inline constexpr Box tag_confirm{16, 218, 448, 46};
+// Manage-tag workspace: spool colour ring beside the body text, and the
+// activity spinner or block-progress bar below it.
+inline constexpr Box tag_art{400, 48, 60, 60};
+inline constexpr Box tag_spinner{212, 156, 56, 56};
+inline constexpr Box tag_bar{40, 180, 400, 16};
 inline constexpr Box brightness{24, 60, 432, 44};
 inline constexpr Box policy{16, 118, 216, 48};
 inline constexpr Box calibration{248, 118, 216, 48};

@@ -63,8 +63,16 @@ public:
   OpenPrintTagWriter(IWriterReader &reader,
                      std::function<std::uint64_t()> generation)
       : reader_(reader), generation_(std::move(generation)) {}
+  // Preview/clear-preview read: every block once, then a repeat pass that must
+  // match. When progress is given it reports phase "reading" with done/total
+  // counted over BOTH passes (total = 80 + block_count = 160 on approved
+  // SLIX2), monotonic, never above total, every reading_progress_stride
+  // blocks and at the final block (the service serializes a full snapshot per
+  // report, so per-block reports would only add NFC-task latency).
+  static constexpr std::size_t reading_progress_stride = 8;
   core::Result<void> read(WriterPlan &plan,
-                          const WriterPlan *interrupted = nullptr);
+                          const WriterPlan *interrupted = nullptr,
+                          const Progress *progress = nullptr);
   core::Result<void> plan(WriterPlan &plan);
   core::Result<void> plan_clear(WriterPlan &plan,
                                const WriterPlan *interrupted = nullptr);
@@ -72,7 +80,9 @@ public:
 
 private:
   core::Result<void> fence(const WriterPlan &plan);
-  core::Result<void> full_read(WriterPlan &plan, std::uint8_t *destination);
+  core::Result<void> full_read(WriterPlan &plan, std::uint8_t *destination,
+                               const Progress *progress = nullptr,
+                               std::size_t done = 0, std::size_t total = 0);
   IWriterReader &reader_;
   std::function<std::uint64_t()> generation_;
   std::uint32_t started_ms_{0};

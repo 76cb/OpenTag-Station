@@ -86,6 +86,21 @@ def model_scene(name,scene,out):
         d.rounded_rectangle((8,y,472,y+h),4,fill=SURFACE)
         text((14,y+3,452,h-3),scene['input'],20)
     else:text(scene['body_box'],scene['body'])
+    def apart(a,b):return a[0]+a[2]<=b[0] or b[0]+b[2]<=a[0] or a[1]+a[3]<=b[1] or b[1]+b[3]<=a[1]
+    extras=[]
+    if 'indicator' in scene:
+        ind=scene['indicator'];x,y,w,h=ind['box']
+        if ind['kind']=='bar':
+            d.rounded_rectangle((x,y,x+w-1,y+h-1),h//2,fill=SURFACE)
+            if ind['total']:d.rounded_rectangle((x,y,x+max(h,w*ind['done']//ind['total'])-1,y+h-1),h//2,fill=MINT)
+        else:d.arc((x+3,y+3,x+w-4,y+h-4),0,360,fill=SURFACE,width=6);d.arc((x+3,y+3,x+w-4,y+h-4),300,360,fill=MINT,width=6)
+        extras.append(tuple(ind['box']))
+    if 'art' in scene:
+        x,y,w,h=scene['art']['box'];d.ellipse((x,y,x+w,y+h),fill=scene['art']['color'],outline='#788583',width=5);d.ellipse((x+w/2-8,y+h/2-8,x+w/2+8,y+h/2+8),fill=BG)
+        extras.append(tuple(scene['art']['box']))
+    for extra in extras:
+        assert apart(extra,tuple(scene['body_box'])),(name,'indicator/art overlaps body text')
+        for b in scene['buttons']:assert apart(extra,tuple(b['box'])),(name,'indicator/art overlaps',b['text'])
     boxes=[]
     for b in scene['buttons']:
         x,y,w,h=b['box'];assert 4<=x<x+w<=476 and 4<=y<y+h<=316 and w>=44 and h>=44,(name,b)

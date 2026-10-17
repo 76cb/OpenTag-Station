@@ -48,9 +48,9 @@ filter.
 
 ## Edit a spool
 
-1. Select the spool on the **Inventory** page and click **Continue**.
+1. Select the spool on the **Inventory** page.
    For the spool that is on the station, **Edit spool** on the Dashboard is a shortcut.
-2. On the Review step, click **Edit Spool**. The editor is titled "Edit this physical spool" and says
+2. Click **Edit Spool**. The editor is titled "Edit this physical spool" and says
    "Changes apply only to Spool #N."
 3. Change what you need:
 
@@ -69,9 +69,9 @@ filter.
 
 ## Edit a filament
 
-1. Select a spool of that filament on the **Inventory** page and click **Continue**.
+1. Select a spool of that filament on the **Inventory** page.
    A filament that has no spool cannot be edited from the station.
-2. On the Review step, click **Edit filament**. The editor is titled "Edit shared filament definition" and warns
+2. Click **Edit filament**. The editor is titled "Edit shared filament definition" and warns
    "Changes to filament #N affect every Spoolman spool using this filament."
 3. Change what you need: **Product name**, **Material**, **Nominal filament weight (g)**,
    **Density (g/cm³)**, **Diameter (mm)**, **Default tare (g)** (the empty-reel weight for this

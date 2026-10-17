@@ -25,7 +25,7 @@ Until then tags are ignored; see [Tag is not detected](../troubleshooting/tag.md
 | Blank tag | "COMPATIBLE BLANK TAG", "Ready to assign", "Open Manage tag to choose a spool". The first button reads **ASSIGN TAG**. | "Blank tag", "Ready to assign". The first button reads **Assign tag**. | [Write the tag](manage-tags.md). |
 | Blank tag, or tag with other data, that Spoolman links to a spool | The spool's name, "Spool #N" and "NNN g remaining", with the normal **WEIGH** button | The spool's name, "Spool #N", its weight and "Linked to Spoolman", with the normal **Weigh** button | Weigh it, or [write the tag](manage-tags.md) to put the filament data on it. See [below](#tags-spoolman-links-to-a-spool). |
 | Tag the station cannot use | On the **Tag** page: "This tag can't be used as it is", a reason, and "Use a blank NXP ICODE SLIX2 tag." | Dashboard: "Reading spool…" and "Tag needs attention". In **Manage tag**: "Unsupported" and "OpenPrintTag decode failed / unsupported" | Use a blank NXP ICODE SLIX2 tag. See [Which tags work](../openprinttag/supported-tags.md). |
-| Two or more tags on the reader | Home keeps showing "Place a spool". The **Tag** page shows "Reading tag..." and does not finish. | In **Manage tag**: "Multiple NFC-V tags detected" and "Remove extra tags and present exactly one tag." | Leave one tag on the reader. |
+| Two or more tags on the reader | Home keeps showing "Place a spool". The **Tag** page shows "Two tags on the reader. Remove one." | In **Manage tag**: "Multiple NFC-V tags detected" and "Remove extra tags and present exactly one tag." | Leave one tag on the reader. |
 
 Other kinds of NFC tag (for example NTAG or MIFARE) are not seen at all.
 The screen keeps showing "Place a spool".

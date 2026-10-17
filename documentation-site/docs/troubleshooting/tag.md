@@ -16,9 +16,9 @@ In the browser, **Manage tag** shows the reader's status at the top.
 | NFC READER step: `NFC reader starting...` (browser: `NFC deferred: provisioning`) | The reader has not started yet. It starts only once the station is connected to your Wi-Fi. | See [The reader waits for Wi-Fi](#the-reader-waits-for-wi-fi). |
 | NFC READER step: `NFC reader problem. Check the NFC wiring.` (browser: `NFC reader error`) | The reader module does not answer, or reading the tag on it failed. The station tries again every 5 seconds. | Remove the tag. If the message stays, see [The reader does not answer](#the-reader-does-not-answer). |
 | `PLACE A TAG` although a tag is on the reader | The reader is not running, or it works but sees no tag: wrong tag type, tag too far away, or metal in between. | Check the NFC READER step first. If it says the reader is ready, see [The reader is ready but sees no tag](#the-reader-is-ready-but-sees-no-tag). |
-| `Reading tag...` that never ends on **Manage tag** (NFC READER step: `More than one tag. Use one tag at a time.`; browser: `Multiple NFC-V tags detected`) | Two or more tags are in range. | Remove the others, including tagged spools lying next to the station. |
+| `Two tags on the reader. Remove one.` on **Manage tag** (NFC READER step: `More than one tag. Use one tag at a time.`; browser: `Multiple NFC-V tags detected`) | Two or more tags are in range. | Remove the others, including tagged spools lying next to the station. |
 | `This tag can't be used as it is` | The tag is an NFC-V tag, but it is not blank SLIX2 and holds no OpenPrintTag data the station can read. | Use a blank SLIX2 tag. See [Which tags work](../openprinttag/supported-tags.md). |
-| `Reading tag...` for a long time, or the tag appears and disappears | The tag is at the edge of the reader's range, or more than one tag is in range. | Remove other tags. Move the tag closer to the antenna and keep it still. |
+| "Reading tag" with the spinner for a long time, or the tag appears and disappears | The tag is at the edge of the reader's range, or more than one tag is in range. | Remove other tags. Move the tag closer to the antenna and keep it still. |
 
 ## The reader waits for Wi-Fi
 

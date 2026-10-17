@@ -31,4 +31,10 @@
 #define LV_FONT_DEFAULT &lv_font_montserrat_16
 #define LV_USE_THEME_DEFAULT 1
 
+// Manage-tag activity: spinner (an arc) and block-progress bar. These equal
+// the LVGL 8.3 defaults; stated so the touch UI's dependency is explicit.
+#define LV_USE_ARC 1
+#define LV_USE_BAR 1
+#define LV_USE_SPINNER 1
+
 #endif  // LV_CONF_H

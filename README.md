@@ -73,8 +73,8 @@ There is no reference enclosure; you design the scale platform yourself. Details
    [USB installer](https://76cb.github.io/OpenTag-Station/) in desktop Chrome or Edge
    ([guide](https://76cb.github.io/OpenTag-Station-Docs/installation/web-flasher/)).
    A USB install erases all settings and the scale calibration.
-3. **Join your Wi-Fi.** The touchscreen shows a setup network named `OpenTag-Setup-XXXX` and its
-   password. Enter your Wi-Fi on the touchscreen, or join that network and open
+3. **Join your Wi-Fi.** The touchscreen shows an open setup network named `OpenTag-Setup-XXXX`
+   (no password). Enter your Wi-Fi on the touchscreen, or join that network and open
    `http://192.168.4.1/` ([guide](https://76cb.github.io/OpenTag-Station-Docs/getting-started/first-boot/)).
    Afterwards the station is at `http://opentag-station.local/`.
 4. **Prepare Spoolman.** On Spoolman 0.27 or later there is nothing to do: the station links tags

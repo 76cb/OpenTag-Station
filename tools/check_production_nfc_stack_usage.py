@@ -112,6 +112,13 @@ def main():
     clear_decode = writer_controller + clear_prepare + max(frame(writer_path, "OpenPrintTagWriter::read("), frame(writer_path, "OpenPrintTagWriter::plan_clear(")) + decode + max(
         frame(codec, "parse_envelope(opentag::core::ByteView)"), frame(codec, "decode_material(opentag::core::ByteView")) + recursive
     clear_transport = writer_controller + max(clear_prepare + frame(writer_path, "OpenPrintTagWriter::read("), clear_commit + frame(writer_path, "OpenPrintTagWriter::execute(")) + frame(writer_path, "OpenPrintTagWriter::full_read(") + frame(writer_path, "OpenPrintTagWriter::fence(") + max(largest("hardware/nfc/st25r3916b/i2c_reader"), largest("hardware/nfc/st25r3916b/openprinttag_write_binding")) + 2048
+    # Physical progress: read() (both passes, incl. full_read) and execute()
+    # publish a writer snapshot through the Progress callback. Lambda/thunk
+    # frames are not individually named; reserve 2 KiB for them and the
+    # ArduinoJson serializer beneath TagWriterService::publish.
+    writer_progress = writer_controller + max(writer_prepare, clear_prepare, writer_commit, clear_commit) + max(
+        frame(writer_path, "OpenPrintTagWriter::read("), frame(writer_path, "OpenPrintTagWriter::execute(")) + frame(
+        writer_path, "OpenPrintTagWriter::full_read(") + frame(service, "TagWriterService::publish(") + 2048
     clear_http = writer_controller + clear_commit + clear_unlink + max(max(frame(service, "TagWriterService::uid_owner("), frame(service, "TagWriterService::unique_identity(")) + frame(service, "TagWriterService::api("), identity_fields_http,
         frame(service, "TagWriterService::unlink_final_check(") + frame(service, "TagWriterService::uid_owner(") + frame(service, "TagWriterService::api("),
         frame(service, "TagWriterService::unlink_native(") + max(frame(service, "TagWriterService::native_holders(") + frame(service, "TagWriterService::api("), frame(service, "TagWriterService::native_unlink(") + max(0, native_request))) + frame(spoolman, "SpoolmanAdapter::request(") + frame("network/http_transport", "HttpTransport::perform(") + 2048
@@ -144,11 +151,11 @@ def main():
                         community_update_http, community_update_verify)
     else:
         print("Community disabled: no production catalog stack path")
-    worst = max(decoded, transport, backend, persistence, writer_decode, writer_transport, writer_http, writer_storage, clear_decode, clear_transport, clear_http, clear_storage, association_storage, restore_storage, weigh_http, weigh_inventory, community)
+    worst = max(decoded, transport, backend, persistence, writer_decode, writer_transport, writer_http, writer_storage, writer_progress, clear_decode, clear_transport, clear_http, clear_storage, association_storage, restore_storage, weigh_http, weigh_inventory, community)
     if community_enabled():
         print(f"Bounded local Community catalog search={community_search}; detail={community_detail}; status={community_status}; update HTTP={community_update_http}; update verify={community_update_verify}; worst reserve={stack-community}")
     print(f"Clear decode={clear_decode}; transport={clear_transport}; HTTP={clear_http}; persistence={clear_storage}; association persistence={association_storage}; restart={restore_storage}; weigh HTTP={weigh_http}; inventory={weigh_inventory}")
-    print(f"Approved writer decode={writer_decode}; transport={writer_transport}; HTTP={writer_http}")
+    print(f"Approved writer decode={writer_decode}; transport={writer_transport}; HTTP={writer_http}; progress={writer_progress}")
     print(f"Shared backend stack={stack}; nested NFC decode={decoded}; NFC transport={transport}; backend HTTP={backend}; confirmation persistence={persistence}; remaining={stack-worst}; required={safety}")
     assert stack - worst >= safety, "Shared backend/NFC stack headroom below 4 KiB budget"
 

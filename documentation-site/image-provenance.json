@@ -1,29 +1,29 @@
 {
   "privacy_checked_before_capture": true,
   "browser_captures": 80,
-  "touch_layout_fixtures": 35,
+  "touch_layout_fixtures": 37,
   "sources": {
     "src/config/product_features.hpp": "9dddd04943423d813b971f172916109373dcf69afe3b2b6c5bf72b6710386703",
     "tools/product_features.py": "03f986c77c5938ef362db12d81d0505beb5f9d14e6c628e048f0b83bfe74c2eb",
-    "tools/product_journeys.cjs": "529869de6091d119477dbc4ad03f9f02552e11a807a4c59c61a8a5150d64215b",
+    "tools/product_journeys.cjs": "16f4f6507b3cc84ec077f97cd483f9b340bfb6c6c9929f0a955e1a1885349ad3",
     "tools/product_review.py": "376adaa8e3c6255ad7bf4e73cc35e53e7f9ccb6acdc8610ee77ccf39a3a6cffd",
-    "tools/test_writer_display.py": "16bfd4fe4f7c1cf9466b39db6e5038454d05eb0e82d0706135672be5759fe386",
+    "tools/test_writer_display.py": "882826ea1636d736dba73325456943fdf280dd7cf3fb87c452c71362d4ada4db",
     "tools/capture_product_review.cjs": "23d6c11b616ac2c271e980410b162d71cf69b72575a452926794bf4838fe22d0",
-    "tools/render_touch_review.py": "993a5a7b26e726d6dfa8c9984dd051f7db2e9120b46ee90f4dc9ac73270eb396",
+    "tools/render_touch_review.py": "33c1fd9a41c6b562547aee37649e36b1c6434efdf3c34e0039fe7fd23b788107",
     "tools/check_public_privacy.py": "b5b3fc8482b8e9692e1524002b911cbcace8c213fd180454469f7c4963ebacd9",
-    "src/web/web_assets.cpp": "1f69ca5f9b30c1f94fa50915d4fd497cb5e0094023e4daa4fef5da0de2b2fb03",
-    "src/web/writer_assets.cpp": "34745557328c193bd8a2870b85a19646bb0f595ccf0379496f91ef013929ff84",
-    "src/web/writer_layout.inc": "1ec1363e9226429755d89b80b809c1b7b6124d405a23b0524fae66b9dc87326e",
-    "src/ui/product_layout.hpp": "eb7a64be7103503a2874909c49727d0d53b7140d8f8dc92fd27dc10c80433446",
-    "src/ui/tag_flow.hpp": "862122ec03621805379f63302ebf764bd1b9f7608b144cfffce9dd1122a5a10c",
+    "src/web/web_assets.cpp": "cc46bb76da9f5def406ba8398a8a2863133015ee53315a0abec97a2f672f5101",
+    "src/web/writer_assets.cpp": "3114ab7c831561014868bcf18dda7e307316db7a3e03b651064a574952761f29",
+    "src/web/writer_layout.inc": "35b56a18a7a91b6c2d4b314726a861360f7a988941e968212eb9da6e2ba41280",
+    "src/ui/product_layout.hpp": "ac4a1f838f21a2de344a9d8c93cf1fef23d7dff51d7245fb5fdbfe5c04ee4bbc",
+    "src/ui/tag_flow.hpp": "766ba9af7c27e6f05436ec1d3722b20948230631c359585e0e6ee9ae282abde4",
     "src/ui/touch_input.hpp": "80fa15c718726adbbd3c35173479826f2c1bc0b8ff9a63133e737b17b3998eed",
-    "test/test_touch_flow/fixtures.hpp": "861a462a78ae45bf61e49435f5a2e62badeba5afc518e03299d891c054542f5f"
+    "test/test_touch_flow/fixtures.hpp": "ff66c6e406e7530fd6311316bbe1d47da473a55d86b6716c96556d614c84504b"
   },
   "images": {
-    "docs/assets/images/browser/dashboard.png": "d5b186c7f95747053b50ee78c1952ed6f6b3708cdaf907a49b8349ddea26e493",
-    "docs/assets/images/browser/weigh.png": "ca39862d13299428c9acf7392b4acae1f61c12ba15bfa4350051218469871103",
-    "docs/assets/images/browser/assignment.png": "abda2c11a400bff721dc080a1bd314e572c0f5f5205777b54efb24adb66b8615",
-    "docs/assets/images/browser/tag-management.png": "b4d9dcc0608a202f9794f2592dccbd6979ec66dd5b52df84135275e6128bbed1",
+    "docs/assets/images/browser/dashboard.png": "74fff4ba1c1ce1a8f0d450c7d457e08b5142dd173ab7faf6ca251a1186fcc721",
+    "docs/assets/images/browser/weigh.png": "f57cafdbe0f3e554c0c7e4b17143df0031b4df35c53d5d3b5b625dcd3fa51b2f",
+    "docs/assets/images/browser/assignment.png": "8bf984f398ff5d5e4d931bb1c3521c34f87ce75c84cd3dab03a2b07fb48cd0bd",
+    "docs/assets/images/browser/tag-management.png": "827aae35eeb34e514109a08e67d0fd4219e95f1ab912374bc3886ebbfb82a14a",
     "docs/assets/images/touchscreen/wt32-home.png": "c768e1b3be568f2563bdf0a368f2cf5b4aab2e2e6efb8a98c8a996ff4dcdc7e3"
   }
 }

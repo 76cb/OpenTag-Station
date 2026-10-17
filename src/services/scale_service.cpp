@@ -150,6 +150,7 @@ core::Result<void> ScaleService::reconfigure_hardware(
   const auto interrupted_purpose = status_.measurement_purpose;
   const bool interrupted = measurement_active();
   status_ = {};
+  zero_pending_after_offset_calibration_ = false;
   if (interrupted) {
     // The owner of the session must see a terminal state, not a silent idle.
     status_.measurement_purpose = interrupted_purpose;
@@ -166,8 +167,15 @@ core::Result<void> ScaleService::reconfigure_hardware(
   return configure_hardware(settings);
 }
 
+void ScaleService::invalidate_zero_if_offset_changed() {
+  if (!zero_pending_after_offset_calibration_) return;
+  zero_pending_after_offset_calibration_ = false;
+  status_.tare_ready = false;
+}
+
 void ScaleService::fail_active_measurement(const core::Error& error) {
   if (!measurement_active()) return;
+  invalidate_zero_if_offset_changed();
   status_.measurement_state = ScaleMeasurementState::failed;
   status_.measurement_error = error;
   measurement_started_ms_.reset();
@@ -191,6 +199,7 @@ core::Result<void> ScaleService::initialize(
   const auto interrupted_purpose = status_.measurement_purpose;
   const auto interrupted_error = status_.measurement_error;
   status_ = {};
+  zero_pending_after_offset_calibration_ = false;
   if (interrupted) {
     status_.measurement_purpose = interrupted_purpose;
     status_.measurement_state = ScaleMeasurementState::failed;
@@ -250,6 +259,7 @@ core::Result<void> ScaleService::initialize(
     set_error(initialized.error(), ScaleState::disconnected);
     return core::Result<void>::failure(initialized.error());
   }
+  operation_timeout_ms_ = operation_timeout_ms;
   const auto internal = adc_.internal_calibrate(operation_timeout_ms);
   if (!internal.ok()) {
     set_error(internal.error(), ScaleState::fault);
@@ -404,6 +414,24 @@ core::Result<void> ScaleService::begin_measurement(
     return core::Result<void>::failure(
         configuration_error("scale calibration is required before weighing"));
   }
+  if (purpose == ScaleMeasurementPurpose::weigh && !status_.tare_ready) {
+    return core::Result<void>::failure(unstable(
+        "The scale needs a new zero. Empty the platform, then use Tare in Settings > Calibrate scale and retry."));
+  }
+  if (purpose == ScaleMeasurementPurpose::tare) {
+    // The ADC's offset drifts as the station warms up after power-on. Re-run
+    // its internal offset calibration right before a new zero is captured
+    // (TARE, and the zero step of CALIBRATE), so the zero and the reference
+    // measured after it share the same, current offset. A weigh never does
+    // this: it would shift the zero under a loaded platform.
+    const auto internal = adc_.internal_calibrate(operation_timeout_ms_);
+    if (!internal.ok()) {
+      // A failed calibration may still have moved the offset.
+      status_.tare_ready = false;
+      return core::Result<void>::failure(internal.error());
+    }
+    zero_pending_after_offset_calibration_ = true;
+  }
   reset_filter();
   calibration_session_reference_grams_ =
       purpose == ScaleMeasurementPurpose::calibration &&
@@ -465,6 +493,7 @@ void ScaleService::advance_measurement(std::uint32_t now_ms) {
                   "Scale zero has shifted. Empty the platform, then use Tare in Settings > Calibrate scale and retry.")
             : unstable(
                   "Scale is still moving. Leave the spool still and retry.");
+    invalidate_zero_if_offset_changed();
     status_.measurement_state = ScaleMeasurementState::timed_out;
     status_.measurement_error = error;
     measurement_started_ms_.reset();
@@ -603,6 +632,7 @@ core::Result<void> ScaleService::tare() {
   }
   pending_zero_offset_counts_ =
       static_cast<std::int32_t>(std::llround(status_.sample.filtered_raw_counts));
+  zero_pending_after_offset_calibration_ = false;
   status_.tare_ready = true;
   status_.tare_zero_offset_counts = *pending_zero_offset_counts_;
   status_.last_completed_grams.reset();

@@ -714,6 +714,77 @@ void test_repeat_measurements_replace_retained_result() {
   TEST_ASSERT_GREATER_THAN(first_at, service.status().last_completed_at_ms);
 }
 
+void test_tare_session_reruns_adc_offset_calibration_but_weigh_does_not() {
+  FakeAdc adc;
+  FakeStore store;
+  ScaleService service(adc, store, measurement_config());
+  ScaleHardwareSettings hardware;
+  TEST_ASSERT_TRUE(service.configure_hardware(hardware).ok());
+  TEST_ASSERT_TRUE(service.initialize(0U, 1000U).ok());
+  TEST_ASSERT_EQUAL_UINT(1U, adc.calibration_calls);
+  TEST_ASSERT_TRUE(service.begin_measurement(
+      ScaleMeasurementPurpose::tare, 0U).ok());
+  TEST_ASSERT_EQUAL_UINT(2U, adc.calibration_calls);
+  for (std::uint32_t index = 0U; index < 10U; ++index) {
+    sample(service, adc, 132000 + static_cast<std::int32_t>(index % 3U) * 10,
+           (index + 1U) * 100U);
+  }
+  TEST_ASSERT_TRUE(service.tare().ok());
+  TEST_ASSERT_TRUE(service.begin_measurement(
+      ScaleMeasurementPurpose::calibration, 1100U, 500.0F).ok());
+  TEST_ASSERT_EQUAL_UINT(2U, adc.calibration_calls);
+}
+
+void test_abandoned_tare_after_offset_calibration_requires_new_tare() {
+  FakeAdc adc;
+  FakeStore store;
+  store.stored = calibration();
+  ScaleService service(adc, store, measurement_config());
+  TEST_ASSERT_TRUE(service.initialize(0U, 1000U).ok());
+  TEST_ASSERT_TRUE(service.status().tare_ready);
+  TEST_ASSERT_TRUE(service.begin_measurement(
+      ScaleMeasurementPurpose::tare, 0U).ok());
+  // The platform never settles, so the session times out after the ADC
+  // offset was recalibrated: the stored zero no longer matches.
+  for (std::uint32_t index = 0U; index < 30U; ++index) {
+    sample(service, adc, (index % 2U) == 0U ? 1000 : 4000, (index + 1U) * 100U);
+  }
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(ScaleMeasurementState::timed_out),
+      static_cast<int>(service.status().measurement_state));
+  TEST_ASSERT_FALSE(service.status().tare_ready);
+  const auto calibrations = adc.calibration_calls;
+  TEST_ASSERT_FALSE(service.begin_measurement(
+      ScaleMeasurementPurpose::weigh, 3100U).ok());
+  TEST_ASSERT_EQUAL_UINT(calibrations, adc.calibration_calls);
+
+  TEST_ASSERT_TRUE(service.begin_measurement(
+      ScaleMeasurementPurpose::tare, 3200U).ok());
+  for (std::uint32_t index = 0U; index < 10U; ++index) {
+    sample(service, adc, 1200 + static_cast<std::int32_t>(index % 3U) * 10,
+           3300U + index * 100U);
+  }
+  TEST_ASSERT_TRUE(service.tare().ok());
+  TEST_ASSERT_TRUE(service.status().tare_ready);
+  TEST_ASSERT_TRUE(service.begin_measurement(
+      ScaleMeasurementPurpose::weigh, 4400U).ok());
+}
+
+void test_tare_session_fails_when_adc_offset_calibration_fails() {
+  FakeAdc adc;
+  FakeStore store;
+  ScaleService service(adc, store, measurement_config());
+  ScaleHardwareSettings hardware;
+  TEST_ASSERT_TRUE(service.configure_hardware(hardware).ok());
+  TEST_ASSERT_TRUE(service.initialize(0U, 1000U).ok());
+  adc.calibration_fails = true;
+  TEST_ASSERT_FALSE(service.begin_measurement(
+      ScaleMeasurementPurpose::tare, 0U).ok());
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(ScaleMeasurementState::idle),
+      static_cast<int>(service.status().measurement_state));
+}
+
 void test_tare_and_calibration_sessions_wait_for_raw_stability() {
   FakeAdc adc;
   FakeStore store;
@@ -1250,6 +1321,9 @@ int main(int, char**) {
   RUN_TEST(test_removal_returns_to_conservative_zero_deadband);
   RUN_TEST(test_measurement_times_out_without_false_result);
   RUN_TEST(test_repeat_measurements_replace_retained_result);
+  RUN_TEST(test_tare_session_reruns_adc_offset_calibration_but_weigh_does_not);
+  RUN_TEST(test_tare_session_fails_when_adc_offset_calibration_fails);
+  RUN_TEST(test_abandoned_tare_after_offset_calibration_requires_new_tare);
   RUN_TEST(test_tare_and_calibration_sessions_wait_for_raw_stability);
   RUN_TEST(test_session_failure_is_terminal_and_tare_invalidates_retained_weight);
   RUN_TEST(test_stable_signed_near_zero_measurements_complete_as_zero);

@@ -201,6 +201,12 @@ class ScaleService {
   std::size_t next_sample_{0U};
   std::size_t sample_count_{0U};
   std::uint32_t last_sample_ms_{0U};
+  std::uint32_t operation_timeout_ms_{1000U};
+  // Set when a tare session re-ran the ADC offset calibration and has not yet
+  // captured the new zero. If the session ends any other way, the stored zero
+  // belongs to the old offset and a tare is required before weighing.
+  bool zero_pending_after_offset_calibration_{false};
+  void invalidate_zero_if_offset_changed();
   std::optional<std::uint32_t> stable_candidate_since_ms_;
   std::optional<float> stable_baseline_grams_;
   std::optional<std::uint32_t> runtime_zero_candidate_since_ms_;

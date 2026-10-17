@@ -19,13 +19,11 @@ Tap **Next** once to reach the **WI-FI** step. There the touchscreen shows the s
 network:
 
 ```text
-Wi-Fi: OpenTag-Setup-XXXX
-Password: xxxxxxxxxx
-Then open 192.168.4.1
+Setup Wi-Fi: OpenTag-Setup-XXXX (no password)
+Or join it and open 192.168.4.1
 ```
 
-The setup network is protected with WPA2. Its password is shown only on the touchscreen and is a new
-one every time the station starts.
+The setup network is open, so you can join it without a password.
 
 You can now enter your Wi-Fi in either of two ways.
 
@@ -58,8 +56,7 @@ You can come back later: **Settings** → **Wi-Fi & services**.
 
 ## Option 2: from a phone or computer
 
-1. On your phone or computer, join the Wi-Fi network `OpenTag-Setup-XXXX` with the password from
-   the touchscreen.
+1. On your phone or computer, join the Wi-Fi network `OpenTag-Setup-XXXX`. It has no password.
 2. Open `http://192.168.4.1/`. The page shows **Connect this station**.
 3. Under **1. Choose Wi-Fi**, click **Scan for networks** and pick your network from
    **Nearby networks**, or type it into **Wi-Fi name (SSID)**. Enter the **Wi-Fi password**.
@@ -90,8 +87,8 @@ The setup network closes about 30 seconds after the station has connected.
 ## If the Wi-Fi stops working later
 
 After three failed connection attempts in a row the station starts the setup network again.
-Its name and the new password are on the touchscreen **Settings** page ("Setup network … password
-…"). Use either option above to enter working Wi-Fi details.
+Its name is on the touchscreen **Settings** page ("Setup Wi-Fi … (no password)"). Use either option
+above to enter working Wi-Fi details.
 
 ## Change the Wi-Fi later
 
@@ -108,6 +105,6 @@ The messages below appear on the **WI-FI** step of the touchscreen and on the se
 | "Wi-Fi password was rejected. Check the password (it is case-sensitive)." | Type the password again. |
 | "Wi-Fi network not found. Use a 2.4 GHz network and check the name." | Check the spelling, and that the router offers this network on 2.4 GHz. |
 | "Wi-Fi password or security mismatch. Check the password; WPA3-only networks are not supported." | Set the router to WPA2 or WPA2/WPA3 mixed mode, or use another network. |
-| Your phone cannot join `OpenTag-Setup-XXXX` | The password changes at every start. Read the current one from the touchscreen. |
+| Your phone cannot join `OpenTag-Setup-XXXX` | The network has no password. If your phone asks for one, forget the network on the phone and join it again. If your phone leaves it because it has no internet, choose to stay connected. |
 
 More cases: [Wi-Fi and reaching the station](../troubleshooting/wifi.md).

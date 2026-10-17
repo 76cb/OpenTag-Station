@@ -5,7 +5,7 @@ publishes it, then updates the USB installer from the same files.
 The full checklist, including the tests on real hardware, is in
 [docs/releasing.md](https://github.com/76cb/OpenTag-Station/blob/main/docs/releasing.md).
 
-The candidate is `1.0.0-rc.20`.
+The candidate is `1.0.0-rc.21`.
 
 ## Steps
 

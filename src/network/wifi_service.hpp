@@ -50,9 +50,6 @@ struct WifiStatus {
   std::uint32_t provisioning_failures{0U};
   std::uint32_t provisioning_grace_remaining_ms{0U};
   std::string setup_ap_ssid;
-  // WPA2 passphrase of the setup access point. Shown only on the station's
-  // own touchscreen; never serialized into the local API.
-  std::string setup_ap_password;
   std::string setup_ap_ip;
   std::uint32_t scan_generation{0U};
   std::uint32_t scan_attempt_generation{0U};
@@ -123,7 +120,6 @@ class WifiService {
   std::uint32_t connect_started_ms_{0U};
   std::atomic_bool initialized_{false};
   bool setup_ap_running_{false};
-  std::string setup_ap_password_;
   // Last station disconnect reason from the Wi-Fi driver event (event task
   // writes, network task reads). 0 = none since the attempt started.
   std::atomic<std::uint8_t> last_disconnect_reason_{0U};
