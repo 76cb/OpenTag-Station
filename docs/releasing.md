@@ -8,9 +8,9 @@ The candidate is `1.0.0-rc.19`.
 ## Prerequisites
 
 - Push access to `76cb/OpenTag-Station` and `76cb/OpenTag-Station-Docs`.
-- The `github-pages` environment of the firmware repository allows deployments from tags matching
-  `v*` (Settings → Environments → github-pages → Deployment branches and tags). Without it the
-  installer deployment fails on the tag.
+- The `github-pages` environment of the firmware repository allows deployments from `main` and
+  from tags matching `v*` (Settings → Environments → github-pages → Deployment branches and tags).
+  Without the tag rule the installer deployment fails on the tag.
 - A station to run the [hardware acceptance](#hardware-acceptance) on.
 
 ## 1. Set the version

@@ -24,8 +24,9 @@ The candidate is `1.0.0-rc.19`.
 
 A tag `v<version>` whose version contains a hyphen is published as a pre-release.
 A push to `main` without a tag creates no release and does not change the installer.
-Starting `web-flasher-pages.yml` by hand builds the bundle; it deploys only when the run is
-started on a `v*` tag.
+To update the installer without a release, start `web-flasher-pages.yml` by hand on `main`
+(Actions → Web flasher Pages → Run workflow); it builds and deploys. A manual run on any other
+branch builds but does not deploy.
 
 ## Release files
 
