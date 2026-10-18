@@ -10,4 +10,4 @@ used by production NFC recognition and the guarded OpenPrintTag writer:
 - `NFC-RFAL` version: 1.0.2
 
 The library directories and their license files are copied without local
-modification. Production binds these libraries to Wire1 on the shared backend task; routine polling is read-only, and the private write binding is accessible only through the approved guarded writer. See [production NFC](../../docs/tag-writer.md#nfc-write-allow-list).
+modification. Production binds these libraries to Wire1 on the shared backend task; routine polling is read-only, and the private write binding is accessible only through the approved guarded writer. See [production NFC](../../docs/production-nfc.md).
