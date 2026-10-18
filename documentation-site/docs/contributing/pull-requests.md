@@ -37,8 +37,8 @@ python tools/bump_version.py <new-version>
 ```
 
 It refuses a version that is not higher, then rewrites `VERSION`, `web-flasher/manifest.json`,
-`documentation-site/firmware.json` and the "The candidate is" line in `docs/releasing.md` and
-in [Release process](release.md). It reminds you if the changelog has no entry for the new
+`documentation-site/firmware.json` and the "The current version is" line in
+[Release process](release.md). It reminds you if the changelog has no entry for the new
 version.
 
 ## Changelog
