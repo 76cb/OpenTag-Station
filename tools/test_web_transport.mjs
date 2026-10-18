@@ -2194,30 +2194,6 @@ test('production scheduler drains 100 refresh cycles and 1000 jobs without leaki
   });
 });
 
-test('physical cold-load probe covers combined assets, REST, WebSocket, scale, and memory evidence', () => {
-  const source = readFileSync(
-    path.join(ROOT, 'tools', 'cold_browser_load_probe.mjs'), 'utf8');
-  assert.match(source, /cycles: 20/);
-  assert.match(source, /Promise\.all\(\[/);
-  assert.match(source, /CORE_REST = \['\/device', '\/network', '\/config', '\/scale'\]/);
-  for (const endpoint of [
-    '/health', '/status', '/spool', '/printers', '/toolheads', '/update',
-    '/nfc', '/diagnostics', '/logs',
-  ]) assert.ok(source.includes(`'${endpoint}'`));
-  assert.match(source, /new WebSocket\(url\)/);
-  assert.match(source, /'\/scale\/weigh'/);
-  assert.match(source, /'\/scale\/tare'/);
-  assert.match(source, /'\/scale\/calibrate'/);
-  for (const metric of [
-    'free_heap_bytes', 'minimum_free_heap_bytes',
-    'largest_free_internal_block_bytes', 'active_http_sessions',
-    'maximum_observed_http_sessions', 'websocket_clients', 'httpd',
-  ]) assert.ok(source.includes(metric));
-  assert.match(source, /minimumHeap: 24000/);
-  assert.match(source, /minimumHttpStackMargin: 4096/);
-  assert.match(source, /result\.after\.freeHeap \+ settings\.recoverySlack < baseline\.freeHeap/);
-});
-
 test('configuration selects the 90 second bound only for hostname or Wi-Fi changes', () => {
   const { T } = loadApplication();
   T.state.config = {

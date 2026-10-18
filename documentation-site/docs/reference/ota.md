@@ -97,7 +97,7 @@ Not required: Wi-Fi being connected, Spoolman or FilaBridge being reachable, the
 |---|---|
 | All requirements met at 30 seconds | The firmware is confirmed (`confirmed`). Rollback is no longer possible. |
 | A requirement is missing at 30 seconds, or start-up reports a fatal error | The image is marked invalid and the station restarts into the previous firmware (`rolled_back`). |
-| The new firmware crashes or is reset before it is confirmed | Intended: the ESP-IDF bootloader's app rollback starts the previous firmware, and the station then reports `rolled_back`. No automated test covers the bootloader step; step 31 of the hardware acceptance in [docs/releasing.md](https://github.com/76cb/OpenTag-Station/blob/main/docs/releasing.md#hardware-acceptance) checks it. |
+| The new firmware crashes or is reset before it is confirmed | Intended: the ESP-IDF bootloader's app rollback starts the previous firmware, and the station then reports `rolled_back`. No automated test covers the bootloader step; step 31 of the [hardware acceptance](../contributing/testing.md#hardware-acceptance) checks checks it. |
 | A factory reset is waiting to finish | The reset completes first; the health decision waits for it. |
 
 ## Interruptions
@@ -133,6 +133,5 @@ station is back; the receipt of the restart request is not proof that the update
 | Station does not start, or the web page is unreachable | Reinstall over USB: [Install the firmware over USB](../installation/web-flasher.md). |
 | Settings are suspect after recovery | [Factory reset and USB recovery](../troubleshooting/recovery.md) |
 
-How release images and the installer are built:
-[releasing.md](https://github.com/76cb/OpenTag-Station/blob/main/docs/releasing.md),
-[web-flasher.md](https://github.com/76cb/OpenTag-Station/blob/main/docs/web-flasher.md).
+How release images and the installer are built: [Release process](../contributing/release.md)
+and [Build from source](../contributing/build.md).

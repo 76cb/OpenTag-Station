@@ -5,7 +5,7 @@ Usage: python tools/bump_version.py <new-version>
 VERSION stays authoritative. This script only removes the manual part of a
 bump: it refuses a version that is not semantically greater, rewrites the
 derived manifest and documentation snapshot through their own tools, and
-updates the two "The candidate is" lines. The changelog and release notes are
+updates the "The current version is" line of the manual's release page. The changelog and release notes are
 prose and are left to the author; the script reminds you when they lack an
 entry for the new version.
 """
@@ -19,8 +19,8 @@ from check_version_policy import precedence
 from release_version import SEMVER
 
 ROOT = Path(__file__).resolve().parents[1]
-CANDIDATE_LINES = ('docs/releasing.md', 'documentation-site/docs/contributing/release.md')
-CANDIDATE = re.compile(r'The candidate is `[^`]+`\.')
+CANDIDATE_LINES = ('documentation-site/docs/contributing/release.md',)
+CANDIDATE = re.compile(r'The current version is `[^`]+`\.')
 PROSE = ('CHANGELOG.md', 'documentation-site/docs/reference/release-notes.md')
 
 
@@ -40,9 +40,9 @@ def bump(root, new):
                        check=True, cwd=root, stdout=subprocess.DEVNULL)
     for relative in CANDIDATE_LINES:
         path = root / relative
-        text, count = CANDIDATE.subn(f'The candidate is `{new}`.', path.read_text(encoding='utf-8'))
+        text, count = CANDIDATE.subn(f'The current version is `{new}`.', path.read_text(encoding='utf-8'))
         if count != 1:
-            raise ValueError(f'{relative}: expected exactly one "The candidate is" line')
+            raise ValueError(f'{relative}: expected exactly one "The current version is" line')
         path.write_text(text, encoding='utf-8')
     # Whole-line match: "## 1.0.0" must not be satisfied by "## 1.0.0-rc.19".
     heading = re.compile(rf'^## {re.escape(new)}$', re.MULTILINE)
