@@ -39,7 +39,8 @@ Fix the record in Spoolman, then write again.
 
 | Message | What it means | What to do |
 |---|---|---|
-| `Canonical metadata does not fit this tag; no bytes written` | The spool's details do not fit, or a weight, density or other number in Spoolman is negative or not a number. | Check the spool's and filament's numbers in Spoolman; shorten long names. |
+| `Canonical metadata does not fit this tag; no bytes written` | The spool's details need more space than the tag has. | Shorten long names or remove extra colours in Spoolman. |
+| `Spoolman has an unusable <field> value (wrong type or negative); correct it in Spoolman. No bytes written` | The named value in Spoolman is negative or not a number (or not text, for a name). | Open that spool or filament in Spoolman, correct the named field, then preview the write again. |
 | `Spoolman diameter is not representable in integer micrometres` | The filament diameter has too many decimals or is out of range. | Set a normal value such as 1.75 or 2.85 in Spoolman. |
 | `Canonical filament color is malformed` | The filament colour is not 6 or 8 hex digits. | Correct the colour in Spoolman. |
 | `Canonical used_weight is missing or invalid` | The spool has no valid used weight. | Set the used weight in Spoolman (0 for a new spool). |

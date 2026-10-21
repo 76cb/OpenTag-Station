@@ -90,6 +90,9 @@ encode_main(JsonObjectConst spool, const std::array<std::uint8_t, 16> &uuid,
   std::size_t cursor = region.absolute_offset;
   const auto end = cursor + region.size;
   bool fits = true;
+  // First Spoolman field whose value has the wrong type or is negative. That is
+  // a data problem in Spoolman, not a lack of room on the tag.
+  const char *unusable = nullptr;
   auto byte = [&](std::uint8_t value) {
     if (cursor < end)
       p.target[cursor++] = value;
@@ -106,23 +109,26 @@ encode_main(JsonObjectConst spool, const std::array<std::uint8_t, 16> &uuid,
       fits = false;
     }
   };
-  auto number = [&](int key, JsonVariantConst v) {
+  auto number = [&](int key, const char *name, JsonVariantConst v) {
     if (v.isNull())
       return;
     if (!v.is<double>() || !std::isfinite(v.as<double>()) ||
         v.as<double>() < 0) {
-      fits = false;
+      if (unusable == nullptr)
+        unusable = name;
       return;
     }
     head(0, key);
     for (auto b : CborMapView::encode_number(v.as<double>()))
       byte(b);
   };
-  auto text = [&](int key, JsonVariantConst v, std::size_t maximum) {
+  auto text = [&](int key, const char *name, JsonVariantConst v,
+                  std::size_t maximum) {
     if (v.isNull())
       return;
     if (!v.is<const char *>()) {
-      fits = false;
+      if (unusable == nullptr)
+        unusable = name;
       return;
     }
     const auto *s = v.as<const char *>();
@@ -142,10 +148,10 @@ encode_main(JsonObjectConst spool, const std::array<std::uint8_t, 16> &uuid,
     byte(b);
   head(0, 8);
   byte(0); // pinned material_class 0 = FFF filament
-  text(10, filament["name"], name_maximum);
-  text(11, filament["vendor"]["name"], vendor_maximum);
-  text(52, filament["material"], material_maximum);
-  text(6, filament["article_number"], article_maximum);
+  text(10, "filament name", filament["name"], name_maximum);
+  text(11, "vendor name", filament["vendor"]["name"], vendor_maximum);
+  text(52, "filament material", filament["material"], material_maximum);
+  text(6, "article number", filament["article_number"], article_maximum);
   // Exact names only: no type is inferred from a prefix ("PLA Matte").
   if (filament["material"].is<const char *>()) {
     const auto type = material_type(filament["material"].as<const char *>());
@@ -154,15 +160,31 @@ encode_main(JsonObjectConst spool, const std::array<std::uint8_t, 16> &uuid,
       head(0, static_cast<std::size_t>(type));
     }
   }
-  number(16, filament["weight"]);
-  number(17, spool["initial_weight"]);
-  auto tare = spool["spool_weight"];
+  number(16, "filament weight", filament["weight"]);
+  number(17, "initial weight", spool["initial_weight"]);
+  // Empty-spool weight: spool, then filament, then vendor. A zero does not hide
+  // a real value further down (the resolver ranks a zero last too). An explicit
+  // zero is still kept when no positive value exists, so "0 g" stays distinct
+  // from "unknown".
+  const JsonVariantConst tares[] = {spool["spool_weight"],
+                                    filament["spool_weight"],
+                                    filament["vendor"]["empty_spool_weight"]};
+  JsonVariantConst tare, explicit_zero;
+  for (const auto candidate : tares) {
+    if (candidate.isNull())
+      continue;
+    if (candidate.is<double>() && candidate.as<double>() == 0) {
+      if (explicit_zero.isNull())
+        explicit_zero = candidate;
+      continue;
+    }
+    tare = candidate;
+    break;
+  }
   if (tare.isNull())
-    tare = filament["spool_weight"];
-  if (tare.isNull())
-    tare = filament["vendor"]["empty_spool_weight"];
-  number(18, tare);
-  number(29, filament["density"]);
+    tare = explicit_zero;
+  number(18, "spool weight", tare);
+  number(29, "filament density", filament["density"]);
   if (!filament["diameter"].isNull()) {
     const auto micrometres = filament["diameter"].as<double>() * 1000.0;
     if (!filament["diameter"].is<double>() || !std::isfinite(micrometres) ||
@@ -191,6 +213,13 @@ encode_main(JsonObjectConst spool, const std::array<std::uint8_t, 16> &uuid,
     }
   }
   byte(0xff);
+  if (unusable != nullptr)
+    return core::Result<void>::failure(
+        {core::ErrorCategory::invalid_openprinttag,
+         std::string("Spoolman has an unusable ") + unusable +
+             " value (wrong type or negative); correct it in Spoolman. No "
+             "bytes written",
+         false});
   if (!fits)
     return invalid(
         "Canonical metadata does not fit this tag; no bytes written");

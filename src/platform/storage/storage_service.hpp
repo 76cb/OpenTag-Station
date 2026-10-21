@@ -50,6 +50,8 @@ class StorageService final :
   load_configuration_backup_document() override;
   [[nodiscard]] core::Result<void> save_configuration_document(
       std::string_view document) override;
+  [[nodiscard]] core::Result<void> restore_configuration_document(
+      std::string_view document) override;
 
  private:
   Preferences preferences_;

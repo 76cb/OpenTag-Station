@@ -102,10 +102,13 @@ class ApplicationApiContext final : public api::IApiContext {
   [[nodiscard]] std::uint64_t update_revision() const {
     return ota_worker_.snapshot().revision;
   }
-  [[nodiscard]] std::array<std::uint64_t, 4> nfc_revision() const {
+  // Changes only when what a browser shows about the tag changes. The bus
+  // error count is not shown, and including it made every bus error a
+  // refetch (a flaky reader then floods the browser with invalidations).
+  [[nodiscard]] std::array<std::uint64_t, 3> nfc_revision() const {
     const auto s = nfc_.snapshot();
     return {s.generation, static_cast<std::uint64_t>(s.state),
-        workflow_.identification_revision(), s.bus_errors};
+        workflow_.identification_revision()};
   }
   [[nodiscard]] std::uint64_t backend_revision() const {
     return backend_worker_.revision();

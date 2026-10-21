@@ -103,6 +103,28 @@ core::Result<std::optional<std::string>> read_document_file(const char* path) {
   return core::Result<std::optional<std::string>>::success(std::move(document));
 }
 
+// Writes the document to the staging file and reads it back. The caller holds
+// preferences_mutex_ and has checked the size.
+core::Result<void> write_verified_staging(std::string_view document) {
+  auto staging = LittleFS.open(configuration_staging_path, FILE_WRITE);
+  if (!staging || staging.write(
+          reinterpret_cast<const std::uint8_t*>(document.data()),
+          document.size()) != document.size()) {
+    if (staging) staging.close();
+    return core::Result<void>::failure(
+        storage_error("configuration staging write failed"));
+  }
+  staging.flush();
+  staging.close();
+  const auto verified = read_document_file(configuration_staging_path);
+  if (!verified.ok() || !verified.value().has_value() ||
+      *verified.value() != document) {
+    return core::Result<void>::failure(
+        storage_error("configuration staging verification failed"));
+  }
+  return core::Result<void>::success();
+}
+
 core::Result<void> remove_configuration_documents() {
   // Rollback sources are removed before the primary so a partial filesystem
   // failure retains the primary configuration.
@@ -434,22 +456,8 @@ core::Result<void> StorageService::save_configuration_document(
     return core::Result<void>::failure(
         storage_error("factory reset is in progress"));
   }
-  auto staging = LittleFS.open(configuration_staging_path, FILE_WRITE);
-  if (!staging || staging.write(
-          reinterpret_cast<const std::uint8_t*>(document.data()),
-          document.size()) != document.size()) {
-    if (staging) staging.close();
-    return core::Result<void>::failure(
-        storage_error("configuration staging write failed"));
-  }
-  staging.flush();
-  staging.close();
-  const auto verified = read_document_file(configuration_staging_path);
-  if (!verified.ok() || !verified.value().has_value() ||
-      *verified.value() != document) {
-    return core::Result<void>::failure(
-        storage_error("configuration staging verification failed"));
-  }
+  const auto staged = write_verified_staging(document);
+  if (!staged.ok()) return staged;
 
   if (LittleFS.exists(configuration_backup_path) &&
       !LittleFS.remove(configuration_backup_path)) {
@@ -472,6 +480,40 @@ core::Result<void> StorageService::save_configuration_document(
   return core::Result<void>::success();
 }
 
+core::Result<void> StorageService::restore_configuration_document(
+    std::string_view document) {
+  if (reset_in_progress_.load(std::memory_order_acquire) ||
+      !status_.filesystem_ready) {
+    return core::Result<void>::failure(
+        storage_error("LittleFS is unavailable for configuration"));
+  }
+  if (document.empty() || document.size() > maximum_configuration_bytes) {
+    return core::Result<void>::failure(
+        storage_error("configuration document size is invalid"));
+  }
+
+  const std::lock_guard<std::mutex> lock(preferences_mutex_);
+  if (reset_in_progress_.load(std::memory_order_acquire)) {
+    return core::Result<void>::failure(
+        storage_error("factory reset is in progress"));
+  }
+  const auto staged = write_verified_staging(document);
+  if (!staged.ok()) return staged;
+
+  // The primary is missing or unusable, and the backup holds the only good
+  // copy. Never touch the backup here: if power is lost before the rename
+  // below, the next start recovers from it again.
+  if (LittleFS.exists(configuration_path) &&
+      !LittleFS.remove(configuration_path)) {
+    return core::Result<void>::failure(
+        storage_error("unusable configuration could not be removed"));
+  }
+  if (!LittleFS.rename(configuration_staging_path, configuration_path)) {
+    return core::Result<void>::failure(
+        storage_error("configuration restore failed"));
+  }
+  return core::Result<void>::success();
+}
 
 core::Result<void> StorageService::factory_reset_device_data() {
   bool expected = false;

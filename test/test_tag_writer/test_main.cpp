@@ -1983,6 +1983,87 @@ void clear_valid_and_unlink_only_owned_fields() {
   TEST_ASSERT_EQUAL(100, f.http.spool["used_weight"].as<int>());
   TEST_ASSERT_EQUAL_STRING("cleared", f.view["phase"].as<const char *>());
 }
+// Empty-spool weight that the canonical mapping puts on the tag.
+std::optional<double> mapped_tare(Fixture &f) {
+  f.prepare();
+  nfc::openprinttag::DecodedTag decoded;
+  TEST_ASSERT_TRUE(
+      nfc::openprinttag::Codec::decode({f.plan.target.data(), 312}, decoded)
+          .ok());
+  return decoded.material.empty_container_weight;
+}
+void tare_zero_on_spool_falls_through_to_filament() {
+  Fixture f;
+  f.spool["spool_weight"] = 0;
+  f.spool["filament"]["spool_weight"] = 250;
+  const auto tare = mapped_tare(f);
+  TEST_ASSERT_TRUE(tare.has_value());
+  TEST_ASSERT_TRUE(*tare == 250.0);
+}
+void tare_zero_on_spool_and_filament_falls_through_to_vendor() {
+  Fixture f;
+  f.spool["spool_weight"] = 0;
+  f.spool["filament"]["spool_weight"] = 0;
+  f.spool["filament"]["vendor"]["empty_spool_weight"] = 180;
+  const auto tare = mapped_tare(f);
+  TEST_ASSERT_TRUE(tare.has_value());
+  TEST_ASSERT_TRUE(*tare == 180.0);
+}
+void tare_spool_value_wins_when_positive() {
+  Fixture f;
+  f.spool["spool_weight"] = 210;
+  f.spool["filament"]["spool_weight"] = 250;
+  const auto tare = mapped_tare(f);
+  TEST_ASSERT_TRUE(tare.has_value());
+  TEST_ASSERT_TRUE(*tare == 210.0);
+}
+void wrong_type_value_names_the_field_not_tag_capacity() {
+  Fixture f;
+  f.spool["initial_weight"] = "heavy";
+  TEST_ASSERT_TRUE(f.writer.read(f.plan).ok());
+  auto r = nfc::openprinttag::map_spoolman(f.spool.as<JsonObjectConst>(), uuid,
+                                           f.plan, false);
+  TEST_ASSERT_FALSE(r.ok());
+  TEST_ASSERT_NOT_NULL(strstr(r.error().message.c_str(), "initial weight"));
+  TEST_ASSERT_NULL(strstr(r.error().message.c_str(), "does not fit"));
+  TEST_ASSERT_EQUAL(0, f.reader.writes);
+}
+void negative_tare_names_the_field() {
+  Fixture f;
+  f.spool["spool_weight"] = -5;
+  TEST_ASSERT_TRUE(f.writer.read(f.plan).ok());
+  auto r = nfc::openprinttag::map_spoolman(f.spool.as<JsonObjectConst>(), uuid,
+                                           f.plan, false);
+  TEST_ASSERT_FALSE(r.ok());
+  TEST_ASSERT_NOT_NULL(strstr(r.error().message.c_str(), "spool weight"));
+}
+void clear_accepts_owner_uuid_stored_in_upper_case() {
+  // Spoolman may hold the same UUID typed or imported in upper case. The tag
+  // yields lower case, but that is the same identity, not a changed owner.
+  ClearFixture f;
+  auto stored = nfc::openprinttag::instance_uuid_text(uuid);
+  for (auto &c : stored)
+    if (c >= 'a' && c <= 'f')
+      c -= 'a' - 'A';
+  TEST_ASSERT_NOT_EQUAL(nfc::openprinttag::instance_uuid_text(uuid), stored);
+  f.http.spool["extra"]["opentag_instance_uuid"] = "\"" + stored + "\"";
+  f.preview();
+  auto r = f.confirm();
+  TEST_ASSERT_TRUE_MESSAGE(r.ok(), r.ok() ? "" : r.error().message.c_str());
+  TEST_ASSERT_EQUAL(1, f.mappings);
+  TEST_ASSERT_TRUE(f.http.spool["extra"]["opentag_instance_uuid"].isNull());
+  TEST_ASSERT_EQUAL_STRING("cleared", f.view["phase"].as<const char *>());
+}
+void clear_refuses_owner_with_a_different_uuid() {
+  ClearFixture f;
+  f.http.spool["extra"]["opentag_instance_uuid"] =
+      "\"11111111-2222-4333-8444-555555555555\"";
+  f.preview();
+  auto r = f.confirm();
+  TEST_ASSERT_FALSE(r.ok());
+  TEST_ASSERT_EQUAL(0, f.mappings);
+  TEST_ASSERT_FALSE(f.http.spool["extra"]["opentag_instance_uuid"].isNull());
+}
 void clear_empty_envelope() {
   ClearFixture f;
   auto image = nfc::openprinttag::Initializer::generate({312, 4, 32, {}});
@@ -3268,6 +3349,13 @@ int main() {
   RUN_TEST(clear_recovery_refuses_different_tag_without_losing_journal);
   RUN_TEST(clear_valid_and_unlink_only_owned_fields);
   RUN_TEST(clear_empty_envelope);
+  RUN_TEST(tare_zero_on_spool_falls_through_to_filament);
+  RUN_TEST(tare_zero_on_spool_and_filament_falls_through_to_vendor);
+  RUN_TEST(tare_spool_value_wins_when_positive);
+  RUN_TEST(wrong_type_value_names_the_field_not_tag_capacity);
+  RUN_TEST(negative_tare_names_the_field);
+  RUN_TEST(clear_accepts_owner_uuid_stored_in_upper_case);
+  RUN_TEST(clear_refuses_owner_with_a_different_uuid);
   RUN_TEST(clear_already_blank_zero_writes);
   RUN_TEST(clear_refuses_unsupported_sources);
   RUN_TEST(clear_confirmation_physical_fences);

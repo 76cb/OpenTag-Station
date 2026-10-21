@@ -759,7 +759,7 @@ core::Result<void> ConfigurationService::initialize() {
     status_.recovered_from_backup = recovered_from_backup;
     status_.loaded_schema = loaded->loaded_schema;
     if (loaded->migrated || recovered_from_backup) {
-      const auto saved = persist_locked(configuration_, false);
+      const auto saved = persist_locked(configuration_, false, recovered_from_backup);
       if (!saved.ok()) return saved;
     }
     ++revision_;
@@ -854,7 +854,8 @@ ConfigurationStatus ConfigurationService::status() const {
 
 core::Result<void> ConfigurationService::persist_locked(
     const Configuration& configuration,
-    bool advance_revision) {
+    bool advance_revision,
+    bool restoring) {
   network::JsonAllocationTrace allocation_trace(impl_->allocator, "config_persist_psram");
   if (status_.stored_by_newer_firmware) {
     const auto error = newer_firmware_error();
@@ -897,7 +898,9 @@ core::Result<void> ConfigurationService::persist_locked(
       return cleared;
     }
   }
-  const auto saved = document_store_.save_configuration_document(serialized);
+  const auto saved = restoring
+      ? document_store_.restore_configuration_document(serialized)
+      : document_store_.save_configuration_document(serialized);
   if (!saved.ok()) {
     status_.persistence_available = false;
     status_.last_error = saved.error();

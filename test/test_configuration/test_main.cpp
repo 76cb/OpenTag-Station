@@ -27,7 +27,10 @@ class MemoryDocumentStore final : public IConfigurationDocumentStore {
   std::optional<std::string> backup_document;
   bool load_fails{false};
   bool save_fails{false};
+  // Model the real store: a normal save moves the old primary into the backup.
+  bool rotate_backup_on_save{false};
   std::size_t save_count{0U};
+  std::size_t restore_count{0U};
 
   Result<std::optional<std::string>> load_configuration_document() override {
     if (load_fails) {
@@ -51,6 +54,18 @@ class MemoryDocumentStore final : public IConfigurationDocumentStore {
     if (save_fails) {
       return Result<void>::failure(
           {ErrorCategory::storage, "document save failed", false});
+    }
+    if (rotate_backup_on_save && document.has_value()) backup_document = document;
+    document = value;
+    return Result<void>::success();
+  }
+
+  // Like the real store, restoring never touches the backup.
+  Result<void> restore_configuration_document(std::string_view value) override {
+    ++restore_count;
+    if (save_fails) {
+      return Result<void>::failure(
+          {ErrorCategory::storage, "document restore failed", false});
     }
     document = value;
     return Result<void>::success();
@@ -502,9 +517,48 @@ void test_corrupt_primary_recovers_valid_backup_transactionally() {
   TEST_ASSERT_TRUE(service.status().migrated);
   TEST_ASSERT_EQUAL_STRING(
       "legacy-station", service.snapshot().device.hostname.c_str());
-  TEST_ASSERT_EQUAL_UINT(1U, documents.save_count);
+  // Recovery restores the primary; it is not an ordinary save.
+  TEST_ASSERT_EQUAL_UINT(0U, documents.save_count);
+  TEST_ASSERT_EQUAL_UINT(1U, documents.restore_count);
   TEST_ASSERT_NOT_EQUAL(
       std::string::npos, documents.document->find("legacy-station"));
+}
+
+void test_recovery_keeps_the_good_backup_until_a_later_save() {
+  MemoryDocumentStore documents;
+  documents.rotate_backup_on_save = true;
+  documents.document = "{corrupt";
+  documents.backup_document = schema_one_document;
+  LegacyScaleStore legacy;
+  ConfigurationService service(documents, legacy);
+
+  TEST_ASSERT_TRUE(service.initialize().ok());
+  // The only good copy is still the backup; a save that rotated the corrupt
+  // primary over it would lose the settings if power failed at that moment.
+  TEST_ASSERT_TRUE(documents.backup_document.has_value());
+  TEST_ASSERT_EQUAL_STRING(schema_one_document, documents.backup_document->c_str());
+
+  // After a real save the primary is good, so the usual rotation is safe again.
+  auto updated = service.snapshot();
+  updated.device.hostname = "renamed-station";
+  TEST_ASSERT_TRUE(service.replace(updated).ok());
+  TEST_ASSERT_EQUAL_UINT(1U, documents.save_count);
+  TEST_ASSERT_NOT_EQUAL(
+      std::string::npos, documents.backup_document->find("legacy-station"));
+  TEST_ASSERT_NOT_EQUAL(
+      std::string::npos, documents.document->find("renamed-station"));
+}
+
+void test_failed_restore_reports_unavailable_persistence_and_keeps_backup() {
+  MemoryDocumentStore documents;
+  documents.save_fails = true;
+  documents.document = "{corrupt";
+  documents.backup_document = schema_one_document;
+  LegacyScaleStore legacy;
+  ConfigurationService service(documents, legacy);
+
+  TEST_ASSERT_FALSE(service.initialize().ok());
+  TEST_ASSERT_EQUAL_STRING(schema_one_document, documents.backup_document->c_str());
 }
 
 void test_invalid_import_is_transactional_and_wrong_hardware_is_rejected() {
@@ -1409,6 +1463,8 @@ int main(int, char**) {
   RUN_TEST(test_schema_one_migrates_additively_and_preserves_unknown_fields);
   RUN_TEST(test_schema_two_migrates_identity_defaults_and_preserves_unknown_fields);
   RUN_TEST(test_corrupt_primary_recovers_valid_backup_transactionally);
+  RUN_TEST(test_recovery_keeps_the_good_backup_until_a_later_save);
+  RUN_TEST(test_failed_restore_reports_unavailable_persistence_and_keeps_backup);
   RUN_TEST(test_invalid_import_is_transactional_and_wrong_hardware_is_rejected);
   RUN_TEST(test_default_export_redacts_all_credentials_and_ssid);
   RUN_TEST(test_noncredential_import_preserves_current_secrets_and_network);

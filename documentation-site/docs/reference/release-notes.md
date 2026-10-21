@@ -2,6 +2,29 @@
 
 What changed in each version of OpenTag Station, newest first.
 
+## 1.0.1-beta.3
+
+Pre-release for testers. Reliability fixes for rare cases; nothing changes in normal use.
+
+- **Settings survive a power cut during recovery.** If the main settings file was damaged and the
+  station restored them from its backup, saving the restored copy replaced the only good backup
+  first. A power cut at that moment lost the settings. Recovery now writes the main file and
+  leaves the backup alone.
+- **Clearing a tag works when Spoolman holds the spool's UUID in capitals.** The tag carries the
+  UUID in lower case, so the station refused to unlink with "Owner instance UUID changed". UUIDs
+  are compared without regard to case. A genuinely different UUID is still refused.
+- **A zero empty-spool weight on the spool no longer hides the filament's or vendor's weight.**
+  The tag now gets the first weight above 0 (spool, then filament, then vendor). A 0 is written
+  only when nothing is above 0, as before.
+- **A wrong value in Spoolman now names the field.** A weight, density or name that is negative or
+  the wrong type used to report "does not fit this tag". It now says which Spoolman field to
+  correct. "Does not fit this tag" remains for real lack of space.
+- **A flaky NFC reader no longer floods the browser.** Each NFC bus error triggered a refresh. The
+  count is still in the NFC data; it just no longer pushes updates.
+
+Not in this release: refusing writes and weight saves while a restart is pending (needs a station
+to test), and the screenshot-related items from the 1.1 cleanup list.
+
 ## 1.0.1-beta.2
 
 Pre-release for testers. Internal cleanup; nothing changes for a user.

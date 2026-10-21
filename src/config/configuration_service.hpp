@@ -108,6 +108,14 @@ class IConfigurationDocumentStore {
   load_configuration_backup_document() = 0;
   [[nodiscard]] virtual core::Result<void> save_configuration_document(
       std::string_view document) = 0;
+  // The primary document is missing or unusable and the backup is the only
+  // good copy. Write the recovered document as the new primary and leave the
+  // backup untouched, so a power cut here cannot lose both. A store without a
+  // separate backup just saves.
+  [[nodiscard]] virtual core::Result<void> restore_configuration_document(
+      std::string_view document) {
+    return save_configuration_document(document);
+  }
 };
 
 struct ConfigurationStatus {
@@ -208,9 +216,12 @@ class ConfigurationService final : public services::IScaleCalibrationStore,
  private:
   struct Impl;
 
+  // `restoring`: the document being written replaces an unusable primary, so
+  // the existing backup must be kept (see restore_configuration_document).
   [[nodiscard]] core::Result<void> persist_locked(
       const Configuration& configuration,
-      bool advance_revision = true);
+      bool advance_revision = true,
+      bool restoring = false);
 
   IConfigurationDocumentStore& document_store_;
   services::IScaleCalibrationStore& legacy_scale_store_;
