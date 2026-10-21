@@ -84,7 +84,7 @@ module.exports=async function productJourneys(page,scene,width){
     await page.locator('#writer-results button').first().click();
     await page.waitForFunction(()=>window.OpenTagWriter.writerState.filament===22&&!window.OpenTagWriter.writerState.busy);
 
-    assert.equal(await page.locator('#writer-source').inputValue(),'spoolman');
+    assert.equal(await page.locator('#writer-entity').inputValue(),'spool');
     const asked=[];page.on('dialog',d=>asked.push(d.message()));
     await page.locator('#writer-create-submit').click();await page.waitForFunction(()=>window.OpenTagWriter.writerState.spool===29);
     assert.deepEqual(asked,[],'creating a spool needs no second confirmation');
