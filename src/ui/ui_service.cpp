@@ -808,16 +808,9 @@ void UiService::tag_action(TagAction action) {
     return;
   }
   if(action==TagAction::search) {
-    InputSpec spec;spec.title="Search "+(tag_flow_->entity=="community"?std::string("Community"):tag_flow_->entity=="spool"?"My Spools":"My Filaments");
-    spec.initial=tag_flow_->query;spec.action="SEARCH";spec.required=tag_flow_->entity=="community";
+    InputSpec spec;spec.title=std::string("Search ")+(tag_flow_->entity=="spool"?"My Spools":"My Filaments");
+    spec.initial=tag_flow_->query;spec.action="SEARCH";
     open_input(spec,[this](const std::string& text){tag_command(tag_flow_->search(text));});return;
-  }
-  if(action==TagAction::name) {
-    InputSpec spec;spec.title="Spoolman display name";spec.required=true;
-    spec.initial=tag_flow_->import_name.empty()?std::string(tag_flow_->selected["name"]|""):tag_flow_->import_name;
-    // Keep an overlong source visible/editable; Done stays disabled until it
-    // meets the Spoolman limit. Never silently truncate the source identity.
-    open_input(spec,[this](const std::string& text){tag_flow_->import_name=text;draw_tags();});return;
   }
   if(action==TagAction::initial||action==TagAction::remaining||action==TagAction::tare) {
     InputSpec spec;spec.mode=InputMode::numeric;spec.unit="g";spec.maximum_length=9;spec.required=true;

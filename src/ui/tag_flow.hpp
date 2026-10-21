@@ -1,4 +1,3 @@
-#include "config/product_features.hpp"
 #pragma once
 #include <array>
 #include <cstdint>
@@ -22,7 +21,6 @@ enum class TagPage {
   created,
   review,
   progress,
-  import_review,
   ready,
   reuse,
   error,
@@ -36,7 +34,6 @@ enum class TagAction {
   sources,
   spools,
   filaments,
-  community,
   row0,
   row1,
   row2,
@@ -48,15 +45,12 @@ enum class TagAction {
   update,
   clear,
   retry,
-  import,
-  community_update,
   create,
   initial,
   remaining,
   tare,
   weigh,
   printer,
-  name,
   skip,
   choose
 };
@@ -160,7 +154,7 @@ class TagFlow {
   TagPage page{TagPage::tag};
   TagPage review_return{TagPage::tag};
   services::TagLifecycle lifecycle{services::TagLifecycle::no_tag};
-  std::string uid, material, query, entity{"spool"}, message, phase, catalog_state, catalog_version;
+  std::string uid, material, query, entity{"spool"}, message, phase;
   // Field Spoolman actually matched ("name", or "vendor" after a fallback);
   // echoed when paging so later pages use the same search.
   std::string search_field{"name"};
@@ -197,7 +191,6 @@ class TagFlow {
   // Shown on the create page when a required value is missing.
   std::string create_hint;
   int current_spool{0}, from_spool{0};
-  std::string import_name;
   unsigned offset{0}, row{0};
   // Start offsets of the pages before this one. A page can hold fewer than 8
   // rows (the station shrinks oversized pages), so PREV returns to the exact
@@ -208,8 +201,7 @@ class TagFlow {
   // False until the empty-spool weight comes from Spoolman or the user. A
   // silent 0 g default overstated remaining filament on every later weigh.
   bool tare_known{false};
-  bool waiting{false}, rewrite{false}, community_request{false}, catalog_update_request{false},
-      reading_request{false};
+  bool waiting{false}, rewrite{false}, reading_request{false};
   std::uint64_t operation{0};
   // When the current touch request was queued, for the "taking longer than
   // usual" escape on Spoolman-only work.
@@ -226,15 +218,11 @@ class TagFlow {
   }
   std::string browse() {
     JsonDocument command(&allocator);
-    if (entity == "community")
-      command["action"] = "community_search";
-    else {
-      command["action"] = "catalog";
-      command["entity"] = entity;
-    }
+    command["action"] = "catalog";
+    command["entity"] = entity;
     command["search"] = query;
     command["offset"] = offset;
-    if (entity != "community" && !query.empty() && offset > 0 && search_field == "vendor")
+    if (!query.empty() && offset > 0 && search_field == "vendor")
       command["search_field"] = "vendor";
     return encode(command);
   }
@@ -343,7 +331,7 @@ class TagFlow {
     message = view["message"] | "";
     if (recovery_phase(phase))
       recovery = {phase, message, view["spool_id"] | 0};
-    if (phase == "catalog" || phase == "community") {
+    if (phase == "catalog") {
       if (!view["items"].is<JsonArray>() || view["items"].size() > 8) {
         fail("Inventory page exceeds limit");
         return false;
@@ -354,19 +342,9 @@ class TagFlow {
       row = land_on_last_rows && size > 0 ? static_cast<unsigned>(((size - 1) / 3) * 3) : 0;
       land_on_last_rows = false;
       page = TagPage::catalog;
-    } else if (phase == "community_catalog") {
-      catalog_state = view["catalog_state"] | "not_installed";
-      catalog_version = view["catalog_version"] | "";
-      page = TagPage::catalog;
     } else if (phase == "preview" || phase == "clear_preview")
       page = TagPage::review;
-    else if (phase == "import_preview")
-      page = TagPage::import_review;
-    else if (phase == "imported") {
-      selected.set(view["filament"]);
-      weights();
-      page = TagPage::create;
-    } else if (phase == "spool_selected") {
+    else if (phase == "spool_selected") {
       selected.set(view["spool"]);
       page = TagPage::created;
       // Only the answer to this screen's own request; a spool created in the
@@ -393,10 +371,6 @@ class TagFlow {
   std::string act(TagAction action) {
     if (waiting)
       return {};
-    if (!config::community_enabled &&
-        (action == TagAction::community || action == TagAction::community_update ||
-         action == TagAction::import))
-      return {};
     JsonDocument command(&allocator);
     switch (action) {
       case TagAction::sources:
@@ -407,20 +381,13 @@ class TagFlow {
         return {};
       case TagAction::spools:
       case TagAction::filaments:
-      case TagAction::community:
-        entity = action == TagAction::spools      ? "spool"
-                 : action == TagAction::filaments ? "filament"
-                                                  : "community";
+        entity = action == TagAction::spools ? "spool" : "filament";
         offset = row = 0;
-    previous_count = 0;
+        previous_count = 0;
         land_on_last_rows = false;
         query.clear();
         search_field = "name";
         page = TagPage::catalog;
-        if (entity == "community") {
-          catalog_page.clear();
-          return request("community_status");
-        }
         return browse();
       case TagAction::previous:
         if (row >= 3) {
@@ -468,7 +435,6 @@ class TagFlow {
         if (index >= catalog_page["items"].size())
           return {};
         selected.set(catalog_page["items"][index]);
-        import_name.clear();
         // A spool goes straight to the tag review: it shows the spool, any
         // move from another spool, and the single WRITE TAG confirmation.
         if (entity == "spool")
@@ -477,13 +443,6 @@ class TagFlow {
         return {};
       }
       case TagAction::use:
-        if (page == TagPage::selected && entity == "community") {
-          command["action"] = "community_select";
-          command["id"] = selected["id"];
-          if (!import_name.empty())
-            command["import_name"] = import_name;
-          break;
-        }
         if (page == TagPage::selected && entity == "filament") {
           weights();
           create_hint.clear();
@@ -523,10 +482,6 @@ class TagFlow {
         page = TagPage::skip_review;
         return {};
       case TagAction::retry:
-        if (page == TagPage::error && catalog_update_request)
-          return request("community_update");
-        if (page == TagPage::error && community_request)
-          return browse();
         if (phase == "write_recovery") {
           review_return = TagPage::tag;
           command["action"] = "preview";
@@ -542,12 +497,6 @@ class TagFlow {
                             : phase == "clear_recovery"    ? "clear_preview"
                                                            : "retry_unlink";
         break;
-      case TagAction::import:
-        command["action"] = "import";
-        command["import_token"] = view["import_token"];
-        break;
-      case TagAction::community_update:
-        return request("community_update");
       case TagAction::create:
         if (!tare_known) {
           create_hint =
@@ -577,8 +526,6 @@ class TagFlow {
           page = review_return;
         else if (page == TagPage::choose)
           page = TagPage::tag;
-        else if (page == TagPage::import_review)
-          page = TagPage::selected;
         else
           page = TagPage::tag;
         if (page == TagPage::tag)
@@ -626,7 +573,7 @@ class TagFlow {
                                  : 0.;
   }
   static const char* describe(std::string_view action) {
-    if (action == "catalog" || action == "community_search")
+    if (action == "catalog")
       return "Searching Spoolman...";
     if (action == "preview" || action == "clear_preview")
       return "Reading the tag...";
@@ -651,8 +598,6 @@ class TagFlow {
     }
     working = describe(std::string_view(command["action"] | ""));
     stalled = false;
-    community_request = std::string_view(command["action"] | "") == "community_search";
-    catalog_update_request = std::string_view(command["action"] | "") == "community_update";
     reading_request = std::string_view(command["action"] | "") == "preview" ||
                       std::string_view(command["action"] | "") == "clear_preview";
     std::string result;
@@ -832,31 +777,16 @@ inline TagScreen TagFlow::screen() const {
       s.body = "How do you want to choose the filament?";
       action(0, "MY SPOOLS", TagAction::spools);
       action(1, "MY FILAMENTS", TagAction::filaments);
-      if (config::community_enabled)
-        action(2, "COMMUNITY", TagAction::community);
       back();
       break;
     case TagPage::catalog:
-      s.title = entity == "spool"      ? "My Spools"
-                : entity == "filament" ? "My Filaments"
-                                       : "Community";
-      if (entity == "community" && catalog_state != "ready") {
-        s.title = "Community Catalog";
-        s.body = catalog_state == "damaged" ? "Catalog damaged\nRedownload to restore local search."
-                                            : "Not installed\nDownload once for offline search.";
-        action(1, catalog_state == "damaged" ? "REDOWNLOAD CATALOG" : "DOWNLOAD CATALOG",
-               TagAction::community_update);
-        back();
-        break;
-      }
+      s.title = entity == "spool" ? "My Spools" : "My Filaments";
       s.button({326, 4, 146, 44}, "SEARCH", TagAction::search);
       if (catalog_page["items"].size() == 0)
         s.body = offset > 0 ? "End of the list."
                  : query.empty()
-                     ? (entity == "community" ? "Community Catalog\n" + catalog_version +
-                                                    "\nReady\nSearch for a filament"
-                        : entity == "spool" ? "No spools in Spoolman yet."
-                                            : "No filaments in Spoolman yet.")
+                     ? (entity == "spool" ? "No spools in Spoolman yet."
+                                          : "No filaments in Spoolman yet.")
                      : "No matches for \"" + query + "\".\nSearch looks at names and makers.";
       for (unsigned i = 0; i < 3 && row + i < catalog_page["items"].size(); ++i) {
         auto item = catalog_page["items"][row + i];
@@ -877,17 +807,12 @@ inline TagScreen TagFlow::screen() const {
                row + 3 < catalog_page["items"].size() || (catalog_page["has_more"] | false));
       break;
     case TagPage::selected:
-      // Filaments and Community entries only: a spool row opens the review.
+      // Filaments only: a spool row opens the review.
       s.title = "Use this filament?";
       s.body = filament_name(selected) + "\n" + std::string(selected["material"] | "") + " - " +
                diameter_text(selected["diameter"]);
-      if (entity == "community") {
-        s.button({16, 212, 448, 44}, "EDIT DISPLAY NAME", TagAction::name);
-        if (!import_name.empty())
-          s.body += "\nSpoolman name: " + import_name;
-      }
       back();
-      primary(entity == "community" ? "REVIEW IMPORT" : "CREATE A SPOOL", TagAction::use);
+      primary("CREATE A SPOOL", TagAction::use);
       break;
     case TagPage::create:
       s.title = "Create physical spool";
@@ -913,14 +838,6 @@ inline TagScreen TagFlow::screen() const {
                " is in Spoolman. The tag is not written yet.";
       back();
       primary("REVIEW TAG WRITE", TagAction::use);
-      break;
-    case TagPage::import_review:
-      s.title = "Add to Spoolman";
-      s.body = filament_name(view["source"]) +
-               "\nSpoolman name: " + std::string(view["proposed_filament"]["name"] | "") +
-               "\nExisting matching definitions will be reused.";
-      back();
-      primary("ADD TO SPOOLMAN", TagAction::import);
       break;
     case TagPage::review: {
       const bool clearing = phase == "clear_preview";
@@ -991,16 +908,6 @@ inline TagScreen TagFlow::screen() const {
       back();
       break;
     case TagPage::progress: {
-      if (phase == "catalog_downloading") {
-        s.title = "Downloading Community catalog";
-        s.body = std::to_string(view["completed_blocks"] | 0) + "%\nThe station remains available.";
-        break;
-      }
-      if (community_request && (phase == "searching" || phase == "queued")) {
-        s.title = "Searching Community...";
-        s.body = query + "\nSearching catalog. Please wait...";
-        break;
-      }
       if (physical_phase(phase) || phase == "reading") {
         s.title = phase == "clearing"  ? "Clearing tag"
                   : phase == "writing" ? "Writing tag"
@@ -1071,8 +978,6 @@ inline TagScreen TagFlow::screen() const {
       s.title = phase == "recovery_discarded" ? "Recovery skipped" : "Needs attention";
       s.body = plain_error(message);
       back();
-      if (community_request || catalog_update_request)
-        primary("RETRY", TagAction::retry);
       break;
   }
   if (waiting && page != TagPage::progress) {

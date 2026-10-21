@@ -102,14 +102,11 @@ jobs:
       - run: python tools/release_version.py
       - run: python -m unittest discover -s tools -p test_release_packaging.py
       - run: python -m unittest discover -s tools -p test_bump_version.py
-      - run: python -m unittest tools.test_community_catalog
-      - run: python tools/community_catalog.py inspect community/community.pack
       - run: python tools/check_web_assets.py
       - run: node --test tools/test_web_transport.mjs
       - run: python tools/test_writer_display.py
       - run: python tools/web_flasher.py validate-source --page web-flasher/index.html --manifest web-flasher/manifest.json
       - run: pio test --environment native
-      - run: pio test --environment native-community
       - run: python -m unittest tools.test_production_features
       - run: pio test --environment native-writer-sanitized
         env:

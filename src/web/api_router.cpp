@@ -1,4 +1,3 @@
-#include "config/product_features.hpp"
 #include "web/api_router.hpp"
 #include "web/idempotency_ledger.hpp"
 #include "network/backend_json.hpp"
@@ -22,7 +21,6 @@ using ApiDocument = network::AllocatedDocument<api_json_allocator>;
 
 constexpr std::size_t maximum_error_message_bytes = 512U;
 constexpr std::size_t maximum_json_nesting = 8U;
-constexpr std::size_t maximum_community_id_bytes = 180U;
 
 core::Error invalid_request(const std::string& message) {
   return {core::ErrorCategory::configuration, message, false};
@@ -906,40 +904,18 @@ core::Result<Mutation> parse_mutation(
   mutation.idempotency_key = idempotency_key;
   if (request.path == "/api/v1/tag-writer") {
     const std::string action = object["action"] | "";
-    if (!config::community_enabled && (action.compare(0, 10, "community_") == 0 || action == "import_preview" || action == "import"))
-      return core::Result<Mutation>::failure({core::ErrorCategory::backend_unavailable, "Community is disabled for 1.0", false});
-    if (action != "catalog" && action != "import_preview" && action != "import" && action != "create_spool" &&
+    if (action != "catalog" && action != "create_spool" &&
         action != "clear_preview" && action != "clear" && action != "retry_unlink" &&
-        action != "preview" && action != "write" && action != "retry_association" && action != "discard_recovery" && action != "update_spool" && action != "update_filament" &&
-        action != "community_status" && action != "community_search" && action != "community_select" && action != "community_update")
+        action != "preview" && action != "write" && action != "retry_association" && action != "discard_recovery" && action != "update_spool" && action != "update_filament")
       return core::Result<Mutation>::failure(invalid_request("Unknown high-level writer action"));
-    if ((action == "community_status" || action == "community_update") &&
-        (object.size() != 1U || !keys_allowed(object, {"action"})))
-      return core::Result<Mutation>::failure(
-          invalid_request("Community status and update accept only the action"));
-    if (action == "community_search" &&
-        (!keys_allowed(object, {"action", "search", "offset"}) ||
-         object.size() != 3U || !valid_required_text(object["search"], 64U) ||
-         object["offset"].is<bool>() || !object["offset"].is<unsigned>() ||
-         object["offset"].as<unsigned>() > 100000U))
-      return core::Result<Mutation>::failure(invalid_request(
-          "Community search needs a 1-64 byte query and bounded unsigned offset"));
-    if (action == "community_select" &&
-        (!keys_allowed(object, {"action", "id", "import_name"}) ||
-         (object.size() != 2U && object.size() != 3U) ||
-         !valid_required_text(object["id"], maximum_community_id_bytes) ||
-         (has_key(object, "import_name") &&
-          !valid_required_text(object["import_name"], 64U))))
-      return core::Result<Mutation>::failure(invalid_request(
-          "Community selection needs a bounded catalog ID and optional import name"));
     if (action == "discard_recovery" &&
         (object.size() != 2U || !keys_allowed(object, {"action", "confirm"}) ||
          std::string(object["confirm"] | "") != "SKIP RECOVERY"))
       return core::Result<Mutation>::failure(invalid_request(
           "Skipping recovery requires the exact confirmation SKIP RECOVERY"));
-    if (action != "community_select" && action != "discard_recovery" &&
+    if (action != "discard_recovery" &&
         !keys_allowed(object, {"action", "entity", "offset", "search", "search_field", "material", "article_number", "vendor_id", "filament_id",
-                              "entry", "contract", "import_token", "import_name", "spool", "spool_id", "previous_spool_id", "mode", "uid", "generation", "target_checksum", "current_checksum", "changes", "expected"}))
+                              "spool", "spool_id", "previous_spool_id", "mode", "uid", "generation", "target_checksum", "current_checksum", "changes", "expected"}))
       return core::Result<Mutation>::failure(invalid_request("Unsupported writer fields; raw writes are forbidden"));
     if ((action == "update_spool" || action == "update_filament") &&
         (!keys_allowed(object, {"action", "spool_id", "filament_id", "changes", "expected"}) ||
@@ -960,8 +936,7 @@ core::Result<Mutation> parse_mutation(
     if ((action == "clear_preview" || action == "retry_unlink") && object.size() != 1)
       return core::Result<Mutation>::failure(invalid_request("Clear preview and unlink retry accept only the action"));
     mutation.kind = MutationKind::tag_writer;
-    mutation.idempotency_exempt = action == "catalog" ||
-        action == "community_status" || action == "community_search";
+    mutation.idempotency_exempt = action == "catalog";
     mutation.payload = TagWriterMutation{request.body};
     return core::Result<Mutation>::success(std::move(mutation));
   }

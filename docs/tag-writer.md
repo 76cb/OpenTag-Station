@@ -20,11 +20,11 @@ Both front ends send the same JSON command: the touchscreen through
 published as a snapshot (`GET /api/v1/tag-writer`) with a `phase` field.
 
 Actions: `catalog`, `preview`, `write`, `retry_association`, `update_spool`, `update_filament`,
-`create_spool`, `clear_preview`, `clear`, `retry_unlink`, `discard_recovery`.
-The `community_*`, `import_preview` and `import` actions are rejected while the Community
-catalog is disabled.
+`create_spool`, `clear_preview`, `clear`, `retry_unlink`, `discard_recovery`. Any other
+action, including the `community_*`, `import_preview` and `import` actions of the Community
+catalog that was removed in 1.0.1-beta.4, is rejected as unknown.
 
-`catalog` (and the disabled `community_status` / `community_search`) is idempotency-exempt
+`catalog` is idempotency-exempt
 (`Mutation::idempotency_exempt`): it still needs an `Idempotency-Key`, but never takes one of the
 32 ledger slots, so searching cannot fill the ledger. `catalog` asks Spoolman for `limit=8`; if
 the response exceeds the HTTP limit, or the resulting view exceeds `writer_view_maximum_bytes`,

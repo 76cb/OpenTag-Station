@@ -105,7 +105,7 @@ with `-fstack-usage`; the stack tools read the compiler's `.su` files.
 
 | Tool | Fails when |
 |---|---|
-| `tools/check_production_memory.py` | `.dram0.data` + `.dram0.bss` + `.noinit` exceed 120,000 bytes; the LVGL internal pool symbol `work_mem_int` is linked; `opentag_lvgl_pool` is missing; Community catalog code is linked while the feature is off |
+| `tools/check_production_memory.py` | `.dram0.data` + `.dram0.bss` + `.noinit` exceed 120,000 bytes; the LVGL internal pool symbol `work_mem_int` is linked; `opentag_lvgl_pool` is missing; code of the removed Community catalog or its gzip decoder is linked |
 | `tools/analyze_stack_usage.py` | No `.su` files exist. Otherwise it only prints the largest frames. |
 | `tools/check_production_nfc_stack_usage.py` | The deepest modelled call chain on `opentag-backend` (tag read and decode, writer, clear, Spoolman and FilaBridge requests, settings and recovery-file writes, weight saving) leaves less than `BackendWorker::safety_bytes` (4,096) |
 | `tools/check_production_http_stack_usage.py` | An ordinary API route leaves less than 4,096 bytes on httpd after a 2,048-byte allowance, or the upload route less than 2,048 |

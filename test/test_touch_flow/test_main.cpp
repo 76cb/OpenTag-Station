@@ -1,12 +1,8 @@
-#include "config/product_features.hpp"
 #include <unity.h>
 #include "ui/tag_flow.hpp"
 #include "ui/touch_input.hpp"
 #include "fixtures.hpp"
-#include "network/gzip_stream.hpp"
 #include "network/bounded_response_body.hpp"
-#include "gzip_fixture.hpp"
-#include "community_gzip_fixture.hpp"
 using namespace opentag;
 using network::StreamDisposition;
 using namespace opentag::ui;
@@ -186,19 +182,13 @@ void clear_retry_to_immediate_assign() {
   receive(f,R"({"phase":"cleared"})");TEST_ASSERT_TRUE(f.page==TagPage::reuse);TEST_ASSERT_TRUE(has(f.screen(),TagAction::spools));
   c=command(f.act(TagAction::spools));TEST_ASSERT_EQUAL_STRING("catalog",c["action"]);
 }
-void filament_and_community_create() {
+void filament_create() {
   TagFlow f;f.act(TagAction::filaments);receive(f,R"({"phase":"catalog","items":[{"id":12,"weight":1000,"spool_weight":130,"name":"PLA"}]})");f.act(TagAction::row0);f.act(TagAction::use);
   TEST_ASSERT_TRUE(f.page==TagPage::create);TEST_ASSERT_EQUAL_FLOAT(130,f.tare);
   auto c=command(f.act(TagAction::create));TEST_ASSERT_EQUAL(12,c["spool"]["filament_id"].as<int>());
-  if(!opentag::config::community_enabled){f.waiting=false;f.page=TagPage::sources;TEST_ASSERT_FALSE(has(f.screen(),TagAction::community));TEST_ASSERT_TRUE(f.act(TagAction::community).empty());TEST_ASSERT_TRUE(f.act(TagAction::community_update).empty());return;}
-  c=command(f.act(TagAction::community));TEST_ASSERT_EQUAL_STRING("community_status",c["action"]);
-  receive(f,R"({"phase":"community_catalog","catalog_state":"ready","catalog_version":"2026-09-18"})");
-  f.query="SUNLU PLA";c=command(f.browse());TEST_ASSERT_EQUAL_STRING("community_search",c["action"]);
-  TEST_ASSERT_EQUAL_STRING("SUNLU PLA",c["search"]);TEST_ASSERT_EQUAL(0,c["offset"].as<unsigned>());
-  TEST_ASSERT_FALSE(c.containsKey("entity"));
-  receive(f,R"({"phase":"community","items":[{"id":"public-filament","name":"PLA"}]})");f.act(TagAction::row0);c=command(f.act(TagAction::use));TEST_ASSERT_EQUAL_STRING("community_select",c["action"]);
-  receive(f,R"({"phase":"import_preview","import_token":"TOKEN"})");c=command(f.act(TagAction::import));TEST_ASSERT_EQUAL_STRING("TOKEN",c["import_token"]);
-  receive(f,R"({"phase":"imported","filament":{"id":42,"weight":1000}})");TEST_ASSERT_FALSE(f.tare_known);f.tare=180;f.tare_known=true;f.waiting=false;c=command(f.act(TagAction::create));TEST_ASSERT_EQUAL(42,c["spool"]["filament_id"].as<int>());
+  // The sources page offers Spoolman spools and filaments only; the catalog removed in 1.0.1-beta.4 is gone.
+  f.waiting=false;f.page=TagPage::sources;const auto s=f.screen();
+  TEST_ASSERT_EQUAL(3,s.count);TEST_ASSERT_EQUAL_STRING("MY SPOOLS",s.buttons[0].text.c_str());TEST_ASSERT_EQUAL_STRING("MY FILAMENTS",s.buttons[1].text.c_str());TEST_ASSERT_EQUAL_STRING("BACK",s.buttons[2].text.c_str());
 }
 void stale_operation_rejected() {
   TagFlow f;f.operation=42;f.waiting=true;network::ResponseBody b(R"({"phase":"preview","operation_id":41})");TEST_ASSERT_FALSE(f.consume(b));TEST_ASSERT_TRUE(f.waiting);
@@ -219,68 +209,29 @@ void keyboard_value_and_validation() {
   in.value="Grün";in.press("DEL");in.press("DEL");TEST_ASSERT_EQUAL_STRING("Gr",in.value.c_str());
   s.mode=InputMode::numeric;s.initial="130";s.maximum_length=9;s.maximum=100000;in.open(s);TEST_ASSERT_TRUE(in.valid());in.value="nan";TEST_ASSERT_FALSE(in.valid());in.value="100001";TEST_ASSERT_FALSE(in.valid());in.value="1.5";in.spec.decimal=false;TEST_ASSERT_FALSE(in.valid());
 }
-void gzip_chunked_integrity_and_limits() {
-  for(unsigned chunk:{1U,7U,256U,1024U}) {
-    std::size_t received=0;
-    auto stream=network::make_external<network::GzipStream>([&]{return network::GzipStream([&](const std::uint8_t*,std::size_t n){received+=n;return StreamDisposition::next;},gzip_expanded);});
-    for(std::size_t i=0;i<sizeof(gzip_fixture);i+=chunk)TEST_ASSERT_TRUE(stream->feed(gzip_fixture+i,std::min<std::size_t>(chunk,sizeof(gzip_fixture)-i))==StreamDisposition::next);
-    TEST_ASSERT_TRUE(stream->finish());TEST_ASSERT_EQUAL(gzip_expanded,received);
-  }
-  auto bounded=network::make_external<network::GzipStream>([]{return network::GzipStream([](const std::uint8_t*,std::size_t){return StreamDisposition::next;},100);});
-  TEST_ASSERT_TRUE(bounded->feed(gzip_fixture,sizeof(gzip_fixture))==StreamDisposition::error);
-  auto corrupt=std::vector<std::uint8_t>(std::begin(gzip_fixture),std::end(gzip_fixture));corrupt[corrupt.size()-8]^=1;
-  auto stream=network::make_external<network::GzipStream>([]{return network::GzipStream([](const std::uint8_t*,std::size_t){return StreamDisposition::next;},gzip_expanded);});
-  TEST_ASSERT_TRUE(stream->feed(corrupt.data(),corrupt.size())==StreamDisposition::next);TEST_ASSERT_FALSE(stream->finish());
-}
-void gzip_explicit_completion_and_error() {
-  for(auto result:{StreamDisposition::complete,StreamDisposition::error}) {
-    unsigned calls=0;
-    auto stream=network::make_external<network::GzipStream>([&]{return network::GzipStream([&](const std::uint8_t*,std::size_t){++calls;return result;},gzip_expanded);});
-    // Deliberately omit trailer: only explicit COMPLETE may accept this.
-    TEST_ASSERT_TRUE(stream->feed(gzip_fixture,sizeof(gzip_fixture)-8)==result);
-    TEST_ASSERT_EQUAL(1,calls);TEST_ASSERT_EQUAL(result==StreamDisposition::complete,stream->finish());
-  }
-}
-void community_catalog_status_download_and_retry() {
-  if(!opentag::config::community_enabled)return;
-  network::OperationBudget normal,catalog;normal.begin(100);catalog.begin_catalog_update(100);
-  TEST_ASSERT_TRUE(normal.expired(20100));TEST_ASSERT_FALSE(catalog.expired(20100));
-  TEST_ASSERT_TRUE(catalog.expired(120100));
-  TagFlow f;auto c=command(f.act(TagAction::community));TEST_ASSERT_EQUAL_STRING("community_status",c["action"]);
-  receive(f,R"({"phase":"community_catalog","catalog_state":"not_installed"})");
-  TEST_ASSERT_NOT_EQUAL(std::string::npos,f.screen().body.find("Not installed"));
-  c=command(f.act(TagAction::community_update));TEST_ASSERT_EQUAL_STRING("community_update",c["action"]);
-  receive(f,R"({"phase":"catalog_downloading","completed_blocks":42})");
-  TEST_ASSERT_NOT_EQUAL(std::string::npos,f.screen().body.find("42%"));
-  receive(f,R"({"phase":"failed","message":"Community catalog update failed. Your existing catalog is still available."})");
-  TEST_ASSERT_TRUE(has(f.screen(),TagAction::retry));
-  c=command(f.act(TagAction::retry));TEST_ASSERT_EQUAL_STRING("community_update",c["action"]);
-}
 
 void production_sink_closes_on_disposition() {
-  for(bool gzip:{false,true})for(auto disposition:{StreamDisposition::complete,StreamDisposition::error}) {
-    network::HttpRequest request;request.maximum_stream_bytes=community_expanded;
+  static const std::uint8_t payload[64]={};
+  for(auto disposition:{StreamDisposition::complete,StreamDisposition::error}) {
+    network::HttpRequest request;request.maximum_stream_bytes=sizeof(payload)*4;
     unsigned calls=0,closed=0;
     request.response_consumer=[&](const std::uint8_t*,std::size_t){++calls;return disposition;};
-    network::BoundedResponseBody sink(request,gzip,[&]{++closed;});
-    TEST_ASSERT_EQUAL(0,sink.write(community_gzip,sizeof(community_gzip)-8));
+    network::BoundedResponseBody sink(request,[&]{++closed;});
+    TEST_ASSERT_EQUAL(0,sink.write(payload,sizeof(payload)));
     TEST_ASSERT_EQUAL(1,closed);TEST_ASSERT_EQUAL(1,calls);
     TEST_ASSERT_EQUAL(disposition==StreamDisposition::complete,sink.early_complete());
     TEST_ASSERT_EQUAL(disposition==StreamDisposition::error,sink.overflowed());
-    TEST_ASSERT_EQUAL(0,sink.write(community_gzip,1));TEST_ASSERT_EQUAL(1,calls);TEST_ASSERT_EQUAL(1,closed);
+    TEST_ASSERT_EQUAL(0,sink.write(payload,1));TEST_ASSERT_EQUAL(1,calls);TEST_ASSERT_EQUAL(1,closed);
   }
 }
-void production_sink_full_gzip_integrity() {
-  for(bool corrupt:{false,true}) {
-    network::HttpRequest request;request.maximum_stream_bytes=community_expanded;
-    request.response_consumer=[](const std::uint8_t*,std::size_t){return StreamDisposition::next;};
-    auto data=std::vector<std::uint8_t>(std::begin(community_gzip),std::end(community_gzip));
-    if(corrupt)data[data.size()-8]^=1;
-    unsigned closed=0;network::BoundedResponseBody sink(request,true,[&]{++closed;});
-    TEST_ASSERT_EQUAL(data.size(),sink.write(data.data(),data.size()));
-    TEST_ASSERT_EQUAL(!corrupt,sink.complete());TEST_ASSERT_FALSE(sink.early_complete());
-    TEST_ASSERT_EQUAL(0,closed);
-  }
+void production_sink_bounds_streamed_bytes() {
+  static const std::uint8_t payload[64]={};
+  network::HttpRequest request;request.maximum_stream_bytes=100;
+  unsigned closed=0,received=0;
+  request.response_consumer=[&](const std::uint8_t*,std::size_t n){received+=static_cast<unsigned>(n);return StreamDisposition::next;};
+  network::BoundedResponseBody sink(request,[&]{++closed;});
+  TEST_ASSERT_EQUAL(sizeof(payload),sink.write(payload,sizeof(payload)));TEST_ASSERT_TRUE(sink.complete());
+  TEST_ASSERT_EQUAL(0,sink.write(payload,sizeof(payload)));TEST_ASSERT_TRUE(sink.overflowed());TEST_ASSERT_EQUAL(1,closed);TEST_ASSERT_EQUAL(64,received);
 }
 
 }
@@ -288,7 +239,7 @@ void production_sink_full_gzip_integrity() {
 #include "train_cases.hpp"
 #include "rc23_cases.hpp"
 void setUp() {} void tearDown() {}
-int main() {UNITY_BEGIN();RUN_TEST(lifecycle);RUN_TEST(sensible_actions);RUN_TEST(bounded_paging_and_selection);RUN_TEST(short_pages_use_next_offset);RUN_TEST(reassign_review);RUN_TEST(review_warns_from_writer_preview);RUN_TEST(action_buttons_are_coloured_by_role);RUN_TEST(failed_lookup_still_offers_linking);RUN_TEST(created_spool_previews_once);RUN_TEST(reading_and_two_tags);RUN_TEST(loading_spool_says_what_it_does);RUN_TEST(spool_colour_ring);RUN_TEST(exact_confirmation);RUN_TEST(clear_retry_to_immediate_assign);RUN_TEST(filament_and_community_create);RUN_TEST(stale_operation_rejected);RUN_TEST(keyboard_geometry);RUN_TEST(keyboard_value_and_validation);RUN_TEST(gzip_chunked_integrity_and_limits);RUN_TEST(gzip_explicit_completion_and_error);RUN_TEST(community_catalog_status_download_and_retry);RUN_TEST(production_sink_closes_on_disposition);RUN_TEST(production_sink_full_gzip_integrity);RUN_TEST(rc10::assignment_dialog_only_affirmative_labels_confirm);RUN_TEST(rc10::progress_never_shows_blocks_for_spoolman_work);RUN_TEST(rc10::filament_review_formats_diameter);RUN_TEST(rc10::unknown_empty_spool_weight_must_be_entered);RUN_TEST(rc10::vendor_search_is_kept_while_paging);RUN_TEST(rc10::destructive_and_duplicate_actions);RUN_TEST(rc10::recovery_can_be_skipped_explicitly);RUN_TEST(rc10::metadata_candidates_can_be_chosen_on_the_touchscreen);
+int main() {UNITY_BEGIN();RUN_TEST(lifecycle);RUN_TEST(sensible_actions);RUN_TEST(bounded_paging_and_selection);RUN_TEST(short_pages_use_next_offset);RUN_TEST(reassign_review);RUN_TEST(review_warns_from_writer_preview);RUN_TEST(action_buttons_are_coloured_by_role);RUN_TEST(failed_lookup_still_offers_linking);RUN_TEST(created_spool_previews_once);RUN_TEST(reading_and_two_tags);RUN_TEST(loading_spool_says_what_it_does);RUN_TEST(spool_colour_ring);RUN_TEST(exact_confirmation);RUN_TEST(clear_retry_to_immediate_assign);RUN_TEST(filament_create);RUN_TEST(stale_operation_rejected);RUN_TEST(keyboard_geometry);RUN_TEST(keyboard_value_and_validation);RUN_TEST(production_sink_closes_on_disposition);RUN_TEST(production_sink_bounds_streamed_bytes);RUN_TEST(rc10::assignment_dialog_only_affirmative_labels_confirm);RUN_TEST(rc10::progress_never_shows_blocks_for_spoolman_work);RUN_TEST(rc10::filament_review_formats_diameter);RUN_TEST(rc10::unknown_empty_spool_weight_must_be_entered);RUN_TEST(rc10::vendor_search_is_kept_while_paging);RUN_TEST(rc10::destructive_and_duplicate_actions);RUN_TEST(rc10::recovery_can_be_skipped_explicitly);RUN_TEST(rc10::metadata_candidates_can_be_chosen_on_the_touchscreen);
   RUN_TEST(train::nfc_error_does_not_replace_recovery_instructions);
   RUN_TEST(train::recovery_prompt_survives_leaving_and_failed_retries);
   RUN_TEST(train::different_tag_after_removal_restarts_the_flow);
@@ -302,4 +253,4 @@ int main() {UNITY_BEGIN();RUN_TEST(lifecycle);RUN_TEST(sensible_actions);RUN_TES
   RUN_TEST(rc23::tag_actions_use_plain_names);
   RUN_TEST(rc23::unlinked_tag_waits_for_spoolman);
   RUN_TEST(rc23::writer_errors_are_shown_in_plain_words);
-  if(!opentag::config::community_enabled)export_touch_fixtures();return UNITY_END();}
+  export_touch_fixtures();return UNITY_END();}

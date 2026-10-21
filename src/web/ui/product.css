@@ -23,7 +23,6 @@
 
 /* Keep the library focused on results, with optional page refinements. */
 #inventory>.section-heading h2,#inventory>.section-heading .eyebrow,#settings>.section-heading,#printers>.section-heading h2,#printers>.section-heading .eyebrow{display:none}
-#inventory-content .writer-toolbar>.writer-source-choices:first-child{display:none}
 .writer-toolbar{grid-template-columns:1fr 1fr auto;align-items:end}
 .writer-toolbar>label:has(#writer-search){grid-column:1/-1}
 #writer-clear-search{grid-column:3;font-size:12px;padding:8px}

@@ -148,14 +148,9 @@ core::Result<HttpResponse> HttpTransport::perform(const HttpRequest& request) {
   const auto started = millis();
   BackendPhaseGuard released{"http_released", started};
   backend_memory_phase("before_http", 0, 0, started);
-  // Request-local budget: never extends the backend owner's normal budget.
-  OperationBudget catalog_budget;
-  if(request.catalog_update)catalog_budget.begin_catalog_update(started);
-  const auto& budget=request.catalog_update?catalog_budget:budget_;
+  const auto& budget=budget_;
   const auto deadline_error = [&]() {
-    return core::Result<HttpResponse>::failure(network_error(request.catalog_update?
-        "Community catalog update timed out; existing catalog retained":
-        "Backend operation deadline exceeded"));
+    return core::Result<HttpResponse>::failure(network_error("Backend operation deadline exceeded"));
   };
   if (budget.expired(millis())) return deadline_error();
   const auto parsed = parse_http_url(request.url);
@@ -169,7 +164,6 @@ core::Result<HttpResponse> HttpTransport::perform(const HttpRequest& request) {
       request.read_timeout_ms > 60000U || request.maximum_response_bytes == 0U ||
       request.maximum_response_bytes > 65536U || request.body.size() > 65536U ||
       request.headers.size() > 32U ||
-      (request.catalog_update && !request.response_consumer) ||
       (request.response_consumer && (request.maximum_stream_bytes == 0 ||
        request.maximum_stream_bytes > 64U*1024U*1024U || request.method != "GET"))) {
     return core::Result<HttpResponse>::failure(
@@ -218,7 +212,6 @@ core::Result<HttpResponse> HttpTransport::perform(const HttpRequest& request) {
   http.setReuse(false);
   const char* collected_headers[] = {"Content-Type","Content-Encoding"};
   http.collectHeaders(collected_headers, 2U);
-  if(request.accept_gzip&&request.response_consumer)http.addHeader("Accept-Encoding","gzip");
   for (const auto& header : request.headers) {
     if (header.first.empty() || header.first.size() > 128U ||
         header.second.size() > 1024U || header.first.find('\n') != std::string::npos ||
@@ -237,8 +230,7 @@ core::Result<HttpResponse> HttpTransport::perform(const HttpRequest& request) {
       reinterpret_cast<std::uint8_t*>(const_cast<char*>(request.body.data())),
       request.body.size());
   if (status_code <= 0) {
-    if (budget.expired(millis()) || (request.catalog_update &&
-        (status_code == HTTPC_ERROR_READ_TIMEOUT || bounded.connection_errno() == ETIMEDOUT))) {
+    if (budget.expired(millis())) {
       http.end(); return deadline_error();
     }
     if (const auto* reason = connection_failure_message(bounded.connection_errno())) {
@@ -257,18 +249,17 @@ core::Result<HttpResponse> HttpTransport::perform(const HttpRequest& request) {
         network_error("HTTP response exceeds configured limit", false));
   }
   const std::string encoding=http.header("Content-Encoding").c_str();
-  if(!encoding.empty()&&encoding!="identity"&&!(encoding=="gzip"&&request.accept_gzip&&request.response_consumer)) {
+  if(!encoding.empty()&&encoding!="identity") {
     http.end();return core::Result<HttpResponse>::failure(network_error("Unsupported HTTP content encoding",false));
   }
-  BoundedResponseStream response_stream(request,encoding=="gzip",[&]{bounded.stop();});
+  BoundedResponseStream response_stream(request,[&]{bounded.stop();});
   const auto copied = http.writeToStream(&response_stream);
   if (response_stream.failed()) {
     http.end();
     return core::Result<HttpResponse>::failure({core::ErrorCategory::backend_unavailable,
         "Backend response PSRAM allocation failed; retry later", true});
   }
-  if (budget.expired(millis()) ||
-      (request.catalog_update && copied == HTTPC_ERROR_READ_TIMEOUT)) {
+  if (budget.expired(millis())) {
     http.end();
     return deadline_error();
   }

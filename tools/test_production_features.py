@@ -1,29 +1,32 @@
 """Production release boundaries, including app-only OTA and factory wording."""
 from pathlib import Path
 import unittest
-from tools.product_features import community_enabled
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
 class ProductionBoundaries(unittest.TestCase):
-    def test_community_default_is_disabled(self):
-        self.assertFalse(community_enabled())
+    def test_community_catalog_stays_deleted(self):
+        # Deleted in 1.0.1-beta.4 (#86). The sources, the feature switch, its test environment
+        # and the catalog pack must not come back.
+        for path in ('src/config/product_features.hpp', 'src/services/community_catalog.cpp',
+                     'src/services/community_catalog_updater.cpp', 'src/network/gzip_stream.hpp',
+                     'src/network/miniz', 'src/platform/storage/community_catalog_store.cpp',
+                     'community/community.pack', 'test/test_community_catalog'):
+            self.assertFalse((ROOT / path).exists(), path)
         config = (ROOT / 'platformio.ini').read_text()
-        production = config.split('[env:wt32-sc01-plus]', 1)[1].split('[env:native]', 1)[0]
-        self.assertNotIn('OPENTAG_ENABLE_COMMUNITY=1', production)
-
-    def test_backend_installs_no_catalog_callbacks_in_production(self):
-        source = (ROOT / 'src/application/tag_writer_commands.cpp').read_text()
-        import re
-        production = re.sub(r'#if OPENTAG_ENABLE_COMMUNITY.*?#endif', '', source, flags=re.S)
-        for call in ('community_catalog_.search', 'community_catalog_.detail',
-                     'community_catalog_.status', 'community_updater_.update'):
-            self.assertNotIn(call, production)
-        for path in (ROOT / 'src/application').glob('*.cpp'):
-            if path.name != 'tag_writer_commands.cpp':
-                self.assertNotIn('community_catalog_.', path.read_text())
-                self.assertNotIn('community_updater_.', path.read_text())
+        self.assertNotIn('OPENTAG_ENABLE_COMMUNITY', config)
+        self.assertNotIn('native-community', config)
+        for path in list((ROOT / 'src').rglob('*.cpp')) + list((ROOT / 'src').rglob('*.hpp')):
+            text = path.read_text()
+            self.assertNotIn('OPENTAG_ENABLE_COMMUNITY', text, path)
+            self.assertNotIn('community_catalog', text, path)
+            self.assertNotIn('GzipStream', text, path)
+        # A8: a factory reset still deletes the catalog files an old station may hold.
+        storage = (ROOT / 'src/platform/storage/storage_service.cpp').read_text()
+        reset_paths = storage.split('reset_paths[] = {', 1)[1].split('};', 1)[0]
+        for leftover in ('"/community.new"', '"/community.old"', '"/community.pack"'):
+            self.assertIn(leftover, reset_paths)
 
     def test_ota_uses_only_inactive_application_partition(self):
         source = (ROOT / 'src/platform/ota/esp32_ota_platform.cpp').read_text()

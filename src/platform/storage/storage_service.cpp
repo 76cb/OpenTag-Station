@@ -133,6 +133,11 @@ core::Result<void> remove_configuration_documents() {
       // is the user's explicit request to forget pending tag recovery too.
       "/writer-recovery.new",
       "/writer-recovery.bin",
+      // Files of the Community catalog removed in 1.0.1-beta.4. A station
+      // flashed before 1.0.0-rc.9 may still hold them (#85, A8).
+      "/community.new",
+      "/community.old",
+      "/community.pack",
       configuration_backup_path,
       configuration_staging_path,
       configuration_path,
