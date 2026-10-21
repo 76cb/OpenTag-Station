@@ -114,8 +114,9 @@ The station writes to two things you care about, your tags and your inventory, s
 | NFC reader | ELECHOUSE NFC_ST25R3916B module, switched to I²C mode |
 | Tags | Blank NXP ICODE SLIX2 stickers (ISO 15693 / NFC-V), for OpenPrintTag. NTAG and MIFARE tags are not detected yet (see the [roadmap](#roadmap)). See [Which tags it works with](#which-tags-it-works-with). |
 | Power | Regulated 5 V over USB |
+| Enclosure | A three-part printed case, no supports, about 299 g of filament: [OpenTag-Station on Printables](https://www.printables.com/model/1885872-opentag-station) (CC BY-NC-SA 4.0). Assembly is in the [manual](https://76cb.github.io/OpenTag-Station-Docs/hardware/mechanical/). |
 
-There is exactly one supported controller and one supported reader, with fixed pins, so buy the parts named in the [parts list](https://76cb.github.io/OpenTag-Station-Docs/hardware/bill-of-materials/) rather than look-alikes. There is no reference enclosure; you design the scale platform yourself.
+There is exactly one supported controller and one supported reader, with fixed pins, so buy the parts named in the [parts list](https://76cb.github.io/OpenTag-Station-Docs/hardware/bill-of-materials/) rather than look-alikes. The STL files live on Printables, not in this repository.
 
 <p align="center">
   <img src="documentation-site/docs/assets/images/wiring/system.svg" width="860" alt="Wiring diagram: the WT32-SC01 Plus expansion connector to the NAU7802 scale board and the ST25R3916B NFC module">
@@ -138,7 +139,7 @@ On any other Spoolman or FilaBridge version the station stays connected and read
 
 ## Get started
 
-1. **Build it.** Follow the [parts list](https://76cb.github.io/OpenTag-Station-Docs/hardware/bill-of-materials/) and the [wiring guide](https://76cb.github.io/OpenTag-Station-Docs/hardware/wiring/).
+1. **Build it.** Follow the [parts list](https://76cb.github.io/OpenTag-Station-Docs/hardware/bill-of-materials/) and the [wiring guide](https://76cb.github.io/OpenTag-Station-Docs/hardware/wiring/), and print the [case](https://www.printables.com/model/1885872-opentag-station).
 2. **Install the firmware.** Connect the board with a USB data cable and open the [USB installer](https://76cb.github.io/OpenTag-Station/) ([guide](https://76cb.github.io/OpenTag-Station-Docs/installation/web-flasher/)). A USB install erases all settings and the scale calibration.
 3. **Join your Wi-Fi.** The touchscreen shows an open setup network named `OpenTag-Setup-XXXX`. Enter your Wi-Fi on the touchscreen, or join that network and open `http://192.168.4.1/` ([guide](https://76cb.github.io/OpenTag-Station-Docs/getting-started/first-boot/)). Afterwards the station is at `http://opentag-station.local/`.
 4. **Prepare Spoolman.** On Spoolman 0.27 or later there is nothing to do. On older versions, add two extra fields of type **Text** to the **Spool** entity, with the keys `opentag_instance_uuid` and `nfc_uid` ([how](https://76cb.github.io/OpenTag-Station-Docs/inventory/custom-fields/)). Without them the station cannot link a tag to a spool.
