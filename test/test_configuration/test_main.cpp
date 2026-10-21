@@ -1069,6 +1069,59 @@ void test_first_run_navigation_allows_tokenless_setup_completion() {
   TEST_ASSERT_FALSE(setup.next().ok());
 }
 
+void test_setup_skips_printer_selection_without_filabridge() {
+  MemoryDocumentStore documents;
+  LegacyScaleStore legacy;
+  ConfigurationService configuration(documents, legacy);
+  TEST_ASSERT_TRUE(configuration.initialize().ok());
+  TEST_ASSERT_TRUE(configuration.snapshot().filabridge.url.empty());
+  FirstRunSetup setup(configuration);
+
+  TEST_ASSERT_FALSE(setup.step_applies(SetupStep::printer_selection));
+  TEST_ASSERT_TRUE(setup.step_applies(SetupStep::filabridge));
+  TEST_ASSERT_TRUE(setup.go_to(SetupStep::filabridge).ok());
+  TEST_ASSERT_TRUE(setup.next().ok());
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(SetupStep::scale_calibration),
+      static_cast<int>(setup.current()));
+  TEST_ASSERT_TRUE(setup.previous().ok());
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(SetupStep::filabridge),
+      static_cast<int>(setup.current()));
+  TEST_ASSERT_EQUAL_UINT8(7U, setup.step_total());
+  TEST_ASSERT_EQUAL_UINT8(4U, setup.step_position(SetupStep::filabridge));
+  TEST_ASSERT_EQUAL_UINT8(5U, setup.step_position(SetupStep::scale_calibration));
+  TEST_ASSERT_EQUAL_UINT8(7U, setup.step_position(SetupStep::ready));
+}
+
+void test_setup_offers_printer_selection_with_filabridge() {
+  MemoryDocumentStore documents;
+  LegacyScaleStore legacy;
+  ConfigurationService configuration(documents, legacy);
+  TEST_ASSERT_TRUE(configuration.initialize().ok());
+  auto updated = configuration.snapshot();
+  updated.filabridge.url = "http://filabridge.local:5000";
+  TEST_ASSERT_TRUE(configuration.replace(updated).ok());
+  FirstRunSetup setup(configuration);
+
+  TEST_ASSERT_TRUE(setup.step_applies(SetupStep::printer_selection));
+  TEST_ASSERT_TRUE(setup.go_to(SetupStep::filabridge).ok());
+  TEST_ASSERT_TRUE(setup.next().ok());
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(SetupStep::printer_selection),
+      static_cast<int>(setup.current()));
+  TEST_ASSERT_TRUE(setup.next().ok());
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(SetupStep::scale_calibration),
+      static_cast<int>(setup.current()));
+  TEST_ASSERT_TRUE(setup.previous().ok());
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(SetupStep::printer_selection),
+      static_cast<int>(setup.current()));
+  TEST_ASSERT_EQUAL_UINT8(8U, setup.step_total());
+  TEST_ASSERT_EQUAL_UINT8(5U, setup.step_position(SetupStep::printer_selection));
+}
+
 const char* newer_schema_document = R"json({
   "schema_version": 4,
   "hardware_id": "wt32-sc01-plus-rev-a",
@@ -1376,6 +1429,8 @@ int main(int, char**) {
   RUN_TEST(test_confirmed_spool_mapping_round_trips_and_conflicts_are_rejected);
   RUN_TEST(test_browser_setup_completion_is_transactional_and_tokenless);
   RUN_TEST(test_first_run_navigation_allows_tokenless_setup_completion);
+  RUN_TEST(test_setup_skips_printer_selection_without_filabridge);
+  RUN_TEST(test_setup_offers_printer_selection_with_filabridge);
   RUN_TEST(test_newer_schema_document_is_never_overwritten_by_older_firmware);
   RUN_TEST(test_newer_schema_backup_is_not_overwritten_when_primary_is_missing);
   RUN_TEST(test_unreadable_document_is_not_reported_as_newer_firmware);

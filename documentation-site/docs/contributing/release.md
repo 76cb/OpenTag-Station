@@ -5,7 +5,19 @@ publishes it, then updates the USB installer from the same files.
 Before a release, run the [hardware acceptance](testing.md#hardware-acceptance) checks on a real
 station.
 
-The current version is `1.0.0`.
+The current version is `1.0.1-beta.2`.
+
+## Version names
+
+| Version | Meaning | Published as |
+|---|---|---|
+| `1.0.1-beta.1`, `1.0.1-beta.2` | Work in progress for a coming version. May lose data. For testers. | GitHub **pre-release** with a warning at the top. **Not** on the USB installer. |
+| `1.0.1-rc.1` | Release candidate: complete, being checked on hardware. Use only after the beta stage. | Same as a beta. |
+| `1.0.1` | Stable. Hardware acceptance done. | GitHub release and USB installer. |
+
+Any version with a hyphen is a pre-release. The public installer keeps installing the latest
+stable version until a stable one replaces it. Order is `beta` before `rc` before the plain
+version, and `bump_version.py` refuses a version that sorts lower than the current one.
 
 ## Steps
 
@@ -24,9 +36,9 @@ The current version is `1.0.0`.
 | `version` | Reads `VERSION` and checks whether the release `v<VERSION>` exists. A tag without a release stops the run. |
 | `validate` | Runs the `documentation`, `ui-review` and `firmware` jobs of `ci.yml` on that commit. |
 | `publish` | Verifies the files that run built and their checksums, and creates the GitHub release and its tag `v<VERSION>`, with the version's changelog section as its text. A version with a hyphen is a pre-release. |
-| `installer`, `deploy-installer` | Build the installer page from the release's own factory image and manifest and deploy it to <https://76cb.github.io/OpenTag-Station/>. |
+| `installer`, `deploy-installer` | For a stable version only: build the installer page from the release's own factory image and manifest and deploy it to <https://76cb.github.io/OpenTag-Station/>. A pre-release skips both jobs. |
 
-The release and the installer therefore always carry the same build, and a failure stops
+For a stable version the release and the installer carry the same build, and a failure stops
 everything after it. A push to `main` that does not change `VERSION` publishes nothing.
 To redeploy the installer, start `release.yml` by hand on `main` (Actions → Release → Run
 workflow); when the release already exists it only redeploys the installer from it.

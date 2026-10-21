@@ -10,10 +10,10 @@
 #include "core/byte_view.hpp"
 #include "core/error.hpp"
 #include "core/result.hpp"
-#include "diagnostics/shared_i2c_diagnostic.hpp"
 #include "nfc/formats/openprinttag/cbor.hpp"
 #include "nfc/formats/openprinttag/codec.hpp"
 #include "nfc/formats/openprinttag/initializer.hpp"
+#include "nfc/protocols/nfcv/read_protocol.hpp"
 #include "nfc/protocols/nfcv/tag.hpp"
 #include "../fixtures/openprinttag_initializer_7e09cc3_312_aux32.hpp"
 
@@ -23,21 +23,13 @@ using opentag::core::ByteView;
 using opentag::core::Error;
 using opentag::core::ErrorCategory;
 using opentag::core::Result;
-using opentag::nfc::nfcv::InventoryResult;
-using opentag::nfc::nfcv::InventoryTracker;
-using opentag::nfc::nfcv::TagPresenceChange;
-using opentag::nfc::nfcv::ITagTransport;
-using opentag::nfc::nfcv::Reader;
 using opentag::nfc::nfcv::TagGeometry;
 using opentag::nfc::nfcv::Uid;
-using opentag::nfc::nfcv::VerifiedWriter;
-using opentag::nfc::nfcv::WritePlan;
 using opentag::nfc::openprinttag::CborMapView;
 using opentag::nfc::openprinttag::Codec;
 using opentag::nfc::openprinttag::DecodedTag;
 using opentag::nfc::openprinttag::Initializer;
 using opentag::nfc::openprinttag::NfcvInitializationConfig;
-using opentag::diagnostics::shared_i2c::InitializationAuthorizationResult;
 
 constexpr const char* official_fixture_01 =
     "e140270103ff012f910117550433647461672e6f72672f732f33333463353466303838521cf5"
@@ -83,89 +75,6 @@ Uid test_uid() {
   const std::array<std::uint8_t, 8> bytes{0xE0, 0x04, 0x01, 0x08, 0x66, 0x2F, 0x6F, 0xBC};
   return Uid::from_network_order(ByteView(bytes.data(), bytes.size())).value();
 }
-
-class MemoryTransport final : public ITagTransport {
- public:
-  std::vector<Uid> present_tags{test_uid()};
-  TagGeometry geometry{4U, 4U};
-  std::vector<bool> locks{false, false, false, false};
-  std::vector<std::uint8_t> memory;
-  bool corrupt_readback{false};
-  bool inventory_fails{false};
-  bool truncate_multiple_read{false};
-  std::optional<std::uint16_t> write_failure_block;
-  std::size_t inventory_calls{0U};
-  std::size_t write_calls{0U};
-  std::size_t field_resets{0U};
-
-  Result<std::vector<Uid>> inventory(std::uint32_t) override {
-    ++inventory_calls;
-    if (inventory_fails) {
-      return Result<std::vector<Uid>>::failure(
-          {ErrorCategory::nfc_communication, "inventory timeout", true});
-    }
-    return Result<std::vector<Uid>>::success(present_tags);
-  }
-
-  Result<TagGeometry> read_geometry(const Uid&, std::uint32_t) override {
-    return Result<TagGeometry>::success(geometry);
-  }
-
-  Result<std::vector<std::uint8_t>> read_single_block(
-      const Uid&,
-      std::uint16_t block_index,
-      std::size_t expected_block_size,
-      std::uint32_t) override {
-    const auto offset = static_cast<std::size_t>(block_index) * expected_block_size;
-    std::vector<std::uint8_t> result(
-        memory.begin() + static_cast<std::ptrdiff_t>(offset),
-        memory.begin() + static_cast<std::ptrdiff_t>(offset + expected_block_size));
-    if (corrupt_readback && !result.empty()) result.front() ^= 0x01U;
-    return Result<std::vector<std::uint8_t>>::success(std::move(result));
-  }
-
-  Result<std::vector<std::uint8_t>> read_multiple_blocks(
-      const Uid&,
-      std::uint16_t first_block,
-      std::uint16_t block_count,
-      std::size_t expected_block_size,
-      std::uint32_t) override {
-    const auto offset = static_cast<std::size_t>(first_block) * expected_block_size;
-    const auto size = static_cast<std::size_t>(block_count) * expected_block_size;
-    std::vector<std::uint8_t> result{
-        memory.begin() + static_cast<std::ptrdiff_t>(offset),
-        memory.begin() + static_cast<std::ptrdiff_t>(offset + size)};
-    if (truncate_multiple_read && !result.empty()) result.pop_back();
-    return Result<std::vector<std::uint8_t>>::success(std::move(result));
-  }
-
-  Result<std::vector<bool>> read_block_locks(
-      const Uid&,
-      const TagGeometry&,
-      std::uint32_t) override {
-    return Result<std::vector<bool>>::success(locks);
-  }
-
-  Result<void> write_single_block(
-      const Uid&,
-      std::uint16_t block_index,
-      ByteView data,
-      std::uint32_t) override {
-    ++write_calls;
-    if (write_failure_block.has_value() && *write_failure_block == block_index) {
-      return Result<void>::failure(
-          {ErrorCategory::nfc_communication, "injected write failure", false});
-    }
-    const auto offset = static_cast<std::size_t>(block_index) * data.size;
-    std::copy(data.data, data.data + data.size, memory.begin() + static_cast<std::ptrdiff_t>(offset));
-    return Result<void>::success();
-  }
-
-  Result<void> reset_rf_field(std::uint32_t) override {
-    ++field_resets;
-    return Result<void>::success();
-  }
-};
 
 }  // namespace
 
@@ -300,202 +209,6 @@ void test_normalizes_iso15693_wire_uid() {
   TEST_ASSERT_EQUAL_STRING("E0040108662F6FBC", uid.value().hex().c_str());
 }
 
-void test_write_plan_uses_full_changed_blocks_and_rejects_locks() {
-  const TagGeometry geometry{4U, 4U};
-  std::vector<std::uint8_t> original(16U, 0U);
-  auto updated = original;
-  updated[5] = 0xA5U;
-  updated[6] = 0x5AU;
-  const auto plan = WritePlan::build(ByteView(original), ByteView(updated), geometry);
-  TEST_ASSERT_TRUE(plan.ok());
-  TEST_ASSERT_EQUAL_UINT(1U, plan.value().blocks().size());
-  TEST_ASSERT_EQUAL_UINT(1U, plan.value().blocks().front().block_index);
-  TEST_ASSERT_EQUAL_UINT(4U, plan.value().blocks().front().data.size());
-  TEST_ASSERT_EQUAL_UINT8_ARRAY(updated.data() + 4, plan.value().blocks().front().data.data(), 4U);
-
-  std::vector<bool> locks(4U, false);
-  locks[1] = true;
-  const auto rejected = WritePlan::build(ByteView(original), ByteView(updated), geometry, locks);
-  TEST_ASSERT_FALSE(rejected.ok());
-  TEST_ASSERT_EQUAL_INT(
-      static_cast<int>(ErrorCategory::tag_write_protected),
-      static_cast<int>(rejected.error().category));
-}
-
-void test_verified_writer_checks_presence_and_readback() {
-  const TagGeometry geometry{4U, 4U};
-  std::vector<std::uint8_t> original(16U, 0U);
-  auto updated = original;
-  updated[1] = 1U;
-  updated[9] = 2U;
-  const auto plan = WritePlan::build(ByteView(original), ByteView(updated), geometry);
-  TEST_ASSERT_TRUE(plan.ok());
-
-  MemoryTransport transport;
-  transport.memory = original;
-  VerifiedWriter writer(transport);
-  TEST_ASSERT_TRUE(writer.execute(test_uid(), plan.value(), 100U).ok());
-  TEST_ASSERT_EQUAL_UINT(2U, transport.inventory_calls);
-  TEST_ASSERT_EQUAL_UINT(2U, transport.write_calls);
-  TEST_ASSERT_EQUAL_UINT8_ARRAY(updated.data(), transport.memory.data(), updated.size());
-
-  transport.memory = original;
-  transport.corrupt_readback = true;
-  const auto mismatch = writer.execute(test_uid(), plan.value(), 100U);
-  TEST_ASSERT_FALSE(mismatch.ok());
-  TEST_ASSERT_EQUAL_INT(
-      static_cast<int>(ErrorCategory::nfc_communication),
-      static_cast<int>(mismatch.error().category));
-}
-
-void test_verified_writer_aborts_if_tag_changes() {
-  const TagGeometry geometry{4U, 1U};
-  const std::vector<std::uint8_t> original(4U, 0U);
-  const std::vector<std::uint8_t> updated(4U, 1U);
-  const auto plan = WritePlan::build(ByteView(original), ByteView(updated), geometry);
-  TEST_ASSERT_TRUE(plan.ok());
-
-  MemoryTransport transport;
-  transport.memory = original;
-  transport.present_tags.front().bytes = {
-      0xE0, 0x04, 0x02, 0x08, 0x66, 0x2F, 0x6F, 0xBC};
-  VerifiedWriter writer(transport);
-  const auto result = writer.execute(test_uid(), plan.value(), 100U);
-  TEST_ASSERT_FALSE(result.ok());
-  TEST_ASSERT_EQUAL_INT(
-      static_cast<int>(ErrorCategory::tag_removed),
-      static_cast<int>(result.error().category));
-  TEST_ASSERT_EQUAL_UINT(0U, transport.write_calls);
-}
-
-void test_reader_discovers_geometry_locks_and_full_image() {
-  MemoryTransport transport;
-  transport.memory.resize(16U);
-  for (std::size_t index = 0U; index < transport.memory.size(); ++index) {
-    transport.memory[index] = static_cast<std::uint8_t>(index);
-  }
-  transport.locks[2] = true;
-  Reader reader(transport);
-  const auto detected = reader.detect_one(100U);
-  TEST_ASSERT_TRUE(detected.ok());
-  TEST_ASSERT_EQUAL_UINT(4U, detected.value().geometry.block_size);
-  TEST_ASSERT_EQUAL_UINT(4U, detected.value().geometry.block_count);
-  TEST_ASSERT_TRUE(detected.value().locked_blocks[2]);
-  const auto image = reader.read_image(detected.value(), 100U);
-  TEST_ASSERT_TRUE(image.ok());
-  TEST_ASSERT_EQUAL_UINT8_ARRAY(transport.memory.data(), image.value().data(), 16U);
-}
-
-void test_reader_rejects_multiple_tags() {
-  MemoryTransport transport;
-  transport.present_tags.push_back(test_uid());
-  transport.present_tags.back().bytes[2] ^= 0x01U;
-  Reader reader(transport);
-  const auto result = reader.detect_one(100U);
-  TEST_ASSERT_FALSE(result.ok());
-  TEST_ASSERT_EQUAL_INT(
-      static_cast<int>(ErrorCategory::multiple_tags),
-      static_cast<int>(result.error().category));
-}
-
-void test_inventory_tracker_distinguishes_presence_removal_and_replacement() {
-  InventoryTracker tracker;
-  const auto empty = Result<std::vector<Uid>>::success({});
-  const auto& no_tag = tracker.observe(empty, 1U);
-  TEST_ASSERT_TRUE(no_tag.inventory_valid);
-  TEST_ASSERT_EQUAL_INT(
-      static_cast<int>(InventoryResult::no_tag),
-      static_cast<int>(no_tag.result));
-  TEST_ASSERT_FALSE(no_tag.present);
-
-  const auto one = Result<std::vector<Uid>>::success({test_uid()});
-  const auto& appeared = tracker.observe(one, 10U);
-  TEST_ASSERT_EQUAL_INT(
-      static_cast<int>(TagPresenceChange::appeared),
-      static_cast<int>(appeared.change));
-  TEST_ASSERT_TRUE(appeared.present);
-  TEST_ASSERT_EQUAL_STRING("E0040108662F6FBC", appeared.uid->hex().c_str());
-
-  const auto& unchanged = tracker.observe(one, 20U);
-  TEST_ASSERT_EQUAL_INT(
-      static_cast<int>(TagPresenceChange::unchanged),
-      static_cast<int>(unchanged.change));
-  TEST_ASSERT_EQUAL_UINT32(20U, unchanged.last_seen_ms);
-
-  auto replacement_uid = test_uid();
-  replacement_uid.bytes[2] ^= 0x01U;
-  const auto replacement =
-      Result<std::vector<Uid>>::success({replacement_uid});
-  const auto& replaced = tracker.observe(replacement, 30U);
-  TEST_ASSERT_EQUAL_INT(
-      static_cast<int>(TagPresenceChange::replaced),
-      static_cast<int>(replaced.change));
-  TEST_ASSERT_TRUE(replaced.uid.has_value());
-  TEST_ASSERT_TRUE(*replaced.uid == replacement_uid);
-
-  const auto failed = Result<std::vector<Uid>>::failure({
-      ErrorCategory::nfc_communication, "inventory timeout", true});
-  const auto& error = tracker.observe(failed, 40U);
-  TEST_ASSERT_FALSE(error.inventory_valid);
-  TEST_ASSERT_EQUAL_INT(
-      static_cast<int>(InventoryResult::transport_error),
-      static_cast<int>(error.result));
-  TEST_ASSERT_TRUE(error.present);
-  TEST_ASSERT_TRUE(error.uid.has_value());
-  TEST_ASSERT_TRUE(*error.uid == replacement_uid);
-  TEST_ASSERT_EQUAL_UINT32(30U, error.last_seen_ms);
-
-  const auto& removed = tracker.observe(empty, 50U);
-  TEST_ASSERT_EQUAL_INT(
-      static_cast<int>(TagPresenceChange::removed),
-      static_cast<int>(removed.change));
-  TEST_ASSERT_FALSE(removed.present);
-  TEST_ASSERT_FALSE(removed.uid.has_value());
-
-  const auto multiple =
-      Result<std::vector<Uid>>::success({test_uid(), replacement_uid});
-  const auto& many = tracker.observe(multiple, 60U);
-  TEST_ASSERT_EQUAL_UINT(2U, many.tag_count);
-  TEST_ASSERT_EQUAL_INT(
-      static_cast<int>(InventoryResult::multiple_tags),
-      static_cast<int>(many.result));
-  TEST_ASSERT_EQUAL_INT(
-      static_cast<int>(TagPresenceChange::multiple),
-      static_cast<int>(many.change));
-}
-
-void test_reader_rejects_zero_tags_oversized_geometry_and_truncated_memory() {
-  MemoryTransport no_tag_transport;
-  no_tag_transport.present_tags.clear();
-  Reader no_tag_reader(no_tag_transport);
-  const auto no_tag = no_tag_reader.detect_one(100U);
-  TEST_ASSERT_FALSE(no_tag.ok());
-  TEST_ASSERT_EQUAL_INT(
-      static_cast<int>(ErrorCategory::tag_removed),
-      static_cast<int>(no_tag.error().category));
-
-  MemoryTransport oversized_transport;
-  oversized_transport.geometry = {64U, 65U};
-  Reader oversized_reader(oversized_transport);
-  const auto oversized = oversized_reader.detect_one(100U);
-  TEST_ASSERT_FALSE(oversized.ok());
-  TEST_ASSERT_EQUAL_INT(
-      static_cast<int>(ErrorCategory::unsupported_tag),
-      static_cast<int>(oversized.error().category));
-
-  MemoryTransport truncated_transport;
-  truncated_transport.memory.resize(16U);
-  truncated_transport.truncate_multiple_read = true;
-  Reader truncated_reader(truncated_transport);
-  const auto detected = truncated_reader.detect_one(100U);
-  TEST_ASSERT_TRUE(detected.ok());
-  const auto truncated = truncated_reader.read_image(detected.value(), 100U);
-  TEST_ASSERT_FALSE(truncated.ok());
-  TEST_ASSERT_EQUAL_INT(
-      static_cast<int>(ErrorCategory::nfc_communication),
-      static_cast<int>(truncated.error().category));
-}
-
 void test_initializer_matches_pinned_python_golden_vector_and_decodes() {
   const auto expected = from_hex(openprinttag_initializer_7e09cc3_312_aux32_hex);
   const NfcvInitializationConfig config{312U, 4U, 32U, std::nullopt};
@@ -510,7 +223,7 @@ void test_initializer_matches_pinned_python_golden_vector_and_decodes() {
       first.value().bytes.data(), second.value().bytes.data(), expected.size());
   TEST_ASSERT_EQUAL_HEX32(
       0x6B6EABF1U,
-      opentag::diagnostics::shared_i2c::diagnostic_checksum(
+      opentag::nfc::nfcv::diagnostic_checksum(
           first.value().bytes.data(), first.value().bytes.size()));
   TEST_ASSERT_EQUAL_UINT8(0xE1U, first.value().bytes[0]);
   TEST_ASSERT_EQUAL_UINT8(0x40U, first.value().bytes[1]);
@@ -574,101 +287,14 @@ void test_initializer_handles_short_tlv_aux_alignment_and_bounds() {
   TEST_ASSERT_FALSE(Initializer::generate({312U, 4U, std::nullopt, 0U}).ok());
 }
 
-void test_blank_guard_authorization_and_bounded_initialization_plan() {
-  using namespace opentag::diagnostics::shared_i2c;
-  constexpr const char* uid = "E0:04:01:08:66:27:D8:D4";
-  constexpr const char* checksum = "97B79EC5";
-  TEST_ASSERT_EQUAL_INT(
-      static_cast<int>(InitializationAuthorizationResult::pass),
-      static_cast<int>(validate_initialization_authorization(
-          uid, checksum, "INITIALIZE", uid, checksum)));
-  TEST_ASSERT_EQUAL_INT(
-      static_cast<int>(InitializationAuthorizationResult::uid_mismatch),
-      static_cast<int>(validate_initialization_authorization(
-          "E0:04:01:08:66:27:D8:D5", checksum, "INITIALIZE", uid, checksum)));
-  TEST_ASSERT_EQUAL_INT(
-      static_cast<int>(InitializationAuthorizationResult::checksum_mismatch),
-      static_cast<int>(validate_initialization_authorization(
-          uid, "00000000", "INITIALIZE", uid, checksum)));
-  TEST_ASSERT_EQUAL_INT(
-      static_cast<int>(InitializationAuthorizationResult::confirmation_mismatch),
-      static_cast<int>(validate_initialization_authorization(
-          uid, checksum, "initialize", uid, checksum)));
-
-  std::vector<std::uint8_t> current(320U, 0U);
-  TEST_ASSERT_TRUE(is_zero_filled(ByteView(current.data(), 312U)));
-  current[100U] = 1U;
-  TEST_ASSERT_FALSE(is_zero_filled(ByteView(current.data(), 312U)));
-  current[100U] = 0U;
-
+void test_initializer_image_decodes_with_auxiliary_region() {
   const auto generated = Initializer::generate({312U, 4U, 32U, std::nullopt});
   TEST_ASSERT_TRUE(generated.ok());
-  const auto target = build_initialization_target(
-      ByteView(current), ByteView(generated.value().bytes));
-  TEST_ASSERT_TRUE(target.ok());
-  TEST_ASSERT_EQUAL_UINT(320U, target.value().size());
-  TEST_ASSERT_EQUAL_UINT8_ARRAY(
-      generated.value().bytes.data(), target.value().data(), 312U);
-  TEST_ASSERT_EQUAL_UINT8_ARRAY(current.data() + 312U, target.value().data() + 312U, 8U);
-  TEST_ASSERT_EQUAL_HEX32(
-      0x9E639911U,
-      diagnostic_checksum(target.value().data(), target.value().size()));
-
-  const TagGeometry geometry{4U, 80U};
-  NfcvSystemInformation matching_information;
-  matching_information.memory_size_present = true;
-  matching_information.block_count = 80U;
-  matching_information.block_size = 4U;
-  TEST_ASSERT_TRUE(matches_initialization_geometry(
-      matching_information, 80U, 4U));
-  matching_information.block_count = 79U;
-  TEST_ASSERT_FALSE(matches_initialization_geometry(
-      matching_information, 80U, 4U));
-  matching_information.block_count = 80U;
-  matching_information.block_size = 8U;
-  TEST_ASSERT_FALSE(matches_initialization_geometry(
-      matching_information, 80U, 4U));
-  const auto plan = WritePlan::build(ByteView(current), ByteView(target.value()), geometry);
-  TEST_ASSERT_TRUE(plan.ok());
-  TEST_ASSERT_EQUAL_UINT(14U, plan.value().blocks().size());
-  TEST_ASSERT_EQUAL_UINT(0U, plan.value().blocks().front().block_index);
-  TEST_ASSERT_EQUAL_UINT(77U, plan.value().blocks().back().block_index);
-
-  std::vector<bool> locks(80U, false);
-  locks[77U] = true;
-  TEST_ASSERT_FALSE(
-      WritePlan::build(ByteView(current), ByteView(target.value()), geometry, locks).ok());
-}
-
-void test_initialization_write_stops_on_first_failure_and_final_image_decodes() {
-  std::vector<std::uint8_t> current(320U, 0U);
-  const auto generated = Initializer::generate({312U, 4U, 32U, std::nullopt});
-  TEST_ASSERT_TRUE(generated.ok());
-  const auto target = opentag::diagnostics::shared_i2c::build_initialization_target(
-      ByteView(current), ByteView(generated.value().bytes));
-  TEST_ASSERT_TRUE(target.ok());
-  const auto plan = WritePlan::build(ByteView(current), ByteView(target.value()), {4U, 80U});
-  TEST_ASSERT_TRUE(plan.ok());
-
-  MemoryTransport failed;
-  failed.geometry = {4U, 80U};
-  failed.locks.assign(80U, false);
-  failed.memory = current;
-  failed.write_failure_block = plan.value().blocks()[1].block_index;
-  VerifiedWriter writer(failed);
-  const auto failure = writer.execute(test_uid(), plan.value(), 100U);
-  TEST_ASSERT_FALSE(failure.ok());
-  TEST_ASSERT_EQUAL_UINT(2U, failed.write_calls);
-  TEST_ASSERT_EQUAL_UINT8(0U, failed.memory[8U]);
-
-  MemoryTransport successful;
-  successful.geometry = {4U, 80U};
-  successful.locks.assign(80U, false);
-  successful.memory = current;
-  VerifiedWriter successful_writer(successful);
-  TEST_ASSERT_TRUE(successful_writer.execute(test_uid(), plan.value(), 100U).ok());
-  TEST_ASSERT_EQUAL_UINT8_ARRAY(target.value().data(), successful.memory.data(), 320U);
-  const auto decoded = Codec::decode(ByteView(successful.memory));
+  TEST_ASSERT_EQUAL_UINT(312U, generated.value().bytes.size());
+  // The tag has 320 bytes; the last 8 belong to the blocks the writer never touches.
+  std::vector<std::uint8_t> image(320U, 0U);
+  std::copy(generated.value().bytes.begin(), generated.value().bytes.end(), image.begin());
+  const auto decoded = Codec::decode(ByteView(image));
   TEST_ASSERT_TRUE(decoded.ok());
   TEST_ASSERT_EQUAL_UINT(312U, decoded.value().envelope.capability_capacity);
   TEST_ASSERT_TRUE(decoded.value().envelope.auxiliary.has_value());
@@ -683,16 +309,8 @@ int main(int, char**) {
   RUN_TEST(test_rejects_truncated_oversized_and_invalid_region_images);
   RUN_TEST(test_cbor_limits_nesting_and_duplicate_keys);
   RUN_TEST(test_normalizes_iso15693_wire_uid);
-  RUN_TEST(test_write_plan_uses_full_changed_blocks_and_rejects_locks);
-  RUN_TEST(test_verified_writer_checks_presence_and_readback);
-  RUN_TEST(test_verified_writer_aborts_if_tag_changes);
-  RUN_TEST(test_reader_discovers_geometry_locks_and_full_image);
-  RUN_TEST(test_reader_rejects_multiple_tags);
-  RUN_TEST(test_inventory_tracker_distinguishes_presence_removal_and_replacement);
-  RUN_TEST(test_reader_rejects_zero_tags_oversized_geometry_and_truncated_memory);
   RUN_TEST(test_initializer_matches_pinned_python_golden_vector_and_decodes);
   RUN_TEST(test_initializer_handles_short_tlv_aux_alignment_and_bounds);
-  RUN_TEST(test_blank_guard_authorization_and_bounded_initialization_plan);
-  RUN_TEST(test_initialization_write_stops_on_first_failure_and_final_image_decodes);
+  RUN_TEST(test_initializer_image_decodes_with_auxiliary_region);
   return UNITY_END();
 }

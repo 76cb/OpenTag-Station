@@ -58,7 +58,6 @@ class StorageService final :
   mutable std::mutex status_mutex_;
   StorageStatus status_;
   std::atomic_bool reset_in_progress_{false};
-  std::uint32_t boot_started_ms_{0};
   std::atomic_bool boot_pending_{false};
 };
 

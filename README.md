@@ -53,7 +53,7 @@ Spoolman stays the record of what you own. The station keeps no inventory of its
 - **Writes tags.** Pick a spool, or a filament to create a spool from, and the station writes a blank tag, checks it and links it to the spool.
 - **Weighs and saves.** The result shows the weight, the empty spool and the filament left. Nothing changes in Spoolman until you press **UPDATE SPOOLMAN**. Automatic saving exists and is off by default.
 - **Clears tags for reuse.** Erase a tag and remove its link in one step. The spool stays in Spoolman.
-- **Assigns a toolhead.** Optional. Tell a Prusa XL which spool is in T1 to T5, with a confirmation before it replaces a loaded spool or touches a printer that is printing.
+- **Assigns a toolhead.** Optional, and only with FilaBridge. Tell the printer which spool is in which toolhead, with a confirmation before it replaces a loaded spool or touches a printer that is printing. Without FilaBridge the station has no printer features and the Assign screens are hidden. The touchscreen covers the first five toolheads.
 
 Everything above works on the touchscreen. The station also serves a web page on your network for settings, inventory browsing and firmware updates.
 
@@ -129,7 +129,7 @@ The diagram shows electrical connections by board contact number. Read the [wiri
 |---|---|
 | Spoolman | 0.26 or 0.27 to save weights. 0.27+ also uses Spoolman's own tag list. |
 | FilaBridge | 1.2.1 or 1.2.2, only for toolhead assignment |
-| Printer | Prusa XL, only for toolhead assignment |
+| Printer | None needed. For toolhead assignment, a printer FilaBridge supports (tested with a Prusa XL) |
 | Tag format | OpenPrintTag |
 | Wi-Fi | 2.4 GHz. 5 GHz-only and WPA3-only networks are not supported. |
 | Browser for install | Desktop Chrome or Edge, for the USB installer |
@@ -173,7 +173,7 @@ The manual's source is in [`documentation-site/`](documentation-site/README.md).
 
 ## Status
 
-1.0.0 is the first release. [`VERSION`](VERSION) holds the version on `main` and the [changelog](CHANGELOG.md) lists what changed. Every version merged to `main` is published from the same build to the [Releases](https://github.com/76cb/OpenTag-Station/releases) page and the [USB installer](https://76cb.github.io/OpenTag-Station/). Bugs and follow-ups are tracked in [the issues](https://github.com/76cb/OpenTag-Station/issues).
+1.0.0 is the first release. [`VERSION`](VERSION) holds the version on `main` and the [changelog](CHANGELOG.md) lists what changed. Every version merged to `main` is published to the [Releases](https://github.com/76cb/OpenTag-Station/releases) page. Only stable versions, with no hyphen in the number, reach the [USB installer](https://76cb.github.io/OpenTag-Station/). Versions such as `1.0.1-beta.1` are marked pre-release, are for testers, and are never offered by the installer. Bugs and follow-ups are tracked in [the issues](https://github.com/76cb/OpenTag-Station/issues).
 
 ## Roadmap
 

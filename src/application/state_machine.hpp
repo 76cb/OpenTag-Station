@@ -1,7 +1,5 @@
 #pragma once
 
-#include <cstdint>
-
 #include "core/result.hpp"
 
 namespace opentag::application {
@@ -47,47 +45,6 @@ class ApplicationStateMachine {
 
  private:
   ApplicationState state_{ApplicationState::booting};
-};
-
-enum class TagPresenceState {
-  no_tag,
-  tag_present,
-  tag_processed,
-  tag_removed,
-};
-
-[[nodiscard]] constexpr const char* to_string(TagPresenceState state) {
-  switch (state) {
-    case TagPresenceState::no_tag: return "NO_TAG";
-    case TagPresenceState::tag_present: return "TAG_PRESENT";
-    case TagPresenceState::tag_processed: return "TAG_PROCESSED";
-    case TagPresenceState::tag_removed: return "TAG_REMOVED";
-  }
-  return "UNKNOWN";
-}
-
-class TagPresenceMachine {
- public:
-  explicit TagPresenceMachine(std::uint32_t debounce_ms = 75U)
-      : debounce_ms_(debounce_ms) {}
-
-  // Returns true only when the debounced logical state changes.
-  bool observe(bool physically_present, std::uint32_t now_ms);
-  bool mark_processed();
-  bool acknowledge_removed();
-
-  [[nodiscard]] TagPresenceState state() const { return state_; }
-  [[nodiscard]] bool should_begin_read() const {
-    return state_ == TagPresenceState::tag_present;
-  }
-
- private:
-  TagPresenceState state_{TagPresenceState::no_tag};
-  bool candidate_present_{false};
-  bool candidate_initialized_{false};
-  bool stable_present_{false};
-  std::uint32_t candidate_since_ms_{0};
-  std::uint32_t debounce_ms_{75};
 };
 
 }  // namespace opentag::application

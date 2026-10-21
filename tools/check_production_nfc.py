@@ -12,10 +12,14 @@ def check():
     ini = (ROOT / "platformio.ini").read_text()
     production = ini.split("[env:wt32-sc01-plus]", 1)[1].split("[env:", 1)[0]
     assert "-DOPENTAG_ENABLE_ST25R3916B=1" in production
+    # The SPI bring-up and the shared-I2C diagnostic were deleted, not just excluded. Fail if
+    # one comes back, because the production build would compile it again.
     for obsolete in ("platform/rfal/esp32_rfal_platform.cpp",
+                     "platform/rfal/rfal_platform_contract.hpp",
                      "hardware/nfc/st25r3916b/frontend_backend.cpp",
-                     "hardware/nfc/st25r3916b/service.cpp"):
-        assert f"-<{obsolete}>" in production
+                     "hardware/nfc/st25r3916b/service.cpp",
+                     "diagnostics/shared_i2c_diagnostic.cpp"):
+        assert not (ROOT / "src" / obsolete).exists(), f"removed file is back: {obsolete}"
     allowed = {
         "rfalNfcInitialize", "rfalNfcvPollerInitialize", "rfalFieldOff",
         "rfalFieldOnAndStartGT", "rfalNfcvPollerCollisionResolution",
@@ -23,14 +27,12 @@ def check():
         "rfalNfcvPollerReadSingleBlock", "rfalNfcvPollerExtendedReadSingleBlock",
         "rfalNfcvPollerReadMultipleBlocks", "rfalNfcvPollerExtendedReadMultipleBlocks",
     }
-    excluded = {"src/diagnostics", "src/platform/rfal"}
+    excluded = set()
     for source in (ROOT / "src").rglob("*"):
         if source.suffix not in (".cpp", ".hpp"):
             continue
         relative = source.relative_to(ROOT).as_posix()
         if any(relative.startswith(p + "/") for p in excluded):
-            continue
-        if relative.endswith(("frontend_backend.cpp", "service.cpp")) and "/st25r3916b/" in relative:
             continue
         text = source.read_text(encoding="utf-8")
         calls = set(re.findall(r"(?:\.|->)\s*(rfal\w+)\s*\(", text))

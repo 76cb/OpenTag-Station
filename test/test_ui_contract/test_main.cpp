@@ -43,8 +43,15 @@ void test_touchscreen_has_five_product_destinations_in_order() {
   TEST_ASSERT_LESS_THAN(printer, scale);
   TEST_ASSERT_LESS_THAN(tags, printer);
   TEST_ASSERT_LESS_THAN(settings, tags);
+  // 96 px slots with five destinations; 120 px when Assign is hidden because
+  // no FilaBridge URL is configured.
   TEST_ASSERT_TRUE(
-      rail.find("layout::nav.y,96,48") != std::string::npos);
+      rail.find("slot_width=printers?96:120") != std::string::npos);
+  TEST_ASSERT_TRUE(
+      rail.find("layout::nav.y,slot_width,48") != std::string::npos);
+  TEST_ASSERT_TRUE(
+      rail.find("printer_integration_enabled(configuration_)") !=
+      std::string::npos);
 }
 
 void test_home_weigh_opens_scale_before_refreshing() {

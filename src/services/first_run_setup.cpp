@@ -50,21 +50,42 @@ core::Result<void> FirstRunSetup::go_to(SetupStep step) {
   return core::Result<void>::success();
 }
 
+bool FirstRunSetup::step_applies(SetupStep step) const {
+  if (step != SetupStep::printer_selection) return true;
+  return !configuration_.backend_settings_snapshot().filabridge.url.empty();
+}
+
+std::uint8_t FirstRunSetup::step_position(SetupStep step) const {
+  std::uint8_t position = 0U;
+  for (std::uint8_t value = 0U; value <= static_cast<std::uint8_t>(step); ++value) {
+    if (step_applies(static_cast<SetupStep>(value))) ++position;
+  }
+  return position;
+}
+
+std::uint8_t FirstRunSetup::step_total() const {
+  return step_position(SetupStep::ready);
+}
+
 core::Result<void> FirstRunSetup::next() {
-  const auto value = static_cast<std::uint8_t>(current_);
+  auto value = static_cast<std::uint8_t>(current_);
   if (value >= last_step) {
     return core::Result<void>::failure(setup_error("setup is already at the final step"));
   }
-  current_ = static_cast<SetupStep>(value + 1U);
+  ++value;
+  while (value < last_step && !step_applies(static_cast<SetupStep>(value))) ++value;
+  current_ = static_cast<SetupStep>(value);
   return core::Result<void>::success();
 }
 
 core::Result<void> FirstRunSetup::previous() {
-  const auto value = static_cast<std::uint8_t>(current_);
+  auto value = static_cast<std::uint8_t>(current_);
   if (value == 0U) {
     return core::Result<void>::failure(setup_error("setup is already at the first step"));
   }
-  current_ = static_cast<SetupStep>(value - 1U);
+  --value;
+  while (value > 0U && !step_applies(static_cast<SetupStep>(value))) --value;
+  current_ = static_cast<SetupStep>(value);
   return core::Result<void>::success();
 }
 
