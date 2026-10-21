@@ -402,7 +402,6 @@ struct SystemSnapshot : ScaleDiagnosticSnapshot {
   std::uint32_t wifi_scan_generation{0U};
   std::uint32_t wifi_scan_attempt_generation{0U};
   std::uint32_t wifi_scan_result_attempt_generation{0U};
-  std::vector<network::WifiNetwork> wifi_scan_results;
   std::optional<core::Error> wifi_scan_error;
   std::optional<core::Error> wifi_last_error;
 };

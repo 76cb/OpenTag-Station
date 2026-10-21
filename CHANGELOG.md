@@ -2,6 +2,19 @@
 
 What changed in each version of OpenTag Station, newest first.
 
+## 1.0.1-beta.2
+
+Pre-release for testers. Internal cleanup; nothing changes for a user.
+
+- Removed code that only the tests used: the first-generation tag writer, the SPI bring-up for
+  the NFC chip, the shared-I2C diagnostic, an unused tag-presence state machine, the runtime task
+  table and the event queue. Their tests went with them. The code that reads and writes tags on a
+  station is unchanged.
+- The tag-protocol check (`check_production_nfc.py`) now fails if any of the removed files comes
+  back.
+- Removed two unused fields (`boot_started_ms_`, the Wi-Fi scan list in the diagnostics snapshot).
+- Documented that the reader driver has no host test.
+
 ## 1.0.1-beta.1
 
 Pre-release for testers. The station no longer assumes a printer.
