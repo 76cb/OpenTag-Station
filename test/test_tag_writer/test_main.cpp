@@ -575,6 +575,31 @@ struct ServiceFixture {
     return service.process(c.as<JsonObjectConst>());
   }
 };
+// A3/WB-D4 (#85): once a restart is pending the writer changes nothing; only
+// the catalog search still answers.
+void restart_pending_refuses_everything_but_catalog() {
+  ServiceFixture f;
+  bool pending = false;
+  f.service.set_restart_pending([&] { return pending; });
+  TEST_ASSERT_TRUE(f.run(R"({"action":"preview","spool_id":12})").ok());
+  pending = true;
+  const auto reads = f.reader.reads;
+  const auto requests = f.http.urls.size();
+  for (const auto* command : {R"({"action":"preview","spool_id":12})", R"({"action":"clear_preview"})",
+                              R"({"action":"create_spool","spool":{"filament_id":1}})",
+                              R"({"action":"discard_recovery","uid":"E004000000000001"})"}) {
+    const auto result = f.run(command);
+    TEST_ASSERT_FALSE(result.ok());
+    TEST_ASSERT_EQUAL_STRING(services::restart_pending_message, result.error().message.c_str());
+  }
+  TEST_ASSERT_FALSE(f.confirm().ok());
+  TEST_ASSERT_EQUAL(reads, f.reader.reads);
+  TEST_ASSERT_EQUAL(requests, f.http.urls.size());
+  TEST_ASSERT_EQUAL(0, f.reader.writes);
+  TEST_ASSERT_TRUE(f.run(R"({"action":"catalog","entity":"spool","offset":0})").ok());
+  pending = false;
+  TEST_ASSERT_TRUE(f.run(R"({"action":"preview","spool_id":12})").ok());
+}
 void canonical_association_readback() {
   ServiceFixture f;
   TEST_ASSERT_TRUE(f.run(R"({"action":"preview","spool_id":12})").ok());
@@ -1823,6 +1848,8 @@ struct ClearFixture {
   R run(const char *action) {
     network::BackendDocument c;
     c["action"] = action;
+    if (std::string(action) == "discard_recovery")
+      c["uid"] = "E00401086627D8D4";  // WB-D5: skipping names the tag (the fixture reader's uid)
     return service->process(c.as<JsonObjectConst>());
   }
   R confirm() {
@@ -2801,7 +2828,10 @@ void association_failure_reports_reason_and_can_be_skipped() {
   TEST_ASSERT_NOT_EQUAL(std::string::npos, message.find("offline"));
   TEST_ASSERT_EQUAL(std::string::npos, message.find("writing"));
   const auto writes = f.reader.writes;
-  TEST_ASSERT_TRUE(f.run(R"({"action":"discard_recovery"})").ok());
+  // WB-D5: the request must name this tag; another tag's UID is refused.
+  TEST_ASSERT_FALSE(f.run(R"({"action":"discard_recovery","uid":"E004000000000099"})").ok());
+  TEST_ASSERT_EQUAL_STRING("association_pending", f.view["phase"].as<const char *>());
+  TEST_ASSERT_TRUE(f.run((std::string(R"({"action":"discard_recovery","uid":")") + f.reader.uid.hex() + R"("})").c_str()).ok());
   TEST_ASSERT_EQUAL_STRING("recovery_discarded",
                            f.view["phase"].as<const char *>());
   TEST_ASSERT_FALSE(f.journal.present);
@@ -3093,6 +3123,7 @@ void pending_write_with_changed_spoolman_settings_stays_skippable() {
   TEST_ASSERT_EQUAL(writes, f.reader.writes);
   c.clear();
   c["action"] = "discard_recovery";
+  c["uid"] = "e00401086627d8d4";  // lower case: the journal's uid, compared without regard to case
   TEST_ASSERT_TRUE(restarted.process(c.as<JsonObjectConst>()).ok());
   TEST_ASSERT_EQUAL_STRING("recovery_discarded",
                            view["phase"].as<const char *>());
@@ -3325,6 +3356,7 @@ int main() {
   RUN_TEST(real_zero_preserved);
   RUN_TEST(uuid_validation);
   RUN_TEST(repeated_plans_release_workspace);
+  RUN_TEST(restart_pending_refuses_everything_but_catalog);
   RUN_TEST(canonical_association_readback);
   RUN_TEST(association_pending_retry_without_write);
   RUN_TEST(duplicate_uuid_refuses_before_write);

@@ -2201,6 +2201,8 @@ void UiService::refresh_home_page(
   if(remaining)lv_label_set_text_fmt(workflow_weight_label_,"%ld g remaining",static_cast<long>(std::lround(*remaining)));
   else lv_label_set_text(workflow_weight_label_,!scale.scale_calibrated?"Scale not calibrated":present?"Weight not known":"");
   if(blank){lv_label_set_text(workflow_home_state_label_,"COMPATIBLE BLANK TAG");lv_label_set_text(workflow_material_label_,"Ready to write");lv_label_set_text(workflow_identity_label_,"Open Manage tag to choose a spool");}
+  // A7: unreadable settings storage is not a tag problem. Say what to do.
+  if(!present&&!diagnostics_.storage_ready()){lv_label_set_text(workflow_home_state_label_,"STORAGE ERROR");lv_label_set_text(workflow_material_label_,"Settings cannot be read");lv_label_set_text(workflow_identity_label_,"Reinstall the firmware with the USB installer.");}
   // A Spoolman save in progress refuses a new weigh.
   const bool saving=backend_worker_.weigh_snapshot().phase=="updating";
   // U13: one meaning. WEIGH weighs; it waits for a calibrated, idle scale.

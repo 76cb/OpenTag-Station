@@ -274,6 +274,34 @@ void invalid_and_stale_measurements_refused() {
   TEST_ASSERT_FALSE(f.update().ok());
   TEST_ASSERT_EQUAL(0, f.inventory.patches);
 }
+// A3/WB-D4 (#85): a pending restart refuses the save, manual or automatic,
+// and takes the measurement out of "ready" so it is not retried every cycle.
+void restart_pending_refuses_manual_and_automatic_updates() {
+  for (bool automatic : {false, true}) {
+    Fixture f;
+    bool pending = true;
+    f.sync.set_restart_pending([&] { return pending; });
+    f.capture(automatic);
+    TEST_ASSERT_EQUAL_STRING("ready", f.sync.snapshot().phase.c_str());
+    const auto result = f.update();
+    TEST_ASSERT_FALSE(result.ok());
+    TEST_ASSERT_EQUAL_STRING(services::restart_pending_message, result.error().message.c_str());
+    TEST_ASSERT_EQUAL_STRING("failed", f.sync.snapshot().phase.c_str());
+    TEST_ASSERT_EQUAL_STRING(services::restart_pending_message, f.sync.snapshot().message.c_str());
+    TEST_ASSERT_FALSE(f.sync.snapshot().consumed);
+    TEST_ASSERT_EQUAL(0, f.inventory.patches);
+    TEST_ASSERT_EQUAL(0, f.presence_checks);
+    // Not pending: the next measurement (a new id) saves as before.
+    pending = false;
+    auto next = f.initial();
+    next.measurement_id = 2;
+    next.automatic = automatic;
+    TEST_ASSERT_TRUE(f.sync.begin(next));
+    f.sync.capture(2, {842, true});
+    TEST_ASSERT_TRUE(f.update(2).ok());
+    TEST_ASSERT_EQUAL(1, f.inventory.patches);
+  }
+}
 // UI-2: the Weigh button reads WEIGH until a measurement has been started.
 void weigh_button_says_again_only_after_a_measurement() {
   Fixture f;
@@ -337,6 +365,7 @@ int main() {
   RUN_TEST(replaced_tag_refuses_before_and_during_operation);
   RUN_TEST(mutation_capability_required);
   RUN_TEST(invalid_and_stale_measurements_refused);
+  RUN_TEST(restart_pending_refuses_manual_and_automatic_updates);
   RUN_TEST(weigh_button_says_again_only_after_a_measurement);
   RUN_TEST(weigh_is_refused_while_update_spoolman_is_in_flight);
   return UNITY_END();

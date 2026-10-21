@@ -28,6 +28,14 @@ class ProductionBoundaries(unittest.TestCase):
         for leftover in ('"/community.new"', '"/community.old"', '"/community.pack"'):
             self.assertIn(leftover, reset_paths)
 
+    def test_reset_recovery_waits_for_mounted_storage(self):
+        # A7 (#85): the boot-time factory reset handoff needs a mounted filesystem,
+        # otherwise the device control worker would reboot into the same marker.
+        setup = (ROOT / 'src/application/application.cpp').read_text().split('void Application::setup()', 1)[1]
+        self.assertIn('storage_ready_ &&\n      storage_.factory_reset_recovery_pending()', setup)
+        policy = (ROOT / 'src/application/boot_health_policy.cpp').read_text()
+        self.assertIn('signals.storage_ready ? BootHealthState::factory_reset_recovery', policy)
+
     def test_ota_uses_only_inactive_application_partition(self):
         source = (ROOT / 'src/platform/ota/esp32_ota_platform.cpp').read_text()
         self.assertIn('esp_ota_get_next_update_partition(running)', source)

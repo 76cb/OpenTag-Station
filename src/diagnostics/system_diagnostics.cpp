@@ -109,4 +109,9 @@ void SystemDiagnostics::set_network_status(const network::WifiStatus& status) {
   network_status_ = status;
 }
 
+bool SystemDiagnostics::storage_ready() const {
+  const auto status = storage_.status();
+  return status.nvs_ready && status.filesystem_ready;
+}
+
 }  // namespace opentag::diagnostics

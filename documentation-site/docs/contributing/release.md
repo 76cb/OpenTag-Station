@@ -5,7 +5,7 @@ publishes it, then updates the USB installer from the same files.
 Before a release, run the [hardware acceptance](testing.md#hardware-acceptance) checks on a real
 station.
 
-The current version is `1.0.1-beta.3`.
+The current version is `1.0.1-beta.4`.
 
 ## Version names
 

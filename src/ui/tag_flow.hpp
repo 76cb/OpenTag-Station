@@ -480,6 +480,12 @@ class TagFlow {
       case TagAction::write:
         if (page == TagPage::skip_review) {
           command["action"] = "discard_recovery";
+          // The tag the recovery is for: the writer's own record, else the
+          // tag on the reader.
+          const char* recovery_uid = view["uid"].as<const char*>();
+          command["uid"] = recovery_uid && *recovery_uid ? std::string(recovery_uid)
+                           : !uid.empty()               ? uid
+                                                        : last_uid;
           break;
         }
         if (page != TagPage::review || (view["semantic_no_change"] | false))

@@ -190,7 +190,8 @@ Recovery actions as shown to the user:
 | Link not saved | **TRY SAVING LINK AGAIN**, **SKIP RECOVERY** | **Retry Spoolman link**, **Skip linking** |
 | Unlink not finished | **TRY UNLINKING AGAIN**, **SKIP RECOVERY** | **Retry Spoolman cleanup**, **Skip cleanup** |
 
-The skip buttons send `discard_recovery` with `"confirm": "SKIP RECOVERY"`. The browser offers
+The skip buttons send `discard_recovery` with `"confirm": "SKIP RECOVERY"` and the tag's `uid`;
+the service refuses the request when its recovery record belongs to another tag. The browser offers
 a skip only for the two Spoolman-only states.
 `discard_recovery` deletes the record and changes neither the tag nor Spoolman.
 

@@ -1,4 +1,5 @@
 #include "services/tag_writer_service.hpp"
+#include <cctype>
 #include "nfc/formats/openprinttag/material_json.hpp"
 #include "nfc/protocols/nfcv/read_protocol.hpp"
 #include <algorithm>
@@ -699,9 +700,33 @@ bool TagWriterService::has_durable_recovery() {
   std::uint32_t backend = 0;
   return saved && journal_->load(*saved, owner, backend);
 }
-Result TagWriterService::discard_recovery() {
+Result TagWriterService::discard_recovery(JsonObjectConst c) {
   // Explicit user choice to stop recovering: the tag keeps whatever bytes it
   // has now and Spoolman is not changed. Nothing physical is touched here.
+  // The request names the tag it means (WB-D5): a prompt for another tag,
+  // shown by a stale page, must not discard this tag's recovery.
+  std::string expected = plan_ ? plan_->uid.hex() : std::string();
+  if (expected.empty() && journal_) {
+    auto saved = network::make_external<nfc::WriterPlan>([] { return nfc::WriterPlan{}; });
+    std::int32_t owner = 0;
+    std::uint32_t backend = 0;
+    if (saved && journal_->load(*saved, owner, backend))
+      expected = saved->uid.hex();
+  }
+  if (expected.empty())
+    expected = view_["uid"] | "";
+  const std::string requested = c["uid"] | "";
+  const auto same_uid = [](const std::string& a, const std::string& b) {
+    return a.size() == b.size() &&
+           std::equal(a.begin(), a.end(), b.begin(), [](char x, char y) {
+             return std::tolower(static_cast<unsigned char>(x)) ==
+                    std::tolower(static_cast<unsigned char>(y));
+           });
+  };
+  if (!expected.empty() && !same_uid(requested, expected))
+    return fail(("This recovery belongs to tag " + expected +
+                 ". Refresh the page and try again.")
+                    .c_str());
   if (journal_ && !journal_->clear())
     return fail("The recovery record could not be removed; try again");
   plan_.reset();
@@ -1495,8 +1520,12 @@ TagWriterService::commit_write(JsonObjectConst c) {
 Result TagWriterService::process(JsonObjectConst c) {
   operation_id_=c["_operation_id"]|std::uint64_t{0};
   const std::string action = c["action"] | "";
+  // A restart would interrupt a tag write, a clear or a Spoolman change.
+  // Searching the catalog changes nothing and stays available.
+  if (action != "catalog" && restart_pending(restart_pending_))
+    return fail(restart_pending_message);
   if (action == "discard_recovery")
-    return discard_recovery();
+    return discard_recovery(c);
   if (!restore_ready())
     return fail("Writer recovery unavailable; see status before continuing");
   if (clear_settings_changed_)

@@ -78,8 +78,10 @@ __attribute__((noinline)) bool BackendWorker::ensure_writer() {
             return configuration_.sync_verified_spool_identity_mapping(mapping);
           });
     });
-  if (writer_)
+  if (writer_) {
+    writer_->set_restart_pending(restart_pending_);
     (void)writer_->restore_cleanup();
+  }
   return bool(writer_);
 }
 __attribute__((noinline)) bool BackendWorker::physical_writer_ready() const {

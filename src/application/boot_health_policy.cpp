@@ -50,8 +50,12 @@ BootHealthEvaluation BootHealthPolicy::evaluate(
 
   // Durable reset recovery is intentionally not classified as failed OTA
   // health. Its owner must finish or reboot through the reset recovery path.
+  // That path needs mounted storage: with the marker set but the filesystem
+  // unreadable, rebooting would only meet the same marker again (#85, A7).
+  // The boot is then simply unhealthy; the station stays up and reports it.
   if (signals.factory_reset_recovery_pending) {
-    result.state = BootHealthState::factory_reset_recovery;
+    result.state = signals.storage_ready ? BootHealthState::factory_reset_recovery
+                                         : BootHealthState::unhealthy;
     return result;
   }
   if (signals.fatal_initialization_error) {

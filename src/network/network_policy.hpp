@@ -89,6 +89,14 @@ class ProvisioningPolicy {
     }
   }
 
+  // The station will not try again on its own (wifi.auto_reconnect is off):
+  // one failed attempt is final, so the setup network opens now instead of
+  // after a failure count that can never be reached (#85, I2).
+  void connection_abandoned() {
+    failures_ = failure_threshold - 1U;
+    connection_failed();
+  }
+
   void connected(std::uint32_t now_ms) {
     failures_ = 0U;
     if (reason_ != ProvisioningReason::none) {

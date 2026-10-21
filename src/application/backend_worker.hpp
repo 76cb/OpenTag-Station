@@ -96,6 +96,12 @@ class BackendWorker final {
   }
   void complete_weigh(std::uint64_t id, std::optional<float> grams);
   CommandReceipt submit_weight_update(std::uint64_t id);
+  // Installed before start(): the writer and weight updates are refused
+  // while the device lifecycle gate holds a restart, reset or update.
+  void set_restart_pending(services::RestartPending pending) {
+    restart_pending_ = pending;
+    weigh_sync_.set_restart_pending(std::move(pending));
+  }
   void write_weigh_snapshot(JsonObject out) const;
   services::WeighSyncSnapshot weigh_snapshot() const { return weigh_sync_.snapshot(); }
   [[nodiscard]] CommandReceipt submit_writer(std::string_view payload);
@@ -155,6 +161,7 @@ class BackendWorker final {
   void auto_weight_update();
   bool weight_fence(const services::WeighSyncSnapshot& captured);
   services::WeighSync weigh_sync_;
+  services::RestartPending restart_pending_;
   [[nodiscard]] bool enqueue(Command* command);
 
   static constexpr std::uint32_t probe_interval_ms = 30000U;

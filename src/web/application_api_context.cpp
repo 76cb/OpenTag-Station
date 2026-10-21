@@ -889,6 +889,8 @@ core::Result<api::JsonBody> ApplicationApiContext::snapshot_json(
                     ? "degraded"
                     : "healthy";
         document["local_services_ready"] = essential_ok;
+        if (!system.nvs_ready || !system.filesystem_ready)
+          document["message"] = "Settings storage cannot be read. Reinstall the firmware with the USB installer.";
         document["backend_degraded"] = backend_degraded;
         document["local_api_authentication_enabled"] =
             local_access.authentication_enabled;

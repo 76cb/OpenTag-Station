@@ -161,7 +161,7 @@ Rules and tolerances: [Scale behaviour](scale.md) and [Spoolman integration](spo
 | `clear_preview` | none | Prepare a clear. |
 | `clear` | exactly `uid`, `generation`, `current_checksum`, `target_checksum` (strings) | Clear the tag and unlink it. |
 | `retry_unlink` | none | Retry the Spoolman unlink after a completed clear. |
-| `discard_recovery` | exactly `confirm: "SKIP RECOVERY"` | Abandon an interrupted operation. |
+| `discard_recovery` | exactly `confirm: "SKIP RECOVERY"` and the tag's `uid` | Abandon an interrupted operation. Refused when the recovery belongs to another tag. |
 | `update_spool` | `spool_id` (> 0), `expected`, `changes` (non-empty) | Edit a spool in Spoolman. |
 | `update_filament` | `filament_id` (> 0), `expected`, `changes` (non-empty), optional `spool_id` (> 0) | Edit a filament in Spoolman. |
 

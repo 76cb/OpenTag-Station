@@ -908,10 +908,11 @@ core::Result<Mutation> parse_mutation(
         action != "preview" && action != "write" && action != "retry_association" && action != "discard_recovery" && action != "update_spool" && action != "update_filament")
       return core::Result<Mutation>::failure(invalid_request("Unknown high-level writer action"));
     if (action == "discard_recovery" &&
-        (object.size() != 2U || !keys_allowed(object, {"action", "confirm"}) ||
-         std::string(object["confirm"] | "") != "SKIP RECOVERY"))
+        (object.size() != 3U || !keys_allowed(object, {"action", "confirm", "uid"}) ||
+         std::string(object["confirm"] | "") != "SKIP RECOVERY" ||
+         !valid_required_text(object["uid"], 32U)))
       return core::Result<Mutation>::failure(invalid_request(
-          "Skipping recovery requires the exact confirmation SKIP RECOVERY"));
+          "Skipping recovery requires the exact confirmation SKIP RECOVERY and the tag's UID"));
     if (action != "discard_recovery" &&
         !keys_allowed(object, {"action", "entity", "offset", "search", "search_field", "material", "article_number", "vendor_id", "filament_id",
                               "spool", "spool_id", "previous_spool_id", "mode", "uid", "generation", "target_checksum", "current_checksum", "changes", "expected"}))

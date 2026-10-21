@@ -4,6 +4,7 @@
 #include "domain/spool_identity.hpp"
 #include "nfc/formats/openprinttag/spoolman_mapping.hpp"
 #include "nfc/writer_journal.hpp"
+#include "services/restart_guard.hpp"
 namespace opentag::services {
 // Bound of one published writer snapshot (and of one Spoolman writer response).
 inline constexpr std::size_t writer_snapshot_maximum_bytes = 24576U;
@@ -28,6 +29,8 @@ public:
         random_(std::move(random)), publish_(std::move(publish)),
         journal_(journal), clear_mapping_(std::move(clear_mapping)),
         sync_mapping_(std::move(sync_mapping)) {}
+  // Every action but a catalog search is refused while a restart is pending.
+  void set_restart_pending(RestartPending pending) { restart_pending_ = std::move(pending); }
   core::Result<void> process(JsonObjectConst command);
   // Publishes any durable recovery prompt. `reason` (optional) explains the
   // failure that returned the station to that prompt.
@@ -45,7 +48,7 @@ private:
   core::Result<void> prepare(JsonObjectConst command);
   core::Result<void> prepare_clear();
   core::Result<void> require_identity_fields();
-  core::Result<void> discard_recovery();
+  core::Result<void> discard_recovery(JsonObjectConst command);
   bool has_durable_recovery();
   std::string journaled_other_uid();
   core::Result<void> commit_clear(JsonObjectConst command);
@@ -96,6 +99,7 @@ private:
   nfc::WriterJournal *journal_{nullptr};
   VerifiedClearMapping clear_mapping_;
   VerifiedAssociation sync_mapping_;
+  RestartPending restart_pending_;
   bool unlink_pending_{false};
   bool clear_recovery_required_{false};
   // A pending clear was recorded under different Spoolman settings.

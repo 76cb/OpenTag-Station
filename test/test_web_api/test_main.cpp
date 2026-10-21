@@ -1629,10 +1629,12 @@ void test_writer_requires_specific_authorized_high_level_confirmation() {
   TEST_ASSERT_EQUAL(1,context.submit_calls);
   TEST_ASSERT_EQUAL(static_cast<int>(MutationKind::tag_writer),static_cast<int>(context.last_mutation->kind));
   // Skipping recovery is an explicit, exactly confirmed request.
-  for(const auto* skip : {R"({"action":"discard_recovery"})", R"({"action":"discard_recovery","confirm":"yes"})",
-      R"({"action":"discard_recovery","confirm":"SKIP RECOVERY","uid":"E004"})"})
+  // WB-D5 (#85): it also names the tag it is for.
+  for(const auto* skip : {R"({"action":"discard_recovery"})", R"({"action":"discard_recovery","confirm":"yes","uid":"E00401086627D8D4"})",
+      R"({"action":"discard_recovery","confirm":"SKIP RECOVERY"})", R"({"action":"discard_recovery","confirm":"SKIP RECOVERY","uid":""})",
+      R"({"action":"discard_recovery","confirm":"SKIP RECOVERY","uid":"E00401086627D8D4","spool_id":12})"})
     TEST_ASSERT_EQUAL(400,router.handle(mutation_request(Method::post,"/api/v1/tag-writer",skip)).status);
-  TEST_ASSERT_EQUAL(202,router.handle(mutation_request(Method::post,"/api/v1/tag-writer",R"({"action":"discard_recovery","confirm":"SKIP RECOVERY"})")).status);
+  TEST_ASSERT_EQUAL(202,router.handle(mutation_request(Method::post,"/api/v1/tag-writer",R"({"action":"discard_recovery","confirm":"SKIP RECOVERY","uid":"E00401086627D8D4"})")).status);
   TEST_ASSERT_EQUAL(2,context.submit_calls);
 }
 void test_removed_community_writer_commands_are_unknown_actions() {

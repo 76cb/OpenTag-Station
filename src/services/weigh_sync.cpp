@@ -79,6 +79,13 @@ WeighSync::update(std::uint64_t id, integrations::ISpoolInventory &inventory,
     if (id != state_.measurement_id || state_.phase != "ready" ||
         state_.consumed)
       return refused("Capture a new explicit Weigh before updating");
+    if (restart_pending(restart_pending_)) {
+      // The measurement stays unconsumed but leaves "ready", so the
+      // automatic update does not retry it on every backend cycle.
+      state_.phase = "failed";
+      state_.message = restart_pending_message;
+      return refused(restart_pending_message);
+    }
     state_.consumed = true;
     state_.phase = "updating";
     state_.message = "Checking Spoolman usage and this spool";

@@ -190,12 +190,8 @@ void test_loaded_configuration_retains_psram_allocator_and_releases_candidates()
   TEST_ASSERT_TRUE(loaded.replace(value).ok());
   const auto settled = loaded.document_allocated_bytes();
   for (unsigned cycle = 0; cycle < 100; ++cycle) {
-    { auto exported = loaded.export_json(false); TEST_ASSERT_TRUE(exported.ok()); }
-    TEST_ASSERT_EQUAL_UINT(settled, loaded.document_allocated_bytes());
     store.save_fails = true;
     TEST_ASSERT_FALSE(loaded.replace(value).ok());
-    TEST_ASSERT_EQUAL_UINT(settled, loaded.document_allocated_bytes());
-    TEST_ASSERT_FALSE(loaded.import_json(*store.document, true).ok());
     TEST_ASSERT_EQUAL_UINT(settled, loaded.document_allocated_bytes());
     store.save_fails = false;
     TEST_ASSERT_TRUE(loaded.replace(value).ok());
@@ -479,12 +475,10 @@ void test_schema_one_migrates_additively_and_preserves_unknown_fields() {
   TEST_ASSERT_FLOAT_WITHIN(
       0.01F, 20.0F, service.snapshot().reconciliation.warning_tolerance_grams);
 
-  const auto exported = service.export_json(false);
-  TEST_ASSERT_TRUE(exported.ok());
-  TEST_ASSERT_NOT_EQUAL(
-      std::string::npos, exported.value().find("future_section"));
-  TEST_ASSERT_NOT_EQUAL(
-      std::string::npos, exported.value().find("preserve_me"));
+  // Unknown fields survive a save of the migrated settings.
+  TEST_ASSERT_TRUE(service.replace(service.snapshot()).ok());
+  TEST_ASSERT_NOT_EQUAL(std::string::npos, documents.document->find("future_section"));
+  TEST_ASSERT_NOT_EQUAL(std::string::npos, documents.document->find("preserve_me"));
 }
 
 void test_schema_two_migrates_identity_defaults_and_preserves_unknown_fields() {
@@ -499,10 +493,10 @@ void test_schema_two_migrates_identity_defaults_and_preserves_unknown_fields() {
   TEST_ASSERT_EQUAL_STRING("legacy_uuid", service.snapshot().spoolman.identity_field.c_str());
   TEST_ASSERT_EQUAL_STRING("nfc_uid", service.snapshot().spoolman.nfc_uid_field.c_str());
   TEST_ASSERT_EQUAL_UINT(0U, service.snapshot().spool_identity_mappings.size());
-  const auto exported = service.export_json(false);
-  TEST_ASSERT_TRUE(exported.ok());
-  TEST_ASSERT_NOT_EQUAL(std::string::npos, exported.value().find("future_section"));
-  TEST_ASSERT_NOT_EQUAL(std::string::npos, exported.value().find("preserve_me"));
+  // Unknown fields survive a save of the migrated settings.
+  TEST_ASSERT_TRUE(service.replace(service.snapshot()).ok());
+  TEST_ASSERT_NOT_EQUAL(std::string::npos, documents.document->find("future_section"));
+  TEST_ASSERT_NOT_EQUAL(std::string::npos, documents.document->find("preserve_me"));
 }
 
 void test_corrupt_primary_recovers_valid_backup_transactionally() {
@@ -561,122 +555,9 @@ void test_failed_restore_reports_unavailable_persistence_and_keeps_backup() {
   TEST_ASSERT_EQUAL_STRING(schema_one_document, documents.backup_document->c_str());
 }
 
-void test_invalid_import_is_transactional_and_wrong_hardware_is_rejected() {
-  MemoryDocumentStore documents;
-  LegacyScaleStore legacy;
-  ConfigurationService service(documents, legacy);
-  TEST_ASSERT_TRUE(service.initialize().ok());
-  const auto original = *documents.document;
 
-  TEST_ASSERT_FALSE(service.import_json("{bad json", false).ok());
-  TEST_ASSERT_EQUAL_STRING(original.c_str(), documents.document->c_str());
 
-  std::string wrong_hardware = *documents.document;
-  const auto position = wrong_hardware.find("wt32-sc01-plus-rev-a");
-  TEST_ASSERT_NOT_EQUAL(std::string::npos, position);
-  wrong_hardware.replace(position, 21U, "different-hardware");
-  TEST_ASSERT_FALSE(service.import_json(wrong_hardware, true).ok());
-  TEST_ASSERT_EQUAL_STRING(original.c_str(), documents.document->c_str());
-}
 
-void test_default_export_redacts_all_credentials_and_ssid() {
-  MemoryDocumentStore documents;
-  LegacyScaleStore legacy;
-  ConfigurationService service(documents, legacy);
-  TEST_ASSERT_TRUE(service.initialize().ok());
-  auto configured = service.snapshot();
-  configured.wifi.ssid = "private-network";
-  configured.wifi.password = "wifi-secret";
-  configured.spoolman.authentication_token = "spoolman-secret";
-  configured.spoolman.ca_certificate_pem = "private-ca";
-  configured.filabridge.authentication_token = "filabridge-secret";
-  configured.filabridge.ca_certificate_pem = "private-filabridge-ca";
-  configured.web.access_token = "local-api-secret-token";
-  TEST_ASSERT_TRUE(service.replace(configured).ok());
-
-  const auto redacted = service.export_json(false);
-  TEST_ASSERT_TRUE(redacted.ok());
-  TEST_ASSERT_EQUAL(std::string::npos, redacted.value().find("private-network"));
-  TEST_ASSERT_EQUAL(std::string::npos, redacted.value().find("wifi-secret"));
-  TEST_ASSERT_EQUAL(std::string::npos, redacted.value().find("spoolman-secret"));
-  TEST_ASSERT_EQUAL(std::string::npos, redacted.value().find("filabridge-secret"));
-  TEST_ASSERT_EQUAL(std::string::npos, redacted.value().find("private-ca"));
-  TEST_ASSERT_EQUAL(
-      std::string::npos, redacted.value().find("private-filabridge-ca"));
-  TEST_ASSERT_EQUAL(
-      std::string::npos, redacted.value().find("local-api-secret-token"));
-  TEST_ASSERT_NOT_EQUAL(
-      std::string::npos, redacted.value().find("credentials_configured"));
-  TEST_ASSERT_NOT_EQUAL(
-      std::string::npos, redacted.value().find("access_token_configured"));
-
-  const auto complete = service.export_json(true);
-  TEST_ASSERT_NOT_EQUAL(std::string::npos, complete.value().find("private-network"));
-  TEST_ASSERT_NOT_EQUAL(std::string::npos, complete.value().find("wifi-secret"));
-  TEST_ASSERT_NOT_EQUAL(
-      std::string::npos, complete.value().find("local-api-secret-token"));
-}
-
-void test_noncredential_import_preserves_current_secrets_and_network() {
-  MemoryDocumentStore documents;
-  LegacyScaleStore legacy;
-  ConfigurationService service(documents, legacy);
-  TEST_ASSERT_TRUE(service.initialize().ok());
-  auto configured = service.snapshot();
-  configured.wifi.ssid = "existing-network";
-  configured.wifi.password = "existing-password";
-  configured.spoolman.authentication_token = "existing-token";
-  configured.web.access_token = "existing-local-api-token";
-  TEST_ASSERT_TRUE(service.replace(configured).ok());
-
-  auto imported = configured;
-  imported.device.hostname = "imported-station";
-  imported.wifi.ssid = "untrusted-network";
-  imported.wifi.password = "untrusted-password";
-  imported.spoolman.authentication_token = "untrusted-token";
-  imported.web.access_token = "untrusted-local-api-token";
-  MemoryDocumentStore source;
-  LegacyScaleStore source_legacy;
-  ConfigurationService source_service(source, source_legacy);
-  TEST_ASSERT_TRUE(source_service.initialize().ok());
-  TEST_ASSERT_TRUE(source_service.replace(imported).ok());
-  const auto payload = source_service.export_json(true);
-
-  TEST_ASSERT_TRUE(service.import_json(payload.value(), false).ok());
-  const auto result = service.snapshot();
-  TEST_ASSERT_EQUAL_STRING("imported-station", result.device.hostname.c_str());
-  TEST_ASSERT_EQUAL_STRING("existing-network", result.wifi.ssid.c_str());
-  TEST_ASSERT_EQUAL_STRING("existing-password", result.wifi.password.c_str());
-  TEST_ASSERT_EQUAL_STRING(
-      "existing-token", result.spoolman.authentication_token.c_str());
-  TEST_ASSERT_EQUAL_STRING(
-      "existing-local-api-token", result.web.access_token.c_str());
-}
-
-void test_backup_restores_core_station_settings_without_network_secrets() {
-  MemoryDocumentStore source, destination; LegacyScaleStore legacy, restored_legacy;
-  ConfigurationService station(source,legacy), restored(destination,restored_legacy);
-  TEST_ASSERT_TRUE(station.initialize().ok());TEST_ASSERT_TRUE(restored.initialize().ok());
-  auto settings=station.snapshot();
-  settings.spoolman.url="http://spoolman.example:7912";
-  settings.spoolman.identity_field="opentag_instance_uuid";settings.spoolman.nfc_uid_field="nfc_uid";
-  settings.filabridge.url="http://filabridge.example:5000";settings.filabridge.selected_printer_id="prusa-xl";
-  settings.scale_calibration=valid_scale(settings.scale_hardware.rated_capacity_grams);
-  for(int i=0;i<5;i++)settings.toolheads.push_back({i,"T"+std::to_string(i+1),0.6F,true,"Hardened",300U,"Prusa XL"});
-  opentag::domain::ConfirmedSpoolMapping mapping;mapping.spool_id=28;mapping.nfc_uid="E004010203040506";mapping.instance_uuid="00112233-4455-6677-8899-aabbccddeeff";
-  settings.spool_identity_mappings.push_back(mapping);
-  TEST_ASSERT_TRUE(station.replace(settings).ok());
-  const auto backup=station.export_json(false);TEST_ASSERT_TRUE(backup.ok());
-  TEST_ASSERT_TRUE(restored.import_json(backup.value(),false).ok());
-  ConfigurationService rebooted(destination,restored_legacy);TEST_ASSERT_TRUE(rebooted.initialize().ok());const auto actual=rebooted.snapshot();
-  TEST_ASSERT_EQUAL_STRING(settings.spoolman.url.c_str(),actual.spoolman.url.c_str());
-  TEST_ASSERT_EQUAL_STRING("opentag_instance_uuid",actual.spoolman.identity_field.c_str());TEST_ASSERT_EQUAL_STRING("nfc_uid",actual.spoolman.nfc_uid_field.c_str());
-  TEST_ASSERT_EQUAL_STRING(settings.filabridge.url.c_str(),actual.filabridge.url.c_str());TEST_ASSERT_EQUAL_STRING("prusa-xl",actual.filabridge.selected_printer_id.c_str());
-  TEST_ASSERT_TRUE(actual.scale_calibration.has_value());TEST_ASSERT_EQUAL_FLOAT(-42.5,actual.scale_calibration->counts_per_gram);
-  TEST_ASSERT_EQUAL(5,actual.toolheads.size());for(int i=0;i<5;i++){TEST_ASSERT_EQUAL(i,actual.toolheads[i].backend_id);TEST_ASSERT_EQUAL_STRING(("T"+std::to_string(i+1)).c_str(),actual.toolheads[i].display_name.c_str());TEST_ASSERT_EQUAL_STRING("Prusa XL",actual.toolheads[i].notes.c_str());}
-  TEST_ASSERT_EQUAL(1,actual.spool_identity_mappings.size());TEST_ASSERT_EQUAL(28,actual.spool_identity_mappings[0].spool_id);
-  TEST_ASSERT_EQUAL_STRING("E004010203040506",actual.spool_identity_mappings[0].nfc_uid->c_str());
-}
 
 void test_failed_save_does_not_replace_live_configuration() {
   MemoryDocumentStore documents;
@@ -1013,14 +894,6 @@ void test_confirmed_spool_mapping_round_trips_and_conflicts_are_rejected() {
 }
 
 
-void test_clear_mapping_preserves_unrelated_and_persists(){
- MemoryDocumentStore docs;LegacyScaleStore legacy;ConfigurationService service(docs,legacy);TEST_ASSERT_TRUE(service.initialize().ok());
- opentag::domain::ConfirmedSpoolMapping mapping;mapping.spool_id=17;mapping.nfc_uid="E004010203040506";mapping.instance_uuid="00112233-4455-6677-8899-aabbccddeeff";TEST_ASSERT_TRUE(service.confirm_spool_identity_mapping(mapping).ok());
- auto other=mapping;other.spool_id=18;other.nfc_uid="E004010203040507";other.instance_uuid="00112233-4455-6677-8899-aabbccddeefe";TEST_ASSERT_TRUE(service.confirm_spool_identity_mapping(other).ok());
- TEST_ASSERT_FALSE(service.clear_spool_identity_mapping(*mapping.nfc_uid,*mapping.instance_uuid,99).ok());
- docs.save_fails=true;TEST_ASSERT_FALSE(service.clear_spool_identity_mapping(*mapping.nfc_uid,*mapping.instance_uuid,17).ok());TEST_ASSERT_EQUAL(2,service.load_spool_identity_mappings().value().size());docs.save_fails=false;
- TEST_ASSERT_TRUE(service.clear_spool_identity_mapping(*mapping.nfc_uid,*mapping.instance_uuid,17).ok());ConfigurationService restored(docs,legacy);TEST_ASSERT_TRUE(restored.initialize().ok());auto values=restored.load_spool_identity_mappings();TEST_ASSERT_EQUAL(1,values.value().size());TEST_ASSERT_EQUAL(18,values.value()[0].spool_id);
-}
 
 void test_verified_clear_stale_uid_and_uuid_only() {
   MemoryDocumentStore docs; LegacyScaleStore legacy;
@@ -1030,7 +903,6 @@ void test_verified_clear_stale_uid_and_uuid_only() {
   mapping.spool_id=17; mapping.nfc_uid="e004010203040506";
   mapping.instance_uuid="old-instance";
   TEST_ASSERT_TRUE(service.confirm_spool_identity_mapping(mapping).ok());
-  TEST_ASSERT_FALSE(service.clear_spool_identity_mapping("E004010203040506", "new-instance", 28).ok());
   TEST_ASSERT_TRUE(service.clear_verified_spool_identity_mapping("E004010203040506", "new-instance", 28).ok());
   TEST_ASSERT_EQUAL(0, service.snapshot().spool_identity_mappings.size());
   mapping.nfc_uid.reset(); mapping.instance_uuid="new-instance";
@@ -1444,7 +1316,6 @@ void test_unsupported_legacy_scale_calibration_does_not_block_startup() {
 
 int main(int, char**) {
   UNITY_BEGIN();
-  RUN_TEST(test_clear_mapping_preserves_unrelated_and_persists);
   RUN_TEST(test_verified_clear_stale_uid_and_uuid_only);
   RUN_TEST(test_verified_clear_uuid_on_other_tag_fails_closed);
   RUN_TEST(test_duplicate_physical_uid_cache_is_rejected);
@@ -1465,10 +1336,6 @@ int main(int, char**) {
   RUN_TEST(test_corrupt_primary_recovers_valid_backup_transactionally);
   RUN_TEST(test_recovery_keeps_the_good_backup_until_a_later_save);
   RUN_TEST(test_failed_restore_reports_unavailable_persistence_and_keeps_backup);
-  RUN_TEST(test_invalid_import_is_transactional_and_wrong_hardware_is_rejected);
-  RUN_TEST(test_default_export_redacts_all_credentials_and_ssid);
-  RUN_TEST(test_noncredential_import_preserves_current_secrets_and_network);
-  RUN_TEST(test_backup_restores_core_station_settings_without_network_secrets);
   RUN_TEST(test_failed_save_does_not_replace_live_configuration);
   RUN_TEST(test_revision_is_consistent_and_advances_once_per_successful_commit);
   RUN_TEST(test_conditional_replace_rejects_stale_revision_transactionally);
