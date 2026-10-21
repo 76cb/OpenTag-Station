@@ -956,7 +956,7 @@ core::Result<api::JsonBody> ApplicationApiContext::snapshot_json(
       const bool same=tag.uid&&tag.uid->hex()==std::string(writer["uid"]|"");
       workflow_.visit([&](const services::WorkflowSnapshot& workflow) {
         auto encoded = document["workflow"].to<JsonObject>();
-        encoded["tag_lifecycle"]=services::to_string(services::tag_lifecycle({tag.present,tag.blank_compatible,bool(tag.tag),bool(tag.uid&&workflow.uid==*tag.uid&&workflow.spool),tag.state==nfc::ReadState::unsupported,phase,same}));
+        encoded["tag_lifecycle"]=services::to_string(services::tag_lifecycle({tag.present,tag.blank_compatible,bool(tag.tag),bool(tag.uid&&workflow.uid==*tag.uid&&workflow.spool),tag.state==nfc::ReadState::unsupported,phase,same,tag.state==nfc::ReadState::unsupported_technology}));
         encoded["stage"] = workflow_stage_name(workflow.stage);
         encoded["spool_generation"] = workflow.spool_generation;
         encoded["openprinttag_available"] = workflow.openprinttag_available;

@@ -2,6 +2,40 @@
 
 What changed in each version of OpenTag Station, newest first.
 
+## 1.0.1-beta.5
+
+Pre-release for testers. First step of the tag-support roadmap (#93): the reader now also looks
+for ISO 14443A (NFC-A) tags and names them. Nothing is read from them yet. Not run on a WT32 by
+the author; see "Needs a station" below.
+
+**NFC**
+- **NTAG, MIFARE and other NFC-A tags are found and named.** Each poll cycle still asks for
+  NFC-V (ISO 15693) tags first, exactly as before. Only when that finds nothing, and no NFC-V tag
+  is being tracked, does the same cycle also run an ISO 14443A detection (REQA and anticollision).
+  So an OpenPrintTag is found and lost on the same polls as in 1.0.1-beta.4; the only added cost
+  is one short NFC-A request on cycles with no NFC-V tag.
+- An NFC-A tag is reported with its NFCID1, SAK and ATQA and a kind derived from the SAK (NXP
+  AN10833): `type2` (NTAG, MIFARE Ultralight), `mifare_classic`, `type4` or `other`. Nothing on
+  the tag is read, it is not looked up in Spoolman, and the automatic weigh does not start for it.
+- Touchscreen: Home shows "TAG FOUND" / "Tag type not supported yet" with the kind; the Tag page
+  shows the kind and the ID; the NFC READER setup step says "Tag found. Its type is not supported
+  yet." Browser: the Dashboard shows "Tag type not supported yet" / "Not supported yet", Manage
+  tag names the kind, and "Multiple NFC-A tags detected" when there are several.
+- API: `GET /api/v1/nfc` gains `technology` (`nfcv`, `nfca` or null) and, for an NFC-A tag, the
+  state `unsupported_technology`, lifecycle `UNSUPPORTED_TYPE`, the NFCID1 as `uid` and an `nfca`
+  object (`nfcid1`, `length`, `sak`, `atqa`, `kind`, `description`). `inventory.technology` now
+  names the technology of the tag on the reader.
+- The serial diagnostic line adds `technology=` and, for an NFC-A tag, its NFCID1, SAK, ATQA and
+  kind.
+- The production NFC check (`tools/check_production_nfc.py`) permits exactly three NFC-A RFAL
+  calls (mode switch, technology detection, collision resolution) in the I2C driver only, and
+  the ELF check now also fails if a Type 2 read or write, ISO-DEP or NFC-DEP routine is linked.
+
+**Needs a station**
+- Detection and removal timing of an OpenPrintTag before and after this change, and the
+  detection of an NTAG and a MIFARE Classic tag, have not been measured by the author. The
+  acceptance steps are in the pull request for this release and in issue #93.
+
 ## 1.0.1-beta.4
 
 Pre-release for testers. The Community catalog is gone, and the leftovers from the 1.1 cleanup

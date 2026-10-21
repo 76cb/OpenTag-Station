@@ -47,6 +47,8 @@ function renderCurrentSpool() {
   const linked=present&&!blank&&!!s.id, valid=present&&!blank&&(t.decode==='pass'||linked||lifecycle==='OPENPRINTTAG_UNLINKED');
   const cleanup=lifecycle==='CLEANUP_PENDING'||state.clearSnapshot?.phase==='unlink_pending';
   const writePending=lifecycle==='WRITE_PENDING';
+  // #93: an NFC-A tag (NTAG, MIFARE) is found and named, nothing is read.
+  const foreign=present&&(t.technology==='nfca'||lifecycle==='UNSUPPORTED_TYPE');
   byId('tag-update').hidden=!linked||cleanup||writePending;
   byId('writer-open').hidden=(!blank&&!valid&&!writePending)||cleanup;
   byId('clear-open').hidden=(!valid&&!cleanup)||writePending;
@@ -57,13 +59,13 @@ function renderCurrentSpool() {
   if (!present) return;
   const remaining=first(s.remaining_grams,t.remaining_weight);
   const initial=first(s.initial_grams,t.actual_full_weight,t.nominal_full_weight);
-  const name=first(s.display_name,t.material_name,t.blank_compatible?'Blank tag':'Reading spool…');
+  const name=foreign?'Tag type not supported yet':first(s.display_name,t.material_name,t.blank_compatible?'Blank tag':'Reading spool…');
   setText('current-name',name);setText('manage-material',name);
   setText('current-vendor',first(s.vendor,t.brand_name,t.brand,''));
   setText('current-material',first(s.material,t.material_abbreviation,''));
   // Unlinked only means "no link" once Spoolman has actually answered for this tag.
   const look=!s.id&&w.stage==='resolving_spool',off=!s.id&&!look&&(w.spoolman==='offline'||w.stage==='spool_resolution_unavailable');
-  setText('current-number',s.id?'Spool #'+s.id:look?'Looking up…':off?'Link not checked':blank?'Ready to write':'Not yet linked');
+  setText('current-number',foreign?first(t.nfca?.description,'NFC-A tag')+' · not read':s.id?'Spool #'+s.id:look?'Looking up…':off?'Link not checked':blank?'Ready to write':'Not yet linked');
   setText('current-remaining',remaining===null?'—':Math.round(Number(remaining)));
   const percentage=remaining!==null&&Number(initial)>0?Math.max(0,Math.min(100,Math.round(Number(remaining)/Number(initial)*100))):null;
   byId('remaining-summary').hidden=percentage===null;
@@ -74,9 +76,9 @@ function renderCurrentSpool() {
   byId('current-spool').style.setProperty('--filament',safe?'rgb('+color.join(',')+')':'#879b9b');
   setText('current-color',safe?'Filament color':'Color not provided');
   const reading=tagReading(t);
-  setText('current-tag',t.blank_compatible?'Blank tag':t.decode==='pass'?'Tag valid':t.decode==='fail'?'Tag needs attention':reading?'Reading tag…':'Tag not read');
+  setText('current-tag',foreign?'Not supported yet':t.blank_compatible?'Blank tag':t.decode==='pass'?'Tag valid':t.decode==='fail'?'Tag needs attention':reading?'Reading tag…':'Tag not read');
   byId('current-tag').dataset.valid=String(t.decode==='pass');byId('current-tag').dataset.reading=String(reading);
-  setText('current-link',s.id?'Linked to Spoolman':look?'Looking up this spool in Spoolman…':off?(w.lookup_error?'The Spoolman lookup failed: '+w.lookup_error:"Spoolman is not reachable; the link can't be checked right now. It will be looked up again when Spoolman is back."):'Not linked to Spoolman');byId('current-link').dataset.state=off?'warn':'';
+  setText('current-link',foreign?'The station reads OpenPrintTag on NFC-V (ISO 15693) only':s.id?'Linked to Spoolman':look?'Looking up this spool in Spoolman…':off?(w.lookup_error?'The Spoolman lookup failed: '+w.lookup_error:"Spoolman is not reachable; the link can't be checked right now. It will be looked up again when Spoolman is back."):'Not linked to Spoolman');byId('current-link').dataset.state=off?'warn':'';
   const assignments=state.printers.flatMap(p=>asArray(p.toolheads).filter(h=>s.id&&Number(first(h.assigned_spool_id,h.spool_id))===Number(s.id)).map(h=>(p.display_name||p.name||'Printer')+' · T'+(Number(first(h.backend_id,h.id))+1)));
   setText('current-assignment',assignments.length?assignments.join(', '):'Not assigned');
   setText('dashboard-printer',assignments.length?assignments.join(', '):'Choose a toolhead to assign this spool.');

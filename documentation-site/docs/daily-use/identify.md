@@ -27,10 +27,10 @@ Until then tags are ignored; see [Tag is not detected](../troubleshooting/tag.md
 | Blank tag | "COMPATIBLE BLANK TAG", "Ready to write", "Open Manage tag to choose a spool". The first button reads **WRITE TAG**. | "Blank tag", "Ready to write". The first button reads **Write tag**. | [Write the tag](manage-tags.md). |
 | Blank tag, or tag with other data, that Spoolman links to a spool | The spool's name, "Spool #N" and "NNN g remaining", with the normal **WEIGH** button | The spool's name, "Spool #N", its weight and "Linked to Spoolman", with the normal **Weigh** button | Weigh it, or [write the tag](manage-tags.md) to put the filament data on it. See [below](#tags-spoolman-links-to-a-spool). |
 | Tag the station cannot use | On the **Tag** page: "This tag can't be used as it is", a reason, and "Use a blank NXP ICODE SLIX2 tag." | Dashboard: "Reading spool…" and "Tag needs attention". In **Manage tag**: "Unsupported" and "OpenPrintTag decode failed / unsupported" | Use a blank NXP ICODE SLIX2 tag. See [Which tags work](../openprinttag/supported-tags.md). |
-| Two or more tags on the reader | Home keeps showing "Place a spool". The **Tag** page shows "Two tags on the reader. Remove one." | In **Manage tag**: "Multiple NFC-V tags detected" and "Remove extra tags and present exactly one tag." | Leave one tag on the reader. |
+| Two or more tags on the reader | Home keeps showing "Place a spool". The **Tag** page shows "Two tags on the reader. Remove one." | In **Manage tag**: "Multiple NFC-V tags detected" (or "Multiple NFC-A tags detected") and "Remove extra tags and present exactly one tag." | Leave one tag on the reader. |
+| NTAG or MIFARE tag (NFC-A) | Home: "TAG FOUND", "Tag type not supported yet" and the tag's kind, for example "NTAG or other Type 2 tag (NFC-A)". The **Tag** page shows the same with the tag's ID. | Dashboard: "Tag type not supported yet", "Not supported yet". In **Manage tag**: "Tag type not supported yet" with the tag's kind. | Nothing is read from such a tag yet. Use an OpenPrintTag on NXP ICODE SLIX2. See [Which tags work](../openprinttag/supported-tags.md). |
 
-Other kinds of NFC tag (for example NTAG or MIFARE) are not seen at all.
-The screen keeps showing "Place a spool".
+NFC-B and NFC-F tags are not seen at all. The screen keeps showing "Place a spool".
 
 ![Browser Dashboard with a linked spool](../assets/images/browser/dashboard.png)
 
@@ -95,6 +95,7 @@ A similar name is not enough when you own several spools of the same filament.
 
 | What you see | What it means | What to do |
 |---|---|---|
-| The screen stays on "Place a spool" with a tag on the reader | The tag is not an NFC-V tag, is too far from the reader, or the reader has not started yet | See [Tag is not detected](../troubleshooting/tag.md). |
+| The screen stays on "Place a spool" with a tag on the reader | The tag is neither NFC-V nor NFC-A, is too far from the reader, or the reader has not started yet | See [Tag is not detected](../troubleshooting/tag.md). |
+| "Tag type not supported yet" | The tag is an NFC-A tag (NTAG, MIFARE). The station names it but does not read it yet. | Use an OpenPrintTag on NXP ICODE SLIX2. |
 | "This tag can't be used as it is" | The tag holds data that is neither blank nor OpenPrintTag | Use a blank NXP ICODE SLIX2 tag. The station does not erase unknown data. |
 | "Spoolman unavailable; spool not looked up" | The station could not reach Spoolman | See [Spoolman problems](../troubleshooting/spoolman.md). You do not need to lift the spool: the station looks it up again by itself once Spoolman is back. |

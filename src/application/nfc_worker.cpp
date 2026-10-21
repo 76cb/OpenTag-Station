@@ -70,11 +70,16 @@ void NfcWorker::run_once() {
   if (static_cast<std::uint32_t>(now - last_log_) >= 5000U) {
     last_log_ = now;
     Serial.printf(
-        "NFC owner=opentag-backend state=%s generation=%llu stack_free=%lu bytes bus_errors=%lu\n",
-        nfc::to_string(current.state),
+        "NFC owner=opentag-backend state=%s technology=%s generation=%llu stack_free=%lu bytes bus_errors=%lu\n",
+        nfc::to_string(current.state), nfc::to_string(current.technology),
         static_cast<unsigned long long>(current.generation),
         static_cast<unsigned long>(uxTaskGetStackHighWaterMark(nullptr)),
         static_cast<unsigned long>(current.bus_errors));
+    if (current.nfca)
+      Serial.printf("NFC-A tag nfcid1=%s sak=0x%02X atqa=0x%02X%02X kind=%s (detection only)\n",
+                    current.nfca->diagnostic().c_str(), current.nfca->sak,
+                    current.nfca->atqa[1], current.nfca->atqa[0],
+                    nfc::nfca::to_string(current.nfca->kind()));
   }
 }
 }  // namespace opentag::application

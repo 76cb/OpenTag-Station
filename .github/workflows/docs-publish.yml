@@ -1,0 +1,81 @@
+# Publishes the manual in documentation-site/ to 76cb/OpenTag-Station-Docs, whose own workflow
+# builds and deploys GitHub Pages. Runs on every merge to main that changes the manual, pre-release
+# versions included. One-time setup (deploy key and the DOCS_DEPLOY_KEY secret) is described in
+# documentation-site/README.md under "Publish".
+name: Publish manual
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'documentation-site/**'
+      - VERSION
+      - tools/export_docs.py
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docs-publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: '3.12'
+      # The same checks as the CI documentation job.
+      - run: python -m pip install -r documentation-site/requirements.txt
+      - run: python tools/check_public_privacy.py
+      - run: python tools/check_hardware_docs.py
+      - run: python tools/export_docs.py --check
+      - run: python tools/check_committed_images.py
+      - run: python documentation-site/scripts/check_images.py
+      - run: python -m mkdocs build --strict -f documentation-site/mkdocs.yml
+      - run: python documentation-site/scripts/validate.py documentation-site/site
+      - run: python tools/export_docs.py --output "$RUNNER_TEMP/export"
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          repository: 76cb/OpenTag-Station-Docs
+          ref: main
+          path: docs-repo
+          fetch-depth: 0
+          ssh-key: ${{ secrets.DOCS_DEPLOY_KEY }}
+          persist-credentials: true
+      # --delete removes manual files that no longer exist; the Docs repository keeps its own
+      # .git, deploy workflow and .gitignore.
+      - run: rsync -a --delete --exclude=.git --exclude=.github --exclude=.gitignore "$RUNNER_TEMP/export/" docs-repo/
+      - id: changes
+        working-directory: docs-repo
+        run: |
+          if [ -z "$(git status --porcelain)" ]; then
+            echo "Manual already up to date"
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            git status --short
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+      # The Docs repository's own checks, so a broken export never reaches its main.
+      - if: steps.changes.outputs.changed == 'true'
+        working-directory: docs-repo
+        run: |
+          python -m pip install -r requirements.txt
+          python scripts/validate.py docs
+          python scripts/check_images.py
+          python -m mkdocs build --strict
+          python scripts/validate.py site
+          rm -rf site
+      - if: steps.changes.outputs.changed == 'true'
+        working-directory: docs-repo
+        env:
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m "Manual for $(cat ../VERSION) from 76cb/OpenTag-Station@${SOURCE_SHA::7}"
+          git push origin HEAD:main

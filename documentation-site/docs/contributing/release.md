@@ -5,7 +5,7 @@ publishes it, then updates the USB installer from the same files.
 Before a release, run the [hardware acceptance](testing.md#hardware-acceptance) checks on a real
 station.
 
-The current version is `1.0.1-beta.4`.
+The current version is `1.0.1-beta.5`.
 
 ## Version names
 
@@ -55,13 +55,21 @@ workflow); when the release already exists it only redeploys the installer from 
 
 ## Publish the manual
 
-The manual is not published automatically. It is exported from the firmware repository and
-committed to <https://github.com/76cb/OpenTag-Station-Docs>, which deploys it.
+The manual is published automatically. A merge to `main` that changes `documentation-site/`,
+`VERSION` or `tools/export_docs.py` runs the workflow **Publish manual**
+(`.github/workflows/docs-publish.yml`). It checks the manual, exports it, and pushes the export to
+<https://github.com/76cb/OpenTag-Station-Docs>, which deploys it. Pre-release versions are published
+too. The commit there is named `Manual for <version> from 76cb/OpenTag-Station@<commit>`; when
+nothing changed the workflow prints `Manual already up to date`.
+
+The export copies `documentation-site/`, records the firmware version and commit in `firmware.json`,
+and points links to repository files at that commit. To look at it without publishing:
 
 ```sh
 python tools/export_docs.py --output <empty-directory>
 ```
 
-The export copies `documentation-site/`, records the firmware version and commit, and points
-links to repository files at that commit. Copy the result into a clone of the Docs repository
-and commit it there.
+The workflow needs a deploy key once; the setup is in the
+[documentation-site README](https://github.com/76cb/OpenTag-Station/blob/main/documentation-site/README.md#publish).
+Until the secret `DOCS_DEPLOY_KEY` exists, the workflow fails at the Docs repository checkout and
+nothing is published.

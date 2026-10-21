@@ -239,6 +239,7 @@ void production_sink_bounds_streamed_bytes() {
 #include "train_cases.hpp"
 #include "rc23_cases.hpp"
 #include "beta4_cases.hpp"
+#include "beta5_cases.hpp"
 void setUp() {} void tearDown() {}
 int main() {UNITY_BEGIN();RUN_TEST(lifecycle);RUN_TEST(sensible_actions);RUN_TEST(bounded_paging_and_selection);RUN_TEST(short_pages_use_next_offset);RUN_TEST(reassign_review);RUN_TEST(review_warns_from_writer_preview);RUN_TEST(action_buttons_are_coloured_by_role);RUN_TEST(failed_lookup_still_offers_linking);RUN_TEST(created_spool_previews_once);RUN_TEST(reading_and_two_tags);RUN_TEST(loading_spool_says_what_it_does);RUN_TEST(spool_colour_ring);RUN_TEST(exact_confirmation);RUN_TEST(clear_retry_to_immediate_assign);RUN_TEST(filament_create);RUN_TEST(stale_operation_rejected);RUN_TEST(keyboard_geometry);RUN_TEST(keyboard_value_and_validation);RUN_TEST(production_sink_closes_on_disposition);RUN_TEST(production_sink_bounds_streamed_bytes);RUN_TEST(rc10::assignment_dialog_only_affirmative_labels_confirm);RUN_TEST(rc10::progress_never_shows_blocks_for_spoolman_work);RUN_TEST(rc10::filament_review_formats_diameter);RUN_TEST(rc10::unknown_empty_spool_weight_must_be_entered);RUN_TEST(rc10::vendor_search_is_kept_while_paging);RUN_TEST(rc10::destructive_and_duplicate_actions);RUN_TEST(rc10::recovery_can_be_skipped_explicitly);RUN_TEST(rc10::metadata_candidates_can_be_chosen_on_the_touchscreen);
   RUN_TEST(train::nfc_error_does_not_replace_recovery_instructions);
@@ -256,4 +257,5 @@ int main() {UNITY_BEGIN();RUN_TEST(lifecycle);RUN_TEST(sensible_actions);RUN_TES
   RUN_TEST(rc23::writer_errors_are_shown_in_plain_words);
   RUN_TEST(beta4::confirmation_notice_is_shown_until_the_tag_is_linked);
   RUN_TEST(beta4::review_shows_generic_preview_warnings);
+  RUN_TEST(beta5::nfca_tag_is_named_as_not_supported_yet);
   export_touch_fixtures();return UNITY_END();}

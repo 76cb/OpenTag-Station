@@ -19,6 +19,7 @@ class I2cReader final : public opentag::nfc::IWriterReader {
   core::Result<void> field_off() override;
   core::Result<void> health() override;
   core::Result<std::vector<opentag::nfc::nfcv::Uid>> inventory() override;
+  core::Result<std::vector<opentag::nfc::nfca::Identity>> inventory_nfca() override;
   core::Result<opentag::nfc::nfcv::TagGeometry> geometry(
       const opentag::nfc::nfcv::Uid&) override;
   core::Result<void> read_blocks(const opentag::nfc::nfcv::Uid&, std::size_t,

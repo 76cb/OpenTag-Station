@@ -13,9 +13,10 @@ The station only writes to a tag that is completely blank or already holds OpenP
 A tag with a web link or other phone-written data shows `This tag can't be used as it is` and
 `Use a blank NXP ICODE SLIX2 tag.` The station cannot erase it for you.
 
-**Why does the station ignore my NTAG or MIFARE tag?**
-The reader only talks to NFC-V tags. Other types are not seen at all, so the touchscreen keeps
-showing `PLACE A TAG`.
+**Why does the station not read my NTAG or MIFARE tag?**
+The reader finds NFC-A tags (NTAG, MIFARE) and names them, `Tag type not supported yet`, but reads
+only NFC-V tags. Reading NTAG and MIFARE Classic spool tags is planned (issues #95 and #94).
+NFC-B and NFC-F tags are not seen at all, so the touchscreen keeps showing `PLACE A TAG`.
 
 **In the NFC READER setup step the reader says it is starting and never gets ready. Why?**
 The reader starts only after the station has joined your Wi-Fi and the setup network has closed.

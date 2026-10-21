@@ -447,6 +447,33 @@ void test_rc23_touchscreen_wording_is_plain() {
 
 }  // namespace
 
+// 1.0.1-beta.5 (#93): a tag of another technology is named on every screen
+// instead of leaving "Place a spool" / "PLACE A TAG" on, and nothing reads it.
+void test_beta5_nfca_tag_is_named_not_read() {
+  const auto ui = read_source("src/ui/ui_service.cpp");
+  const auto status = method(ui, "const char* nfc_status_text(", "void style_screen(");
+  TEST_ASSERT_TRUE(status.find("unsupported_technology: return \"Tag found. Its type is not supported yet.\"") != std::string::npos);
+  const auto home = method(ui, "void UiService::refresh_home_page(", "void UiService::refresh_printer_page()");
+  TEST_ASSERT_TRUE(home.find("ReadState::unsupported_technology") != std::string::npos);
+  TEST_ASSERT_TRUE(home.find("\"Tag type not supported yet\"") != std::string::npos);
+  const auto tags = method(ui, "void UiService::refresh_tags()", "void UiService::weight_update_callback(");
+  TEST_ASSERT_TRUE(tags.find("tag.nfca->hex()") != std::string::npos);
+  TEST_ASSERT_TRUE(tags.find("ReadState::unsupported_technology") != std::string::npos);
+  const auto flow = read_source("src/ui/tag_flow.hpp");
+  TEST_ASSERT_TRUE(flow.find("TagLifecycle::unsupported_type") != std::string::npos);
+  TEST_ASSERT_TRUE(flow.find("\"Tag type not supported yet\\n\"") != std::string::npos);
+  // The service asks NFC-A only inside its own turn, after NFC-V, and that
+  // turn never reads tag memory.
+  const auto service = read_source("src/nfc/read_only_service.cpp");
+  const auto turn = method(service, "core::Result<void> ReadOnlyService::poll_nfca(", "void ReadOnlyService::poll()");
+  TEST_ASSERT_TRUE(turn.find("reader_.inventory_nfca()") != std::string::npos);
+  TEST_ASSERT_TRUE(turn.find("read_blocks") == std::string::npos);
+  TEST_ASSERT_TRUE(turn.find("read_tag(") == std::string::npos);
+  const auto poll = method(service, "void ReadOnlyService::poll()", "}  // namespace opentag::nfc");
+  TEST_ASSERT_TRUE(poll.find("reader_.inventory_nfca()") == std::string::npos);
+  TEST_ASSERT_LESS_THAN(poll.find("poll_nfca(now)"), poll.find("reader_.inventory()"));
+}
+
 int main(int argc, char** argv) {
   UNITY_BEGIN();
   RUN_TEST(test_weigh_readback_uses_captured_policy_behind_revision_fence);
@@ -468,5 +495,6 @@ int main(int argc, char** argv) {
   RUN_TEST(test_rc23_setup_waits_for_its_save_and_selects_the_printer);
   RUN_TEST(test_rc23_brightness_is_saved_and_follows_settings);
   RUN_TEST(test_rc23_touchscreen_wording_is_plain);
+  RUN_TEST(test_beta5_nfca_tag_is_named_not_read);
   return UNITY_END();
 }

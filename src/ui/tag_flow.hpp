@@ -849,6 +849,10 @@ inline TagScreen TagFlow::screen() const {
       else if (lifecycle == services::TagLifecycle::unsupported)
         s.body = "This tag can't be used as it is\n" + tag_error +
                  "\nUse a blank NXP ICODE SLIX2 tag.";
+      else if (lifecycle == services::TagLifecycle::unsupported_type)
+        // #93: found and named, nothing read. tag_error holds the kind.
+        s.body = "Tag type not supported yet\n" + tag_error + "\nID " + uid +
+                 "\nUse an OpenPrintTag on NXP ICODE SLIX2.";
       else {
         s.title = "Reading tag";
         s.body = "Hold the spool still.";
