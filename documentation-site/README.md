@@ -67,14 +67,28 @@ python tools/export_docs.py --output <empty-directory>
 
 The export stamps the firmware commit and version into `firmware.json`.
 
-One-time setup, needed before the first run:
+One-time setup, needed before the first run. Either credential works; a deploy key is used when
+both exist.
+
+Fine-grained token (needs only the GitHub website):
+
+1. On github.com, open your profile → Settings → Developer settings → Personal access tokens →
+   Fine-grained tokens → **Generate new token**. Resource owner `76cb`, repository access
+   **Only select repositories** → `OpenTag-Station-Docs`, repository permission **Contents:
+   Read and write**. Choose the expiration you want; the workflow fails with `403` once it
+   expires, and a new token goes into the same secret.
+2. On `76cb/OpenTag-Station`, add the token as the repository secret `DOCS_PUBLISH_TOKEN`
+   (Settings → Secrets and variables → Actions → New repository secret).
+
+Deploy key (needs a computer with `ssh-keygen`):
 
 1. Generate a key pair: `ssh-keygen -t ed25519 -N "" -f docs-deploy-key`.
 2. On `76cb/OpenTag-Station-Docs`, add `docs-deploy-key.pub` as a deploy key with write access
    (Settings → Deploy keys → Add deploy key, tick **Allow write access**).
 3. On `76cb/OpenTag-Station`, add the private key `docs-deploy-key` as the repository secret
-   `DOCS_DEPLOY_KEY` (Settings → Secrets and variables → Actions → New repository secret).
-4. Run the workflow once by hand: Actions → **Publish manual** → **Run workflow**. This first run
-   brings the Docs repository up to date.
+   `DOCS_DEPLOY_KEY`.
+
+Then run the workflow once by hand: Actions → **Publish manual** → **Run workflow**. This first
+run brings the Docs repository up to date.
 
 The manual is under the firmware's [PolyForm Noncommercial license](LICENSE.md).
