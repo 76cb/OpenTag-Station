@@ -694,6 +694,36 @@ void test_initialize_revision_changes_only_on_successful_load() {
   TEST_ASSERT_EQUAL_UINT64(2U, service.revision());
 }
 
+// 1.0.1-beta.6: the screen orientation is a saved setting, 0 or 180 degrees.
+void test_display_rotation_defaults_to_zero_round_trips_and_is_validated() {
+  MemoryDocumentStore documents;
+  LegacyScaleStore legacy;
+  ConfigurationService service(documents, legacy);
+  TEST_ASSERT_TRUE(service.initialize().ok());
+  TEST_ASSERT_EQUAL_UINT16(0U, service.snapshot().device.display_rotation);
+  auto turned = service.snapshot();
+  turned.device.display_rotation = 180U;
+  TEST_ASSERT_TRUE(service.replace(turned).ok());
+  TEST_ASSERT_EQUAL_UINT16(180U, service.snapshot().device.display_rotation);
+  TEST_ASSERT_NOT_EQUAL(std::string::npos, documents.document->find("\"display_rotation\":180"));
+  // Saved settings are read back with the rotation.
+  ConfigurationService reloaded(documents, legacy);
+  TEST_ASSERT_TRUE(reloaded.initialize().ok());
+  TEST_ASSERT_EQUAL_UINT16(180U, reloaded.snapshot().device.display_rotation);
+  // Only 0 and 180 are accepted; a document without the key means 0.
+  Configuration configuration;
+  configuration.device.display_rotation = 90U;
+  TEST_ASSERT_FALSE(configuration.validate().ok());
+  configuration.device.display_rotation = 180U;
+  TEST_ASSERT_TRUE(configuration.validate().ok());
+  MemoryDocumentStore older;
+  older.document = schema_one_document;
+  LegacyScaleStore older_legacy;
+  ConfigurationService migrated(older, older_legacy);
+  TEST_ASSERT_TRUE(migrated.initialize().ok());
+  TEST_ASSERT_EQUAL_UINT16(0U, migrated.snapshot().device.display_rotation);
+}
+
 void test_validation_rejects_invalid_urls_and_duplicate_toolheads() {
   Configuration configuration;
   configuration.spoolman.url = "ftp://not-supported";
@@ -1344,6 +1374,7 @@ int main(int, char**) {
   RUN_TEST(test_initialize_revision_changes_only_on_successful_load);
   RUN_TEST(test_validation_rejects_invalid_urls_and_duplicate_toolheads);
   RUN_TEST(test_validation_rejects_invalid_scale_hardware_settings);
+  RUN_TEST(test_display_rotation_defaults_to_zero_round_trips_and_is_validated);
   RUN_TEST(test_web_access_token_validation_is_fail_closed_and_ascii_only);
   RUN_TEST(test_local_interface_snapshot_is_narrow_current_and_independent);
   RUN_TEST(test_scale_profile_snapshot_is_scoped_revisioned_and_independent);

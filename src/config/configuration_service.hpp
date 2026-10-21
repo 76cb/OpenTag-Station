@@ -25,6 +25,8 @@ namespace detail {
 struct DeviceSettings {
   std::string hostname{"opentag-station"};
   std::uint8_t brightness_percent{80U};
+  // 0 or 180 degrees: the screen can be mounted upside down (printed case variants).
+  std::uint16_t display_rotation{0U};
   std::uint32_t dim_after_ms{120000U};
   std::uint32_t sleep_after_ms{300000U};
   std::string update_channel{"stable"};

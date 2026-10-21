@@ -81,7 +81,8 @@ bool Wt32Display::initialize() {
   if (!initialized_) {
     return false;
   }
-  device_.setRotation(Board::display_rotation);
+  device_.setRotation(rotation_degrees_ == 180U ? Board::display_rotation_flipped
+                                                 : Board::display_rotation);
   device_.setColorDepth(16);
   device_.setSwapBytes(Board::display_swap_bytes);
   device_.setBrightness(static_cast<std::uint8_t>(brightness_percent_ * 255U / 100U));
@@ -90,6 +91,15 @@ bool Wt32Display::initialize() {
   initialized_ = device_.width() == Board::display_width &&
                  device_.height() == Board::display_height;
   return initialized_;
+}
+
+void Wt32Display::set_rotation(std::uint16_t degrees) {
+  rotation_degrees_ = degrees == 180U ? 180U : 0U;
+  if (initialized_) {
+    // LovyanGFX turns both the panel and the touch coordinates.
+    device_.setRotation(rotation_degrees_ == 180U ? Board::display_rotation_flipped
+                                                   : Board::display_rotation);
+  }
 }
 
 void Wt32Display::set_brightness(std::uint8_t percent) {

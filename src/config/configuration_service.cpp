@@ -186,6 +186,7 @@ void write_known(JsonDocument& document, const Configuration& configuration) {
   auto device = object_at(document, "device");
   device["hostname"] = configuration.device.hostname;
   device["brightness_percent"] = configuration.device.brightness_percent;
+  device["display_rotation"] = configuration.device.display_rotation;
   device["dim_after_ms"] = configuration.device.dim_after_ms;
   device["sleep_after_ms"] = configuration.device.sleep_after_ms;
   device["update_channel"] = configuration.device.update_channel;
@@ -320,6 +321,8 @@ core::Result<void> read_configuration(
   result.device.hostname = text_or(device["hostname"], result.device.hostname);
   result.device.brightness_percent =
       number_or<std::uint8_t>(device["brightness_percent"], result.device.brightness_percent);
+  result.device.display_rotation =
+      number_or<std::uint16_t>(device["display_rotation"], result.device.display_rotation);
   result.device.dim_after_ms =
       number_or<std::uint32_t>(device["dim_after_ms"], result.device.dim_after_ms);
   result.device.sleep_after_ms =
@@ -572,6 +575,7 @@ core::Result<void> Configuration::validate() const {
   }
   if (!valid_hostname(device.hostname) || device.brightness_percent < 5U ||
       device.brightness_percent > 100U || device.dim_after_ms == 0U ||
+      (device.display_rotation != 0U && device.display_rotation != 180U) ||
       device.sleep_after_ms < device.dim_after_ms ||
       (device.update_channel != "stable" && device.update_channel != "beta" &&
        device.update_channel != "development")) {

@@ -656,14 +656,20 @@ core::Result<void> parse_configuration_patch(
     const auto object = root["device"].as<JsonObjectConst>();
     DevicePatch patch;
     if (object.size() == 0U ||
-        !keys_allowed(object, {"hostname", "brightness_percent", "dim_after_ms", "sleep_after_ms", "update_channel"}) ||
+        !keys_allowed(object, {"hostname", "brightness_percent", "display_rotation", "dim_after_ms", "sleep_after_ms", "update_channel"}) ||
         !read_optional_string(object, "hostname", 63U, patch.hostname, false) ||
         !read_optional_unsigned(object, "brightness_percent", 5U, 100U, patch.brightness_percent) ||
+        !read_optional_unsigned(object, "display_rotation", 0U, 180U, patch.display_rotation) ||
         !read_optional_unsigned(object, "dim_after_ms", 1U, 86400000U, patch.dim_after_ms) ||
         !read_optional_unsigned(object, "sleep_after_ms", 1U, 86400000U, patch.sleep_after_ms) ||
         !read_optional_string(object, "update_channel", 16U, patch.update_channel, false)) {
       return core::Result<void>::failure(
           invalid_request("device patch contains invalid fields or values"));
+    }
+    if (patch.display_rotation.has_value() && *patch.display_rotation != 0U &&
+        *patch.display_rotation != 180U) {
+      return core::Result<void>::failure(
+          invalid_request("device display rotation must be 0 or 180"));
     }
     if (patch.update_channel.has_value() && *patch.update_channel != "stable" &&
         *patch.update_channel != "beta" && *patch.update_channel != "development") {

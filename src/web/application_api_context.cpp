@@ -453,6 +453,7 @@ void write_configuration(
   auto device = document["device"].to<JsonObject>();
   device["hostname"] = value.device.hostname;
   device["brightness_percent"] = value.device.brightness_percent;
+  device["display_rotation"] = value.device.display_rotation;
   device["dim_after_ms"] = value.device.dim_after_ms;
   device["sleep_after_ms"] = value.device.sleep_after_ms;
   device["update_channel"] = value.device.update_channel;

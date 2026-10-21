@@ -30,6 +30,8 @@ class Wt32Display {
  public:
   bool initialize();
   void set_brightness(std::uint8_t percent);
+  // 0 or 180 degrees. Applies at once when the display runs; touch follows.
+  void set_rotation(std::uint16_t degrees);
   void sleep();
   void wake();
   void push_pixels(
@@ -44,6 +46,7 @@ class Wt32Display {
   [[nodiscard]] bool sleeping() const { return sleeping_; }
   [[nodiscard]] bool touch_configured() const { return initialized_; }
   [[nodiscard]] std::uint8_t brightness() const { return brightness_percent_; }
+  [[nodiscard]] std::uint16_t rotation() const { return rotation_degrees_; }
 
  private:
   static constexpr std::uint32_t touch_debounce_ms = 20U;
@@ -52,6 +55,7 @@ class Wt32Display {
   bool initialized_{false};
   bool sleeping_{false};
   std::uint8_t brightness_percent_{80};
+  std::uint16_t rotation_degrees_{0};
   bool touch_candidate_{false};
   bool touch_stable_{false};
   std::uint32_t touch_candidate_since_ms_{0};

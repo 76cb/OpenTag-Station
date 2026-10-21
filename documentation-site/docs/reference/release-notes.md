@@ -2,6 +2,22 @@
 
 What changed in each version of OpenTag Station, newest first.
 
+## 1.0.1-beta.6
+
+Pre-release for testers. One new setting. Not run on a WT32 by the author; see "Needs a station".
+
+**Display**
+- **The screen can be turned upside down.** Browser: **Settings → Display → Screen orientation**,
+  **Normal** or **Upside down (turned 180°)**. The touchscreen, including touch, turns at once and
+  keeps the orientation after a restart. Settings key `device.display_rotation`, `0` or `180`;
+  `GET /api/v1/config` reports it and `PATCH /api/v1/config` accepts it under `device`. Any other
+  value is refused. Older saved settings without the key mean `0`.
+
+**Needs a station**
+- Set the orientation to upside down in the browser and check that the screen turns without a
+  restart, that touches land where they are shown (tap each of the five pages), that the setting
+  survives a reboot, and that **Normal** turns it back.
+
 ## 1.0.1-beta.5
 
 Pre-release for testers. First step of the tag-support roadmap (#93): the reader now also looks

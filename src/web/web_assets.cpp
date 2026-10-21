@@ -163,6 +163,7 @@ const char index_html[] = R"HTML(<!doctype html>
 <fieldset class="card" disabled><legend>Device</legend>
 <label for="config-hostname">Hostname</label><input id="config-hostname" type="text" maxlength="63" pattern="[a-z0-9]([a-z0-9-]*[a-z0-9])?">
 <label for="config-brightness">Brightness (%)</label><input id="config-brightness" type="number" min="5" max="100" step="1">
+<label for="config-rotation">Screen orientation</label><select id="config-rotation"><option value="0">Normal</option><option value="180">Upside down (turned 180°)</option></select>
 </fieldset>
 <fieldset class="card" disabled><legend>Wi-Fi</legend>
 <div class="action-row"><button id="config-scan" class="button quiet" type="button">Scan networks</button><span id="config-scan-status" class="hint">Not scanned yet</span></div>
@@ -1935,6 +1936,7 @@ applyAuthState(web.access_token_configured === true, state.configRevision);
 const profile = asObject(first(payload.scale_profile, payload.scale && payload.scale.profile, {}));
 setValue('config-hostname', device.hostname);
 setValue('config-brightness', device.brightness_percent);
+setValue('config-rotation', String(first(device.display_rotation, 0)));
 setValue('config-ssid', wifi.ssid);
 setValue('config-spoolman-url', spoolman.url);
 setValue('config-filabridge-url', filabridge.url);
@@ -2023,7 +2025,7 @@ function configPatch() {
 const profileId = valueOf('config-scale-profile');
 const patch = {
 expected_revision: Number(state.configRevision),
-device: { hostname: valueOf('config-hostname'), brightness_percent: Number(valueOf('config-brightness')) },
+device: { hostname: valueOf('config-hostname'), brightness_percent: Number(valueOf('config-brightness')), display_rotation: Number(valueOf('config-rotation')) },
 wifi: { ssid: rawValueOf('config-ssid') },
 spoolman: { url: valueOf('config-spoolman-url') },
 filabridge: { url: valueOf('config-filabridge-url'), selected_printer_id: rawValueOf('config-printer-id') },
@@ -3486,7 +3488,7 @@ function buildSettings() {
   root.addEventListener('change',markConfigDirty);
   // Dynamically created profile fields remain part of the optimistic settings form.
   const station=fields.find(f=>f.querySelector('#config-brightness'));
-  if(station){const brightness=byId('config-brightness'),label=station.querySelector('label[for="config-brightness"]');panes.display.replaceChildren(productElement('h3','Touchscreen display'),productElement('p','Set a comfortable brightness for the station.','muted'),label,brightness);}
+  if(station){const brightness=byId('config-brightness'),label=station.querySelector('label[for="config-brightness"]'),rotation=byId('config-rotation'),rotationLabel=station.querySelector('label[for="config-rotation"]');panes.display.replaceChildren(productElement('h3','Touchscreen display'),productElement('p','Set a comfortable brightness for the station. Turn the screen upside down if the case holds the board that way.','muted'),label,brightness,rotationLabel,rotation);}
   selectSettings('station');
 }
 function bindProduct() {
@@ -3649,7 +3651,7 @@ renderScale: renderScale,
 renderSpool: renderSpool,
 renderNfc: renderNfc,
 renderTag: renderTag,
-renderDevice,renderNetwork,renderConfig,renderDiagnostics,renderLogs,
+renderDevice,renderNetwork,renderConfig,configPatch,renderDiagnostics,renderLogs,
 productPageFromHash: productPageFromHash,
 activateProductPage: activateProductPage,
 navigateProductPage: navigateProductPage,

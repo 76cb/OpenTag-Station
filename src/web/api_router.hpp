@@ -197,6 +197,7 @@ struct ToolheadUnassignmentMutation {
 struct DevicePatch {
   std::optional<std::string> hostname;
   std::optional<std::uint8_t> brightness_percent;
+  std::optional<std::uint16_t> display_rotation;  // 0 or 180
   std::optional<std::uint32_t> dim_after_ms;
   std::optional<std::uint32_t> sleep_after_ms;
   std::optional<std::string> update_channel;
