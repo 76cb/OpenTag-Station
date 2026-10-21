@@ -66,6 +66,22 @@ std::string normalized_uid(const std::string &value) {
   }
   return result.size() == 16 ? result : std::string{};
 }
+// UUIDs are case-insensitive. This firmware writes lower case, but Spoolman
+// may hold the same UUID typed or imported in upper case; that is not a change.
+bool same_uuid(const std::string &left, const std::string &right) {
+  if (left.size() != right.size())
+    return false;
+  for (std::size_t i = 0; i < left.size(); ++i) {
+    auto a = left[i], b = right[i];
+    if (a >= 'A' && a <= 'F')
+      a += 'a' - 'A';
+    if (b >= 'A' && b <= 'F')
+      b += 'a' - 'A';
+    if (a != b)
+      return false;
+  }
+  return true;
+}
 // Same bytes in the opposite order: E0040108662F6FBC <-> BC6F2F66080104E0.
 std::string reversed_uid(const std::string &hex) {
   std::string result;
@@ -1347,7 +1363,7 @@ __attribute__((noinline)) Result TagWriterService::unlink() {
     const auto instance = scalar(extra[identity_key_]);
     if (!uid_cleared(extra[identity_key_]) && instance.empty())
       return fail("Malformed owner identity; unlink refused");
-    if (!uuid_.empty() && !instance.empty() && instance != uuid_)
+    if (!uuid_.empty() && !instance.empty() && !same_uuid(instance, uuid_))
       return fail("Owner instance UUID changed; unlink refused");
     if (uuid_.empty() && !instance.empty()) {
       if (plan_->cleanup_owner_bound)
@@ -1668,7 +1684,7 @@ __attribute__((noinline)) Result TagWriterService::associate_extra_fields() {
   if (before.value()["id"].as<int>() != spool_id_)
     return fail("Canonical spool ID mismatch; association pending");
   const auto identity = scalar(before.value()["extra"][identity_key_]);
-  if (!identity.empty() && identity != uuid_)
+  if (!identity.empty() && !same_uuid(identity, uuid_))
     return fail(
         "Spool identity changed during writing; association requires review");
   network::BackendDocument patch;
