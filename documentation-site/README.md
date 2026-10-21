@@ -50,12 +50,31 @@ CI runs the same checks on every pull request.
 
 ## Publish
 
+A merge to `main` that changes `documentation-site/`, `VERSION` or `tools/export_docs.py` publishes
+the manual automatically: the workflow `.github/workflows/docs-publish.yml` ("Publish manual") runs
+the checks above, exports the manual, syncs the export over a checkout of
+`76cb/OpenTag-Station-Docs` (removing files that no longer exist there, keeping that repository's
+`.git`, `.github` and `.gitignore`), runs the Docs repository's own checks, and pushes a commit
+`Manual for <version> from 76cb/OpenTag-Station@<commit>` to its `main`. That repository's workflow
+then builds and deploys GitHub Pages. Pre-release versions are published too. When nothing changed,
+the workflow prints `Manual already up to date` and stops.
+
+To inspect the export locally:
+
 ```sh
 python tools/export_docs.py --output <empty-directory>
 ```
 
-Copy the exported files over a clone of `76cb/OpenTag-Station-Docs` (keep its `.git` directory),
-commit and push. That repository's workflow runs the same checks and deploys to GitHub Pages.
 The export stamps the firmware commit and version into `firmware.json`.
+
+One-time setup, needed before the first run:
+
+1. Generate a key pair: `ssh-keygen -t ed25519 -N "" -f docs-deploy-key`.
+2. On `76cb/OpenTag-Station-Docs`, add `docs-deploy-key.pub` as a deploy key with write access
+   (Settings → Deploy keys → Add deploy key, tick **Allow write access**).
+3. On `76cb/OpenTag-Station`, add the private key `docs-deploy-key` as the repository secret
+   `DOCS_DEPLOY_KEY` (Settings → Secrets and variables → Actions → New repository secret).
+4. Run the workflow once by hand: Actions → **Publish manual** → **Run workflow**. This first run
+   brings the Docs repository up to date.
 
 The manual is under the firmware's [PolyForm Noncommercial license](LICENSE.md).
