@@ -9,7 +9,7 @@
     "tools/capture_product_review.cjs": "23d6c11b616ac2c271e980410b162d71cf69b72575a452926794bf4838fe22d0",
     "tools/render_touch_review.py": "8cb523c706690f681f2dc887a726b21e99de020a4d8ec00a9708982073daeeac",
     "tools/check_public_privacy.py": "b5b3fc8482b8e9692e1524002b911cbcace8c213fd180454469f7c4963ebacd9",
-    "src/web/web_assets.cpp": "b565808d7de2cb95615d7ae49db614e4303aec28e91f5ae3ab8c61fa3eefb84c",
+    "src/web/web_assets.cpp": "61fdc3cd86d95272ab217b29c5f81fde6290625a97c33a5986a96bbb14bc962d",
     "src/web/writer_assets.cpp": "18ca31fb929c43f13138fbd4839e4ed60dc10e342cc2c0dbabb6e95d4c8a48c7",
     "src/web/writer_layout.inc": "c8835b92d1951269254fec884fe210fc725060528e5505e18a207fbe23d67f98",
     "src/ui/product_layout.hpp": "4b3139a7f8e95142f53b72a4c9f4ac05d103426a29210885823b30b3171c8979",
@@ -18,10 +18,10 @@
     "test/test_touch_flow/fixtures.hpp": "e895bf1032a0ddb04a71178fdc8ac3169fb3457274c376ff3e5bbf333f4efe1a"
   },
   "images": {
-    "docs/images/dashboard.png": "5a532d455b3d67bd8199043b2b11bb1deba036ae776484082fcac62fd14aace5",
-    "docs/images/weigh.png": "2a2b2b70419ec4038aa37ef2ad630ef77f13cf2230f444a684805f1750df6bc4",
-    "docs/images/assignment.png": "60dcdb03a77d12639f0964a8fc2d26d441a9e4c4aa7fb51ae7f7af53387a1362",
-    "docs/images/tag-management.png": "41772e6e29be1725052d1df0e352fa874850da612c915ed112d030536057df1c",
+    "docs/images/dashboard.png": "09157492a3d145f557dac3cec7c1924fa30b41f875b3e5943d1c04d455c9fa26",
+    "docs/images/weigh.png": "9c961a746f6d6063e5a9c894c2736bbfdb5ae6caa0cacef28267bf55b2d3f47b",
+    "docs/images/assignment.png": "6d8683ed09f8829383c39a52a470df7741235694fb81132e0d1cfd8c9149543c",
+    "docs/images/tag-management.png": "d32cc3e87a3c3191c63a2cc2a6f834559380e63ed53186e87376eaa2305bcfae",
     "docs/images/wt32-home.png": "c768e1b3be568f2563bdf0a368f2cf5b4aab2e2e6efb8a98c8a996ff4dcdc7e3"
   }
 }
