@@ -200,6 +200,7 @@ class UiService {
   bool showing_diagnostics_{false};
   bool showing_display_self_test_{OPENTAG_DISPLAY_SELF_TEST == 1};
   std::uint8_t normal_brightness_percent_{80U};
+  std::uint16_t display_rotation_{0U};
   std::uint32_t dim_after_ms_{dim_after_ms};
   ProductPage active_page_{ProductPage::home};
   std::uint32_t sleep_after_ms_{sleep_after_ms};

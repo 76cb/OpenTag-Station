@@ -29,6 +29,7 @@ calibration.
 |---|---|---|
 | `hostname` | `opentag-station` | 1–63 characters of `a–z 0–9 -`, not starting or ending with `-` |
 | `brightness_percent` | `80` | 5–100 |
+| `display_rotation` | `0` | `0` or `180`. Turns the touchscreen, including touch, upside down. Applied at once, no restart. |
 | `dim_after_ms` | `120000` | 1–86,400,000 |
 | `sleep_after_ms` | `300000` | `dim_after_ms`–86,400,000 |
 | `update_channel` | `stable` | `stable`, `beta` or `development`. Stored only; it changes nothing. |

@@ -1,7 +1,7 @@
 # Display
 
-The only display setting you can change is the brightness. The screen dims and switches off by
-itself when nobody touches it.
+You can change the brightness and turn the screen upside down. The screen dims and switches off
+by itself when nobody touches it.
 
 ## Change the brightness
 
@@ -23,6 +23,19 @@ finger.
 3. Click **Validate and save**.
 
 The touchscreen changes to the new brightness straight away; you do not need to restart.
+
+## Turn the screen upside down
+
+Use this when the board sits the other way round in your case. The whole touchscreen, including
+touch, turns by 180°; nothing else changes.
+
+1. In the browser, go to **Settings** → **Display**.
+2. Set **Screen orientation** to **Upside down (turned 180°)**. **Normal** is the default.
+3. Click **Validate and save**.
+
+The touchscreen turns straight away and keeps the orientation after a restart. There is no control
+for this on the touchscreen itself. The setting key is `device.display_rotation`, `0` or `180`; see
+[Configuration keys](../reference/configuration.md).
 
 ## Dimming and sleep
 

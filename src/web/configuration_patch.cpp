@@ -69,6 +69,9 @@ core::Result<config::Configuration> apply_configuration_patch(
     if (value.brightness_percent.has_value()) {
       proposed.device.brightness_percent = *value.brightness_percent;
     }
+    if (value.display_rotation.has_value()) {
+      proposed.device.display_rotation = *value.display_rotation;
+    }
     if (value.dim_after_ms.has_value()) {
       proposed.device.dim_after_ms = *value.dim_after_ms;
     }

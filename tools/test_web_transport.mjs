@@ -1670,6 +1670,25 @@ test('an NFC-A tag is named as not supported yet in Manage tag and on the Dashbo
     inventory: { tag_count: 2, present: true, technology: 'NFC-A / ISO14443A' } });
   assert.equal(document.getElementById('nfc-summary').textContent, 'Multiple NFC-A tags detected');
 });
+test('the screen orientation is a Settings → Display field that round-trips through the config patch', () => {
+  const { T, document } = loadApplication();
+  T.bindProduct();
+  T.renderConfig({ revision: 4, device: { hostname: 'opentag-station', brightness_percent: 80, display_rotation: 180 },
+    wifi: { ssid: 'lab' }, spoolman: { url: 'http://spoolman.local:7912' }, filabridge: {}, web: { access_token_configured: false },
+    scale_profile: { id: 'yzc-133-5kg', overload_ratio: 1.1 } });
+  const rotation = document.getElementById('config-rotation');
+  assert.equal(rotation.value, '180');
+  assert.equal(String(document.getElementById('config-brightness').value), '80');
+  // The control lives on the Display pane next to the brightness.
+  assert.equal(rotation.parentElement, document.getElementById('config-brightness').parentElement);
+  rotation.value = '0';
+  assert.equal(T.configPatch().device.display_rotation, 0);
+  rotation.value = '180';
+  assert.equal(T.configPatch().device.display_rotation, 180);
+  // A station that does not report the key (older firmware) shows Normal.
+  T.renderConfig({ revision: 5, device: { hostname: 'opentag-station', brightness_percent: 80 } });
+  assert.equal(rotation.value, '0');
+});
 test('product navigation exposes four product destinations and preserves legacy deep links', () => {
   const { T, document, context } = loadApplication();
   const pages = ['home', 'inventory', 'printer', 'settings'];

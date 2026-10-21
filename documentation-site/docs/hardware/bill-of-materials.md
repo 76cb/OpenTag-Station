@@ -12,13 +12,13 @@ so buy these parts and not look-alikes.
 | Scale converter | 1 | **NAU7802** breakout board | See [Choosing a NAU7802 board](#choosing-a-nau7802-board) below. |
 | Load cell | 1 | **YZC-133**, **5 kg** (default) or **2 kg** | A four-wire bar-type cell. Get the seller's wiring sheet and mounting drawing. Use one cell, not two. |
 | NFC reader | 1 | **ELECHOUSE NFC_ST25R3916B** module (ST25R3916B chip, antenna on the board) | The module must be switched to I2C mode with its solder bridge (see [Wiring](wiring.md)). The pin order in this manual is for this module only. |
-| NFC tags | one per spool | **NXP ICODE SLIX2** (NFC-V / ISO 15693), blank | NTAG and MIFARE tags are not seen by the reader at all. Other ISO 15693 tags are seen but cannot be written. See [Which tags work](../openprinttag/supported-tags.md). |
+| NFC tags | one per spool | **NXP ICODE SLIX2** (NFC-V / ISO 15693), blank | NTAG and MIFARE tags are found but not read. Other ISO 15693 tags are read but cannot be written. See [Which tags work](../openprinttag/supported-tags.md). |
 | USB cable | 1 | A data cable that fits the board's USB socket | Charge-only cables cannot install the firmware. |
 | 5 V power supply | 1 | A regulated 5 V USB supply | See [Power](power.md). |
 | Cable for the expansion connector | 1 | An 8-wire cable that fits the board's EXT connector | Match the connector on your board. |
 | Cable for the NFC module | 1 | A 7-wire cable that fits the module's connector | Match the connector on your module. |
 | Hook-up wire, pin headers | as needed | For the NAU7802 board and the load cell | Depends on your breakout board. |
-| Base, platform, screws, spacers | 1 set | To mount the load cell | You design this yourself. See [Scale platform and enclosure](mechanical.md). |
+| Enclosure | 1 | The [printed case](mechanical.md#the-printed-case) (three parts, about 299 g of filament), or a base and platform you build | The case needs 2 × M5 nuts, 2 × M5 × 12 button-head screws, 2 × M5 × 16 cap screws, 2 × M2.5 × 10 screws with nuts, four 12 mm rubber feet, a USB-C panel-mount cable and a right-angle USB-C plug. See [Scale platform and enclosure](mechanical.md). |
 
 ### Choosing a NAU7802 board
 
@@ -36,7 +36,6 @@ The project has not tested or measured any of these, so it names none:
 
 - **Sellers and prices.**
 - **A specific NAU7802 board.** Any breakout that meets the checks above should work.
-- **An enclosure.** There is no reference case, no printable model and no drawing with dimensions.
 - **A current rating for the power supply.**
 
 ## For the curious: how the parts fit the firmware

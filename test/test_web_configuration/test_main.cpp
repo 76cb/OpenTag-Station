@@ -245,6 +245,7 @@ void test_all_typed_nonsecret_sections_are_applied() {
 
   opentag::web::api::DevicePatch device;
   device.brightness_percent = 55U;
+  device.display_rotation = 180U;
   device.dim_after_ms = 30000U;
   device.sleep_after_ms = 60000U;
   device.update_channel = "beta";
@@ -277,6 +278,7 @@ void test_all_typed_nonsecret_sections_are_applied() {
   TEST_ASSERT_TRUE(applied.ok());
   const auto& result = applied.value();
   TEST_ASSERT_EQUAL_UINT8(55U, result.device.brightness_percent);
+  TEST_ASSERT_EQUAL_UINT16(180U, result.device.display_rotation);
   TEST_ASSERT_FALSE(result.wifi.auto_reconnect);
   TEST_ASSERT_EQUAL_UINT32(20000U, result.wifi.connect_timeout_ms);
   TEST_ASSERT_EQUAL_STRING(

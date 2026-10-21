@@ -227,7 +227,7 @@ function buildSettings() {
   root.addEventListener('change',markConfigDirty);
   // Dynamically created profile fields remain part of the optimistic settings form.
   const station=fields.find(f=>f.querySelector('#config-brightness'));
-  if(station){const brightness=byId('config-brightness'),label=station.querySelector('label[for="config-brightness"]');panes.display.replaceChildren(productElement('h3','Touchscreen display'),productElement('p','Set a comfortable brightness for the station.','muted'),label,brightness);}
+  if(station){const brightness=byId('config-brightness'),label=station.querySelector('label[for="config-brightness"]'),rotation=byId('config-rotation'),rotationLabel=station.querySelector('label[for="config-rotation"]');panes.display.replaceChildren(productElement('h3','Touchscreen display'),productElement('p','Set a comfortable brightness for the station. Turn the screen upside down if the case holds the board that way.','muted'),label,brightness,rotationLabel,rotation);}
   selectSettings('station');
 }
 function bindProduct() {

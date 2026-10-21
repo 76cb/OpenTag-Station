@@ -237,6 +237,8 @@ bool UiService::initialize() {
   const auto configured = configuration_.snapshot();
   normal_brightness_percent_ = configured.device.brightness_percent;
   display_.set_brightness(normal_brightness_percent_);
+  display_rotation_ = configured.device.display_rotation;
+  display_.set_rotation(display_rotation_);
   dim_after_ms_ = configured.device.dim_after_ms;
   sleep_after_ms_ = configured.device.sleep_after_ms;
   display_revision_ = configuration_.revision();
@@ -330,11 +332,20 @@ void UiService::apply_display_settings() {
   if (revision == display_revision_) return;
   display_revision_ = revision;
   std::uint8_t brightness = normal_brightness_percent_;
+  std::uint16_t rotation = display_rotation_;
   configuration_.visit([&](const config::Configuration& current, std::uint64_t) {
     brightness = current.device.brightness_percent;
+    rotation = current.device.display_rotation;
     dim_after_ms_ = current.device.dim_after_ms;
     sleep_after_ms_ = current.device.sleep_after_ms;
   });
+  // A screen orientation saved in the browser turns the touchscreen at once;
+  // the whole screen is drawn again in the new orientation.
+  if (rotation != display_rotation_) {
+    display_rotation_ = rotation;
+    display_.set_rotation(rotation);
+    lv_obj_invalidate(lv_scr_act());
+  }
   const bool dragging = brightness_slider_ != nullptr &&
       lv_obj_has_state(brightness_slider_, LV_STATE_PRESSED);
   if (brightness == normal_brightness_percent_ || brightness_save_pending_ || dragging) return;

@@ -35,6 +35,8 @@ struct Wt32Sc01PlusRevA {
   static constexpr std::uint32_t lcd_write_frequency_hz = 40000000U;
   static constexpr std::uint32_t touch_frequency_hz = 400000U;
   static constexpr std::uint8_t display_rotation = 1;
+  // The same landscape orientation turned by 180 degrees (LovyanGFX rotation index).
+  static constexpr std::uint8_t display_rotation_flipped = 3;
   static constexpr bool display_invert = true;
   static constexpr bool display_rgb_order = false;
   // LVGL emits native-endian RGB565 (LV_COLOR_16_SWAP=0). LovyanGFX must

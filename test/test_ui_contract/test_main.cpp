@@ -426,6 +426,16 @@ void test_rc23_brightness_is_saved_and_follows_settings() {
   for (const char* token : {"dim_after_ms_ = current.device.dim_after_ms", "sleep_after_ms_ = current.device.sleep_after_ms",
                             "lv_slider_set_value(brightness_slider_"})
     TEST_ASSERT_TRUE_MESSAGE(apply.find(token) != std::string::npos, token);
+  // 1.0.1-beta.6: the saved screen orientation is applied at start and when
+  // it changes in the browser, with a full redraw; it is not gated by the
+  // brightness early return.
+  for (const char* token : {"rotation = current.device.display_rotation", "display_.set_rotation(rotation)",
+                            "lv_obj_invalidate(lv_scr_act())"})
+    TEST_ASSERT_TRUE_MESSAGE(apply.find(token) != std::string::npos, token);
+  TEST_ASSERT_LESS_THAN(apply.find("brightness == normal_brightness_percent_"), apply.find("display_.set_rotation(rotation)"));
+  TEST_ASSERT_TRUE(source.find("display_.set_rotation(display_rotation_)") != std::string::npos);
+  const auto driver = read_source("src/hardware/display/wt32_display.cpp");
+  TEST_ASSERT_TRUE(driver.find("Board::display_rotation_flipped") != std::string::npos);
 }
 
 void test_rc23_touchscreen_wording_is_plain() {

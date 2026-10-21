@@ -817,6 +817,21 @@ void test_configuration_patch_is_typed_and_omitted_secrets_remain_omitted() {
   TEST_ASSERT_NULL(std::strstr(response.body.c_str(), "new-token"));
 }
 
+// 1.0.1-beta.6: the screen orientation, 0 or 180, is a typed device field.
+void test_configuration_patch_accepts_display_rotation() {
+  FakeContext context;
+  Router router(context);
+  const auto response = router.handle(mutation_request(
+      Method::patch, "/api/v1/config",
+      R"({"expected_revision":7,"device":{"display_rotation":180}})"));
+  TEST_ASSERT_EQUAL_INT(202, response.status);
+  const auto& patch =
+      std::get<ConfigurationPatchMutation>(context.last_mutation->payload);
+  TEST_ASSERT_TRUE(patch.device.has_value());
+  TEST_ASSERT_EQUAL_UINT16(180U, *patch.device->display_rotation);
+  TEST_ASSERT_FALSE(patch.device->brightness_percent.has_value());
+}
+
 void test_configuration_web_access_token_patch_is_strict() {
   FakeContext context;
   Router router(context);
@@ -891,8 +906,10 @@ void test_configuration_web_access_token_patch_is_strict() {
 void test_configuration_patch_rejects_unknown_invalid_or_ambiguous_fields() {
   FakeContext context;
   Router router(context);
-  const std::array<const char*, 6U> invalid = {{
+  const std::array<const char*, 8U> invalid = {{
       R"({"device":{"hostname":"station"}})",
+      R"({"expected_revision":7,"device":{"display_rotation":90}})",
+      R"({"expected_revision":7,"device":{"display_rotation":"180"}})",
       R"({"expected_revision":7})",
       R"({"expected_revision":7,"wifi":{"password_configured":true}})",
       R"({"expected_revision":7,"scale_profile":{"id":"yzc-133-2kg","rated_capacity_grams":5000}})",
@@ -1747,6 +1764,7 @@ int main(int, char**) {
   RUN_TEST(test_configuration_patch_is_typed_and_omitted_secrets_remain_omitted);
   RUN_TEST(test_configuration_web_access_token_patch_is_strict);
   RUN_TEST(test_configuration_patch_rejects_unknown_invalid_or_ambiguous_fields);
+  RUN_TEST(test_configuration_patch_accepts_display_rotation);
   RUN_TEST(test_configuration_snapshot_blocks_secret_keys_but_allows_flags);
   RUN_TEST(test_snapshot_json_must_be_valid_and_bounded);
   RUN_TEST(test_operation_status_has_strict_positive_ids_and_not_found_state);
