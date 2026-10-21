@@ -1,7 +1,7 @@
 # Publishes the manual in documentation-site/ to 76cb/OpenTag-Station-Docs, whose own workflow
 # builds and deploys GitHub Pages. Runs on every merge to main that changes the manual, pre-release
-# versions included. One-time setup (deploy key and the DOCS_DEPLOY_KEY secret) is described in
-# documentation-site/README.md under "Publish".
+# versions included. One-time setup, either a fine-grained token (secret DOCS_PUBLISH_TOKEN) or a
+# deploy key (secret DOCS_DEPLOY_KEY), is described in documentation-site/README.md under "Publish".
 name: Publish manual
 
 on:
@@ -44,6 +44,9 @@ jobs:
           ref: main
           path: docs-repo
           fetch-depth: 0
+          # A deploy key wins when both secrets exist; without either, the default token can
+          # read the public repository but the push below is refused.
+          token: ${{ secrets.DOCS_PUBLISH_TOKEN || github.token }}
           ssh-key: ${{ secrets.DOCS_DEPLOY_KEY }}
           persist-credentials: true
       # --delete removes manual files that no longer exist; the Docs repository keeps its own

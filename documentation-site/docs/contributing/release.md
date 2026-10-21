@@ -69,7 +69,7 @@ and points links to repository files at that commit. To look at it without publi
 python tools/export_docs.py --output <empty-directory>
 ```
 
-The workflow needs a deploy key once; the setup is in the
+The workflow needs a credential for the Docs repository once, a fine-grained token in the secret
+`DOCS_PUBLISH_TOKEN` or a deploy key in the secret `DOCS_DEPLOY_KEY`; the setup is in the
 [documentation-site README](https://github.com/76cb/OpenTag-Station/blob/main/documentation-site/README.md#publish).
-Until the secret `DOCS_DEPLOY_KEY` exists, the workflow fails at the Docs repository checkout and
-nothing is published.
+Until one of them exists, the workflow fails at its push step with `403` and nothing is published.
