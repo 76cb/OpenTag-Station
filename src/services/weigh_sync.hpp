@@ -3,6 +3,7 @@
 #include "integrations/inventory.hpp"
 #include "nfc/protocols/nfcv/tag.hpp"
 #include "services/weight_reconciler.hpp"
+#include "services/restart_guard.hpp"
 #include <functional>
 #include <mutex>
 
@@ -39,9 +40,12 @@ public:
   core::Result<void>
   update(std::uint64_t id, integrations::ISpoolInventory &inventory,
          const std::function<bool(const WeighSyncSnapshot &)> &fence);
+  // A manual or automatic update is refused while a restart is pending.
+  void set_restart_pending(RestartPending pending) { restart_pending_ = std::move(pending); }
 
 private:
   mutable std::mutex mutex_;
   WeighSyncSnapshot state_;
+  RestartPending restart_pending_;
 };
 } // namespace opentag::services

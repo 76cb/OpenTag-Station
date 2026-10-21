@@ -889,6 +889,8 @@ core::Result<api::JsonBody> ApplicationApiContext::snapshot_json(
                     ? "degraded"
                     : "healthy";
         document["local_services_ready"] = essential_ok;
+        if (!system.nvs_ready || !system.filesystem_ready)
+          document["message"] = "Settings storage cannot be read. Reinstall the firmware with the USB installer.";
         document["backend_degraded"] = backend_degraded;
         document["local_api_authentication_enabled"] =
             local_access.authentication_enabled;
@@ -1166,10 +1168,6 @@ core::Result<api::OperationReceipt> ApplicationApiContext::submit_fresh(
     }
     case api::MutationKind::tag_writer:
       return receipt_result(backend_worker_.submit_writer(std::get<api::TagWriterMutation>(mutation.payload).json), "Writer queue unavailable");
-    case api::MutationKind::nfc_read:
-      return core::Result<api::OperationReceipt>::failure(unavailable(
-          core::ErrorCategory::nfc_communication,
-          "NFC reads automatically on insertion; use GET /nfc for its current state"));
     case api::MutationKind::backend_test:
       return receipt_result(
           backend_worker_.submit_refresh(), "Backend command queue is unavailable");

@@ -41,7 +41,7 @@ module.exports=async function productJourneys(page,scene,width){
     assert.equal(await page.locator('#writer-confirm').isEnabled(),true);
   }
   if(scene==='settings'){
-    assert.equal(await visible('community-settings'),false);
+    assert.equal(await page.locator('#community-settings').count(),0);
     assert.equal(await page.evaluate(()=>requests.some(r=>r.action.startsWith('community_'))),false);
     assert.equal(await visible('config-spoolman-token'),false);assert.equal(await visible('diagnostics'),false);
     await page.getByText('Edit Spoolman',{exact:true}).click();await page.locator('#config-spoolman-url').fill('http://spoolman.example:7912');
@@ -78,13 +78,13 @@ module.exports=async function productJourneys(page,scene,width){
     assert.equal(requests[0].expected_current_spool_id,27);assert.equal(requests[0].expected_spool_id,28);assert.equal(requests[0].spool_generation,3);assert.equal(requests[0].printer_revision,7);assert.equal(requests[0].replace_occupied_confirmed,true);
   }
   if(scene==='writer'){
-    assert.equal(await page.locator('[data-writer-source="community"]').count(),0);
+    assert.equal(await page.locator('[data-writer-source], #writer-source, #writer-import, #inventory-community').count(),0);
     await page.locator('[data-writer-entity="filament"]').click();
     await page.waitForFunction(()=>window.OpenTagWriter.writerState.entity==='filament'&&!window.OpenTagWriter.writerState.busy);
     await page.locator('#writer-results button').first().click();
     await page.waitForFunction(()=>window.OpenTagWriter.writerState.filament===22&&!window.OpenTagWriter.writerState.busy);
 
-    assert.equal(await page.locator('#writer-source').inputValue(),'spoolman');
+    assert.equal(await page.locator('#writer-entity').inputValue(),'spool');
     const asked=[];page.on('dialog',d=>asked.push(d.message()));
     await page.locator('#writer-create-submit').click();await page.waitForFunction(()=>window.OpenTagWriter.writerState.spool===29);
     assert.deepEqual(asked,[],'creating a spool needs no second confirmation');

@@ -2,6 +2,64 @@
 
 What changed in each version of OpenTag Station, newest first.
 
+## 1.0.1-beta.4
+
+Pre-release for testers. The Community catalog is gone, and the leftovers from the 1.1 cleanup
+list that needed screenshots or a station are done. Nothing in this list has been run on a
+WT32 yet; see "Needs a station" below.
+
+**Removed**
+- **The Community filament catalog is deleted** (#86). It was disabled since 1.0.0-rc.9 and
+  never part of a release. Gone with it: the catalog service, its download and gzip decoder,
+  the writer's import actions (`community_*`, `import_preview`, `import`), the browser's
+  "Find in Community" source and Settings card, the touchscreen's **Community** choice, the
+  `OPENTAG_ENABLE_COMMUNITY` switch, the `native-community` test environment and the 2.4 MB
+  `community/community.pack`. The writer now rejects those actions as unknown. The factory
+  image still erases the filesystem (its part is now called `factory-littlefs.bin` and must
+  be empty), and a factory reset also deletes `/community.pack`, `/community.new` and
+  `/community.old` that a station flashed before 1.0.0-rc.9 may still hold.
+- **`POST /api/v1/nfc/read` is removed.** It always answered 503: the reader reads a tag when it
+  is placed. Use `GET /api/v1/nfc`.
+- Test-only settings code (`export_json`, `import_json`, `clear_spool_identity_mapping`) is
+  removed together with its tests.
+
+**Touchscreen**
+- **The Home WEIGH button only weighs.** It no longer turns into CALIBRATE or WRITE TAG. It is
+  disabled until the scale is calibrated, and the weight line then says "Scale not calibrated";
+  calibration lives on the Weigh page, writing a blank tag under Manage tag.
+- **The tag review shows the writer's other warnings**: an interrupted write that this write
+  completes, optional data not set in Spoolman ("Optional data not set: gtin, manufactured
+  date and 2 more"), and any other note the writer adds. Fields that will not be written were
+  already listed.
+- **Choosing a spool on the "Which spool is this?" page now shows "Linked to spool #N"** under
+  the tag until Spoolman confirms the link. A refused choice says the station is busy.
+- If the settings storage cannot be read, the Home screen says so and tells you to reinstall
+  the firmware with the USB installer; the browser shows the same message from `/health`.
+
+**Robustness**
+- **Tag writes and weight saves are refused while a restart is pending** (a reboot, factory
+  reset, firmware update or the health check of new firmware). This covers the automatic
+  weight save after a weigh. Only the catalog search stays available. The answer is "The
+  station is restarting, resetting or checking new firmware. Try again after it has restarted."
+- **A reset marker with an unreadable filesystem no longer reboots in a loop.** The station
+  stays up with storage failing closed and reports the problem instead of restarting into the
+  same recovery.
+- **Skipping a recovery names the tag.** `discard_recovery` now needs the tag's UID and is
+  refused for another tag ("This recovery belongs to tag ..."). The browser's clear dialog ends
+  in "Recovery skipped" with a Done button.
+- **`wifi.auto_reconnect: false` now opens the setup network after the first failed
+  connection.** Before, the station stopped trying but never opened it, because the failure
+  count it waits for could not be reached.
+
+**Docs**
+- The toolhead profile fields `nozzle_material` and `maximum_temperature_c` are stored for a
+  future compatibility check and have no visible effect yet.
+
+**Needs a station**
+- Everything above is covered by host tests and CI only. In particular: the refusal while a
+  restart is pending, the behaviour with an unreadable filesystem, the setup network with
+  `auto_reconnect: false`, and the Home button and tag review wording on the real screen.
+
 ## 1.0.1-beta.3
 
 Pre-release for testers. Reliability fixes for rare cases; nothing changes in normal use.

@@ -413,7 +413,6 @@ function loadApplication(options = {}) {
   const writerJavascript = writerSource.split('R"WRITER(')[1].split(')WRITER"')[0] +
     readFileSync(path.join(ROOT, 'src/web/writer_layout.inc'), 'utf8').split('R"LAYOUT(')[1].split(')LAYOUT"')[0];
   vm.runInContext(writerJavascript, context, { filename: 'writer_assets.cpp' });
-  window.OpenTagCommunityEnabled=options.community===true;
   window.OpenTagWriter.bind();
   Object.assign(window.__OpenTagTest, window.OpenTagWriter);
   assert.ok(window.__OpenTagTest, 'production JavaScript test hook must be installed');
@@ -2429,13 +2428,6 @@ test('repeated backend failure invalidations drain without starting another back
   assert.ok(app.fetchCalls.length >= 20);
 });
 
-test('browser Community implementation has no direct upstream catalog fetch', () => {
-  const writer=readFileSync(new URL('../src/web/writer_assets.cpp',import.meta.url),'utf8');
-  const host=readFileSync(new URL('../src/web/web_assets.cpp',import.meta.url),'utf8');
-  assert.doesNotMatch(writer+host,/SpoolmanDB-Community\/filaments\.json|icezaza2543\.github\.io/);
-  assert.match(writer,/action:'community_search'/);
-  assert.match(writer,/action:'community_select'/);
-});
 
 test('writer entry mounts visible contents and binds specific confirmation controls', () => {
   const app = loadApplication();
@@ -2458,14 +2450,6 @@ test('writer preview exposes exact confirmation and pending association retry', 
   assert.equal(app.document.getElementById('writer-confirm').hidden,true);
   assert.equal(app.document.getElementById('writer-retry').hidden,false);
   assert.match(app.document.getElementById('writer-progress').textContent,/association pending/);
-});
-test('writer import uses canonical Spoolman filament before spool selection', () => {
-  const app=loadApplication({community:true});app.document.getElementById('writer-source').value='community';app.T.renderWriter({phase:'import_preview',import_token:'source:1',vendor_id:0,proposed_filament:{name:'Blue'}});
-  assert.equal(app.document.getElementById('writer-import').hidden,false);
-  app.T.renderWriter({phase:'imported',filament:{id:34,name:'Canonical Blue'}});
-  assert.equal(app.T.writerState.filament,34);assert.equal(app.T.writerState.spool,0);
-  app.T.renderWriter({phase:'spool_selected',spool:{id:56,filament:{id:34,name:'Canonical Blue'}}});
-  assert.equal(app.T.writerState.spool,56);
 });
 
 test('writer repurpose confirmation discloses and submits the approved previous owner', async () => {
@@ -2510,7 +2494,7 @@ test('writer progress is truthful during physical write and final decode', () =>
 });
 const SUNLU = {id:28,initial_weight:1000,remaining_weight:1000,used_weight:0,spool_weight:130,archived:false,
   filament:{id:22,name:'Sunlu PLA+ 2.0 Black',material:'PLA+',weight:1000,density:1.24,diameter:1.75,color_hex:'000000',vendor:{id:5,name:'Sunlu'}}};
-function writerApp(options={}) {const app=loadApplication(options);app.T.bindWriter();app.document.getElementById('writer-source').value='spoolman';app.document.getElementById('writer-entity').value='spool';return app;}
+function writerApp(options={}) {const app=loadApplication(options);app.T.bindWriter();app.document.getElementById('writer-entity').value='spool';return app;}
 function writerCatalog(app,items=[SUNLU],offset=0,has_more=false) {app.T.renderWriter({phase:'catalog',entity:'spool',items,offset,next_offset:offset+items.length,has_more});}
 function writerChoose(app) {writerCatalog(app);app.document.getElementById('writer-results').children[0].click();}
 
@@ -2679,7 +2663,6 @@ test('writer failed preview preserves selected canonical spool',()=>{const a=wri
 test('writer previous page requests the preceding bounded offset',async()=>{const a=writerApp({fetch:async()=>jsonResponse(200,{phase:'catalog',items:[],offset:0})});writerCatalog(a,[SUNLU],8,true);await drivePromise(a.T.writerSearch('previous'),a.clock);const b=JSON.parse(a.fetchCalls.find(c=>c.init.method==='POST').init.body);assert.equal(b.offset,0);assert.equal(b.action,'catalog');});
 test('writer previous is disabled on first page and next on final page',()=>{const a=writerApp();writerCatalog(a);assert.equal(a.document.getElementById('writer-previous').disabled,true);assert.equal(a.document.getElementById('writer-next').disabled,true);});
 test('writer displays exact page and item range',()=>{const a=writerApp();writerCatalog(a,Array.from({length:8},(_,i)=>({...SUNLU,id:9+i})),8,true);assert.equal(a.document.getElementById('writer-page').textContent,'Page 2');assert.equal(a.document.getElementById('writer-range').textContent,'Showing 9–16');assert.equal(a.document.getElementById('writer-previous').disabled,false);});
-test('writer Community page uses backend pagination and source label',()=>{const a=writerApp({community:true});a.document.getElementById('writer-source').value='community';const items=Array.from({length:8},(_,i)=>({id:String(i+8),name:'Black',manufacturer:'Sunlu',material:'PLA',diameter:1.75,density:1.24}));a.T.renderWriter({phase:'community',items,offset:8,next_offset:16,has_more:true,catalog_version:'2026-09-18'});assert.equal(a.document.getElementById('writer-range').textContent,'Showing 9–16');assert.match(nodeText(a.document.getElementById('writer-results').children[0]),/COMMUNITY — NOT YET IN SPOOLMAN/);assert.equal(a.document.getElementById('writer-next').disabled,false);assert.match(a.document.getElementById('writer-progress').textContent,/2026-09-18/);});
 test('writer exposes applied vendor and filament filters with clear controls',()=>{const a=writerApp();Object.assign(a.T.writerState,{vendor:5,vendorName:'Sunlu',filterFilament:22,filamentName:'PLA+ Black'});a.T.filters();const filter=a.document.getElementById('writer-filters');assert.match(nodeText(filter),/Vendor: Sunlu/);assert.match(nodeText(filter),/Filament: PLA\+ Black/);assert.equal(filter.children[0].getAttribute('aria-label'),'Clear vendor filter');assert.equal(filter.children[1].getAttribute('aria-label'),'Clear filament filter');});
 test('writer filter clear removes hidden filter state',async()=>{const a=writerApp({fetch:async()=>jsonResponse(200,{phase:'catalog',items:[]})});Object.assign(a.T.writerState,{vendor:5,filterFilament:22});a.T.filters();a.document.getElementById('writer-filters').children[1].click();await flushPromises();assert.equal(a.T.writerState.filterFilament,0);assert.equal(a.T.writerState.vendor,5);});
 test('writer preview and consumed update disabled until a physical spool is selected',()=>{const a=writerApp();assert.equal(a.document.getElementById('writer-preview').disabled,true);a.T.selected(null,SUNLU.filament);assert.equal(a.document.getElementById('writer-preview').disabled,true);assert.equal(a.document.getElementById('writer-update').disabled,true);a.T.selected(SUNLU,SUNLU.filament);assert.equal(a.document.getElementById('writer-preview').disabled,false);});
@@ -2693,9 +2676,8 @@ test('writer opening an editor immediately invalidates exact write confirmation'
 test('writer human preview shows metadata and exact tag context without JSON',()=>{const a=writerApp();a.T.renderWriter(sunluPreview);const text=nodeText(a.document.getElementById('writer-tag'))+nodeText(a.document.getElementById('writer-diff'));for(const value of ['E0:04:00:00:00:00:00:28','Sunlu','1000 g','130 g','0 g'])assert.ok(text.includes(value));assert.doesNotMatch(text,/"nominal_netto_full_weight"/);});
 test('writer advanced raw JSON is inside collapsed details by default',()=>{const a=writerApp();const html=a.context.window.OpenTagWriterLayout;assert.match(html,/<details id="writer-advanced"[^>]*><summary>Advanced details<\/summary><pre id="writer-detail">/);assert.doesNotMatch(html,/<details id="writer-advanced"[^>]*\bopen\b/);});
 test('writer optional notices are collapsed separately from destructive warnings',()=>{const a=writerApp();a.T.renderWriter({...sunluPreview,recovering_interrupted_write:true,previous_spool_id:27,warnings:['Writing is not atomic.','missing recommended GTIN','missing recommended manufactured date']});assert.doesNotMatch(nodeText(a.document.getElementById('writer-critical')),/incomplete tag|Keep/);assert.match(nodeText(a.document.getElementById('writer-critical')),/Recovery/);assert.match(nodeText(a.document.getElementById('writer-critical')),/Spool #27/);assert.doesNotMatch(nodeText(a.document.getElementById('writer-critical')),/GTIN/);assert.equal(a.document.getElementById('writer-notice-count').textContent,'2 optional metadata fields are not populated');});
-test('writer confirmation actions use an important display-none class in every other phase',()=>{const a=writerApp({community:true});for(const phase of ['idle','catalog','failed','writing','complete','import_preview','preview','association_pending']){a.document.getElementById('writer-source').value='community';a.T.renderWriter({...sunluPreview,phase});const visible=['writer-import','writer-confirm','writer-retry'].filter(id=>displayed(a,id));assert.deepEqual(visible,{import_preview:['writer-import'],preview:['writer-confirm'],association_pending:['writer-retry']}[phase]||[]);}});
-test('writer pending association locks unrelated controls but offers retry',()=>{const a=writerApp();writerChoose(a);a.T.renderWriter({phase:'association_pending',spool_id:28});assert.equal(displayed(a,'writer-retry'),true);assert.equal(a.document.getElementById('writer-retry').disabled,false);assert.equal(a.document.getElementById('writer-edit-spool').disabled,true);assert.equal(a.document.getElementById('writer-source').disabled,true);});
-test('writer import preview has readable canonical proposal and one import action',()=>{const a=writerApp({community:true});a.document.getElementById('writer-source').value='community';a.T.renderWriter({phase:'import_preview',vendor_name:'Sunlu',proposed_filament:SUNLU.filament});assert.match(nodeText(a.document.getElementById('writer-tag')),/Sunlu PLA\+ 2.0 Black/);assert.equal(displayed(a,'writer-import'),true);assert.equal(displayed(a,'writer-confirm'),false);});
+test('writer confirmation actions use an important display-none class in every other phase',()=>{const a=writerApp();for(const phase of ['idle','catalog','failed','writing','complete','preview','association_pending']){a.T.renderWriter({...sunluPreview,phase});const visible=['writer-confirm','writer-retry'].filter(id=>displayed(a,id));assert.deepEqual(visible,{preview:['writer-confirm'],association_pending:['writer-retry']}[phase]||[]);}});
+test('writer pending association locks unrelated controls but offers retry',()=>{const a=writerApp();writerChoose(a);a.T.renderWriter({phase:'association_pending',spool_id:28});assert.equal(displayed(a,'writer-retry'),true);assert.equal(a.document.getElementById('writer-retry').disabled,false);assert.equal(a.document.getElementById('writer-edit-spool').disabled,true);assert.equal(a.document.getElementById('writer-entity').disabled,true);});
 test('writer responsive layout retains all controls in a single DOM',()=>{const a=writerApp();const h=a.context.window.OpenTagWriterLayout;assert.match(readFileSync(ASSET_PATH,'utf8'),/@media\(max-width:520px\).*grid-template-columns:1fr/);for(const id of ['writer-previous','writer-next','writer-editor','writer-preview','writer-confirm','writer-retry'])assert.equal(h.split('id="'+id+'"').length-1,1);});
 test('writer busy operation disables selection, navigation and editing',async()=>{const wait=deferred();const a=writerApp({fetch:async()=>{await wait.promise;return jsonResponse(200,{phase:'catalog',items:[]});}});writerChoose(a);const work=a.T.writerCommand({action:'catalog',offset:0});assert.equal(a.document.getElementById('writer-preview').disabled,true);assert.equal(a.document.getElementById('writer-next').disabled,true);assert.equal(a.document.getElementById('writer-edit-spool').disabled,true);assert.equal(a.document.getElementById('writer-results').children[0].disabled,true);wait.resolve();await drivePromise(work,a.clock);});
 
@@ -2703,11 +2685,7 @@ test('writer nominal weight edit preserves unknown color and other unmodified va
 test('writer failed edit cannot adopt a stale successful snapshot from another spool',async()=>{const a=writerApp({fetch:async(url,init)=>init.method==='POST'?jsonResponse(409,{error:{message:'Rejected'}}):jsonResponse(200,{phase:'updated',spool:{...SUNLU,id:99,used_weight:99}})});writerChoose(a);a.T.openEditor('spool');a.document.getElementById('writer-editor-fields').querySelector('[name="used_weight"]').value='25';await drivePromise(a.T.saveEditor(),a.clock);assert.equal(a.T.writerState.spool,28);assert.equal(a.T.writerState.selected.used_weight,0);assert.equal(displayed(a,'writer-confirm'),false);});
 test('writer successful canonical edit refreshes the selected inventory row',()=>{const a=writerApp();writerChoose(a);a.T.renderWriter({phase:'updated',spool:{...SUNLU,used_weight:100,remaining_weight:900}});assert.match(nodeText(a.document.getElementById('writer-results').children[0]),/900 g remaining/);assert.equal(a.document.getElementById('writer-results').children[0].getAttribute('aria-pressed'),'true');});
 
-const COMMUNITY_ROW={id:'brand-pla-black',manufacturer:'Brand',name:'PLA Black',material:'PLA',density:1.24,diameter:1.75};
-test('production CSP keeps Community traffic on the station origin',()=>{const source=readFileSync(new URL('../src/web/local_web_server.cpp',import.meta.url),'utf8');const connect=source.match(/connect-src ([^;]+);/)[1];assert.ok(connect.split(' ').includes("'self'"));assert.ok(!connect.includes('*'));assert.ok(!connect.includes('github.io'));});
-test('Community catalog states show local readiness and download recovery',()=>{const a=writerApp({community:true});a.document.getElementById('writer-source').value='community';a.T.renderWriter({phase:'community_catalog',catalog_state:'not_installed',message:'Community catalog is not installed.'});assert.match(a.document.getElementById('writer-progress').textContent,/not installed/);assert.equal(displayed(a,'writer-community-retry'),true);a.T.renderWriter({phase:'community_catalog',catalog_state:'ready',catalog_version:'2026-09-18',catalog_records:53424});assert.match(a.document.getElementById('writer-progress').textContent,/2026-09-18.*53424.*Ready/);assert.equal(displayed(a,'writer-community-retry'),false);});
-test('Community search submits only a station backend command',async()=>{let action,result;const a=writerApp({community:true,fetch:async(url,init)=>{assert.ok(String(url).startsWith('/api/v1/'));if(init.method==='POST'){action=JSON.parse(init.body);result={phase:'community',items:[COMMUNITY_ROW],offset:0,next_offset:1,has_more:false,catalog_version:'fixture'};return jsonResponse(202,{operation_id:42});}if(String(url).includes('/operations/'))return jsonResponse(200,{id:42,state:'succeeded'});return jsonResponse(200,result);}});a.document.getElementById('writer-source').value='community';a.document.getElementById('writer-search').value='Brand PLA';await drivePromise(a.T.writerSearch(false),a.clock);assert.deepEqual(action,{action:'community_search',search:'Brand PLA',offset:0});assert.equal(a.T.writerState.items.length,1);assert.equal(a.fetchCalls.some(c=>String(c.url).includes('github.io')),false);});
-test('Community update failure keeps backend reason and retry action',()=>{const a=writerApp({community:true});a.T.writerState.lastAction='community_update';a.T.renderWriter({phase:'failed',message:'Community catalog update failed. Your existing catalog is still available.'});assert.match(a.document.getElementById('writer-progress').textContent,/existing catalog is still available/);assert.equal(displayed(a,'writer-community-retry'),true);});
+test('production CSP keeps browser traffic on the station origin',()=>{const source=readFileSync(new URL('../src/web/local_web_server.cpp',import.meta.url),'utf8');const connect=source.match(/connect-src ([^;]+);/)[1];assert.ok(connect.split(' ').includes("'self'"));assert.ok(!connect.includes('*'));assert.ok(!connect.includes('github.io'));});
 test('semantic no-change preview disables unnecessary write',()=>{const a=writerApp();a.T.renderWriter({phase:'preview',spool_id:28,semantic_no_change:true,changed_blocks:[]});assert.equal(a.document.getElementById('writer-confirm').disabled,true);assert.match(nodeText(a.document.getElementById('writer-critical')),/No changes needed/);});
 test('weigh view shows capture calculation and policy without automatic browser mutation',()=>{const a=loadApplication();a.T.renderWeighSync({measurement_id:4,phase:'ready',can_update:true,gross:842,tare:130,measured:712,canonical_remaining:720,difference:-8,policy_auto:false,spool_id:28});assert.equal(a.document.getElementById('weigh-update').disabled,false);assert.match(a.document.getElementById('weigh-measured').textContent,/712/);assert.match(a.document.getElementById('weigh-policy').textContent,/OFF/);a.T.renderWeighSync({phase:'updated',policy_auto:true,canonical_remaining:712,message:'Spoolman updated and verified'});assert.equal(a.document.getElementById('weigh-update').disabled,true);assert.match(a.document.getElementById('weigh-policy').textContent,/ON/);assert.equal(a.fetchCalls.length,0);});
 test('clear pending offers unlink retry and locks Escape during physical work',()=>{const a=loadApplication();a.T.bindWeighAndClear();a.document.getElementById('clear-dialog').showModal();a.T.renderClear({phase:'clearing',uid:'E004000000000028',total_blocks:23,completed_blocks:14});a.T.closeClear();assert.equal(a.document.getElementById('clear-dialog').open,true);assert.equal(a.document.getElementById('clear-message').textContent,'Erasing tag · 14 / 23 blocks. Keep the tag on the reader.');a.T.renderClear({phase:'unlink_pending',uid:'E004000000000028',message:'Tag is blank and verified. Spoolman unlink is still pending.'});assert.equal(a.document.getElementById('clear-retry').hidden,false);assert.equal(a.document.getElementById('clear-confirm').hidden,true);a.T.closeClear();assert.equal(a.document.getElementById('clear-dialog').open,false);assert.equal(a.document.activeElement.id,'clear-open');});
@@ -2741,8 +2719,6 @@ test('Home spool art uses the Spoolman spool colour from the workflow',()=>{
   a.T.renderNfc(tag);a.T.renderSpool({workflow:{stage:'spool_ready',openprinttag_available:true,tag,spool:{id:28,display_name:'Red PLA',primary_color:[200,10,20,255]}}});
   assert.equal(a.document.getElementById('current-spool').style['--filament'],'rgb(200,10,20)');
 });
-test('Community selection sends only the stable local source id',()=>{const source=readFileSync(new URL('../src/web/writer_assets.cpp',import.meta.url),'utf8');assert.match(source,/const body=\{action:'community_select',id:item\.id\}/);assert.doesNotMatch(source,/action:'import_preview',contract:/);});
-test('Community import transitions to verified canonical filament and creation choices',()=>{const a=writerApp({community:true});a.document.getElementById('writer-source').value='community';a.T.renderWriter({phase:'imported',filament:SUNLU.filament});assert.equal(a.document.getElementById('writer-source').value,'spoolman');assert.equal(a.T.writerState.filament,22);assert.equal(a.T.writerState.spool,0);assert.equal(displayed(a,'writer-create'),true);assert.match(a.document.getElementById('writer-progress').textContent,/Imported to Spoolman/);a.T.renderWriter({phase:'catalog',entity:'spool',items:[],offset:0});assert.match(a.document.getElementById('writer-progress').textContent,/Imported to Spoolman/);});
 test('manual weight update submits only the explicit measurement ID',async()=>{let updates=0;const a=loadApplication({fetch:async(url,init)=>{if(init.method==='POST'){assert.equal(url,'/api/v1/scale/update');assert.deepEqual(JSON.parse(init.body),{measurement_id:55});updates++;return jsonResponse(202,{operation_id:41});}if(String(url).includes('/operations/'))return jsonResponse(200,{id:41,state:'succeeded'});return jsonResponse(200,{weigh_sync:{measurement_id:55,phase:'updated',canonical_remaining:712,can_update:false,message:'Spoolman updated'}});}});a.T.renderWeighSync({measurement_id:55,phase:'ready',can_update:true});await drivePromise(a.T.updateWeighedSpool(),a.clock);assert.equal(updates,1);await a.T.updateWeighedSpool();assert.equal(updates,1);assert.equal(a.document.getElementById('weigh-update').disabled,true);});
 
 
@@ -2758,13 +2734,14 @@ test('clear pending preserves backend reasons and distinguishes cleanup stages',
   }
 });
 
-test('production writer rejects Community commands and stale Community results',async()=>{
+test('removed Community phases and rows never render in the writer',()=>{
   const a=writerApp();writerChoose(a);
   a.T.renderWriter({phase:'community',items:[],message:'No matching Community filaments'});
-  a.T.writerResults([],'community');
   assert.equal(a.T.writerState.entity,'spool');
   assert.doesNotMatch(nodeText(a.document.getElementById('writer-results')),/Community/);
-  for(const action of ['community_status','community_search','community_select','community_update','import_preview','import'])assert.equal(await a.T.writerCommand({action}),false);
+  const layout=a.context.window.OpenTagWriterLayout,host=readFileSync(new URL('../src/web/web_assets.cpp',import.meta.url),'utf8');
+  for(const id of ['writer-source','writer-import','writer-community-retry'])assert.doesNotMatch(layout,new RegExp('id=\\"'+id+'\\"'),id);
+  for(const id of ['inventory-community','community-settings','opentag-community'])assert.doesNotMatch(host,new RegExp(id),id);
   assert.equal(a.fetchCalls.length,0);
 });
 
@@ -2786,26 +2763,19 @@ test('failed preview preserves reviewed spool and Retry Read submits the same sp
   assert.equal(a.T.writerState.spool,28);assert.equal(a.T.writerState.busy,false);assert.equal(displayed(a,'writer-activity'),false);
 });
 
-test('Back from a failed preview returns to Select with the spool kept and reloads the active source',async()=>{
+test('Back from a failed preview returns to Select with the spool kept and reloads the spool list',async()=>{
   const bodies=[];const a=writerApp({fetch:async(url,init)=>{
     if(init.method==='POST'){bodies.push(JSON.parse(init.body));return jsonResponse(202,{operation_id:42});}
     return jsonResponse(200,String(url).includes('/operations/')?{id:42,state:'succeeded'}:{phase:'catalog',entity:'spool',items:[SUNLU],offset:0});
   }});writerChoose(a);const reviewed=JSON.stringify(a.T.writerState.selected);
   a.T.writerState.lastAction='preview';a.T.renderWriter({phase:'reading'});a.T.renderWriter({phase:'failed',message:'Tag not stable'});
   assert.match(a.document.getElementById('writer-progress').textContent,/Place the same tag on the reader and try again/);
-  a.T.writerState.entity='community';a.T.writerState.items=[COMMUNITY_ROW];const stale=a.document.createElement('p');stale.textContent='No matching Community filaments';a.document.getElementById('writer-results').replaceChildren(stale);
-  a.document.getElementById('writer-back').click();assert.equal(JSON.stringify(a.T.writerState.selected),reviewed);assert.doesNotMatch(nodeText(a.document.getElementById('writer-results')),/Community/);
+  const stale=a.document.createElement('p');stale.textContent='Stale results';a.document.getElementById('writer-results').replaceChildren(stale);
+  a.document.getElementById('writer-back').click();assert.equal(JSON.stringify(a.T.writerState.selected),reviewed);assert.doesNotMatch(nodeText(a.document.getElementById('writer-results')),/Stale results/);
   for(let i=0;i<200&&a.T.writerState.busy;i++){await flushPromises(64);if(a.T.writerState.busy)a.clock.runNext();}
   assert.equal(a.T.writerState.step,1);assert.equal(bodies.length,1);assert.equal(bodies[0].action,'catalog');assert.equal(bodies[0].entity,'spool');assert.equal(bodies[0].offset,0);assert.equal(a.T.writerState.entity,'spool');assert.equal(a.T.writerState.spool,28);assert.equal(a.T.writerState.busy,false);
 });
 
-test('source switch clears stale rows, entity, pagination, and empty-state text before fetching',async()=>{
-  const wait=deferred();const a=writerApp({community:true,fetch:async()=>{await wait.promise;return jsonResponse(200,{});}});
-  a.document.getElementById('writer-source').value='community';a.T.writerResults([],'community');a.T.writerState.start=16;a.T.writerState.offset=24;a.T.writerState.hasMore=true;
-  a.document.getElementById('writer-source').value='spoolman';a.document.getElementById('writer-source').dispatchEvent('change');
-  assert.equal(a.T.writerState.entity,'spool');assert.equal(a.T.writerState.start,0);assert.equal(a.T.writerState.offset,0);assert.equal(a.T.writerState.hasMore,false);
-  assert.doesNotMatch(nodeText(a.document.getElementById('writer-results')),/Community/);wait.resolve();await flushPromises(128);
-});
 
 async function timedOutTare(operations) {
   const clock = new FakeClock();

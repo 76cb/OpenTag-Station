@@ -95,7 +95,7 @@ struct RouteMetadata {
   BodyTransport body_transport{BodyTransport::buffered_json};
 };
 
-inline constexpr std::array<RouteMetadata, 35U> routes = {{
+inline constexpr std::array<RouteMetadata, 34U> routes = {{
     {Method::get, "/api/v1/tag-writer", 0U, false},
     {Method::post, "/api/v1/tag-writer", 4096U, true},
     {Method::get, "/api/v1/status", 0U, false},
@@ -112,7 +112,6 @@ inline constexpr std::array<RouteMetadata, 35U> routes = {{
     {Method::post, "/api/v1/scale/calibrate", 512U, true},
     {Method::get, "/api/v1/nfc", 0U, false},
     {Method::get, "/api/v1/nfc/tag", 0U, false},
-    {Method::post, "/api/v1/nfc/read", 256U, true},
     {Method::get, "/api/v1/spool", 0U, false},
     {Method::post, "/api/v1/spool/confirm", 512U, true},
     {Method::get, "/api/v1/printers", 0U, false},
@@ -285,7 +284,6 @@ enum class MutationKind : std::uint8_t {
   scale_update,
   scale_tare,
   scale_calibration,
-  nfc_read,
   toolhead_assignment,
   toolhead_unassignment,
   configuration_patch,

@@ -92,6 +92,13 @@ inline void recovery_can_be_skipped_explicitly() {
   f.act(TagAction::skip);
   JsonDocument c;deserializeJson(c,f.act(TagAction::write));
   TEST_ASSERT_EQUAL_STRING("discard_recovery",c["action"]|"");
+  // WB-D5: the request names the tag the recovery is for: the writer's own
+  // uid when it reported one, else the tag on the reader.
+  TEST_ASSERT_EQUAL_STRING("",c["uid"]|"x");
+  f.waiting=false;f.operation=0;f.observe_tag("E004000000000007",nullptr);
+  f.act(TagAction::skip);deserializeJson(c,f.act(TagAction::write));TEST_ASSERT_EQUAL_STRING("E004000000000007",c["uid"]|"");
+  f.waiting=false;f.operation=0;feed(f,R"({"phase":"write_recovery","uid":"E004000000000001","spool_id":31,"message":"Place the same tag on the reader to finish writing it."})");
+  f.act(TagAction::skip);deserializeJson(c,f.act(TagAction::write));TEST_ASSERT_EQUAL_STRING("E004000000000001",c["uid"]|"");
   f.waiting=false;f.operation=0;
   feed(f,R"({"phase":"recovery_discarded","message":"Stopped."})");
   TEST_ASSERT_TRUE(f.page==TagPage::error);TEST_ASSERT_EQUAL_STRING("Recovery skipped",f.screen().title.c_str());

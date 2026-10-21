@@ -22,8 +22,6 @@
 #include "services/station_workflow.hpp"
 #include "services/tag_writer_service.hpp"
 #include "services/weigh_sync.hpp"
-#include "services/community_catalog.hpp"
-#include "services/community_catalog_updater.hpp"
 
 namespace opentag::application {
 
@@ -57,16 +55,13 @@ class BackendWorker final {
       services::SpoolIdentityResolver& resolver,
       services::StationWorkflow& workflow,
       OperationRegistry& operations,
-      network::HttpTransport& transport,
-      services::CommunityCatalog& community_catalog,
-      services::CommunityCatalogUpdater& community_updater)
+      network::HttpTransport& transport)
       : configuration_(configuration),
         spoolman_(spoolman),
         filabridge_(filabridge),
         resolver_(resolver),
         workflow_(workflow),
-        operations_(operations), transport_(transport), community_catalog_(community_catalog),
-        community_updater_(community_updater) {}
+        operations_(operations), transport_(transport) {}
 
   [[nodiscard]] bool start(NfcWorker& nfc);
   static constexpr std::uint32_t stack_bytes = 16384U;
@@ -101,6 +96,12 @@ class BackendWorker final {
   }
   void complete_weigh(std::uint64_t id, std::optional<float> grams);
   CommandReceipt submit_weight_update(std::uint64_t id);
+  // Installed before start(): the writer and weight updates are refused
+  // while the device lifecycle gate holds a restart, reset or update.
+  void set_restart_pending(services::RestartPending pending) {
+    restart_pending_ = pending;
+    weigh_sync_.set_restart_pending(std::move(pending));
+  }
   void write_weigh_snapshot(JsonObject out) const;
   services::WeighSyncSnapshot weigh_snapshot() const { return weigh_sync_.snapshot(); }
   [[nodiscard]] CommandReceipt submit_writer(std::string_view payload);
@@ -160,6 +161,7 @@ class BackendWorker final {
   void auto_weight_update();
   bool weight_fence(const services::WeighSyncSnapshot& captured);
   services::WeighSync weigh_sync_;
+  services::RestartPending restart_pending_;
   [[nodiscard]] bool enqueue(Command* command);
 
   static constexpr std::uint32_t probe_interval_ms = 30000U;
@@ -170,8 +172,6 @@ class BackendWorker final {
   services::StationWorkflow& workflow_;
   OperationRegistry& operations_;
   network::HttpTransport& transport_;
-  services::CommunityCatalog& community_catalog_;
-  services::CommunityCatalogUpdater& community_updater_;
   NfcWorker* nfc_{nullptr};
   QueueHandle_t queue_{nullptr};
   TaskHandle_t task_{nullptr};

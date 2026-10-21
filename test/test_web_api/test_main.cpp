@@ -1,4 +1,3 @@
-#include "config/product_features.hpp"
 #include <unity.h>
 
 #include <ArduinoJson.h>
@@ -250,8 +249,8 @@ void setUp() {}
 void tearDown() {}
 
 void test_route_table_contains_the_complete_versioned_surface() {
-  TEST_ASSERT_EQUAL_UINT(35U, opentag::web::api::routes.size());
-  const std::array<std::pair<Method, const char*>, 35U> expected = {{
+  TEST_ASSERT_EQUAL_UINT(34U, opentag::web::api::routes.size());
+  const std::array<std::pair<Method, const char*>, 34U> expected = {{
       {Method::get, "/api/v1/tag-writer"},
       {Method::post, "/api/v1/tag-writer"},
       {Method::get, "/api/v1/status"},
@@ -268,7 +267,6 @@ void test_route_table_contains_the_complete_versioned_surface() {
       {Method::post, "/api/v1/scale/calibrate"},
       {Method::get, "/api/v1/nfc"},
       {Method::get, "/api/v1/nfc/tag"},
-      {Method::post, "/api/v1/nfc/read"},
       {Method::get, "/api/v1/spool"},
       {Method::post, "/api/v1/spool/confirm"},
       {Method::get, "/api/v1/printers"},
@@ -547,10 +545,9 @@ void test_mutation_headers_are_required_and_idempotency_is_bounded() {
 void test_empty_mutations_are_strict_and_forward_typed_commands() {
   FakeContext context;
   Router router(context);
-  const std::array<std::pair<const char*, MutationKind>, 4U> operations = {{
+  const std::array<std::pair<const char*, MutationKind>, 3U> operations = {{
       {"/api/v1/scale/weigh", MutationKind::scale_weigh},
       {"/api/v1/scale/tare", MutationKind::scale_tare},
-      {"/api/v1/nfc/read", MutationKind::nfc_read},
       {"/api/v1/backends/test", MutationKind::backend_test},
   }};
 
@@ -570,19 +567,28 @@ void test_empty_mutations_are_strict_and_forward_typed_commands() {
 
   assert_versioned_error(
       router.handle(mutation_request(
-          Method::post, "/api/v1/nfc/read", R"({"force":true})")),
+          Method::post, "/api/v1/backends/test", R"({"force":true})")),
       400,
       "invalid_request");
   assert_versioned_error(
       router.handle(mutation_request(
-          Method::post, "/api/v1/nfc/read", "[]")),
+          Method::post, "/api/v1/backends/test", "[]")),
       400,
       "invalid_request");
   assert_versioned_error(
       router.handle(mutation_request(
-          Method::post, "/api/v1/nfc/read", "{")),
+          Method::post, "/api/v1/backends/test", "{")),
       400,
       "invalid_request");
+}
+
+void test_removed_nfc_read_route_is_unknown() {
+  FakeContext context;
+  Router router(context);
+  // WB-D7 (#85): the always-failing POST /nfc/read route was removed in 1.0.1-beta.4.
+  const auto response = router.handle(mutation_request(Method::post, "/api/v1/nfc/read", "{}"));
+  TEST_ASSERT_EQUAL_INT(404, response.status);
+  TEST_ASSERT_EQUAL(0, context.submit_calls);
 }
 
 void test_setup_mode_route_starts_with_empty_body_and_stops_with_stop_true() {
@@ -1024,7 +1030,7 @@ void test_payload_digest_is_stable_and_covers_route_kind_and_exact_body() {
   TEST_ASSERT_NOT_EQUAL_UINT64(exact_digest, context.last_mutation->payload_digest);
 
   TEST_ASSERT_EQUAL_INT(202, router.handle(mutation_request(
-      Method::post, "/api/v1/nfc/read", "{}", "fourth-key")).status);
+      Method::post, "/api/v1/backends/test", "{}", "fourth-key")).status);
   TEST_ASSERT_NOT_EQUAL_UINT64(exact_digest, context.last_mutation->payload_digest);
 }
 
@@ -1033,7 +1039,7 @@ void test_zero_receipts_are_not_reported_as_accepted() {
   Router router(context);
   context.next_operation_id = 0U;
   const auto response = router.handle(mutation_request(
-      Method::post, "/api/v1/nfc/read", "{}"));
+      Method::post, "/api/v1/backends/test", "{}"));
   assert_versioned_error(response, 503, "operation_not_queued");
   JsonDocument document;
   TEST_ASSERT_FALSE(deserializeJson(document, response.body.data(), response.body.size()));
@@ -1623,78 +1629,24 @@ void test_writer_requires_specific_authorized_high_level_confirmation() {
   TEST_ASSERT_EQUAL(1,context.submit_calls);
   TEST_ASSERT_EQUAL(static_cast<int>(MutationKind::tag_writer),static_cast<int>(context.last_mutation->kind));
   // Skipping recovery is an explicit, exactly confirmed request.
-  for(const auto* skip : {R"({"action":"discard_recovery"})", R"({"action":"discard_recovery","confirm":"yes"})",
-      R"({"action":"discard_recovery","confirm":"SKIP RECOVERY","uid":"E004"})"})
+  // WB-D5 (#85): it also names the tag it is for.
+  for(const auto* skip : {R"({"action":"discard_recovery"})", R"({"action":"discard_recovery","confirm":"yes","uid":"E00401086627D8D4"})",
+      R"({"action":"discard_recovery","confirm":"SKIP RECOVERY"})", R"({"action":"discard_recovery","confirm":"SKIP RECOVERY","uid":""})",
+      R"({"action":"discard_recovery","confirm":"SKIP RECOVERY","uid":"E00401086627D8D4","spool_id":12})"})
     TEST_ASSERT_EQUAL(400,router.handle(mutation_request(Method::post,"/api/v1/tag-writer",skip)).status);
-  TEST_ASSERT_EQUAL(202,router.handle(mutation_request(Method::post,"/api/v1/tag-writer",R"({"action":"discard_recovery","confirm":"SKIP RECOVERY"})")).status);
+  TEST_ASSERT_EQUAL(202,router.handle(mutation_request(Method::post,"/api/v1/tag-writer",R"({"action":"discard_recovery","confirm":"SKIP RECOVERY","uid":"E00401086627D8D4"})")).status);
   TEST_ASSERT_EQUAL(2,context.submit_calls);
 }
-void test_community_writer_commands_are_strict_and_forwarded_by_router() {
+void test_removed_community_writer_commands_are_unknown_actions() {
   FakeContext context; Router router(context);
-  if (!opentag::config::community_enabled) {
-    for (const auto* action : {"community_status", "community_search", "community_select", "community_update", "import_preview", "import"}) {
-      const auto body=std::string("{\"action\":\"")+action+"\"}";
-      const auto response=router.handle(mutation_request(Method::post,"/api/v1/tag-writer",body));
-      TEST_ASSERT_EQUAL(503,response.status);
-      TEST_ASSERT_NOT_EQUAL(std::string::npos,std::string(response.body.data(),response.body.size()).find("disabled"));
-    }
-    TEST_ASSERT_EQUAL(0,context.submit_calls);
-    return;
+  // The Community catalog was deleted in 1.0.1-beta.4: its former actions are plain unknown writer actions.
+  for (const auto* action : {"community_status", "community_search", "community_select", "community_update", "import_preview", "import"}) {
+    const auto body=std::string("{\"action\":\"")+action+"\"}";
+    const auto response=router.handle(mutation_request(Method::post,"/api/v1/tag-writer",body));
+    TEST_ASSERT_EQUAL(400,response.status);
+    TEST_ASSERT_NOT_EQUAL(std::string::npos,std::string(response.body.data(),response.body.size()).find("Unknown high-level writer action"));
   }
-  const std::array<const char*, 5U> accepted = {{
-      R"({"action":"community_status"})",
-      R"({"action":"community_search","search":"SUNLU PLA","offset":8})",
-      R"({"action":"community_select","id":"sunlu_pla-black"})",
-      R"({"action":"community_select","id":"sunlu_pla-black","import_name":"SUNLU PLA Black"})",
-      R"({"action":"community_update"})",
-  }};
-  for (const auto* body : accepted) {
-    const auto response = router.handle(
-        mutation_request(Method::post, "/api/v1/tag-writer", body));
-    TEST_ASSERT_EQUAL(202, response.status);
-    TEST_ASSERT_TRUE(context.last_mutation.has_value());
-    TEST_ASSERT_EQUAL(static_cast<int>(MutationKind::tag_writer),
-        static_cast<int>(context.last_mutation->kind));
-    TEST_ASSERT_EQUAL_STRING(body,
-        std::get<opentag::web::api::TagWriterMutation>(
-            context.last_mutation->payload).json.c_str());
-  }
-  TEST_ASSERT_EQUAL(5, context.submit_calls);
-
-  const std::array<const char*, 14U> rejected = {{
-      R"({"action":"community_refresh"})",
-      R"({"action":"community_status","search":"PLA"})",
-      R"({"action":"community_update","offset":0})",
-      R"({"action":"community_search","offset":0})",
-      R"({"action":"community_search","search":"PLA","offset":-1})",
-      R"({"action":"community_search","search":"PLA","offset":1.5})",
-      R"({"action":"community_search","search":"PLA","offset":true})",
-      R"({"action":"community_search","search":"PLA","offset":100001})",
-      R"({"action":"community_search","search":"PLA","offset":0,"entity":"community"})",
-      R"({"action":"community_select"})",
-      R"({"action":"community_select","id":""})",
-      R"({"action":"community_select","id":"sunlu_pla-black","uid":"E00401086627D8D4"})",
-      R"({"action":"community_select","id":"sunlu_pla-black","bytes":[0]})",
-      R"({"action":"community_select","id":"sunlu_pla-black","search":"PLA"})",
-  }};
-  for (const auto* body : rejected) {
-    TEST_ASSERT_EQUAL(400, router.handle(
-        mutation_request(Method::post, "/api/v1/tag-writer", body)).status);
-  }
-  const auto oversized_query = std::string(
-      R"({"action":"community_search","search":")") +
-      std::string(65U, 'q') + R"(","offset":0})";
-  const auto oversized_id = std::string(
-      R"({"action":"community_select","id":")") +
-      std::string(181U, 'i') + R"("})";
-  const auto oversized_name = std::string(
-      R"({"action":"community_select","id":"sunlu_pla-black","import_name":")") +
-      std::string(65U, 'n') + R"("})";
-  for (const auto& body : {oversized_query, oversized_id, oversized_name}) {
-    TEST_ASSERT_EQUAL(400, router.handle(
-        mutation_request(Method::post, "/api/v1/tag-writer", body)).status);
-  }
-  TEST_ASSERT_EQUAL(5, context.submit_calls);
+  TEST_ASSERT_EQUAL(0,context.submit_calls);
 }
 void test_clear_route_requires_and_forwards_exact_confirmation() {
   FakeContext context; Router router(context);
@@ -1767,7 +1719,7 @@ int main(int, char**) {
   RUN_TEST(test_clear_route_requires_and_forwards_exact_confirmation);
   RUN_TEST(test_weight_update_route_requires_only_explicit_measurement_id);
   RUN_TEST(test_writer_requires_specific_authorized_high_level_confirmation);
-  RUN_TEST(test_community_writer_commands_are_strict_and_forwarded_by_router);
+  RUN_TEST(test_removed_community_writer_commands_are_unknown_actions);
   RUN_TEST(test_response_allocation_failure_sends_static_valid_503);
   RUN_TEST(test_spool_confirmation_is_explicit_bounded_and_queued);
   RUN_TEST(
@@ -1784,6 +1736,7 @@ int main(int, char**) {
       test_tokenless_local_mutations_are_allowed_without_authorization_header);
   RUN_TEST(test_mutation_headers_are_required_and_idempotency_is_bounded);
   RUN_TEST(test_empty_mutations_are_strict_and_forward_typed_commands);
+  RUN_TEST(test_removed_nfc_read_route_is_unknown);
   RUN_TEST(test_setup_mode_route_starts_with_empty_body_and_stops_with_stop_true);
   RUN_TEST(test_writer_catalog_is_idempotency_exempt_but_writes_are_retained);
   RUN_TEST(test_explicit_weigh_is_refused_while_weight_update_runs);

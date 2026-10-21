@@ -68,15 +68,17 @@ void test_home_weigh_opens_scale_before_refreshing() {
       std::string::npos);
   TEST_ASSERT_TRUE(
       callback.find("submit_weigh(millis())") != std::string::npos);
-  TEST_ASSERT_TRUE(
-      callback.find("!self->diagnostics_.scale_snapshot().scale_calibrated") !=
-      std::string::npos);
-  TEST_ASSERT_TRUE(
-      callback.find("set_scale_calibration_panel_open(true)") !=
-      std::string::npos);
-  TEST_ASSERT_LESS_THAN(
-      callback.find("submit_weigh(millis())"),
-      callback.find("set_scale_calibration_panel_open(true)"));
+  // U13 (#85): the Home button only weighs. It never opens calibration or the
+  // tag writer; those branches are gone.
+  TEST_ASSERT_TRUE(callback.find("scale_calibrated") == std::string::npos);
+  TEST_ASSERT_TRUE(callback.find("set_scale_calibration_panel_open") == std::string::npos);
+  TEST_ASSERT_TRUE(callback.find("home_shows_blank_tag") == std::string::npos);
+  const auto home = method(source, "void UiService::refresh_home_page(", "void UiService::refresh_printer_page()");
+  TEST_ASSERT_TRUE(home.find("busy?\"WEIGHING...\":\"WEIGH\"") != std::string::npos);
+  for (const char* other : {"\"CALIBRATE\"", "\"WRITE TAG\""})
+    TEST_ASSERT_TRUE_MESSAGE(home.find(other) == std::string::npos, other);
+  TEST_ASSERT_TRUE(home.find("set_enabled(workflow_weigh_button_,scale.scale_calibrated&&scale.scale_adc_ready&&!busy&&!saving)") != std::string::npos);
+  TEST_ASSERT_TRUE(home.find("\"Scale not calibrated\"") != std::string::npos);
 }
 
 void test_scale_ui_uses_raw_stability_only_for_calibration_actions() {

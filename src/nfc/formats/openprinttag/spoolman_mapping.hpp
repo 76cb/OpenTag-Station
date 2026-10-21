@@ -16,7 +16,7 @@ struct DroppedField {
 };
 // Same input and limits as map_spoolman(); no tag bytes are touched.
 std::vector<DroppedField> dropped_fields(JsonObjectConst spool);
-// Input MUST be GET /spool/{id} canonical readback, never a Community object.
+// Input MUST be GET /spool/{id} canonical readback, never a client-supplied object.
 core::Result<void> map_spoolman(JsonObjectConst spool,
                                 const std::array<std::uint8_t, 16> &uuid,
                                 WriterPlan &plan, bool mutable_only);

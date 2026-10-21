@@ -225,13 +225,29 @@ void test_factory_reset_recovery_is_not_classified_as_ota_failure() {
   const BootHealthPolicy policy(0U);
   auto signals = healthy_signals();
   signals.factory_reset_recovery_pending = true;
-  signals.storage_ready = false;
   signals.fatal_initialization_error = true;
+  signals.web_server_running = false;
   const auto result = policy.evaluate(60000U, signals);
   TEST_ASSERT_EQUAL_INT(
       static_cast<int>(BootHealthState::factory_reset_recovery),
       static_cast<int>(result.state));
-  TEST_ASSERT_TRUE(result.missing(BootHealthRequirement::storage));
+  TEST_ASSERT_TRUE(result.missing(BootHealthRequirement::web_server));
+}
+
+// A7 (#85): the reset marker with an unmountable filesystem must not reboot
+// into the same recovery again. The boot is unhealthy and the station stays up.
+void test_reset_marker_without_storage_is_unhealthy_not_a_recovery_reboot() {
+  const BootHealthPolicy policy(0U);
+  auto signals = healthy_signals();
+  signals.factory_reset_recovery_pending = true;
+  signals.storage_ready = false;
+  for (const auto now : {0U, 60000U}) {
+    const auto result = policy.evaluate(now, signals);
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(BootHealthState::unhealthy),
+        static_cast<int>(result.state));
+    TEST_ASSERT_TRUE(result.missing(BootHealthRequirement::storage));
+  }
 }
 
 
@@ -430,6 +446,7 @@ int main(int, char**) {
   RUN_TEST(test_health_does_not_depend_on_backends_network_link_or_nfc);
   RUN_TEST(test_fatal_initialization_fails_before_the_window);
   RUN_TEST(test_factory_reset_recovery_is_not_classified_as_ota_failure);
+  RUN_TEST(test_reset_marker_without_storage_is_unhealthy_not_a_recovery_reboot);
   RUN_TEST(test_upload_cleanup_requires_authoritative_terminal_state);
   RUN_TEST(
       test_upload_cleanup_recognizes_exact_failed_cleared_and_validated_states);

@@ -20,7 +20,7 @@ class BumpVersion(unittest.TestCase):
         tracked = subprocess.check_output(['git', '-C', str(ROOT), 'ls-files'], text=True).splitlines()
         for relative in tracked:
             source = ROOT / relative
-            if relative.startswith(('community/', 'third_party/', 'test/', 'src/')) or not source.is_file():
+            if relative.startswith(('third_party/', 'test/', 'src/')) or not source.is_file():
                 continue
             target = self.root / relative
             target.parent.mkdir(parents=True, exist_ok=True)

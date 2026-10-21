@@ -1,4 +1,3 @@
-#include "config/product_features.hpp"
 #include "application/backend_worker.hpp"
 #include "application/nfc_worker.hpp"
 #include "platform/storage/writer_journal.hpp"
@@ -77,25 +76,12 @@ __attribute__((noinline)) bool BackendWorker::ensure_writer() {
           },
           [this](const domain::ConfirmedSpoolMapping &mapping) {
             return configuration_.sync_verified_spool_identity_mapping(mapping);
-          }
-#if OPENTAG_ENABLE_COMMUNITY
-          , [this](const std::string& query, unsigned offset) {
-            return community_catalog_.search(query,offset);
-          },
-          [this](const std::string& id) {
-            return community_catalog_.detail(id);
-          }
-#endif
-          );
+          });
     });
-#if OPENTAG_ENABLE_COMMUNITY
-  if (writer_)
-    writer_->set_community_management(
-        [this]{return community_catalog_.status();},
-        [this](auto progress){return community_updater_.update(std::move(progress));});
-#endif
-  if (writer_)
+  if (writer_) {
+    writer_->set_restart_pending(restart_pending_);
     (void)writer_->restore_cleanup();
+  }
   return bool(writer_);
 }
 __attribute__((noinline)) bool BackendWorker::physical_writer_ready() const {

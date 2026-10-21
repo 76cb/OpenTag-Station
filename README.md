@@ -168,7 +168,7 @@ The manual's source is in [`documentation-site/`](documentation-site/README.md).
 - Firmware files are not signed. Install only files from this repository's [Releases](https://github.com/76cb/OpenTag-Station/releases) page.
 - Only blank SLIX2 tags can be written. A sticker that a phone app has already formatted is not blank, and the station will not erase it.
 - 1.0 does not read Bambu Lab, Creality, Anycubic, QIDI or OpenSpool tags. They use a different tag family that the firmware does not poll for yet; see the [roadmap](#roadmap).
-- The Community filament catalog is not part of 1.0. It was disabled after a memory fault on the device and is kept in the source for a redesign.
+- There is no built-in filament catalog. Filaments and spools come from your own Spoolman.
 - The station is built around one board and one reader. Other hardware is out of scope.
 
 ## Status

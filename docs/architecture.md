@@ -37,7 +37,7 @@ Rules that hold across the tree:
 | `src/main.cpp` | Arduino `setup()`/`loop()`; sets the loop task stack |
 | `src/application/` | `Application`, the workers (`BackendWorker`, `ConfigurationWorker`, `DeviceControlWorker`, `OtaWorker`, `NfcWorker`), `ScaleCommandQueue`, `OperationRegistry`, `BootHealthPolicy`, `DeviceLifecycleGate` |
 | `src/boards/` | Pins, buses and addresses of the WT32-SC01 Plus (`wt32_sc01_plus_rev_a.hpp`) |
-| `src/config/` | `ConfigurationService` (settings document, validation, migration), `product_features.hpp` |
+| `src/config/` | `ConfigurationService` (settings document, validation, migration) |
 | `src/core/` | `Result`, `Error`, `ByteView` |
 | `src/diagnostics/`, `src/logging/` | Health snapshot, build information, in-memory log |
 | `src/domain/`, `src/events/` | Plain data types: spool, printer, weight, identity |
@@ -57,8 +57,7 @@ Rules that hold across the tree:
 
 Outside `src/`: `boards/` (PlatformIO board definition), `partitions.csv`, `test/` (host
 suites), `tools/` (build, check and release scripts), `third_party/ELECHOUSE_ST25R3916/` (the NFC
-libraries, linked as `lib_deps`), `web-flasher/` (installer page), `community/`
-(see [community-catalog.md](community-catalog.md)).
+libraries, linked as `lib_deps`), `web-flasher/` (installer page).
 
 ## Tasks
 
@@ -164,7 +163,6 @@ CI runs `python tools/generate_product_ui.py --check` and `python tools/check_we
 | `wt32-sc01-plus` | The firmware. Default environment. `-DOPENTAG_ENABLE_ST25R3916B=1`, `-fstack-usage` |
 | `native` | Host tests of the portable sources listed in its `build_src_filter` |
 | `native-writer-sanitized` | `native` with `-fsanitize=address,undefined` |
-| `native-community` | `native` with `-DOPENTAG_ENABLE_COMMUNITY=1` and a `test_filter` |
 
 Extra scripts of the firmware environment: `tools/build_metadata.py` (version and commit
 defines, `build-metadata.json`), `tools/precompress_web_assets.py`, `tools/web_flasher_target.py`

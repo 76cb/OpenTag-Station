@@ -200,7 +200,10 @@ void WifiService::schedule_reconnect(
     std::uint32_t now_ms,
     const char* reason) {
   leave_connected();
-  provisioning_.connection_failed();
+  if (wifi_.auto_reconnect)
+    provisioning_.connection_failed();
+  else
+    provisioning_.connection_abandoned();
   if (provisioning_.active() && !setup_ap_running_) {
     (void)start_setup_ap();
   }

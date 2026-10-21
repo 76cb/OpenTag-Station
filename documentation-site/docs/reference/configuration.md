@@ -39,7 +39,7 @@ calibration.
 |---|---|---|
 | `ssid` | empty | ≤ 32 bytes |
 | `password` | empty | ≤ 64 bytes. Never returned (`password_configured`). |
-| `auto_reconnect` | `true` | boolean |
+| `auto_reconnect` | `true` | boolean. With `false` the station does not retry a failed connection; it opens its setup network after the first failure instead. |
 | `connect_timeout_ms` | `15000` | 1,000–60,000 |
 | `reconnect_initial_ms` | `1000` | 500–60,000 |
 | `reconnect_max_ms` | `60000` | `reconnect_initial_ms`–600,000 |
@@ -99,6 +99,10 @@ A list of at most 8 profiles. A PATCH replaces the whole list.
 | `nozzle_material` | `brass` | 1–32 bytes |
 | `maximum_temperature_c` | `300` | 100–500 |
 | `notes` | empty | ≤ 256 bytes; optional in a PATCH, the other keys are required |
+
+`nozzle_material` and `maximum_temperature_c` are stored for a future material compatibility
+check. The station derives compatibility notes from them when a toolhead is assigned, but no
+page or API shows those notes yet, so the two values have no visible effect today.
 
 ### `reconciliation`
 

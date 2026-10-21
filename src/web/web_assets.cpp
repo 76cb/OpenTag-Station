@@ -1,5 +1,4 @@
 #include "web/web_assets.hpp"
-#include "config/product_features.hpp"
 
 #include "diagnostics/build_info.hpp"
 
@@ -12,7 +11,6 @@ const char index_html[] = R"HTML(<!doctype html>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="color-scheme" content="dark">
 <meta name="description" content="Your filament workstation">
-<meta name="opentag-community" content=")HTML" OPENTAG_COMMUNITY_VALUE R"HTML(">
 <title>OpenTag Station</title>
 <link rel="stylesheet" href="/assets/app.css?v=)HTML" OPENTAG_GIT_SHA R"HTML(">
 <script defer src="/assets/writer.js"></script>
@@ -64,7 +62,7 @@ const char index_html[] = R"HTML(<!doctype html>
 <div id="spool-empty" class="spool-empty"><div class="spool-art" aria-hidden="true"><div class="spool-flange"><div class="spool-winding"><div class="spool-center"></div></div></div></div><p class="eyebrow">YOUR FILAMENT WORKSTATION</p><h2 id="overview-title">Place a spool</h2><p>Set a tagged spool on the station<br>to identify and weigh it.</p><div class="action-row"><button id="new-tag" class="button primary"><svg class="icon" aria-hidden="true"><use href="#i-tag"/></svg> Write a new tag</button><a class="button" href="#inventory">Browse inventory</a></div></div>
 <div id="current-spool" hidden><div class="workspace-heading"><p class="eyebrow">CURRENT SPOOL</p><span id="current-number" class="muted"></span></div><div class="spool-workspace"><div class="spool-object"><div class="spool-art" aria-hidden="true"><div class="spool-flange"><div class="spool-winding"><div class="spool-center"></div></div></div></div><span id="current-color" class="color-caption">Filament</span></div><div class="spool-information"><p id="current-vendor" class="vendor"></p><h2 id="current-name"></h2><p id="current-material" class="muted"></p><div class="remaining-reading"><span id="current-remaining">—</span><small>g <span>remaining</span></small></div><div id="remaining-summary" hidden><progress id="remaining-meter" max="100" value="0" aria-label="Filament remaining"></progress><span id="remaining-caption"></span></div><div class="spool-status"><span id="current-tag"></span><span id="current-link"></span><span id="current-assignment"></span></div><div class="primary-actions"><button id="home-weigh" class="button primary" disabled><svg class="icon" aria-hidden="true"><use href="#i-scale"/></svg> <span id="home-action-label">Weigh</span></button><button id="spool-assign" class="button"><svg class="icon" aria-hidden="true"><use href="#i-printer"/></svg> Assign</button><button id="spool-manage" class="button"><svg class="icon" aria-hidden="true"><use href="#i-tag"/></svg> Manage tag</button></div><div class="secondary-actions"><button id="spool-edit" class="text-button">Edit spool</button><button id="spool-details" class="text-button">View details</button></div></div></div><div class="workspace-bottom"><div><h3>Weight</h3><p id="dashboard-weight">Weigh this spool to compare it with your inventory.</p><p id="home-weight-state" class="muted"></p></div><div><h3>Ready for your next print</h3><p id="dashboard-printer" class="muted">Choose a toolhead to assign this spool.</p><a href="#printer">View printer →</a></div></div></div>
 </section>
-<section id="inventory" class="section product-page" data-page="inventory" hidden><div class="section-heading"><div><p class="eyebrow">YOUR MATERIAL LIBRARY</p><h2>Inventory</h2><p class="muted">Find your next spool. Make it ready for the station.</p></div><button id="inventory-community" class="button" hidden><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg> Add from Community</button></div><div id="inventory-content"></div></section>
+<section id="inventory" class="section product-page" data-page="inventory" hidden><div class="section-heading"><div><p class="eyebrow">YOUR MATERIAL LIBRARY</p><h2>Inventory</h2><p class="muted">Find your next spool. Make it ready for the station.</p></div></div><div id="inventory-content"></div></section>
 <dialog id="weigh-dialog" class="modal" aria-labelledby="weigh-title"><article><header class="modal-header"><div><p class="eyebrow">CURRENT SPOOL</p><h2 id="weigh-title">Weigh spool</h2></div><button class="button quiet" data-close="weigh-dialog" aria-label="Close weighing">Close</button></header><div id="scale" class="modal-body scale-page">
 <div class="scale-state-row"><span id="scale-badge" class="badge neutral">Idle</span></div>
 <div class="scale-stage">
@@ -154,7 +152,6 @@ const char index_html[] = R"HTML(<!doctype html>
 <article class="card"><h3>Connectivity</h3><dl class="facts compact"><div><dt>Wi-Fi</dt><dd id="wifi-state">—</dd></div><div><dt>LAN address</dt><dd id="device-address">—</dd></div><div><dt>RSSI</dt><dd id="settings-rssi">—</dd></div></dl><a class="button quiet" href="#configuration">Change Wi-Fi</a></article>
 <article class="card"><div class="card-title-row"><h3>Integrations</h3><button id="test-backends" class="button tiny" type="button">Test</button></div><dl class="facts compact"><div><dt>Spoolman</dt><dd id="spoolman-state">Unknown</dd></div><div><dt>FilaBridge</dt><dd id="filabridge-state">Unknown</dd></div><div><dt>Printer</dt><dd id="settings-selected-printer">Not selected</dd></div></dl><p id="spoolman-setup" class="hint warning-text" role="status" hidden></p><span id="spoolman-version" class="visually-hidden">Version —</span><span id="spoolman-capabilities" class="visually-hidden">Capabilities —</span><span id="filabridge-version" class="visually-hidden">Version —</span><span id="filabridge-capabilities" class="visually-hidden">Capabilities —</span></article>
 <article class="card"><h3>Hardware</h3><dl class="facts compact"><div><dt>Scale</dt><dd id="scale-calibration">Checking</dd></div><div><dt>Profile</dt><dd id="scale-profile">—</dd></div><div><dt>Capacity</dt><dd id="scale-capacity">—</dd></div><div><dt>NFC</dt><dd>OpenPrintTag read / write</dd></div><div><dt>Display</dt><dd>WT32-SC01 Plus</dd></div></dl><details><summary>Scale diagnostics</summary><dl class="facts compact"><div><dt>Raw</dt><dd id="scale-raw">—</dd></div><div><dt>Filtered</dt><dd id="scale-filtered">—</dd></div><div><dt>Zero</dt><dd id="scale-zero">—</dd></div><div><dt>Factor</dt><dd id="scale-factor">—</dd></div><div><dt>Reference</dt><dd id="scale-reference">—</dd></div></dl></details></article>
-<article id="community-settings" class="card" hidden><div class="card-title-row"><h3>Community Catalog</h3><button id="community-catalog-update" class="button tiny" type="button">Check for update</button></div><dl class="facts compact"><div><dt>Status</dt><dd id="community-catalog-state">Checking</dd></div><div><dt>Version</dt><dd id="community-catalog-version">—</dd></div><div><dt>Records</dt><dd id="community-catalog-records">—</dd></div><div><dt>Size</dt><dd id="community-catalog-size">—</dd></div><div><dt>Updated</dt><dd id="community-catalog-updated">—</dd></div></dl></article>
 <article class="card"><h3>Device</h3><dl class="facts compact"><div><dt>Firmware</dt><dd id="firmware-version">—</dd></div><div><dt>Git SHA</dt><dd id="git-sha" class="mono">—</dd></div><div><dt>Build</dt><dd id="build-date">—</dd></div><div><dt>Hardware</dt><dd id="hardware-id">—</dd></div><div><dt>Uptime</dt><dd id="uptime">—</dd></div><div><dt>Free heap</dt><dd id="heap-free">—</dd></div><div><dt>Free PSRAM</dt><dd id="psram-free">—</dd></div></dl></article>
 </div>
 </section>
@@ -282,7 +279,6 @@ const char application_css[] = R"CSS(:root{color-scheme:dark;--bg:#101416;--surf
 
 /* Keep the library focused on results, with optional page refinements. */
 #inventory>.section-heading h2,#inventory>.section-heading .eyebrow,#settings>.section-heading,#printers>.section-heading h2,#printers>.section-heading .eyebrow{display:none}
-#inventory-content .writer-toolbar>.writer-source-choices:first-child{display:none}
 .writer-toolbar{grid-template-columns:1fr 1fr auto;align-items:end}
 .writer-toolbar>label:has(#writer-search){grid-column:1/-1}
 #writer-clear-search{grid-column:3;font-size:12px;padding:8px}
@@ -327,7 +323,6 @@ const SELF_TEST_PATHS = Object.freeze([
 const PRODUCT_PAGES = Object.freeze({home:['overview','spool-resolution'],inventory:['inventory'],printer:['printers'],settings:['settings']});
 const PRODUCT_TITLES = Object.freeze({home:'Dashboard',inventory:'Inventory',printer:'Printer',settings:'Settings'});
 const PRODUCT_EYEBROWS = Object.freeze({home:'IDENTIFY · WEIGH · MAKE',inventory:'YOUR COLLECTION',printer:'READY TO PRINT',settings:'MAKE IT YOURS'});
-window.OpenTagCommunityEnabled=document.querySelector('meta[name="opentag-community"]')?.getAttribute('content')==='1';
 const state = {
 apiToken: '',
 authMode: 'UNKNOWN',
@@ -454,7 +449,7 @@ setText('page-title', PRODUCT_TITLES[selected]);
 setText('page-eyebrow', PRODUCT_EYEBROWS[selected]);
 if (selected !== 'scale' && state.calibrationOpen) setCalibrationPanel(false);
 else syncCalibrationRefresh();
-if (selected === 'settings') {ensureConfigReady();if(window.OpenTagCommunityEnabled&&window.OpenTagWriter?.writerCommand&&!state.communityStatusLoading){state.communityStatusLoading=true;window.OpenTagWriter.writerCommand({action:'community_status'}).finally(()=>state.communityStatusLoading=false);}}
+if (selected === 'settings') ensureConfigReady();
 if (selected === 'inventory') mountInventory();
 return selected;
 }
@@ -1206,6 +1201,10 @@ applyAuthState(payload.local_api_authentication_enabled, first(payload.config_re
 const status = String(first(payload.status, payload.health, payload.state, 'unknown')).toLowerCase();
 const degraded = status === 'degraded' || status === 'warning';
 setBadge('health-badge', normalizeState(status), status === 'ok' || status === 'healthy' ? 'good' : degraded ? 'warning' : 'bad');
+const message = typeof payload.message === 'string' ? payload.message : '';
+byId('health-badge').title = message;
+if (message && message !== state.healthMessage) showToast(message, true);
+state.healthMessage = message;
 }
 
 function renderStatus(payload) {
@@ -3237,15 +3236,15 @@ async function updateWeighedSpool(){const v=state.weighSync;if(!v?.can_update||s
 let clearView={},clearBusy=false;
 function clearLocked(){return clearBusy||['validating','clearing','verifying','unlinking'].includes(clearView.phase);}
 function renderClear(v){clearView=asObject(v);state.clearSnapshot=clearView;const p=clearView.phase,locked=clearLocked();
-setText('clear-title',p==='cleared'?'Tag ready to reuse · verified':p==='unlink_pending'?'Tag cleared · cleanup pending':p==='clearing'?'Clearing tag':'Reuse this NFC tag?');
+setText('clear-title',p==='cleared'?'Tag ready to reuse · verified':p==='recovery_discarded'?'Recovery skipped':p==='unlink_pending'?'Tag cleared · cleanup pending':p==='clearing'?'Clearing tag':'Reuse this NFC tag?');
 const cleanupSummary=clearView.cleanup_stage==='checkpoint'?'Tag blank and verified. Saving the recovery record still needs attention.':clearView.cleanup_stage==='local_identity'?'Tag cleared and Spoolman unlinked. Local station identity cleanup still needs attention.':clearView.cleanup_stage==='journal'?'Tag cleared and Spoolman unlinked. Recovery record cleanup still needs attention.':clearView.cleanup_stage==='spoolman'?'Tag blank and verified. Spoolman cleanup is still pending.':'Tag blank and verified. Spoolman or local cleanup is still pending.';
 setText('clear-message',p==='unlink_pending'?cleanupSummary+' Retry cleanup without rewriting the tag.'+(clearView.message?' Reason: '+clearView.message:''):clearView.message||(p==='clear_preview'?'Ready for your confirmation. Nothing has been changed.':'Reading this tag…'));byId('clear-message').className='result-banner '+(p==='cleared'?'status-success':p==='failed'?'status-error':p==='unlink_pending'?'status-warning':'');
 const list=byId('clear-summary');list.replaceChildren();[['Tag',clearView.uid],['Current material',clearView.material_name],['Spoolman',clearView.spool_id?'Spool #'+clearView.spool_id:'Exact owner checked after blank verification']].forEach(([k,v])=>{const row=document.createElement('div'),dt=document.createElement('dt'),dd=document.createElement('dd');dt.textContent=k;dd.textContent=v||'—';row.append(dt,dd);list.append(row);});
 byId('clear-confirm').hidden=p!=='clear_preview';byId('clear-confirm').disabled=locked||p!=='clear_preview';byId('clear-retry').hidden=p!=='unlink_pending';byId('clear-retry').disabled=locked;byId('clear-skip').hidden=p!=='unlink_pending';byId('clear-skip').disabled=locked;
-['close','cancel'].forEach(k=>byId('clear-'+k).disabled=locked);setText('clear-cancel',p==='cleared'?'Done':'Cancel');byId('clear-assign').hidden=p!=='cleared';
+['close','cancel'].forEach(k=>byId('clear-'+k).disabled=locked);setText('clear-cancel',p==='cleared'||p==='recovery_discarded'?'Done':'Cancel');byId('clear-assign').hidden=p!=='cleared';
 byId('clear-effects').hidden=p!=='clear_preview';const meter=byId('clear-meter'),n=clearView.total_blocks,step={reading:'Reading tag',validating:'Checking tag',clearing:'Erasing tag',verifying:'Verifying erase'}[p];meter.hidden=!locked;if(n){meter.max=n;meter.value=clearView.completed_blocks||0;}else meter.removeAttribute('value');if(step)setText('clear-message',step+(n?' · '+meter.value+' / '+n+' blocks':'')+'. Keep the tag on the reader.');if(p==='unlinking')setText('clear-message','The tag is erased. Removing the link in Spoolman…');
 tagStatus();}
-async function clearCommand(action){if(clearLocked())return;const p=clearView,body={action};if(action==='discard_recovery')body.confirm='SKIP RECOVERY';if(action==='clear'){if(p.phase!=='clear_preview')return;['uid','generation','current_checksum','target_checksum'].forEach(k=>body[k]=p[k]);}
+async function clearCommand(action){if(clearLocked())return;const p=clearView,body={action};if(action==='discard_recovery'){body.confirm='SKIP RECOVERY';body.uid=p.uid;}if(action==='clear'){if(p.phase!=='clear_preview')return;['uid','generation','current_checksum','target_checksum'].forEach(k=>body[k]=p[k]);}
 window.OpenTagWriter?.writerState&&(window.OpenTagWriter.writerState.invalidated=true);clearBusy=true;renderClear({...p,phase:action==='clear_preview'?'reading':action==='clear'?'clearing':action==='discard_recovery'?'stopping':'unlinking',message:action==='discard_recovery'?'Stopping cleanup. Nothing is written to the tag.':''});let fetching=false,accepting=true;
 try{await submitMutation('/tag-writer',{body,operationTimeoutMs:180000,onProgress:()=>{if(fetching)return;fetching=true;api('/tag-writer',{priority:PRIORITY.CONTROL}).then(v=>{if(accepting)renderClear(v);}).catch(()=>{}).finally(()=>fetching=false);}});}catch(e){setText('clear-message',e.message);}finally{accepting=false;clearBusy=false;try{renderClear(await api('/tag-writer',{priority:PRIORITY.CONTROL}));}catch(e){renderClear({phase:'failed',message:e.message});}}}
 async function openClear(){if(window.OpenTagWriter?.writerState?.busy)return;closeProductDialog('manage-dialog');byId('clear-dialog').showModal();document.body.classList.add('modal-open');try{const v=await api('/tag-writer',{priority:PRIORITY.CONTROL});if(v.mode==='clear'&&['unlink_pending','clearing','verifying','unlinking'].includes(v.phase)){renderClear(v);byId('clear-retry').focus();return;}if(['association_pending','writing','associating','validating','decoding'].includes(v.phase)){renderClear({phase:'failed',message:'Finish the pending write or association in Write / Rewrite first.'});return;}}catch(e){renderClear({phase:'failed',message:e.message});return;}await clearCommand('clear_preview');byId('clear-confirm').focus();}
@@ -3493,9 +3492,6 @@ function bindProduct() {
   byId('spool-assign').addEventListener('click',openAssignment);
   byId('spool-edit').addEventListener('click',()=>currentSpoolTask(true));
   byId('tag-update').addEventListener('click',()=>currentSpoolTask());
-  byId('inventory-community').hidden=!window.OpenTagCommunityEnabled;
-  byId('community-settings').hidden=!window.OpenTagCommunityEnabled;
-  byId('inventory-community').addEventListener('click',async()=>{await window.OpenTagWriter.openModal();setValue('writer-source','community');byId('writer-source').dispatchEvent(new Event('change'));});
   document.querySelectorAll('[data-setting]').forEach(n=>n.addEventListener('click',()=>selectSettings(n.dataset.setting)));
   buildSettings();bindInventoryFilters();renderCurrentSpool();
   const tagAdvanced=byId('nfc').querySelector('details .facts');
@@ -3579,11 +3575,10 @@ if(S.step===2||!s)card('Filament #'+f.id,[['Nominal weight',f.weight,' g'],['Def
 visible('writer-edit-spool',!!s&&S.step<3);visible('writer-edit-filament',!!f&&S.step<3);visible('writer-create',!!f&&!s);
 if(f&&!s){buildFields('writer-create-fields',fields.spool,{initial_weight:f.weight,spool_weight:f.spool_weight},'create');byId('writer-create').open=true;}
 };
-window.OpenTagWriterPreview=function(v,S,{byId,asObject,asArray,setText,visible,values,el,fmt,swatch,uidText}){const active=['preview','association_pending','complete','import_preview'].includes(v.phase)&&!(v.phase==='preview'&&S.invalidated);visible('writer-review',active);if(!active)return;
+window.OpenTagWriterPreview=function(v,S,{byId,asObject,asArray,setText,visible,values,el,fmt,swatch,uidText}){const active=['preview','association_pending','complete'].includes(v.phase)&&!(v.phase==='preview'&&S.invalidated);visible('writer-review',active);if(!active)return;
 const tag=byId('writer-tag');tag.replaceChildren();const diff=byId('writer-diff');diff.replaceChildren();const critical=byId('writer-critical');critical.replaceChildren();const notices=byId('writer-notice-list');notices.replaceChildren();
-setText('writer-review-title',v.phase==='import_preview'?'Review Community import':v.phase==='complete'?'✓ OpenPrintTag written and verified':v.phase==='association_pending'?'Tag verified · association pending':'Ready to write');
-if(v.phase==='import_preview'){values(tag,[['Source','COMMUNITY — NOT YET IN SPOOLMAN'],['Vendor',v.vendor_name],['Product',asObject(v.proposed_filament).name],['Material',asObject(v.proposed_filament).material],['Nominal weight',asObject(v.proposed_filament).weight,' g'],['Density',asObject(v.proposed_filament).density,' g/cm³'],['Diameter',asObject(v.proposed_filament).diameter,' mm']]);}
-else{const art=el('div',undefined,'spool-art writer-spool');let a=art;['flange','winding','center'].forEach(c=>a=a.appendChild(el('div',undefined,'spool-'+c)));art.style.setProperty('--filament',swatch(v.proposed?.primary_color||asObject(asObject(v.spool).filament).color_hex).style.backgroundColor||'');tag.append(art);values(tag,[['Inventory',S.material?.name],['UID',uidText(v.uid)],['Spool','#'+v.spool_id]]);
+setText('writer-review-title',v.phase==='complete'?'✓ OpenPrintTag written and verified':v.phase==='association_pending'?'Tag verified · association pending':'Ready to write');
+{const art=el('div',undefined,'spool-art writer-spool');let a=art;['flange','winding','center'].forEach(c=>a=a.appendChild(el('div',undefined,'spool-'+c)));art.style.setProperty('--filament',swatch(v.proposed?.primary_color||asObject(asObject(v.spool).filament).color_hex).style.backgroundColor||'');tag.append(art);values(tag,[['Inventory',S.material?.name],['UID',uidText(v.uid)],['Spool','#'+v.spool_id]]);
 if(v.phase==='preview'){diff.append(el('h4','This tag will contain'));values(diff,window.OpenTagWriterDiffFields.filter(([key])=>['brand_name','material_name','material_abbreviation','actual_netto_full_weight','empty_container_weight','primary_color'].includes(key)).map(([key,label,unit])=>[label,key==='primary_color'?(Array.isArray(v.proposed?.[key])?'#'+v.proposed[key].slice(0,3).map(n=>Number(n).toString(16).padStart(2,'0')).join(''):'Not provided'):v.proposed?.[key],unit]));}else if(v.phase==='complete')values(diff,[['✓ Tag readback','Verified'],['✓ OpenPrintTag decode','Valid'],['✓ Spoolman link','Spool #'+v.spool_id]]);
 }
 const warn=text=>critical.append(el('p',text,'writer-warning'));
@@ -3591,7 +3586,7 @@ if(v.phase==='preview'&&v.semantic_no_change)warn('No changes needed. This tag a
 else if(v.repurpose)warn('Repurpose: this write replaces the tag’s current spool identity.');
 if(v.recovering_interrupted_write)warn('Recovery: an earlier write to this tag was interrupted. Writing again completes it.');
 // Informational: Write tag stays available, but the loss must be visible before writing.
-const dropped=asArray(v.dropped_fields).map(asObject);if(dropped.length&&v.phase!=='import_preview'){const box=el('div',undefined,'writer-warning writer-dropped'),list=el('ul');box.append(el('strong','Not written to the tag:'),list);dropped.forEach(d=>{const f=String(d.field||'Field').replace(/_/g,' ');list.append(el('li',f[0].toUpperCase()+f.slice(1)+(d.value?' “'+d.value+'”':'')+(d.reason?' — '+d.reason:'')));});critical.append(box);}
+const dropped=asArray(v.dropped_fields).map(asObject);if(dropped.length){const box=el('div',undefined,'writer-warning writer-dropped'),list=el('ul');box.append(el('strong','Not written to the tag:'),list);dropped.forEach(d=>{const f=String(d.field||'Field').replace(/_/g,' ');list.append(el('li',f[0].toUpperCase()+f.slice(1)+(d.value?' “'+d.value+'”':'')+(d.reason?' — '+d.reason:'')));});critical.append(box);}
 const optional=asArray(v.warnings).filter(w=>/^missing recommended /i.test(w));
 const metadata=asArray(v.warnings).filter(w=>!String(w).includes('association will move')&&!/not atomic|Full rewrite/i.test(w)&&!dropped.some(d=>d.value&&String(w).includes(d.value)));
 metadata.forEach(w=>notices.append(el('li',String(w))));visible('writer-notices',metadata.length>0);setText('writer-notice-count',optional.length?optional.length+' optional metadata fields are not populated':'Metadata notices');

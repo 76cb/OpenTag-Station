@@ -14,13 +14,12 @@ def main():
     nm = next(toolchain.glob("xtensa-esp32s3-elf-nm*"))
     size = next(toolchain.glob("xtensa-esp32s3-elf-size*"))
     symbols = subprocess.check_output([str(nm), "-C", "--defined-only", str(elf)], text=True)
-    from product_features import community_enabled
-    if not community_enabled():
-        for symbol in ("CommunityCatalog::search(", "CommunityCatalog::detail(",
-                       "CommunityCatalog::verify(", "CommunityCatalog::status(",
-                       "CommunityCatalogUpdater::update("):
-            assert symbol not in symbols, f"Disabled Community reachable in production ELF: {symbol}"
-        print("Production ELF excludes Community search/detail/status/verify/update")
+    # The Community catalog and its gzip decoder were deleted in 1.0.1-beta.4; nothing of
+    # them may come back into the production image. (ESP-IDF links its own miniz, so
+    # tinfl_decompress itself is expected in the ELF; only our wrapper is forbidden.)
+    for symbol in ("CommunityCatalog", "GzipStream"):
+        assert symbol not in symbols, f"Removed Community/gzip code is linked in the production ELF: {symbol}"
+    print("Production ELF excludes the removed Community catalog and gzip stream")
     assert "work_mem_int" not in symbols, "LVGL 64 KiB internal widget pool has returned"
     assert "opentag_lvgl_pool" in symbols, "PSRAM widget-pool provider missing"
     sections = subprocess.check_output([str(size), "-A", str(elf)], text=True)

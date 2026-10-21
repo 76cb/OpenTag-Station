@@ -808,16 +808,9 @@ void UiService::tag_action(TagAction action) {
     return;
   }
   if(action==TagAction::search) {
-    InputSpec spec;spec.title="Search "+(tag_flow_->entity=="community"?std::string("Community"):tag_flow_->entity=="spool"?"My Spools":"My Filaments");
-    spec.initial=tag_flow_->query;spec.action="SEARCH";spec.required=tag_flow_->entity=="community";
+    InputSpec spec;spec.title=std::string("Search ")+(tag_flow_->entity=="spool"?"My Spools":"My Filaments");
+    spec.initial=tag_flow_->query;spec.action="SEARCH";
     open_input(spec,[this](const std::string& text){tag_command(tag_flow_->search(text));});return;
-  }
-  if(action==TagAction::name) {
-    InputSpec spec;spec.title="Spoolman display name";spec.required=true;
-    spec.initial=tag_flow_->import_name.empty()?std::string(tag_flow_->selected["name"]|""):tag_flow_->import_name;
-    // Keep an overlong source visible/editable; Done stays disabled until it
-    // meets the Spoolman limit. Never silently truncate the source identity.
-    open_input(spec,[this](const std::string& text){tag_flow_->import_name=text;draw_tags();});return;
   }
   if(action==TagAction::initial||action==TagAction::remaining||action==TagAction::tare) {
     InputSpec spec;spec.mode=InputMode::numeric;spec.unit="g";spec.maximum_length=9;spec.required=true;
@@ -831,7 +824,7 @@ void UiService::tag_action(TagAction action) {
   if(tag_flow_->confirm_spool_id>0) {
     const auto spool=tag_flow_->confirm_spool_id;tag_flow_->confirm_spool_id=0;
     const auto receipt=backend_worker_.submit_spool_confirmation(spool,tag_candidate_generation_);
-    tag_flow_->message=receipt.accepted?"Linked to spool #"+std::to_string(spool)+".":"Station is busy. Please try again.";
+    tag_flow_->confirmation_submitted(spool,receipt.accepted);
   }
   draw_tags();
 }
@@ -888,7 +881,7 @@ void UiService::refresh_tags() {
     }
   });
   flow.material=tag.tag?tag.tag->decoded.material.material_name.value_or("Filament spool"):"";
-  flow.lifecycle=services::tag_lifecycle({tag.present,tag.blank_compatible,bool(tag.tag),flow.current_spool>0,tag.state==nfc::ReadState::unsupported,flow.phase,false});
+  flow.observe_lifecycle(services::tag_lifecycle({tag.present,tag.blank_compatible,bool(tag.tag),flow.current_spool>0,tag.state==nfc::ReadState::unsupported,flow.phase,false}));
   flow.multiple_tags=tag.state==nfc::ReadState::multiple;
   auto body=backend_worker_.writer_snapshot();
   const auto checksum=nfc::nfcv::diagnostic_checksum(reinterpret_cast<const std::uint8_t*>(body.data()),body.size());
@@ -1321,16 +1314,8 @@ void UiService::navigation_callback(lv_event_t* event) {
 
 void UiService::weigh_callback(lv_event_t* event) {
   auto* self = static_cast<UiService*>(lv_event_get_user_data(event));
-  if(self->active_page_==ProductPage::home&&self->home_shows_blank_tag()){self->active_page_=ProductPage::tags;self->build_current_screen();self->tag_action(TagAction::sources);return;}
-  if (self->active_page_ == ProductPage::home &&
-      !self->diagnostics_.scale_snapshot().scale_calibrated) {
-    self->active_page_ = ProductPage::scale;
-    self->workflow_feedback_.clear();
-    self->build_current_screen();
-    self->set_scale_calibration_panel_open(true);
-    self->refresh_workflow();
-    return;
-  }
+  // U13: the Home button only weighs. It is disabled until the scale is
+  // calibrated; calibration lives on the Weigh page.
   if (self->active_page_ == ProductPage::home) {
     self->active_page_ = ProductPage::scale;
     self->build_current_screen();
@@ -2214,13 +2199,16 @@ void UiService::refresh_home_page(
   lv_label_set_text(workflow_identity_label_,identity.c_str());
   const auto remaining=workflow.spool?workflow.spool->remaining_grams:std::optional<float>{};
   if(remaining)lv_label_set_text_fmt(workflow_weight_label_,"%ld g remaining",static_cast<long>(std::lround(*remaining)));
-  else lv_label_set_text(workflow_weight_label_,present?"Weight not known":"");
+  else lv_label_set_text(workflow_weight_label_,!scale.scale_calibrated?"Scale not calibrated":present?"Weight not known":"");
   if(blank){lv_label_set_text(workflow_home_state_label_,"COMPATIBLE BLANK TAG");lv_label_set_text(workflow_material_label_,"Ready to write");lv_label_set_text(workflow_identity_label_,"Open Manage tag to choose a spool");}
+  // A7: unreadable settings storage is not a tag problem. Say what to do.
+  if(!present&&!diagnostics_.storage_ready()){lv_label_set_text(workflow_home_state_label_,"STORAGE ERROR");lv_label_set_text(workflow_material_label_,"Settings cannot be read");lv_label_set_text(workflow_identity_label_,"Reinstall the firmware with the USB installer.");}
   // A Spoolman save in progress refuses a new weigh.
   const bool saving=backend_worker_.weigh_snapshot().phase=="updating";
-  set_enabled(workflow_weigh_button_,blank||(scale.scale_adc_ready&&!busy&&!saving));
-  lv_label_set_text(lv_obj_get_child(workflow_weigh_button_,0),busy?"WEIGHING...":scale.scale_calibrated?"WEIGH":"CALIBRATE");
-  if(blank)lv_label_set_text(lv_obj_get_child(workflow_weigh_button_,0),"WRITE TAG");
+  // U13: one meaning. WEIGH weighs; it waits for a calibrated, idle scale.
+  // Writing a blank tag and calibrating have their own pages.
+  set_enabled(workflow_weigh_button_,scale.scale_calibrated&&scale.scale_adc_ready&&!busy&&!saving);
+  lv_label_set_text(lv_obj_get_child(workflow_weigh_button_,0),busy?"WEIGHING...":"WEIGH");
 }
 
 void UiService::refresh_printer_page() {

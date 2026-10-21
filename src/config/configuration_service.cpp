@@ -956,93 +956,6 @@ core::Result<void> ConfigurationService::replace_if_revision(
   return persist_locked(configuration);
 }
 
-core::Result<std::string> ConfigurationService::export_json(
-    bool include_credentials) const {
-  const std::lock_guard<std::mutex> lock(mutex_);
-  network::JsonAllocationTrace allocation_trace(impl_->allocator, "config_export_psram");
-  if (!status_.initialized) {
-    return core::Result<std::string>::failure(
-        configuration_error("configuration service is not initialized"));
-  }
-  JsonDocument exported(&impl_->allocator);
-  exported.set(impl_->document);
-  write_known(exported, configuration_);
-  if (exported.overflowed()) return core::Result<std::string>::failure(
-      configuration_error("Configuration export workspace unavailable"));
-  if (!include_credentials) {
-    auto wifi = object_at(exported, "wifi");
-    wifi.remove("ssid");
-    wifi.remove("password");
-    wifi["credentials_configured"] = !configuration_.wifi.ssid.empty();
-    auto spoolman = object_at(exported, "spoolman");
-    spoolman.remove("authentication_token");
-    spoolman.remove("ca_certificate_pem");
-    spoolman["credentials_configured"] =
-        !configuration_.spoolman.authentication_token.empty();
-    spoolman["custom_ca_configured"] =
-        !configuration_.spoolman.ca_certificate_pem.empty();
-    auto filabridge = object_at(exported, "filabridge");
-    filabridge.remove("authentication_token");
-    filabridge.remove("ca_certificate_pem");
-    filabridge["credentials_configured"] =
-        !configuration_.filabridge.authentication_token.empty();
-    filabridge["custom_ca_configured"] =
-        !configuration_.filabridge.ca_certificate_pem.empty();
-    auto web = object_at(exported, "web");
-    web.remove("access_token");
-    web["access_token_configured"] =
-        !configuration_.web.access_token.empty();
-  }
-  std::string result;
-  serializeJsonPretty(exported, result);
-  return core::Result<std::string>::success(std::move(result));
-}
-
-core::Result<void> ConfigurationService::import_json(
-    const std::string& document,
-    bool accept_credentials) {
-  const std::lock_guard<std::mutex> lock(mutex_);
-  network::JsonAllocationTrace allocation_trace(impl_->allocator, "config_import_psram");
-  if (!status_.initialized) {
-    return core::Result<void>::failure(
-        configuration_error("configuration service is not initialized"));
-  }
-  bool migrated = false;
-  std::uint32_t loaded_schema = 0U;
-  auto parsed = parse_document(document, migrated, loaded_schema, &impl_->allocator);
-  if (!parsed.ok()) return core::Result<void>::failure(parsed.error());
-  Configuration imported;
-  const auto decoded = read_configuration(parsed.value(), imported);
-  if (!decoded.ok()) return core::Result<void>::failure(decoded.error());
-
-  if (!accept_credentials) {
-    imported.wifi.ssid = configuration_.wifi.ssid;
-    imported.wifi.password = configuration_.wifi.password;
-    imported.spoolman.authentication_token =
-        configuration_.spoolman.authentication_token;
-    imported.spoolman.ca_certificate_pem =
-        configuration_.spoolman.ca_certificate_pem;
-    imported.filabridge.authentication_token =
-        configuration_.filabridge.authentication_token;
-    imported.filabridge.ca_certificate_pem =
-        configuration_.filabridge.ca_certificate_pem;
-    imported.web.access_token = configuration_.web.access_token;
-  }
-
-  JsonDocument previous(&impl_->allocator);
-  previous.set(impl_->document);
-  if (previous.overflowed()) return core::Result<void>::failure(
-      configuration_error("Configuration rollback workspace unavailable; saved settings retained"));
-  impl_->document = std::move(parsed.value());
-  const auto saved = persist_locked(imported);
-  if (!saved.ok()) impl_->document = std::move(previous);
-  if (saved.ok()) {
-    status_.migrated = migrated;
-    status_.loaded_schema = loaded_schema;
-  }
-  return saved;
-}
-
 core::Result<std::optional<services::ScaleCalibration>>
 ConfigurationService::load_scale_calibration() {
   const std::lock_guard<std::mutex> lock(mutex_);
@@ -1170,28 +1083,6 @@ core::Result<void> ConfigurationService::confirm_spool_identity_mapping(
   } else {
     append_spool_identity_mapping(mappings, normalized);
   }
-  return persist_locked(updated);
-}
-
-core::Result<void> ConfigurationService::clear_spool_identity_mapping(
-    const std::string& uid, const std::string& uuid, std::int32_t owner) {
-  const std::lock_guard<std::mutex> lock(mutex_);
-  if(!status_.initialized||uid.size()!=16||owner<0)
-    return core::Result<void>::failure(configuration_error("Invalid local unlink identity"));
-  const auto equal=[](const std::optional<std::string>& value,const std::string& expected) {
-    return value&& !expected.empty() &&value->size()==expected.size()&&
-        std::equal(value->begin(),value->end(),expected.begin(),[](char a,char b){return std::tolower(static_cast<unsigned char>(a))==std::tolower(static_cast<unsigned char>(b));});
-  };
-  auto updated=configuration_;auto& mappings=updated.spool_identity_mappings;
-  for(const auto& m:mappings) {
-    if(!equal(m.nfc_uid,uid)&&!equal(m.instance_uuid,uuid))continue;
-    if((owner&&m.spool_id!=owner)||(m.nfc_uid&&!equal(m.nfc_uid,uid))||
-        (!uuid.empty()&&m.instance_uuid&&!equal(m.instance_uuid,uuid)))
-      return core::Result<void>::failure(configuration_error("Confirmed local identity changed; unlink refused"));
-  }
-  const auto end=std::remove_if(mappings.begin(),mappings.end(),[&](const auto& m){return equal(m.nfc_uid,uid)||equal(m.instance_uuid,uuid);});
-  if(end==mappings.end())return core::Result<void>::success();
-  mappings.erase(end,mappings.end());
   return persist_locked(updated);
 }
 

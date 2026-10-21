@@ -1,4 +1,3 @@
-#include "config/product_features.hpp"
 #include "nfc/formats/openprinttag/initializer.hpp"
 #include "nfc/writer_journal_codec.hpp"
 #include "services/tag_writer_service.hpp"
@@ -561,16 +560,6 @@ struct ServiceFixture {
         TEST_ASSERT_GREATER_THAN(0, http.patches);
         TEST_ASSERT_TRUE(http.urls.back().find("extra.nfc_uid") != std::string::npos);
         return cache.configuration.sync_verified_spool_identity_mapping(mapping);
-      }, [](const std::string& query,unsigned offset) {
-        TEST_ASSERT_EQUAL_STRING("Acme",query.c_str());TEST_ASSERT_EQUAL(0,offset);
-        network::BackendDocument page;
-        deserializeJson(page,R"({"items":[{"id":"acme_blue","manufacturer":"Acme","name":"Blue","material":"PLA","density":1.24,"diameter":1.75}],"has_more":false})");
-        return core::Result<network::BackendDocument>::success(std::move(page));
-      }, [](const std::string& id) {
-        TEST_ASSERT_EQUAL_STRING("acme_blue",id.c_str());
-        network::BackendDocument detail;
-        deserializeJson(detail,R"({"id":"acme_blue","manufacturer":"Acme","name":"Blue","material":"PLA","density":1.24,"diameter":1.75})");
-        return core::Result<network::BackendDocument>::success(std::move(detail));
       }};
   R run(const char *command) {
     network::BackendDocument d;
@@ -586,14 +575,30 @@ struct ServiceFixture {
     return service.process(c.as<JsonObjectConst>());
   }
 };
-void production_community_disabled() {
-  if(opentag::config::community_enabled)return;
+// A3/WB-D4 (#85): once a restart is pending the writer changes nothing; only
+// the catalog search still answers.
+void restart_pending_refuses_everything_but_catalog() {
   ServiceFixture f;
-  for(const auto* command : {R"({"action":"community_status"})",R"({"action":"community_search","search":"must not execute","offset":0})",R"({"action":"community_select","id":"must not execute"})",R"({"action":"community_update"})",R"({"action":"import_preview"})",R"({"action":"import"})"}) {
-    const auto result=f.run(command);TEST_ASSERT_FALSE(result.ok());
-    TEST_ASSERT_NOT_EQUAL(std::string::npos,result.error().message.find("disabled"));
+  bool pending = false;
+  f.service.set_restart_pending([&] { return pending; });
+  TEST_ASSERT_TRUE(f.run(R"({"action":"preview","spool_id":12})").ok());
+  pending = true;
+  const auto reads = f.reader.reads;
+  const auto requests = f.http.urls.size();
+  for (const auto* command : {R"({"action":"preview","spool_id":12})", R"({"action":"clear_preview"})",
+                              R"({"action":"create_spool","spool":{"filament_id":1}})",
+                              R"({"action":"discard_recovery","uid":"E004000000000001"})"}) {
+    const auto result = f.run(command);
+    TEST_ASSERT_FALSE(result.ok());
+    TEST_ASSERT_EQUAL_STRING(services::restart_pending_message, result.error().message.c_str());
   }
-  TEST_ASSERT_TRUE(f.http.urls.empty());TEST_ASSERT_EQUAL(0,f.reader.writes);
+  TEST_ASSERT_FALSE(f.confirm().ok());
+  TEST_ASSERT_EQUAL(reads, f.reader.reads);
+  TEST_ASSERT_EQUAL(requests, f.http.urls.size());
+  TEST_ASSERT_EQUAL(0, f.reader.writes);
+  TEST_ASSERT_TRUE(f.run(R"({"action":"catalog","entity":"spool","offset":0})").ok());
+  pending = false;
+  TEST_ASSERT_TRUE(f.run(R"({"action":"preview","spool_id":12})").ok());
 }
 void canonical_association_readback() {
   ServiceFixture f;
@@ -799,106 +804,6 @@ void catalog_malformed_and_timeout() {
   TEST_ASSERT_FALSE(
       f.run(R"({"action":"catalog","entity":"spool","offset":0})").ok());
 }
-void community_contract_drift_rejected() {
-  ServiceFixture f;
-  TEST_ASSERT_FALSE(
-      f.run(R"({"action":"import_preview","contract":"unknown","entry":{}})")
-          .ok());
-  TEST_ASSERT_EQUAL(0, f.http.urls.size());
-}
-void community_missing_required_rejected() {
-  ServiceFixture f;
-  TEST_ASSERT_FALSE(
-      f.run(
-           R"({"action":"import_preview","contract":"spoolmandb-community/0a39c9b5","entry":{"id":"x","manufacturer":"Acme","name":"PLA","material":"PLA","density":null,"diameter":1.75}})")
-          .ok());
-  TEST_ASSERT_EQUAL(0, f.http.urls.size());
-}
-const char *import_command =
-    R"({"action":"import_preview","contract":"spoolmandb-community/0a39c9b5","entry":{"id":"acme_blue","manufacturer":"Acme","name":"Blue","material":"PLA","density":1.24,"diameter":1.75,"weight":1000,"spool_weight":null,"spool_type":null,"is_refill":false,"color_hex":null}})";
-void community_import_case(int failure_mode, bool existing) {
-  ServiceFixture f;
-  int vendor_posts = 0, filament_posts = 0, canonical_reads = 0;
-  f.http.custom = [&](const network::HttpRequest &r) -> std::string {
-    if (r.url.find("/vendor?") != std::string::npos)
-      return existing ? "[{\"id\":2}]" : "[]";
-    if (r.url.find("/filament?") != std::string::npos)
-      return existing ? "[{\"id\":4}]" : "[]";
-    if (r.url.find("/vendor") != std::string::npos && r.method == "POST") {
-      ++vendor_posts;
-      if (failure_mode == 1)
-        f.http.custom_status = 500;
-      return "{\"id\":2}";
-    }
-    if (r.url.find("/vendor/2") != std::string::npos)
-      return "{\"id\":2,\"name\":\"Acme\"}";
-    if (r.url.find("/filament") != std::string::npos && r.method == "POST") {
-      ++filament_posts;
-      if (failure_mode == 2)
-        f.http.custom_status = 500;
-      return "{\"id\":4}";
-    }
-    if (r.url.find("/filament/4") != std::string::npos) {
-      ++canonical_reads;
-      if (failure_mode == 3)
-        return "{";
-      return "{\"id\":4,\"name\":\"Canonical Blue\"}";
-    }
-    return {};
-  };
-  TEST_ASSERT_TRUE(f.run(import_command).ok());
-  TEST_ASSERT_TRUE(f.view["proposed_filament"]["spool_weight"].isNull());
-  network::BackendDocument confirm;
-  confirm["action"] = "import";
-  confirm["import_token"] = f.view["import_token"];
-  auto result = f.service.process(confirm.as<JsonObjectConst>());
-  TEST_ASSERT_EQUAL(failure_mode == 0, result.ok());
-  if (!failure_mode) {
-    TEST_ASSERT_EQUAL_STRING("Canonical Blue",
-                             f.view["filament"]["name"].as<const char *>());
-    TEST_ASSERT_EQUAL(1, canonical_reads);
-  }
-  if (existing) {
-    TEST_ASSERT_EQUAL(0, vendor_posts);
-    TEST_ASSERT_EQUAL(0, filament_posts);
-  }
-  if (failure_mode == 1)
-    TEST_ASSERT_EQUAL(0, filament_posts);
-  TEST_ASSERT_EQUAL(0, f.reader.writes);
-}
-void community_success_and_canonical_readback() {
-  community_import_case(0, false);
-}
-void community_duplicate_import_reuses() { community_import_case(0, true); }
-void station_community_selection_uses_import_review() {
-  ServiceFixture f;
-  f.http.custom=[](const network::HttpRequest& r)->std::string {
-    return r.url.find("/vendor?")!=std::string::npos||r.url.find("/filament?")!=std::string::npos?"[]":"";
-  };
-  TEST_ASSERT_TRUE(f.run(R"({"action":"community_search","search":"Acme","offset":0,"_operation_id":42})").ok());
-  TEST_ASSERT_EQUAL_STRING("community",f.view["phase"]);
-  TEST_ASSERT_EQUAL(42,f.view["operation_id"].as<int>());
-  TEST_ASSERT_TRUE(f.run(R"({"action":"community_select","id":"acme_blue","import_name":"My blue PLA"})").ok());
-  TEST_ASSERT_EQUAL_STRING("import_preview",f.view["phase"]);
-  TEST_ASSERT_EQUAL_STRING("My blue PLA",f.view["proposed_filament"]["name"]);
-  TEST_ASSERT_EQUAL_STRING("Blue",f.view["source"]["name"]);
-  TEST_ASSERT_FALSE(f.run(R"({"action":"community_select","id":"other"})").ok());
-  TEST_ASSERT_EQUAL(0,f.reader.reads);TEST_ASSERT_EQUAL(0,f.reader.writes);TEST_ASSERT_EQUAL(0,f.http.patches);
-}
-void community_vendor_failure() { community_import_case(1, false); }
-void community_filament_failure() { community_import_case(2, false); }
-void community_canonical_failure() { community_import_case(3, false); }
-void community_oversized_and_unknown_fields() {
-  ServiceFixture f;
-  network::BackendDocument c;
-  deserializeJson(c, import_command);
-  c["entry"]["name"] = std::string(65, 'x');
-  TEST_ASSERT_FALSE(f.service.process(c.as<JsonObjectConst>()).ok());
-  c["entry"]["name"] = "Blue";
-  c["entry"]["future_field"] = true;
-  TEST_ASSERT_FALSE(f.service.process(c.as<JsonObjectConst>()).ok());
-  TEST_ASSERT_EQUAL(0, f.http.urls.size());
-}
 void same_spool_identity_retained() {
   ServiceFixture f;
   TEST_ASSERT_TRUE(f.run(R"({"action":"preview","spool_id":12})").ok());
@@ -1081,13 +986,11 @@ void settings_change_invalidates_confirmation() {
   TEST_ASSERT_FALSE(f.confirm().ok());
   TEST_ASSERT_EQUAL(0, f.reader.writes);
 }
-void malformed_canonical_and_import_ids_fail_closed() {
+void malformed_canonical_ids_fail_closed() {
   ServiceFixture f;
   f.http.spool["filament"].remove("id");
   TEST_ASSERT_FALSE(f.run(R"({"action":"preview","spool_id":12})").ok());
   TEST_ASSERT_EQUAL(0, f.reader.writes);
-  f.http.custom = [](const network::HttpRequest &) { return "[{\"id\":0}]"; };
-  TEST_ASSERT_FALSE(f.run(import_command).ok());
   TEST_ASSERT_EQUAL(0, f.http.patches);
 }
 void spool_material_filter_uses_documented_parameter() {
@@ -1945,6 +1848,8 @@ struct ClearFixture {
   R run(const char *action) {
     network::BackendDocument c;
     c["action"] = action;
+    if (std::string(action) == "discard_recovery")
+      c["uid"] = "E00401086627D8D4";  // WB-D5: skipping names the tag (the fixture reader's uid)
     return service->process(c.as<JsonObjectConst>());
   }
   R confirm() {
@@ -2923,7 +2828,10 @@ void association_failure_reports_reason_and_can_be_skipped() {
   TEST_ASSERT_NOT_EQUAL(std::string::npos, message.find("offline"));
   TEST_ASSERT_EQUAL(std::string::npos, message.find("writing"));
   const auto writes = f.reader.writes;
-  TEST_ASSERT_TRUE(f.run(R"({"action":"discard_recovery"})").ok());
+  // WB-D5: the request must name this tag; another tag's UID is refused.
+  TEST_ASSERT_FALSE(f.run(R"({"action":"discard_recovery","uid":"E004000000000099"})").ok());
+  TEST_ASSERT_EQUAL_STRING("association_pending", f.view["phase"].as<const char *>());
+  TEST_ASSERT_TRUE(f.run((std::string(R"({"action":"discard_recovery","uid":")") + f.reader.uid.hex() + R"("})").c_str()).ok());
   TEST_ASSERT_EQUAL_STRING("recovery_discarded",
                            f.view["phase"].as<const char *>());
   TEST_ASSERT_FALSE(f.journal.present);
@@ -3215,6 +3123,7 @@ void pending_write_with_changed_spoolman_settings_stays_skippable() {
   TEST_ASSERT_EQUAL(writes, f.reader.writes);
   c.clear();
   c["action"] = "discard_recovery";
+  c["uid"] = "e00401086627d8d4";  // lower case: the journal's uid, compared without regard to case
   TEST_ASSERT_TRUE(restarted.process(c.as<JsonObjectConst>()).ok());
   TEST_ASSERT_EQUAL_STRING("recovery_discarded",
                            view["phase"].as<const char *>());
@@ -3447,7 +3356,7 @@ int main() {
   RUN_TEST(real_zero_preserved);
   RUN_TEST(uuid_validation);
   RUN_TEST(repeated_plans_release_workspace);
-  RUN_TEST(production_community_disabled);
+  RUN_TEST(restart_pending_refuses_everything_but_catalog);
   RUN_TEST(canonical_association_readback);
   RUN_TEST(association_pending_retry_without_write);
   RUN_TEST(duplicate_uuid_refuses_before_write);
@@ -3464,17 +3373,6 @@ int main() {
   RUN_TEST(dropped_fields_not_reported_for_mutable_update);
   RUN_TEST(catalog_malformed_and_timeout);
   RUN_TEST(catalog_search_falls_back_to_vendor_name);
-#if OPENTAG_ENABLE_COMMUNITY
-  RUN_TEST(community_contract_drift_rejected);
-  RUN_TEST(community_missing_required_rejected);
-  RUN_TEST(community_success_and_canonical_readback);
-  RUN_TEST(community_duplicate_import_reuses);
-  RUN_TEST(station_community_selection_uses_import_review);
-  RUN_TEST(community_vendor_failure);
-  RUN_TEST(community_filament_failure);
-  RUN_TEST(community_canonical_failure);
-  RUN_TEST(community_oversized_and_unknown_fields);
-#endif
   RUN_TEST(same_spool_identity_retained);
   RUN_TEST(preview_psram_failure_has_no_write);
   RUN_TEST(repeated_catalog_releases_parser);
@@ -3482,7 +3380,7 @@ int main() {
   RUN_TEST(journal_does_not_recover_replacement_uid);
   RUN_TEST(repeated_writer_lifecycles_release_storage);
   RUN_TEST(settings_change_invalidates_confirmation);
-  RUN_TEST(malformed_canonical_and_import_ids_fail_closed);
+  RUN_TEST(malformed_canonical_ids_fail_closed);
   RUN_TEST(spool_material_filter_uses_documented_parameter);
   RUN_TEST(journal_failure_prevents_write);
   RUN_TEST(partial_recovery_requires_known_blocks);

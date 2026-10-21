@@ -1,5 +1,5 @@
-#include "config/product_features.hpp"
 #include "services/tag_writer_service.hpp"
+#include <cctype>
 #include "nfc/formats/openprinttag/material_json.hpp"
 #include "nfc/protocols/nfcv/read_protocol.hpp"
 #include <algorithm>
@@ -240,43 +240,6 @@ void TagWriterService::publish(const char *phase, const char *message,
   } else
     publish_(out);
 }
-Result TagWriterService::community(JsonObjectConst c) {
-  const auto action=c["action"].as<std::string>();
-  if(action=="community_status") {
-    if(!community_status_)return fail("Community catalog status unavailable");const auto status=community_status_();view_.clear();view_["catalog_state"]=status.state==CommunityCatalogStatus::State::ready?"ready":status.state==CommunityCatalogStatus::State::damaged?"damaged":"not_installed";view_["catalog_version"]=status.version;view_["catalog_records"]=status.records;view_["catalog_size"]=status.size;publish("community_catalog",status.state==CommunityCatalogStatus::State::ready?"Community catalog ready":status.state==CommunityCatalogStatus::State::damaged?"Community catalog is damaged. Redownload it.":"Community catalog is not installed.");return Result::success();
-  }
-  if(action=="community_update") {
-    if(!community_update_)return fail("Community catalog update unavailable");view_.clear();publish("catalog_downloading","Downloading Community catalog",0,100);auto result=community_update_([&](std::size_t done,std::size_t total){publish("catalog_downloading","Downloading Community catalog",total?done*100/total:0,100);});if(!result.ok())return Result::failure(result.error());const auto status=result.value();view_.clear();view_["catalog_state"]="ready";view_["catalog_version"]=status.version;view_["catalog_records"]=status.records;view_["catalog_size"]=status.size;publish("community_catalog","Community catalog ready");return Result::success();
-  }
-  if (action == "community_select") {
-    if (view_["phase"].as<std::string>() != "community" || !c["id"].is<const char*>())
-      return fail("Search Community again before selecting a result");
-    if(!community_detail_)return fail("Community catalog detail lookup is unavailable");
-    auto detail=community_detail_(c["id"].as<std::string>());
-    if(!detail.ok())return Result::failure(detail.error());
-    network::BackendDocument selected;
-    for (auto item : view_["items"].as<JsonArrayConst>())
-      if(item["id"] == c["id"])selected["entry"].set(detail.value());
-    if(selected["entry"].isNull())return fail("Community selection changed; search again");
-    selected["contract"]="spoolmandb-community/0a39c9b5";
-    const std::string name=selected["entry"]["name"]|"";
-    // Keep full source identity; only an explicit user edit changes the name
-    // proposed to Spoolman. The import preview validates its byte limit.
-    if(!c["import_name"].isNull())selected["import_name"]=c["import_name"];
-    else if(name.size()>64)return fail("Choose Edit display name and shorten it to 64 bytes before importing");
-    return import_preview(selected.as<JsonObjectConst>());
-  }
-  if(!community_search_ || !c["search"].is<const char*>() || !c["offset"].is<unsigned>())
-    return fail("Community search is unavailable or invalid");
-  const std::string query=c["search"]|"";
-  const unsigned offset=c["offset"].as<unsigned>();
-  if(query.empty()||query.size()>64||offset>100000)return fail("Enter a search of 1–64 characters");
-  view_.clear(); publish("searching", "Searching Community…");
-  auto results=community_search_(query,offset);
-  if(!results.ok())return Result::failure(results.error());
-  view_.set(results.value()); publish("community", "Choose a filament");
-  return Result::success();
-}
 Result TagWriterService::catalog(JsonObjectConst c) {
   const std::string entity = c["entity"] | "spool";
   if (entity != "vendor" && entity != "filament" && entity != "spool")
@@ -366,242 +329,6 @@ Result TagWriterService::catalog(JsonObjectConst c) {
     return Result::success();
   }
   return fail(catalog_page_too_large);
-}
-Result TagWriterService::import_preview(JsonObjectConst c) {
-  auto source = c["entry"].as<JsonObjectConst>();
-  if (source.isNull() ||
-      c["contract"].as<std::string>() != "spoolmandb-community/0a39c9b5")
-    return fail("Unsupported Community contract");
-  if (!text_bound(source["id"], 180, true) ||
-      !text_bound(source["manufacturer"], 64, true) ||
-      !text_bound(source["name"], 128, true) ||
-      !text_bound(source["material"], 64, true))
-    return fail("Malformed/oversized Community identity");
-  for (auto pair : source) {
-    const std::string k = pair.key().c_str();
-    const std::string allowed =
-        "|id|manufacturer|name|material|density|weight|spool_weight|spool_type|"
-        "is_refill|diameter|color_hex|color_hexes|extruder_temp|extruder_temp_"
-        "range|bed_temp|bed_temp_range|fill|finish|multi_color_direction|"
-        "pattern|translucent|glow|codes|eans|eans_refill|country_of_origin|sds_"
-        "url|tds_url|";
-    if (allowed.find("|" + k + "|") == std::string::npos)
-      return fail("Community source format drift");
-    if (pair.value().is<const char *>() && !text_bound(pair.value(), 512))
-      return fail("Oversized Community field");
-  }
-  for (const auto *key : {"density", "diameter"})
-    if (!source[key].is<double>() || !std::isfinite(source[key].as<double>()) ||
-        source[key].as<double>() <= 0)
-      return fail(
-          "Community density and diameter must be positive for Spoolman");
-  import_.clear();
-  import_vendor_ = import_filament_ = 0;
-  auto target = import_.to<JsonObject>();
-  for (const auto *key :
-       {"name", "material", "density", "diameter", "weight", "spool_weight",
-        "color_hex", "multi_color_direction"}) {
-    if (!source[key].isNull())
-      target[key].set(source[key]);
-  }
-  if (!c["import_name"].isNull())
-    target["name"] = c["import_name"];
-  if (!text_bound(target["name"], 64, true))
-    return fail("Choose a Spoolman display name of at most 64 bytes; source "
-                "name remains in the preview");
-  for (const auto *key : {"weight", "spool_weight"})
-    if (!source[key].isNull() && (!source[key].is<double>() ||
-                                  !std::isfinite(source[key].as<double>()) ||
-                                  source[key].as<double>() < 0))
-      return fail("Invalid Community weight");
-  if (source["weight"].as<double>() == 0)
-    target.remove("weight"); // Spoolman requires positive or unknown.
-  if (!text_bound(source["color_hex"], 8))
-    return fail("Malformed Community color");
-  if (source["color_hex"].is<const char *>()) {
-    auto s = source["color_hex"].as<std::string>();
-    if ((s.size() != 6 && s.size() != 8) ||
-        s.find_first_not_of("0123456789abcdefABCDEF") != std::string::npos)
-      return fail("Malformed Community color");
-  }
-  for (const auto *key : {"extruder_temp", "bed_temp"})
-    if (!source[key].isNull()) {
-      if (!source[key].is<int>() || source[key].as<int>() < 0 ||
-          source[key].as<int>() > 1000)
-        return fail("Invalid Community temperature");
-      target[std::string("settings_") + (std::string(key) == "extruder_temp"
-                                             ? "extruder_temp"
-                                             : "bed_temp")] = source[key];
-    }
-  if (source["codes"].is<JsonArrayConst>() && source["codes"].size()) {
-    if (!text_bound(source["codes"][0], 64, true))
-      return fail("Community article exceeds Spoolman bound");
-    target["article_number"] = source["codes"][0];
-  }
-  if (source["color_hexes"].is<JsonArrayConst>()) {
-    if (source["color_hexes"].size() > 6)
-      return fail("Too many Community colors");
-    std::string colors;
-    for (auto v : source["color_hexes"].as<JsonArrayConst>()) {
-      if (!text_bound(v, 8, true))
-        return fail("Malformed Community colors");
-      if (!colors.empty())
-        colors += ',';
-      colors += v.as<std::string>();
-    }
-    if (!colors.empty()) {
-      target["multi_color_hexes"] = colors;
-      target.remove("color_hex");
-    }
-  }
-  const std::string external =
-      "spoolmandb-community:" + source["id"].as<std::string>();
-  target["external_id"] = external;
-  std::string provenance =
-      "SpoolmanDB Community: " + source["id"].as<std::string>();
-  for (const auto *key :
-       {"extruder_temp_range", "bed_temp_range", "spool_type", "is_refill",
-        "fill", "finish", "pattern", "translucent", "glow", "country_of_origin",
-        "sds_url", "tds_url"}) {
-    if (source[key].isNull())
-      continue;
-    std::string value;
-    serializeJson(source[key], value);
-    if (provenance.size() + std::strlen(key) + value.size() + 3 <= 1024)
-      provenance += "\n" + std::string(key) + ": " + value;
-  }
-  target["comment"] = provenance;
-  if (import_.overflowed())
-    return fail(
-        "Community import workspace unavailable; no Spoolman records created");
-  auto vendors =
-      api("GET", "/vendor?name=" +
-                     encode(quote(source["manufacturer"].as<std::string>())) +
-                     "&limit=2&offset=0");
-  if (!vendors.ok())
-    return Result::failure(vendors.error());
-  if (!vendors.value().is<JsonArray>() || vendors.value().size() > 1)
-    return fail(
-        "Ambiguous matching Spoolman vendors; resolve duplicates first");
-  if (vendors.value().size())
-    import_vendor_ = vendors.value()[0]["id"].as<int>();
-  if (vendors.value().size() && import_vendor_ <= 0)
-    return fail("Malformed matching Spoolman vendor");
-  auto existing =
-      api("GET", "/filament?external_id=" + encode(quote(external)) +
-                     "&limit=2&offset=0");
-  if (!existing.ok())
-    return Result::failure(existing.error());
-  if (!existing.value().is<JsonArray>() || existing.value().size() > 1)
-    return fail("Duplicate Community source identity in Spoolman");
-  if (existing.value().size())
-    import_filament_ = existing.value()[0]["id"].as<int>();
-  if (existing.value().size() && import_filament_ <= 0)
-    return fail("Malformed matching Spoolman filament");
-  // Deterministic equivalent matching, all pages; do not equate similar names.
-  if (!import_filament_ && import_vendor_) {
-    for (unsigned offset = 0;; offset += 8) {
-      if (offset > 100000)
-        return fail("Duplicate check exceeded bound; narrow catalog first");
-      auto page =
-          api("GET",
-              "/filament?vendor.id=" + std::to_string(import_vendor_) +
-                  "&name=" + encode(quote(target["name"].as<std::string>())) +
-                  "&limit=8&offset=" + std::to_string(offset) + "&sort=id:asc");
-      if (!page.ok())
-        return Result::failure(page.error());
-      if (!page.value().is<JsonArray>() || page.value().size() > 8)
-        return fail("Invalid duplicate-check page");
-      for (auto item : page.value().as<JsonArrayConst>()) {
-        bool equivalent = true;
-        for (const auto *key :
-             {"name", "material", "diameter", "density", "weight",
-              "spool_weight", "color_hex", "multi_color_hexes",
-              "multi_color_direction", "article_number",
-              "settings_extruder_temp", "settings_bed_temp"})
-          equivalent = equivalent && same(item[key], target[key]);
-        if (equivalent) {
-          if (item["id"].as<int>() <= 0)
-            return fail("Malformed equivalent Spoolman filament");
-          if (import_filament_)
-            return fail("Multiple equivalent Spoolman filaments");
-          import_filament_ = item["id"].as<int>();
-        }
-      }
-      if (page.value().size() < 8)
-        break;
-    }
-  }
-  view_.clear();
-  view_["vendor_name"] = source["manufacturer"];
-  view_["vendor_id"] = import_vendor_;
-  view_["filament_id"] = import_filament_;
-  view_["proposed_filament"].set(import_);
-  view_["source"].set(source);
-  import_token_ = external + ":" + std::to_string(++preview_serial_);
-  view_["import_token"] = import_token_;
-  publish("import_preview",
-          "Confirm vendor/filament creation or reuse before import");
-  return Result::success();
-}
-Result TagWriterService::import_commit(JsonObjectConst c) {
-  if (import_token_.empty() ||
-      c["import_token"].as<std::string>() != import_token_ ||
-      view_["phase"].as<std::string>() != "import_preview")
-    return fail("Import preview changed; preview again");
-  // Recheck matching data immediately before create. The backend owner
-  // serializes local imports; external Spoolman edits remain a documented
-  // concurrency limit.
-  network::BackendDocument refresh;
-  refresh["entry"].set(view_["source"]);
-  refresh["import_name"] = view_["proposed_filament"]["name"];
-  refresh["contract"] = "spoolmandb-community/0a39c9b5";
-  if (refresh.overflowed())
-    return fail("Import confirmation workspace unavailable");
-  auto checked = import_preview(refresh.as<JsonObjectConst>());
-  if (!checked.ok())
-    return checked;
-  if (!import_vendor_) {
-    network::BackendDocument body;
-    body["name"] = view_["vendor_name"];
-    body["external_id"] =
-        "spoolmandb-community:" + view_["vendor_name"].as<std::string>();
-    if (body.overflowed())
-      return fail("Vendor creation workspace unavailable; no request sent");
-    auto created = api("POST", "/vendor", body.as<JsonVariantConst>());
-    if (!created.ok())
-      return Result::failure(created.error());
-    import_vendor_ = created.value()["id"].as<int>();
-  }
-  if (import_vendor_ <= 0)
-    return fail("Vendor creation did not return an ID");
-  auto vendor = api("GET", "/vendor/" + std::to_string(import_vendor_));
-  if (!vendor.ok())
-    return Result::failure(vendor.error());
-  if (vendor.value()["id"].as<int>() != import_vendor_)
-    return fail("Vendor readback mismatch");
-  if (!import_filament_) {
-    import_["vendor_id"] = import_vendor_;
-    if (import_.overflowed())
-      return fail("Filament creation workspace unavailable; no request sent");
-    auto created = api("POST", "/filament", import_.as<JsonVariantConst>());
-    if (!created.ok())
-      return Result::failure(created.error());
-    import_filament_ = created.value()["id"].as<int>();
-  }
-  if (import_filament_ <= 0)
-    return fail("Filament creation did not return an ID");
-  auto canonical = api("GET", "/filament/" + std::to_string(import_filament_));
-  if (!canonical.ok())
-    return Result::failure(canonical.error());
-  if (canonical.value()["id"].as<int>() != import_filament_)
-    return fail("Filament canonical readback mismatch");
-  view_.clear();
-  view_["filament"].set(canonical.value());
-  import_token_.clear();
-  publish("imported",
-          "Canonical Spoolman filament ready; select or create a spool");
-  return Result::success();
 }
 Result TagWriterService::create_spool(JsonObjectConst c) {
   auto fields = c["spool"].as<JsonObjectConst>();
@@ -973,9 +700,33 @@ bool TagWriterService::has_durable_recovery() {
   std::uint32_t backend = 0;
   return saved && journal_->load(*saved, owner, backend);
 }
-Result TagWriterService::discard_recovery() {
+Result TagWriterService::discard_recovery(JsonObjectConst c) {
   // Explicit user choice to stop recovering: the tag keeps whatever bytes it
   // has now and Spoolman is not changed. Nothing physical is touched here.
+  // The request names the tag it means (WB-D5): a prompt for another tag,
+  // shown by a stale page, must not discard this tag's recovery.
+  std::string expected = plan_ ? plan_->uid.hex() : std::string();
+  if (expected.empty() && journal_) {
+    auto saved = network::make_external<nfc::WriterPlan>([] { return nfc::WriterPlan{}; });
+    std::int32_t owner = 0;
+    std::uint32_t backend = 0;
+    if (saved && journal_->load(*saved, owner, backend))
+      expected = saved->uid.hex();
+  }
+  if (expected.empty())
+    expected = view_["uid"] | "";
+  const std::string requested = c["uid"] | "";
+  const auto same_uid = [](const std::string& a, const std::string& b) {
+    return a.size() == b.size() &&
+           std::equal(a.begin(), a.end(), b.begin(), [](char x, char y) {
+             return std::tolower(static_cast<unsigned char>(x)) ==
+                    std::tolower(static_cast<unsigned char>(y));
+           });
+  };
+  if (!expected.empty() && !same_uid(requested, expected))
+    return fail(("This recovery belongs to tag " + expected +
+                 ". Refresh the page and try again.")
+                    .c_str());
   if (journal_ && !journal_->clear())
     return fail("The recovery record could not be removed; try again");
   plan_.reset();
@@ -1769,10 +1520,12 @@ TagWriterService::commit_write(JsonObjectConst c) {
 Result TagWriterService::process(JsonObjectConst c) {
   operation_id_=c["_operation_id"]|std::uint64_t{0};
   const std::string action = c["action"] | "";
-  if (!config::community_enabled && (action.compare(0, 10, "community_") == 0 || action == "import_preview" || action == "import"))
-    return fail("Community is disabled for 1.0");
+  // A restart would interrupt a tag write, a clear or a Spoolman change.
+  // Searching the catalog changes nothing and stays available.
+  if (action != "catalog" && restart_pending(restart_pending_))
+    return fail(restart_pending_message);
   if (action == "discard_recovery")
-    return discard_recovery();
+    return discard_recovery(c);
   if (!restore_ready())
     return fail("Writer recovery unavailable; see status before continuing");
   if (clear_settings_changed_)
@@ -1801,19 +1554,8 @@ Result TagWriterService::process(JsonObjectConst c) {
     result = commit_clear(c);
   else if (action == "retry_unlink")
     result = unlink();
-#if OPENTAG_ENABLE_COMMUNITY
-  else if (action == "community_search" || action == "community_select" ||
-           action == "community_status" || action == "community_update")
-    result = community(c);
-#endif
   else if (action == "catalog")
     result = catalog(c);
-#if OPENTAG_ENABLE_COMMUNITY
-  else if (action == "import_preview")
-    result = import_preview(c);
-  else if (action == "import")
-    result = import_commit(c);
-#endif
   else if (action == "create_spool")
     result = create_spool(c);
   else if (action == "preview")

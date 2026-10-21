@@ -76,7 +76,8 @@ station shows the toolheads FilaBridge reports: the touchscreen up to five, the 
 Only the Prusa XL has been tested. The manual covers it: [Set up FilaBridge for a Prusa XL](../printer/prusa-xl.md).
 
 **Where is the Community filament catalog?**
-It is not part of this version.
+It was never part of a release and its code was removed in 1.0.1-beta.4. Choose filaments from
+your own Spoolman instead.
 
 ## Station
 

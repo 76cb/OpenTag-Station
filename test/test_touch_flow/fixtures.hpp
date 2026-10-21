@@ -30,16 +30,10 @@ inline void export_touch_fixtures() {
   load(R"({"phase":"loading_spool"})");emit("loading-spool",f);
   load(R"({"phase":"preview","uid":"E004000000000001","spool_id":31,"previous_spool_id":28,"repurpose":true,"spool":{"filament":{"name":"PolyLite PETG Black","vendor":{"name":"Polymaker"},"color_hex":"1A1A1A"}}})");emit("reassign",f);
   f.entity="filament";load(R"({"phase":"catalog","items":[{"id":12,"name":"PLA+ 2.0 Black","vendor":{"name":"SUNLU"},"weight":1000,"spool_weight":130,"material":"PLA+","diameter":1.75}]})");emit("filament-picker",f);f.act(TagAction::row0);f.act(TagAction::use);emit("create-spool",f);
-#if OPENTAG_ENABLE_COMMUNITY
-  f.entity="community";f.query="SUNLU PLA+";f.browse();f.page=TagPage::progress;f.phase="searching";emit("community-searching",f);
-  load(R"({"phase":"community_catalog","catalog_state":"not_installed","message":"Community catalog is not installed."})");emit("community-not-installed",f);
-  load(R"({"phase":"community_catalog","catalog_state":"damaged","message":"Community catalog is damaged. Redownload it."})");emit("community-damaged",f);
-  f.entity="community";load(R"({"phase":"community","items":[{"id":"sunlu-pla-black","manufacturer":"SUNLU","name":"PLA+ 2.0 Black","material":"PLA+","diameter":1.75,"density":1.24,"weight":1000}]})");emit("community-results",f);f.act(TagAction::row0);emit("community-result",f);
-  load(R"({"phase":"import_preview","source":{"manufacturer":"SUNLU","name":"PLA+ 2.0 Black"},"proposed_filament":{"name":"PLA+ 2.0 Black"}})");emit("import-review",f);
-#endif
   f.from_spool=0;  // a blank tag: no move
   load(R"({"phase":"preview","uid":"E004000000000001","spool_id":31,"spool":{"filament":{"name":"PLA+ 2.0 Black","vendor":{"name":"SUNLU"},"color_hex":"D62828"}}})");emit("write-review",f);
   load(R"({"phase":"preview","uid":"E004000000000001","spool_id":31,"dropped_fields":[{"field":"material","value":"PLA+ Silk Rainbow Shimmer","reason":"too long"},{"field":"name","value":"PLA+ 2.0 Black Extra Long Name","reason":"too long"}],"spool":{"filament":{"name":"PLA+ 2.0 Black","vendor":{"name":"SUNLU"},"color_hex":"D62828"}}})");emit("write-review-dropped",f);
+  load(R"({"phase":"preview","uid":"E004000000000001","spool_id":31,"warnings":["Writing is not atomic. Keep this tag on the reader and power connected until complete.","missing recommended gtin","missing recommended manufactured_date","missing recommended min_print_temperature","missing recommended max_print_temperature"],"spool":{"filament":{"name":"PLA+ 2.0 Black","vendor":{"name":"SUNLU"},"color_hex":"D62828"}}})");emit("write-review-notices",f);
   load(R"({"phase":"writing","message":"Keep the tag on the reader.","completed_blocks":17,"total_blocks":23})");emit("writing",f);
   load(R"({"phase":"verifying","message":"Reading every written block back.","completed_blocks":23,"total_blocks":23})");emit("verifying",f);
   load(R"({"phase":"associating","message":"Verifying the Spoolman association."})");emit("linking",f);
@@ -56,7 +50,7 @@ inline void export_touch_fixtures() {
   for(auto mode:{InputMode::text,InputMode::numeric,InputMode::url,InputMode::password}) {
     auto keys=input_keys(mode,false,true);
     auto scene=output[mode==InputMode::text?"keyboard-qwerty":mode==InputMode::numeric?"keyboard-numeric":mode==InputMode::url?"keyboard-url":"keyboard-password"].to<JsonObject>();
-    scene["title"]=mode==InputMode::numeric?"Empty spool (g)":mode==InputMode::url?"Spoolman URL":mode==InputMode::password?"Wi-Fi password":"Search Community";
+    scene["title"]=mode==InputMode::numeric?"Empty spool (g)":mode==InputMode::url?"Spoolman URL":mode==InputMode::password?"Wi-Fi password":"Search My Filaments";
     scene["input"]=mode==InputMode::numeric?"130":mode==InputMode::url?"http://spoolman.example:7912":mode==InputMode::password?"********":"SUNLU PLA+ 2.0";scene["numeric"]=mode==InputMode::numeric;
     auto buttons=scene["buttons"].to<JsonArray>();
     for(std::size_t i=0;i<keys.count;++i){auto item=buttons.add<JsonObject>();const auto& k=keys.keys[i];item["text"]=std::string(k.text)=="ACTION"?(mode==InputMode::text?"SEARCH":"DONE"):k.text;if(std::string(k.text)=="ACTION")item["key_action"]=true;auto box=item["box"].to<JsonArray>();for(auto n:{k.box.x,k.box.y,k.box.w,k.box.h})box.add(n);}

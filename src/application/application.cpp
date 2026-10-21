@@ -138,6 +138,9 @@ void Application::setup() {
   const auto idle_result = state_machine_.transition(ApplicationState::idle);
   application_idle_ready_ = idle_result.ok();
   configuration_task_started_ = configuration_worker_.start();
+  // A3/WB-D4: tag writes and weight saves are refused once a reboot, factory
+  // reset, firmware update or new-firmware check owns the lifecycle gate.
+  backend_worker_.set_restart_pending([this] { return lifecycle_.snapshot().busy(); });
   backend_task_started_ = backend_worker_.start(nfc_worker_);
   scale_commands_.weigh_started=[this](std::uint64_t id){backend_worker_.begin_weigh(id);};
   scale_commands_.weigh_refusal=[this]{return backend_worker_.weigh_refusal();};
@@ -147,7 +150,10 @@ void Application::setup() {
   // unknown. Keep every destructive control and network mutation unavailable
   // rather than exposing a window where another lifecycle owner can win.
   device_control_started_ = ota_task_started_ && device_control_.start();
-  if (device_control_started_ &&
+  // A7: the reset can only finish on a mounted filesystem. Without one a
+  // reboot would meet the same marker again: stay up (storage fails closed)
+  // and let the diagnostics say to reinstall with the USB installer.
+  if (device_control_started_ && storage_ready_ &&
       storage_.factory_reset_recovery_pending()) {
     const auto update = ota_worker_.snapshot();
     if (!candidate_validation_pending(update.state)) {

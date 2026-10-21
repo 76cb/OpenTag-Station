@@ -427,6 +427,8 @@ class SystemDiagnostics {
   [[nodiscard]] ScaleDiagnosticSnapshot scale_snapshot() const {
     return scale_diagnostics_.snapshot();
   }
+  // Cheap: no full snapshot. False when NVS or LittleFS failed to mount.
+  [[nodiscard]] bool storage_ready() const;
   [[nodiscard]] bool scale_measurement_active() const {
     return scale_diagnostics_.measurement_active();
   }

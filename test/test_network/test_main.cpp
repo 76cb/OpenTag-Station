@@ -162,6 +162,32 @@ void test_requested_setup_on_connected_station_times_out_and_can_stop() {
   TEST_ASSERT_EQUAL_UINT32(0U, policy.requested_remaining_ms(timeout - 102U));
 }
 
+// I2 (#85): with auto_reconnect off the station never reaches the failure
+// count, so a single abandoned attempt opens the setup network by itself.
+void test_abandoned_connection_opens_the_setup_network_at_once() {
+  ProvisioningPolicy policy;
+  policy.initialize(true);
+  policy.begin_connection_attempt();
+  policy.connection_abandoned();
+  TEST_ASSERT_TRUE(policy.active());
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(ProvisioningReason::connection_failures),
+      static_cast<int>(policy.reason()));
+  TEST_ASSERT_EQUAL_UINT32(ProvisioningPolicy::failure_threshold, policy.failures());
+  // Connecting later closes it after the usual grace, as for counted failures.
+  policy.connected(1000U);
+  TEST_ASSERT_TRUE(policy.grace_active());
+  policy.poll(1000U + ProvisioningPolicy::connected_grace_ms);
+  TEST_ASSERT_FALSE(policy.active());
+  // An unconfigured station keeps its stronger reason.
+  ProvisioningPolicy unconfigured;
+  unconfigured.initialize(false);
+  unconfigured.connection_abandoned();
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(ProvisioningReason::unconfigured),
+      static_cast<int>(unconfigured.reason()));
+}
+
 void test_setup_stop_is_refused_without_working_wifi() {
   using opentag::network::SetupStopResult;
   ProvisioningPolicy policy;
@@ -511,6 +537,7 @@ int main(int, char**) {
   RUN_TEST(test_url_parser_rejects_credentials_fragments_bad_ports_and_schemes);
   RUN_TEST(test_diagnostic_counters_saturate_instead_of_wrapping);
   RUN_TEST(test_provisioning_policy_covers_first_boot_fallback_and_ap_grace);
+  RUN_TEST(test_abandoned_connection_opens_the_setup_network_at_once);
   RUN_TEST(test_provisioning_grace_deadline_is_millis_wrap_safe);
   RUN_TEST(test_requested_setup_on_connected_station_times_out_and_can_stop);
   RUN_TEST(test_setup_stop_is_refused_without_working_wifi);

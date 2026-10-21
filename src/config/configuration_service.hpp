@@ -186,11 +186,6 @@ class ConfigurationService final : public services::IScaleCalibrationStore,
   [[nodiscard]] core::Result<void> replace_if_revision(
       const Configuration& configuration,
       std::uint64_t expected_revision);
-  [[nodiscard]] core::Result<std::string> export_json(
-      bool include_credentials) const;
-  [[nodiscard]] core::Result<void> import_json(
-      const std::string& document,
-      bool accept_credentials);
 
   [[nodiscard]] core::Result<std::optional<services::ScaleCalibration>>
   load_scale_calibration() override;
@@ -201,8 +196,6 @@ class ConfigurationService final : public services::IScaleCalibrationStore,
   load_spool_identity_mappings() override;
   [[nodiscard]] core::Result<void> confirm_spool_identity_mapping(
       const domain::ConfirmedSpoolMapping& mapping) override;
-  [[nodiscard]] core::Result<void> clear_spool_identity_mapping(
-      const std::string& uid, const std::string& uuid, std::int32_t owner) override;
 
   // Writer-only: blank tag verified, exact remote owner unlinked/read back,
   // and both UID and UUID queries verified to have no owner.
