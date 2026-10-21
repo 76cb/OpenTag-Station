@@ -2,9 +2,9 @@
 
 What changed in each version of OpenTag Station, newest first.
 
-## 1.1.0-beta.1
+## 1.0.1-beta.1
 
-First step of 1.1: the station no longer assumes a printer.
+Pre-release for testers. The station no longer assumes a printer.
 
 **Printers are optional**
 - Without a FilaBridge address the station does tags, weighing and Spoolman only. The touchscreen

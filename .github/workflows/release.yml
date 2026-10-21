@@ -6,7 +6,7 @@ name: Release
 #   merge to main that changes VERSION
 #     -> full CI (ci.yml) on that commit
 #     -> GitHub release v<VERSION> (a pre-release when the version has a hyphen, such as
-#        1.1.0-beta.1) with the files CI built; this also creates the tag
+#        1.0.1-beta.1) with the files CI built; this also creates the tag
 #     -> USB installer page assembled from that release's own files and deployed to GitHub Pages,
 #        for stable versions only. A pre-release never touches the public installer.
 #
@@ -44,7 +44,7 @@ jobs:
         run: |
           version="$(tr -d '[:space:]' < VERSION)"
           tag="v${version}"
-          # A hyphen marks a pre-release (1.1.0-beta.1): published, but never installable
+          # A hyphen marks a pre-release (1.0.1-beta.1): published, but never installable
           # from the public USB installer.
           case "$version" in *-*) stable=false ;; *) stable=true ;; esac
           if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then

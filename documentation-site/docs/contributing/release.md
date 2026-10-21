@@ -5,15 +5,15 @@ publishes it, then updates the USB installer from the same files.
 Before a release, run the [hardware acceptance](testing.md#hardware-acceptance) checks on a real
 station.
 
-The current version is `1.1.0-beta.1`.
+The current version is `1.0.1-beta.1`.
 
 ## Version names
 
 | Version | Meaning | Published as |
 |---|---|---|
-| `1.1.0-beta.1`, `1.1.0-beta.2` | Work in progress for a coming version. May lose data. For testers. | GitHub **pre-release** with a warning at the top. **Not** on the USB installer. |
-| `1.1.0-rc.1` | Release candidate: complete, being checked on hardware. Use only after the beta stage. | Same as a beta. |
-| `1.1.0` | Stable. Hardware acceptance done. | GitHub release and USB installer. |
+| `1.0.1-beta.1`, `1.0.1-beta.2` | Work in progress for a coming version. May lose data. For testers. | GitHub **pre-release** with a warning at the top. **Not** on the USB installer. |
+| `1.0.1-rc.1` | Release candidate: complete, being checked on hardware. Use only after the beta stage. | Same as a beta. |
+| `1.0.1` | Stable. Hardware acceptance done. | GitHub release and USB installer. |
 
 Any version with a hyphen is a pre-release. The public installer keeps installing the latest
 stable version until a stable one replaces it. Order is `beta` before `rc` before the plain
