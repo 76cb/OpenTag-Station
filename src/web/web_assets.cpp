@@ -1543,7 +1543,7 @@ function tagStatus(){renderCurrentSpool();const t=state.currentTag||{},w=state.t
 const same=uid&&String(w.tag?.uid||'').replace(/:/g,'')===uid.replace(/:/g,''),linked=present&&same&&w.openprinttag_available&&w.spool,owned=present&&uid&&String(writer.uid||'').replace(/:/g,'')===uid.replace(/:/g,'');
 const cleared=state.clearSnapshot||{},blank=String(cleared.uid||'').replace(/:/g,'')===uid.replace(/:/g,'')&&['cleared','unlink_pending','unlinking'].includes(cleared.phase);
 const pending=owned&&writer.phase==='association_pending',complete=owned&&writer.phase==='complete';const id=blank?0:pending?0:complete?writer.spool_id:linked?(w.spool.id||w.spool.spool_id):0;
-setText('nfc-detected-chip',present?'Tag detected':'No tag');const rd=present&&tagReading(t);setText('nfc-decode-chip',t.decode==='pass'?'Tag valid':t.decode==='fail'?'Tag needs attention':rd?'Reading tag…':'Not read');byId('nfc-decode-chip').dataset.reading=String(rd);setText('nfc-link-chip',pending?'Link pending':id?'Linked to Spoolman':'Not linked');
+setText('nfc-detected-chip',present?'Tag detected':'No tag');const rd=present&&tagReading(t),foreign=present&&t.technology==='nfca';setText('nfc-decode-chip',foreign?'Not supported yet':t.decode==='pass'?'Tag valid':t.decode==='fail'?'Tag needs attention':rd?'Reading tag…':'Not read');byId('nfc-decode-chip').dataset.reading=String(rd);setText('nfc-link-chip',pending?'Link pending':id?'Linked to Spoolman':'Not linked');
 setText('nfc-association',pending?'Association pending — open Write / Rewrite to retry':id?'Linked · Spool #'+id:'Not linked');setText('nfc-identity',id?'Spoolman #'+id:'—');byId('nfc-identity-row').hidden=!id;byId('nfc-copy').disabled=!uid;
 if(t.blank_compatible&&!blank){setBadge('nfc-badge','Blank','good');setText('nfc-summary','Compatible blank tag');setText('nfc-guidance','Ready to write');setText('nfc-decode-chip','BLANK');}if(blank){setBadge('nfc-badge','Blank','good');setText('nfc-summary','Tag ready to reuse');setText('nfc-guidance',cleared.phase==='cleared'?'Ready to write':cleared.message||'Tag blank and verified. Cleanup still needs attention.');setText('nfc-decode-chip','BLANK VERIFIED');setText('nfc-link-chip',cleared.phase==='cleared'?'UNLINKED':'UNLINK PENDING');}
 if(uid)setText('nfc-uid',uid.replace(/[^a-f0-9]/gi,'').match(/.{1,2}/g)?.join(':')||uid);
@@ -1585,11 +1585,11 @@ if (bringup === 'fault' || bringup === 'error') {
 summary = 'NFC reader error';
 badgeKind = 'bad';
 } else if (ready && tagCount > 1) {
-summary = 'Multiple NFC-V tags detected';
+summary = 'Multiple ' + (nfc.technology === 'nfca' ? 'NFC-A' : 'NFC-V') + ' tags detected';
 guidance = 'Remove extra tags and present exactly one tag.';
 badgeKind = 'warning';
 } else if (ready && present && tagCount === 1) {
-summary = 'NFC-V TAG DETECTED';
+summary = (nfc.technology === 'nfca' ? 'NFC-A' : 'NFC-V') + ' TAG DETECTED';
 guidance = uid ? 'UID: ' + uid : 'Tag inventory succeeded.';
 badgeKind = 'good';
 } else if (ready) {
@@ -1622,6 +1622,11 @@ setBadge('nfc-badge', 'Blank', 'good');
 setText('nfc-summary', 'NFC-V tag detected');
 setText('nfc-guidance', 'OpenPrintTag decode failed / unsupported');
 setBadge('nfc-badge', 'Unsupported', 'warning');
+} else if (nfc.state === 'unsupported_technology') {
+const a = asObject(nfc.nfca);
+setText('nfc-summary', 'Tag type not supported yet');
+setText('nfc-guidance', first(a.description, 'NFC-A tag') + ' (NFC-A / ISO 14443A). The station reads OpenPrintTag on NFC-V (ISO 15693) only; nothing was read from this tag.');
+setBadge('nfc-badge', 'Not supported yet', 'warning');
 } else if (nfc.state === 'error') {
 setText('nfc-summary', 'NFC reader error');
 setText('nfc-guidance', nfc.last_error);
@@ -3301,6 +3306,8 @@ function renderCurrentSpool() {
   const linked=present&&!blank&&!!s.id, valid=present&&!blank&&(t.decode==='pass'||linked||lifecycle==='OPENPRINTTAG_UNLINKED');
   const cleanup=lifecycle==='CLEANUP_PENDING'||state.clearSnapshot?.phase==='unlink_pending';
   const writePending=lifecycle==='WRITE_PENDING';
+  // #93: an NFC-A tag (NTAG, MIFARE) is found and named, nothing is read.
+  const foreign=present&&(t.technology==='nfca'||lifecycle==='UNSUPPORTED_TYPE');
   byId('tag-update').hidden=!linked||cleanup||writePending;
   byId('writer-open').hidden=(!blank&&!valid&&!writePending)||cleanup;
   byId('clear-open').hidden=(!valid&&!cleanup)||writePending;
@@ -3311,13 +3318,13 @@ function renderCurrentSpool() {
   if (!present) return;
   const remaining=first(s.remaining_grams,t.remaining_weight);
   const initial=first(s.initial_grams,t.actual_full_weight,t.nominal_full_weight);
-  const name=first(s.display_name,t.material_name,t.blank_compatible?'Blank tag':'Reading spool…');
+  const name=foreign?'Tag type not supported yet':first(s.display_name,t.material_name,t.blank_compatible?'Blank tag':'Reading spool…');
   setText('current-name',name);setText('manage-material',name);
   setText('current-vendor',first(s.vendor,t.brand_name,t.brand,''));
   setText('current-material',first(s.material,t.material_abbreviation,''));
   // Unlinked only means "no link" once Spoolman has actually answered for this tag.
   const look=!s.id&&w.stage==='resolving_spool',off=!s.id&&!look&&(w.spoolman==='offline'||w.stage==='spool_resolution_unavailable');
-  setText('current-number',s.id?'Spool #'+s.id:look?'Looking up…':off?'Link not checked':blank?'Ready to write':'Not yet linked');
+  setText('current-number',foreign?first(t.nfca?.description,'NFC-A tag')+' · not read':s.id?'Spool #'+s.id:look?'Looking up…':off?'Link not checked':blank?'Ready to write':'Not yet linked');
   setText('current-remaining',remaining===null?'—':Math.round(Number(remaining)));
   const percentage=remaining!==null&&Number(initial)>0?Math.max(0,Math.min(100,Math.round(Number(remaining)/Number(initial)*100))):null;
   byId('remaining-summary').hidden=percentage===null;
@@ -3328,9 +3335,9 @@ function renderCurrentSpool() {
   byId('current-spool').style.setProperty('--filament',safe?'rgb('+color.join(',')+')':'#879b9b');
   setText('current-color',safe?'Filament color':'Color not provided');
   const reading=tagReading(t);
-  setText('current-tag',t.blank_compatible?'Blank tag':t.decode==='pass'?'Tag valid':t.decode==='fail'?'Tag needs attention':reading?'Reading tag…':'Tag not read');
+  setText('current-tag',foreign?'Not supported yet':t.blank_compatible?'Blank tag':t.decode==='pass'?'Tag valid':t.decode==='fail'?'Tag needs attention':reading?'Reading tag…':'Tag not read');
   byId('current-tag').dataset.valid=String(t.decode==='pass');byId('current-tag').dataset.reading=String(reading);
-  setText('current-link',s.id?'Linked to Spoolman':look?'Looking up this spool in Spoolman…':off?(w.lookup_error?'The Spoolman lookup failed: '+w.lookup_error:"Spoolman is not reachable; the link can't be checked right now. It will be looked up again when Spoolman is back."):'Not linked to Spoolman');byId('current-link').dataset.state=off?'warn':'';
+  setText('current-link',foreign?'The station reads OpenPrintTag on NFC-V (ISO 15693) only':s.id?'Linked to Spoolman':look?'Looking up this spool in Spoolman…':off?(w.lookup_error?'The Spoolman lookup failed: '+w.lookup_error:"Spoolman is not reachable; the link can't be checked right now. It will be looked up again when Spoolman is back."):'Not linked to Spoolman');byId('current-link').dataset.state=off?'warn':'';
   const assignments=state.printers.flatMap(p=>asArray(p.toolheads).filter(h=>s.id&&Number(first(h.assigned_spool_id,h.spool_id))===Number(s.id)).map(h=>(p.display_name||p.name||'Printer')+' · T'+(Number(first(h.backend_id,h.id))+1)));
   setText('current-assignment',assignments.length?assignments.join(', '):'Not assigned');
   setText('dashboard-printer',assignments.length?assignments.join(', '):'Choose a toolhead to assign this spool.');

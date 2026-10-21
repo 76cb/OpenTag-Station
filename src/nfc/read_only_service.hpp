@@ -4,8 +4,11 @@
 #include <mutex>
 
 #include "nfc/formats/openprinttag/codec.hpp"
+#include "nfc/poll_schedule.hpp"
+#include "nfc/protocols/nfca/identity.hpp"
 #include "nfc/protocols/nfcv/tag.hpp"
 #include "nfc/read_storage.hpp"
+#include "nfc/technology.hpp"
 
 namespace opentag::nfc {
 
@@ -18,6 +21,11 @@ class IReadOnlyReader {
   virtual core::Result<void> field_off() = 0;
   virtual core::Result<void> health() = 0;
   virtual core::Result<std::vector<nfcv::Uid>> inventory() = 0;
+  // ISO 14443A detection only: anticollision answers (NFCID1, SAK, ATQA),
+  // never a memory read. A reader without NFC-A support reports no tags.
+  virtual core::Result<std::vector<nfca::Identity>> inventory_nfca() {
+    return core::Result<std::vector<nfca::Identity>>::success({});
+  }
   virtual core::Result<nfcv::TagGeometry> geometry(const nfcv::Uid&) = 0;
   virtual core::Result<void> read_blocks(const nfcv::Uid&, std::size_t first,
                                          std::size_t count,
@@ -38,6 +46,8 @@ enum class ReadState {
   openprinttag,
   blank,
   unsupported,
+  // An NFC-A (ISO 14443A) tag: found and named, nothing read (#93).
+  unsupported_technology,
   multiple,
   error
 };
@@ -66,6 +76,10 @@ struct ReadSnapshot {
   std::uint32_t bus_errors{0};
   std::optional<core::Error> error;
   std::shared_ptr<const IdentifiedTag> tag;
+  // The technology of the present tag(s); none while the reader is empty.
+  Technology technology{Technology::none};
+  // Set with state unsupported_technology; uid stays empty for such a tag.
+  std::optional<nfca::Identity> nfca;
 };
 
 // A present tag without OpenPrintTag data (blank, or other data) can still be
@@ -83,7 +97,7 @@ class ReadOnlyService {
   void poll();
   ReadSnapshot snapshot() const;
   // Sole backend owner, only after an explicit writer finishes or fails.
-  void invalidate_after_write() { clear_active(); processed_.reset(); candidate_.reset(); consecutive_ = 0; missed_polls_ = 0; read_failures_ = 0; publish(); }
+  void invalidate_after_write() { clear_active(); clear_nfca(); processed_.reset(); candidate_.reset(); consecutive_ = 0; missed_polls_ = 0; read_failures_ = 0; publish(); }
   static constexpr std::size_t maximum_memory_bytes = 4096U;
   static constexpr unsigned stable_polls = 3U;
   // Consecutive failed reads of one present tag before the error state.
@@ -95,7 +109,10 @@ class ReadOnlyService {
                                 ReadImage&,
                                 std::uint32_t started);
   core::Result<void> read_tag(const nfcv::Uid& uid);
+  // The NFC-A turn of a poll cycle (PollSchedule::nfca_turn).
+  core::Result<void> poll_nfca(std::uint32_t now);
   void clear_active();
+  void clear_nfca();
   void fail(const core::Error& error);
   void publish();
   IReadOnlyReader& reader_;
@@ -107,7 +124,8 @@ class ReadOnlyService {
   unsigned consecutive_{0};
   unsigned missed_polls_{0};
   unsigned read_failures_{0};
-  std::uint32_t last_poll_{0};
-  bool polled_{false};
+  PollSchedule schedule_;
+  std::optional<nfca::Identity> nfca_candidate_;
+  unsigned nfca_missed_{0};
 };
 }  // namespace opentag::nfc

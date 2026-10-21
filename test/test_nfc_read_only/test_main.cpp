@@ -17,6 +17,10 @@ Uid known{{0xE0, 0x04, 0x01, 0x08, 0x66, 0x27, 0xD8, 0xD4}};
 class Fake final : public nfc::IReadOnlyReader {
  public:
   std::vector<Uid> tags;
+  // ISO 14443A tags answering anticollision; detection only (#93).
+  std::vector<nfc::nfca::Identity> nfca_tags;
+  unsigned nfca_inventories = 0;
+  bool nfca_broken = false;
   std::vector<std::uint8_t> image;
   nfc::nfcv::TagGeometry shape{4, 80};
   unsigned reads = 0, offs = 0, ons = 0, inventories = 0;
@@ -54,6 +58,13 @@ class Fake final : public nfc::IReadOnlyReader {
       return Result<std::vector<Uid>>::failure(
           {core::ErrorCategory::nfc_communication, "transport", false});
     return Result<std::vector<Uid>>::success(tags);
+  }
+  Result<std::vector<nfc::nfca::Identity>> inventory_nfca() override {
+    ++nfca_inventories;
+    if (nfca_broken)
+      return Result<std::vector<nfc::nfca::Identity>>::failure(
+          {core::ErrorCategory::nfc_communication, "NFC-A detection I2C", false});
+    return Result<std::vector<nfc::nfca::Identity>>::success(nfca_tags);
   }
   Result<nfc::nfcv::TagGeometry> geometry(const Uid&) override {
     return Result<nfc::nfcv::TagGeometry>::success(shape);
@@ -416,6 +427,181 @@ void broken_transport_is_still_immediate() {
                         static_cast<int>(s.snapshot().state));
   TEST_ASSERT_NULL(s.snapshot().tag.get());
 }
+// ---- 1.0.1-beta.5 (#93): ISO 14443A detection next to ISO 15693 ----
+nfc::nfca::Identity ntag() {
+  const std::uint8_t id[] = {0x04, 0xA1, 0xB2, 0xC3, 0xD4, 0xE5, 0xF6};
+  return nfc::nfca::Identity::from_wire(core::ByteView(id, sizeof(id)), 0x00, {0x44, 0x00}).value();
+}
+nfc::nfca::Identity classic() {
+  const std::uint8_t id[] = {0xDE, 0xAD, 0xBE, 0xEF};
+  return nfc::nfca::Identity::from_wire(core::ByteView(id, sizeof(id)), 0x08, {0x04, 0x00}).value();
+}
+void nfca_identity_names_the_tag_kind_from_sak() {
+  using nfc::nfca::Kind;
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(Kind::type2), static_cast<int>(ntag().kind()));
+  TEST_ASSERT_EQUAL_STRING("04A1B2C3D4E5F6", ntag().hex().c_str());
+  TEST_ASSERT_EQUAL_STRING("04:A1:B2:C3:D4:E5:F6", ntag().diagnostic().c_str());
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(Kind::mifare_classic), static_cast<int>(classic().kind()));
+  const std::uint8_t id4[] = {1, 2, 3, 4};
+  auto make = [&](std::uint8_t sak, bool type1 = false) {
+    return nfc::nfca::Identity::from_wire(core::ByteView(id4, 4), sak, {0, 0}, type1).value().kind();
+  };
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(Kind::mifare_classic), static_cast<int>(make(0x18)));  // 4K
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(Kind::mifare_classic), static_cast<int>(make(0x09)));  // Mini
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(Kind::type4), static_cast<int>(make(0x20)));  // DESFire
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(Kind::type4), static_cast<int>(make(0x28)));  // Plus, ISO-DEP
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(Kind::other), static_cast<int>(make(0x04)));  // cascade unfinished
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(Kind::other), static_cast<int>(make(0x00, true)));  // Topaz
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(Kind::other), static_cast<int>(make(0x01)));
+  TEST_ASSERT_EQUAL_STRING("mifare_classic", nfc::nfca::to_string(Kind::mifare_classic));
+  TEST_ASSERT_EQUAL_STRING("NTAG or other Type 2 tag", nfc::nfca::describe(Kind::type2));
+  const std::uint8_t bad[] = {1, 2, 3, 4, 5};
+  TEST_ASSERT_FALSE(nfc::nfca::Identity::from_wire(core::ByteView(bad, 5), 0, {0, 0}).ok());
+  TEST_ASSERT_TRUE(ntag() == ntag());
+  TEST_ASSERT_TRUE(ntag() != classic());
+}
+void poll_schedule_keeps_the_cadence_and_gives_nfca_the_empty_turns() {
+  nfc::PollSchedule schedule;
+  TEST_ASSERT_TRUE(schedule.due(0, false));
+  TEST_ASSERT_FALSE(schedule.due(499, false));
+  TEST_ASSERT_TRUE(schedule.due(500, false));
+  TEST_ASSERT_FALSE(schedule.due(4999, true));  // the error state polls every 5 s
+  TEST_ASSERT_TRUE(schedule.due(5500, true));
+  // NFC-A is asked only when NFC-V answered nothing and tracks nothing.
+  TEST_ASSERT_TRUE(nfc::PollSchedule::nfca_turn(false, false));
+  TEST_ASSERT_FALSE(nfc::PollSchedule::nfca_turn(true, false));
+  TEST_ASSERT_FALSE(nfc::PollSchedule::nfca_turn(false, true));
+  TEST_ASSERT_FALSE(nfc::PollSchedule::nfca_turn(true, true));
+}
+void nfca_tag_is_found_named_and_never_read() {
+  Fake f;
+  f.nfca_tags = {ntag()};
+  nfc::ReadOnlyService s(f);
+  tick(f, s);  // no stabilization: nothing is read, so nothing can be read wrong
+  const auto a = s.snapshot();
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(nfc::ReadState::unsupported_technology), static_cast<int>(a.state));
+  TEST_ASSERT_TRUE(a.present);
+  TEST_ASSERT_EQUAL(1, a.tag_count);
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(nfc::Technology::nfca), static_cast<int>(a.technology));
+  TEST_ASSERT_TRUE(a.nfca.has_value());
+  TEST_ASSERT_TRUE(*a.nfca == ntag());
+  TEST_ASSERT_FALSE(a.uid.has_value());
+  TEST_ASSERT_NULL(a.tag.get());
+  TEST_ASSERT_FALSE(a.error.has_value());
+  TEST_ASSERT_EQUAL(0, f.reads);
+  TEST_ASSERT_EQUAL(0, nfc::uid_only_generation(a));  // no Spoolman lookup by this ID yet
+  TEST_ASSERT_EQUAL(1, a.generation);
+  TEST_ASSERT_EQUAL(f.ons, f.offs);
+  JsonDocument doc;
+  web::write_nfc(doc.to<JsonObject>(), a);
+  TEST_ASSERT_EQUAL_STRING("unsupported_technology", doc["state"]);
+  TEST_ASSERT_EQUAL_STRING("nfca", doc["technology"]);
+  TEST_ASSERT_EQUAL_STRING("04:A1:B2:C3:D4:E5:F6", doc["uid"]);
+  TEST_ASSERT_EQUAL_STRING("NFC-A / ISO14443A", doc["inventory"]["technology"]);
+  TEST_ASSERT_EQUAL_STRING("UNSUPPORTED_TYPE", doc["lifecycle"]);
+  TEST_ASSERT_EQUAL_STRING("fail", doc["decode"]);
+  TEST_ASSERT_EQUAL_STRING("type2", doc["nfca"]["kind"]);
+  TEST_ASSERT_EQUAL(7, doc["nfca"]["length"].as<int>());
+  TEST_ASSERT_EQUAL(0, doc["nfca"]["sak"].as<int>());
+  TEST_ASSERT_EQUAL(0x0044, doc["nfca"]["atqa"].as<int>());
+  TEST_ASSERT_EQUAL(0, doc["block_count"].as<int>());
+  const auto text = nfc::describe(a);
+  TEST_ASSERT_TRUE(text.find("Tag type not supported yet") != std::string::npos);
+  TEST_ASSERT_TRUE(text.find("NTAG or other Type 2 tag (NFC-A)") != std::string::npos);
+  TEST_ASSERT_TRUE(text.find("ID 04:A1:B2:C3:D4:E5:F6") != std::string::npos);
+  // Stays found without re-polling anything else; a second kind replaces it.
+  tick(f, s, 5);
+  TEST_ASSERT_EQUAL(1, s.snapshot().generation);
+  f.nfca_tags = {classic()};
+  tick(f, s);
+  TEST_ASSERT_EQUAL(2, s.snapshot().generation);
+  TEST_ASSERT_EQUAL_STRING("mifare_classic", nfc::nfca::to_string(s.snapshot().nfca->kind()));
+  // Two NFC-A tags are "multiple", like two NFC-V tags.
+  f.nfca_tags = {classic(), ntag()};
+  tick(f, s);
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(nfc::ReadState::multiple), static_cast<int>(s.snapshot().state));
+  TEST_ASSERT_EQUAL(2, s.snapshot().tag_count);
+  TEST_ASSERT_FALSE(s.snapshot().nfca.has_value());
+  web::write_nfc(doc.to<JsonObject>(), s.snapshot());
+  TEST_ASSERT_EQUAL_STRING("NFC-A / ISO14443A", doc["inventory"]["technology"]);
+  TEST_ASSERT_TRUE(doc["uid"].isNull());
+}
+void nfca_removal_tolerates_one_missed_poll_like_nfcv() {
+  Fake f;
+  f.nfca_tags = {ntag()};
+  nfc::ReadOnlyService s(f);
+  tick(f, s);
+  f.nfca_tags.clear();
+  tick(f, s);
+  TEST_ASSERT_TRUE(s.snapshot().present);  // a weak link, not a removal
+  TEST_ASSERT_TRUE(s.snapshot().nfca.has_value());
+  tick(f, s);
+  TEST_ASSERT_FALSE(s.snapshot().present);
+  TEST_ASSERT_FALSE(s.snapshot().nfca.has_value());
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(nfc::ReadState::idle), static_cast<int>(s.snapshot().state));
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(nfc::Technology::none), static_cast<int>(s.snapshot().technology));
+  JsonDocument doc;
+  web::write_nfc(doc.to<JsonObject>(), s.snapshot());
+  TEST_ASSERT_TRUE(doc["technology"].isNull());
+  TEST_ASSERT_TRUE(doc["nfca"].isNull());
+  TEST_ASSERT_EQUAL_STRING("NFC-V / ISO15693", doc["inventory"]["technology"]);
+}
+void nfcv_is_polled_first_and_nfca_only_on_empty_cycles() {
+  // The scheduler: an NFC-V tag costs no NFC-A request at all, including on
+  // its one tolerated missed poll, so its detection and removal timing is
+  // the same as before #93.
+  Fake f;
+  f.tags = {known};
+  nfc::ReadOnlyService s(f);
+  tick(f, s, 3);
+  TEST_ASSERT_NOT_NULL(s.snapshot().tag.get());
+  TEST_ASSERT_EQUAL(0, f.nfca_inventories);
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(nfc::Technology::nfcv), static_cast<int>(s.snapshot().technology));
+  tick(f, s, 10);
+  TEST_ASSERT_EQUAL(0, f.nfca_inventories);
+  f.tags.clear();
+  tick(f, s);  // tolerated miss: still tracking NFC-V, no NFC-A turn
+  TEST_ASSERT_TRUE(s.snapshot().present);
+  TEST_ASSERT_EQUAL(0, f.nfca_inventories);
+  tick(f, s);  // removal confirmed on the same poll as before
+  TEST_ASSERT_FALSE(s.snapshot().present);
+  TEST_ASSERT_EQUAL(0, f.nfca_inventories);
+  // From here every empty cycle asks NFC-A once, after NFC-V.
+  const auto inventories = f.inventories;
+  tick(f, s, 4);
+  TEST_ASSERT_EQUAL(4, f.nfca_inventories);
+  TEST_ASSERT_EQUAL(inventories + 4, f.inventories);
+  TEST_ASSERT_EQUAL(f.ons, f.offs);
+  // With an NFC-A tag tracked, NFC-V is still asked first on every cycle and
+  // wins at once when it answers.
+  f.nfca_tags = {ntag()};
+  tick(f, s);
+  TEST_ASSERT_TRUE(s.snapshot().nfca.has_value());
+  f.tags = {known};
+  tick(f, s);
+  TEST_ASSERT_FALSE(s.snapshot().nfca.has_value());
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(nfc::ReadState::stabilizing), static_cast<int>(s.snapshot().state));
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(nfc::Technology::nfcv), static_cast<int>(s.snapshot().technology));
+  const auto nfca_polls = f.nfca_inventories;
+  tick(f, s, 2);
+  TEST_ASSERT_NOT_NULL(s.snapshot().tag.get());
+  TEST_ASSERT_EQUAL(nfca_polls, f.nfca_inventories);
+}
+void nfca_transport_failure_is_a_reader_error() {
+  Fake f;
+  f.nfca_broken = true;
+  nfc::ReadOnlyService s(f);
+  tick(f, s);
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(nfc::ReadState::error), static_cast<int>(s.snapshot().state));
+  TEST_ASSERT_FALSE(s.snapshot().present);
+  TEST_ASSERT_EQUAL(f.ons, f.offs);
+  // An NFC-V tag is still found once the chip answers again.
+  f.nfca_broken = false;
+  f.tags = {known};
+  f.time += 5000;
+  tick(f, s, 3);
+  TEST_ASSERT_NOT_NULL(s.snapshot().tag.get());
+}
 void setUp() {}
 void tearDown() {}
 int main() {
@@ -440,5 +626,11 @@ int main() {
   RUN_TEST(weak_link_survives_one_missed_poll_but_not_two);
   RUN_TEST(failed_read_is_retried_without_the_error_pause);
   RUN_TEST(broken_transport_is_still_immediate);
+  RUN_TEST(nfca_identity_names_the_tag_kind_from_sak);
+  RUN_TEST(poll_schedule_keeps_the_cadence_and_gives_nfca_the_empty_turns);
+  RUN_TEST(nfca_tag_is_found_named_and_never_read);
+  RUN_TEST(nfca_removal_tolerates_one_missed_poll_like_nfcv);
+  RUN_TEST(nfcv_is_polled_first_and_nfca_only_on_empty_cycles);
+  RUN_TEST(nfca_transport_failure_is_a_reader_error);
   return UNITY_END();
 }

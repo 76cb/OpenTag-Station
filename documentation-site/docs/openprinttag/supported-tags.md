@@ -2,8 +2,8 @@
 
 The station works with one kind of tag: **NXP ICODE SLIX2**, blank.
 Buy the right kind and every other page of this manual applies.
-The reader looks only for NFC-V (ISO 15693) tags: other NFC-V tags are read but cannot be written,
-and NTAG or MIFARE tags are not seen at all.
+The reader reads only NFC-V (ISO 15693) tags: other NFC-V tags are read but cannot be written.
+NTAG and MIFARE tags (NFC-A, ISO 14443A) are found and named, but nothing on them is read yet.
 
 ## The supported tag
 
@@ -38,7 +38,8 @@ and it cannot erase them: **CLEAR / REUSE** only works on tags that hold OpenPri
 
 | Tag | What happens |
 |---|---|
-| NTAG213 / 215 / 216, MIFARE and other NFC-A, NFC-B or NFC-F tags | The reader does not see them at all. The screen keeps showing `PLACE A TAG`. |
+| NTAG213 / 215 / 216, MIFARE Classic and other NFC-A (ISO 14443A) tags | Found and named, not read: the touchscreen says `Tag type not supported yet` with the tag's kind and ID, the browser `Not supported yet`. Reading them is planned (NTAG: issue #95, MIFARE Classic: issue #94). |
+| NFC-B or NFC-F tags | The reader does not see them at all. The screen keeps showing `PLACE A TAG`. |
 | ISO 15693 tags that are not SLIX2 (other maker, other memory size) | The station reads them, so OpenPrintTag data on them is shown. A blank one shows `This tag can't be used as it is`. Writing and clearing are refused with `Incompatible tag: this release approves NXP 80 x 4-byte SLIX2 only`. |
 | SLIX2 with phone formatting, a web link or other data | `This tag can't be used as it is` |
 | SLIX2 with locked blocks | `Tag has protected blocks` |

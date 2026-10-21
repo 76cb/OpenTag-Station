@@ -4,13 +4,16 @@
 namespace opentag::services {
 // Presentation only. No state here grants permission to mutate NFC or Spoolman.
 enum class TagLifecycle { no_tag, reading, blank_compatible, linked, unlinked,
-                          write_pending, cleanup_pending, ready, unsupported };
+                          write_pending, cleanup_pending, ready, unsupported,
+                          // A tag of a technology the station does not read yet (NFC-A).
+                          unsupported_type };
 struct TagLifecycleInput {
   bool present{false}, blank{false}, valid{false}, linked{false}, unsupported{false};
   // Pending transactions survive absence/reboot. Completed results must match
   // the currently present physical UID before they override a fresh read.
   std::string_view phase;
   bool writer_matches{false};
+  bool unsupported_type{false};
 };
 inline TagLifecycle tag_lifecycle(const TagLifecycleInput& s) {
   if (s.phase == "unlink_pending" || s.phase == "unlinking" || s.phase == "clear_recovery")
@@ -19,6 +22,7 @@ inline TagLifecycle tag_lifecycle(const TagLifecycleInput& s) {
       s.phase == "verifying" || s.phase == "associating" || s.phase == "clearing")
     return TagLifecycle::write_pending;
   if (!s.present) return TagLifecycle::no_tag;
+  if (s.unsupported_type) return TagLifecycle::unsupported_type;
   if (s.writer_matches && (s.phase == "cleared" || s.phase == "complete"))
     return TagLifecycle::ready;
   if (s.blank) return TagLifecycle::blank_compatible;
@@ -36,6 +40,7 @@ inline const char* to_string(TagLifecycle state) {
     case TagLifecycle::cleanup_pending: return "CLEANUP_PENDING";
     case TagLifecycle::ready: return "READY";
     case TagLifecycle::unsupported: return "UNSUPPORTED";
+    case TagLifecycle::unsupported_type: return "UNSUPPORTED_TYPE";
   }
   return "NO_TAG";
 }

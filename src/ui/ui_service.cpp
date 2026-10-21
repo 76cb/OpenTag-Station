@@ -79,6 +79,7 @@ const char* nfc_status_text(const nfc::ReadSnapshot& tag) {
     case nfc::ReadState::openprinttag: return "OpenPrintTag found. The reader works.";
     case nfc::ReadState::blank: return "Blank tag found. The reader works.";
     case nfc::ReadState::unsupported: return "Tag found, but it can't be used as it is.";
+    case nfc::ReadState::unsupported_technology: return "Tag found. Its type is not supported yet.";
     case nfc::ReadState::multiple: return "More than one tag. Use one tag at a time.";
     case nfc::ReadState::error: return "NFC reader problem. Check the NFC wiring.";
   }
@@ -864,7 +865,10 @@ void UiService::refresh_tags() {
   if(!tag_flow_||!nfc_detail_)return;
   auto& flow=*tag_flow_;
   const auto tag=nfc_.snapshot();
-  flow.observe_tag(tag.uid?tag.uid->hex():std::string(),tag.error?&tag.error->message:nullptr);
+  // An NFC-A tag has no NFC-V UID; its NFCID1 and kind take their place.
+  const std::string foreign_kind=tag.nfca?std::string(nfc::nfca::describe(tag.nfca->kind()))+" (NFC-A)":std::string();
+  flow.observe_tag(tag.uid?tag.uid->hex():tag.nfca?tag.nfca->hex():std::string(),
+      tag.error?&tag.error->message:tag.nfca?&foreign_kind:nullptr);
   workflow_.visit([&](const services::WorkflowSnapshot& current) {
     flow.current_spool=tag.tag&&tag.uid&&current.openprinttag_available&&current.uid==*tag.uid&&current.spool?current.spool->id:0;
     // As on Home: "not linked" only once Spoolman answered for this tag.
@@ -881,7 +885,7 @@ void UiService::refresh_tags() {
     }
   });
   flow.material=tag.tag?tag.tag->decoded.material.material_name.value_or("Filament spool"):"";
-  flow.observe_lifecycle(services::tag_lifecycle({tag.present,tag.blank_compatible,bool(tag.tag),flow.current_spool>0,tag.state==nfc::ReadState::unsupported,flow.phase,false}));
+  flow.observe_lifecycle(services::tag_lifecycle({tag.present,tag.blank_compatible,bool(tag.tag),flow.current_spool>0,tag.state==nfc::ReadState::unsupported,flow.phase,false,tag.state==nfc::ReadState::unsupported_technology}));
   flow.multiple_tags=tag.state==nfc::ReadState::multiple;
   auto body=backend_worker_.writer_snapshot();
   const auto checksum=nfc::nfcv::diagnostic_checksum(reinterpret_cast<const std::uint8_t*>(body.data()),body.size());
@@ -2200,6 +2204,8 @@ void UiService::refresh_home_page(
   const auto remaining=workflow.spool?workflow.spool->remaining_grams:std::optional<float>{};
   if(remaining)lv_label_set_text_fmt(workflow_weight_label_,"%ld g remaining",static_cast<long>(std::lround(*remaining)));
   else lv_label_set_text(workflow_weight_label_,!scale.scale_calibrated?"Scale not calibrated":present?"Weight not known":"");
+  // #93: an NFC-A tag is found but not read. Say so instead of "Place a spool".
+  if(!present&&tag.state==nfc::ReadState::unsupported_technology&&tag.nfca){lv_label_set_text(workflow_home_state_label_,"TAG FOUND");lv_label_set_text(workflow_material_label_,"Tag type not supported yet");lv_label_set_text(workflow_identity_label_,(std::string(nfc::nfca::describe(tag.nfca->kind()))+" (NFC-A). Use an OpenPrintTag on NXP ICODE SLIX2.").c_str());}
   if(blank){lv_label_set_text(workflow_home_state_label_,"COMPATIBLE BLANK TAG");lv_label_set_text(workflow_material_label_,"Ready to write");lv_label_set_text(workflow_identity_label_,"Open Manage tag to choose a spool");}
   // A7: unreadable settings storage is not a tag problem. Say what to do.
   if(!present&&!diagnostics_.storage_ready()){lv_label_set_text(workflow_home_state_label_,"STORAGE ERROR");lv_label_set_text(workflow_material_label_,"Settings cannot be read");lv_label_set_text(workflow_identity_label_,"Reinstall the firmware with the USB installer.");}

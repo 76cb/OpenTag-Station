@@ -96,7 +96,12 @@ and its grace period have ended (`src/nfc/worker_startup.hpp`).
 ## Data flow
 
 **Read a tag.** `BackendWorker::poll_nfc()` → `NfcWorker::poll()` → `ReadOnlyService`: inventory,
-two full reads that must match, `Codec::decode`. The result is handed to `StationWorkflow`, which
+two full reads that must match, `Codec::decode`. Each poll cycle (`src/nfc/poll_schedule.hpp`,
+every 500 ms) runs the NFC-V inventory first, as it always has; only when that finds nothing and no
+NFC-V tag is being tracked does the same field window also run an ISO 14443A detection
+(`I2cReader::inventory_nfca()`: mode switch, REQA, anticollision). An NFC-A tag is reported as
+`ReadState::unsupported_technology` with its NFCID1, SAK and ATQA (`nfc::nfca::Identity`); nothing
+is read from it and it is not handed to the workflow (#93). The result is handed to `StationWorkflow`, which
 uses `SpoolIdentityResolver` and `SpoolmanAdapter` to find the spool. `StationWorkflow` stages:
 `awaiting_spool`, `resolving_spool`, `spool_resolution_unavailable`, `spool_not_found`,
 `spool_selection_required`, `spool_ready`, `assignment_complete`. `waiting_for_stable_weight` is

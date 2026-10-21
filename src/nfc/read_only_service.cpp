@@ -45,6 +45,8 @@ const char* to_string(ReadState s) {
       return "blank_compatible";
     case ReadState::unsupported:
       return "unsupported";
+    case ReadState::unsupported_technology:
+      return "unsupported_technology";
     case ReadState::multiple:
       return "multiple";
     case ReadState::error:
@@ -69,8 +71,15 @@ void ReadOnlyService::clear_active() {
   live_.checksum.reset();
   processed_.reset();
 }
+void ReadOnlyService::clear_nfca() {
+  nfca_candidate_.reset();
+  nfca_missed_ = 0U;
+  live_.nfca.reset();
+}
 void ReadOnlyService::fail(const core::Error& e) {
   clear_active();
+  clear_nfca();
+  live_.technology = Technology::none;
   candidate_.reset();
   consecutive_ = 0;
   missed_polls_ = 0U;
@@ -160,12 +169,51 @@ core::Result<void> ReadOnlyService::read_tag(const nfcv::Uid& uid) {
   }
   return core::Result<void>::success();
 }
+core::Result<void> ReadOnlyService::poll_nfca(std::uint32_t now) {
+  const auto found = reader_.inventory_nfca();
+  if (!found.ok()) return core::Result<void>::failure(found.error());
+  const auto& tags = found.value();
+  // The same weak-link rule as for NFC-V: one empty answer keeps a known tag.
+  if (tags.empty() && nfca_missed_ == 0U && nfca_candidate_.has_value()) {
+    ++nfca_missed_;
+    return core::Result<void>::success();
+  }
+  nfca_missed_ = 0U;
+  missed_polls_ = 0U;
+  live_.error.reset();
+  if (tags.size() != 1U) {
+    live_.tag_count = tags.size();
+    live_.present = !tags.empty();
+    clear_active();
+    clear_nfca();
+    candidate_.reset();
+    consecutive_ = 0;
+    live_.uid.reset();
+    live_.technology = tags.empty() ? Technology::none : Technology::nfca;
+    live_.state = tags.empty() ? ReadState::idle : ReadState::multiple;
+    return core::Result<void>::success();
+  }
+  const auto& identity = tags.front();
+  if (!nfca_candidate_ || *nfca_candidate_ != identity) {
+    clear_active();
+    candidate_.reset();
+    consecutive_ = 0;
+    live_.uid.reset();
+    nfca_candidate_ = identity;
+    ++live_.generation;  // a new tag for anyone watching the generation
+  }
+  live_.tag_count = 1U;
+  live_.present = true;
+  live_.last_seen_ms = now;
+  live_.technology = Technology::nfca;
+  live_.nfca = identity;
+  // Detection only: nothing is read from an NFC-A tag in this release.
+  live_.state = ReadState::unsupported_technology;
+  return core::Result<void>::success();
+}
 void ReadOnlyService::poll() {
   const auto now = reader_.now_ms();
-  const auto cadence = live_.state == ReadState::error ? 5000U : 500U;
-  if (polled_ && static_cast<std::uint32_t>(now - last_poll_) < cadence) return;
-  polled_ = true;
-  last_poll_ = now;
+  if (!schedule_.due(now, live_.state == ReadState::error)) return;
   if (!live_.initialized) {
     const auto init = reader_.initialize();
     if (!init.ok()) {
@@ -179,9 +227,13 @@ void ReadOnlyService::poll() {
   auto result = reader_.field_on();
   if (result.ok()) {
     const auto found = reader_.inventory();
+    const bool nfcv_tracked = processed_.has_value() || candidate_.has_value();
     if (!found.ok())
       result = core::Result<void>::failure(found.error());
-    else {
+    else if (found.value().empty() && PollSchedule::nfca_turn(false, nfcv_tracked)) {
+      // NFC-V first, unchanged; NFC-A only when there is no NFC-V tag to track.
+      result = poll_nfca(now);
+    } else {
       if (live_.state != ReadState::unsupported) live_.error.reset();
       // A tag at the edge of the field drops out of single inventories.
       // One empty answer keeps what is known about it; only a second one
@@ -197,8 +249,10 @@ void ReadOnlyService::poll() {
         missed_polls_ = 0U;
         live_.tag_count = found.value().size();
         live_.present = !found.value().empty();
+        live_.technology = found.value().empty() ? Technology::none : Technology::nfcv;
         live_.error.reset();
         clear_active();
+        clear_nfca();
         candidate_.reset();
         consecutive_ = 0;
         live_.uid.reset();
@@ -208,6 +262,8 @@ void ReadOnlyService::poll() {
         missed_polls_ = 0U;
         live_.tag_count = 1U;
         live_.present = true;
+        live_.technology = Technology::nfcv;
+        clear_nfca();
         const auto uid = found.value().front();
         live_.uid = uid;
         live_.last_seen_ms = now;

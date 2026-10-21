@@ -181,8 +181,8 @@ The manual's source is in [`documentation-site/`](documentation-site/README.md).
 
 | Tag family | Spools and tags | Plan |
 |---|---|---|
-| MIFARE Classic (ISO 14443A) | Bambu Lab, Creality CFS, Anycubic ACE, QIDI Box | Read first. Write where the format allows it. |
-| NTAG (ISO 14443A) | OpenSpool, plain NTAG213 / 215 / 216 stickers | Read and write |
+| MIFARE Classic (ISO 14443A) | Bambu Lab, Creality CFS, Anycubic ACE, QIDI Box | Detected and named since 1.0.1-beta.5. Read first. Write where the format allows it. |
+| NTAG (ISO 14443A) | OpenSpool, plain NTAG213 / 215 / 216 stickers | Detected and named since 1.0.1-beta.5. Read and write |
 | Other ISO 15693 chips | Tags that are not SLIX2 | Write support. They are read today. |
 | ISO 14443B, FeliCa | Nothing on spools that the project knows of | Added if a spool system adopts them |
 

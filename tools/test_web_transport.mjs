@@ -1642,6 +1642,34 @@ test('Tags renders bounded disabled, initializing, ready, detected, multiple, an
   assert.equal(document.getElementById('nfc-read-status').textContent.includes('255'), false,
     'raw memory must not be rendered into routine status UI');
 });
+test('an NFC-A tag is named as not supported yet in Manage tag and on the Dashboard (#93)', () => {
+  const { T, document } = loadApplication();
+  const nfca = { state: 'unsupported_technology', read_only: true, available: true, bringup_state: 'ready',
+    present: true, technology: 'nfca', uid: '04:A1:B2:C3:D4:E5:F6', decode: 'fail', lifecycle: 'UNSUPPORTED_TYPE',
+    nfca: { nfcid1: '04:A1:B2:C3:D4:E5:F6', length: 7, sak: 0, atqa: 68, kind: 'type2', description: 'NTAG or other Type 2 tag' },
+    inventory: { present: true, tag_count: 1, uid: '04:A1:B2:C3:D4:E5:F6', technology: 'NFC-A / ISO14443A' } };
+  T.renderNfc(nfca);
+  assert.equal(document.getElementById('nfc-summary').textContent, 'Tag type not supported yet');
+  assert.match(document.getElementById('nfc-guidance').textContent, /NTAG or other Type 2 tag \(NFC-A/);
+  assert.match(document.getElementById('nfc-guidance').textContent, /nothing was read/);
+  assert.equal(document.getElementById('nfc-badge').textContent, 'Not supported yet');
+  assert.equal(document.getElementById('nfc-technology').textContent, 'NFC-A / ISO14443A');
+  assert.equal(document.getElementById('nfc-uid').textContent, '04:A1:B2:C3:D4:E5:F6');
+  assert.equal(document.getElementById('nfc-decode-chip').textContent, 'Not supported yet');
+  // The Dashboard does not pretend to read it, and offers no tag action.
+  T.state.currentTag = nfca; T.state.tagWorkflow = { tag_lifecycle: 'UNSUPPORTED_TYPE', stage: 'awaiting_spool' };
+  T.renderCurrentSpool();
+  assert.equal(document.getElementById('current-name').textContent, 'Tag type not supported yet');
+  assert.equal(document.getElementById('current-number').textContent, 'NTAG or other Type 2 tag · not read');
+  assert.equal(document.getElementById('current-tag').textContent, 'Not supported yet');
+  assert.match(document.getElementById('current-link').textContent, /NFC-V \(ISO 15693\) only/);
+  assert.equal(document.getElementById('writer-open').hidden, true);
+  assert.equal(document.getElementById('clear-open').hidden, true);
+  // Two NFC-A tags read as multiple NFC-A tags, not NFC-V.
+  T.renderNfc({ available: true, bringup_state: 'ready', technology: 'nfca',
+    inventory: { tag_count: 2, present: true, technology: 'NFC-A / ISO14443A' } });
+  assert.equal(document.getElementById('nfc-summary').textContent, 'Multiple NFC-A tags detected');
+});
 test('product navigation exposes four product destinations and preserves legacy deep links', () => {
   const { T, document, context } = loadApplication();
   const pages = ['home', 'inventory', 'printer', 'settings'];

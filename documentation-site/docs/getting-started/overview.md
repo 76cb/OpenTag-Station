@@ -33,7 +33,7 @@ keep its own inventory.
 | The station hardware | A WT32-SC01 Plus touchscreen board, an NFC reader, a load cell with its amplifier, and a platform you build. See the [parts list](../hardware/bill-of-materials.md). |
 | Spoolman | Your own running Spoolman server that the station can reach on your network. The station is not useful without it. Weights are saved to Spoolman 0.26 and 0.27; see [Connect Spoolman](../inventory/spoolman.md). |
 | 2.4 GHz Wi-Fi | The station cannot join 5 GHz-only or WPA3-only networks. |
-| Blank tags | NXP ICODE SLIX2 (NFC-V / ISO 15693). Other tag types are not seen at all. See [Which tags work](../openprinttag/supported-tags.md). |
+| Blank tags | NXP ICODE SLIX2 (NFC-V / ISO 15693). NTAG and MIFARE tags are found but not read yet; other tag types are not seen at all. See [Which tags work](../openprinttag/supported-tags.md). |
 | A desktop computer with Chrome or Edge | Only for installing the firmware over USB. Afterwards any browser on your network works. |
 | A known weight | To calibrate the scale once. |
 | FilaBridge and a printer it supports | Optional. Only needed to assign spools to toolheads. Tested with a Prusa XL. |

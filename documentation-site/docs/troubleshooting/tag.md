@@ -16,7 +16,8 @@ In the browser, **Manage tag** shows the reader's status at the top.
 | NFC READER step: `NFC reader starting...` (browser: `NFC deferred: provisioning`) | The reader has not started yet. It starts only once the station is connected to your Wi-Fi. | See [The reader waits for Wi-Fi](#the-reader-waits-for-wi-fi). |
 | NFC READER step: `NFC reader problem. Check the NFC wiring.` (browser: `NFC reader error`) | The reader module does not answer, or reading the tag on it failed. The station tries again every 5 seconds. | Remove the tag. If the message stays, see [The reader does not answer](#the-reader-does-not-answer). |
 | `PLACE A TAG` although a tag is on the reader | The reader is not running, or it works but sees no tag: wrong tag type, tag too far away, or metal in between. | Check the NFC READER step first. If it says the reader is ready, see [The reader is ready but sees no tag](#the-reader-is-ready-but-sees-no-tag). |
-| `Two tags on the reader. Remove one.` on **Manage tag** (NFC READER step: `More than one tag. Use one tag at a time.`; browser: `Multiple NFC-V tags detected`) | Two or more tags are in range. | Remove the others, including tagged spools lying next to the station. |
+| `Tag type not supported yet` with a tag kind such as `NTAG or other Type 2 tag (NFC-A)` (NFC READER step: `Tag found. Its type is not supported yet.`; browser: `Not supported yet`) | The tag is an NFC-A (ISO 14443A) tag. The reader sees it, but this release reads nothing from it. | Use an OpenPrintTag on NXP ICODE SLIX2. See [Which tags work](../openprinttag/supported-tags.md). |
+| `Two tags on the reader. Remove one.` on **Manage tag** (NFC READER step: `More than one tag. Use one tag at a time.`; browser: `Multiple NFC-V tags detected` or `Multiple NFC-A tags detected`) | Two or more tags are in range. | Remove the others, including tagged spools lying next to the station. |
 | `This tag can't be used as it is` | The tag is an NFC-V tag, but it is not blank SLIX2 and holds no OpenPrintTag data the station can read. | Use a blank SLIX2 tag. See [Which tags work](../openprinttag/supported-tags.md). |
 | "Reading tag" with the spinner for a long time, or the tag appears and disappears | The tag is at the edge of the reader's range, or more than one tag is in range. | Remove other tags. Move the tag closer to the antenna and keep it still. |
 | The tag is read, but **Manage tag** says "Spoolman is not reachable. The tag's link cannot be checked right now." (browser: "Link not checked") | The tag is fine; the station cannot reach Spoolman to find out which spool it belongs to. | Fix Spoolman: [Spoolman problems](spoolman.md). Leave the spool where it is; the station looks it up again by itself, usually within about 30 seconds after Spoolman is back. |
@@ -52,9 +53,9 @@ step **NFC READER**. A working reader shows `NFC reader ready. Place a tag on it
 
 ## The reader is ready but sees no tag
 
-1. **Check the tag type.** Only NFC-V (ISO 15693) tags are seen, and only NXP ICODE SLIX2 can be written.
-   NTAG and MIFARE stickers, the common phone tags, are invisible to this reader:
-   the screen does not change at all.
+1. **Check the tag type.** Only NFC-V (ISO 15693) tags are read, and only NXP ICODE SLIX2 can be written.
+   NTAG and MIFARE stickers, the common phone tags, are found and named (`Tag type not supported yet`)
+   but not read. NFC-B and NFC-F tags are invisible to this reader: the screen does not change at all.
 2. **Move the tag.** Hold it flat against the antenna on the NFC module, then try the position
    it has on the spool.
 3. **Remove metal.** The load cell, screws or a metal plate near the antenna or the tag

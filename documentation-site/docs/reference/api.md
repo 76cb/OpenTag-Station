@@ -142,7 +142,7 @@ Rules and tolerances: [Scale behaviour](scale.md) and [Spoolman integration](spo
 
 | Method and path | Auth | Body | Notes |
 |---|---|---|---|
-| `GET /nfc` | – | – | Reader and tag state. |
+| `GET /nfc` | – | – | Reader and tag state. `state` is `deferred`, `initializing`, `idle`, `stabilizing`, `reading`, `openprinttag`, `blank_compatible`, `unsupported`, `unsupported_technology`, `multiple` or `error`. `technology` is `nfcv`, `nfca` or null. For an NFC-A tag (`unsupported_technology`, lifecycle `UNSUPPORTED_TYPE`) `uid` is its NFCID1 and `nfca` holds `nfcid1`, `length`, `sak`, `atqa`, `kind` (`type2`, `mifare_classic`, `type4`, `other`) and `description`; nothing is read from it. |
 | `GET /nfc/tag` | – | – | The same state under `tag`. |
 | `GET /spool` | – | – | `workflow`: `tag_lifecycle`, `stage`, `spool_generation`, `printer_revision`, `tag`, `spoolman`, `filabridge`, `candidates[]`, `spool`, `reconciliation`, optional `error` |
 | `POST /spool/confirm` | Token | ≤ 512 | Exactly `spool_generation` (> 0), `spool_id` (> 0) and `confirmed: true`. Confirms one of `candidates[]` as the spool for the tag on the station. Does not need a weight on the scale; fails with "Spool changed; refresh before confirming" if the tag changed. |

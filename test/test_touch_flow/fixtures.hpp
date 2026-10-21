@@ -17,6 +17,7 @@ inline void export_touch_fixtures() {
   TagFlow f;f.uid="E004000000000001";f.material="SUNLU PLA+ 2.0 Black";
   emit("no-tag",f);f.lifecycle=services::TagLifecycle::reading;emit("reading",f);
   f.multiple_tags=true;emit("two-tags",f);f.multiple_tags=false;
+  {const std::string kind="NTAG or other Type 2 tag (NFC-A)";f.observe_tag("04A1B2C3D4E5F6",&kind);f.observe_lifecycle(services::TagLifecycle::unsupported_type);emit("unsupported-type",f);f.observe_tag("E004000000000001",nullptr);}
   f.lifecycle=services::TagLifecycle::blank_compatible;emit("blank",f);
   f.lifecycle=services::TagLifecycle::linked;f.current_spool=28;emit("tag",f);
   f.lifecycle=services::TagLifecycle::unlinked;emit("unlinked",f);

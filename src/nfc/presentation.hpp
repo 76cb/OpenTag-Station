@@ -11,6 +11,8 @@ inline std::string describe(const ReadSnapshot& s,
                     : s.tag ? "OpenPrintTag recognized"
                     : s.state == ReadState::unsupported
                         ? "NFC-V tag: unsupported OpenPrintTag"
+                    : s.state == ReadState::unsupported_technology
+                        ? "Tag type not supported yet"
                     : s.state == ReadState::multiple
                         ? "Multiple tags: present only one"
                     : s.state == ReadState::error ? "NFC reader error"
@@ -19,6 +21,9 @@ inline std::string describe(const ReadSnapshot& s,
   if (s.uid)
     out += std::string("\nUID ") +
            nfcv::format_diagnostic_uid(s.uid->bytes).data();
+  if (s.nfca)
+    out += "\n" + std::string(nfca::describe(s.nfca->kind())) + " (NFC-A)\nID " +
+           s.nfca->diagnostic();
   if (s.checksum)
     out += std::string("\nChecksum ") +
            nfcv::format_diagnostic_checksum(*s.checksum).data();

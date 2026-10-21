@@ -37,17 +37,34 @@ inline void write_nfc(JsonObject out, const nfc::ReadSnapshot& status,
   out["bytes"] = status.geometry.capacity();
   if (status.uid)
     out["uid"] = nfc::nfcv::format_diagnostic_uid(status.uid->bytes).data();
+  else if (status.nfca)
+    out["uid"] = status.nfca->diagnostic();
   else
     out["uid"] = nullptr;
+  // "nfcv", "nfca" or null: the technology of the tag(s) on the reader.
+  if (status.technology == nfc::Technology::none) out["technology"] = nullptr;
+  else out["technology"] = nfc::to_string(status.technology);
+  if (status.nfca) {
+    auto nfca = out["nfca"].to<JsonObject>();
+    nfca["nfcid1"] = status.nfca->diagnostic();
+    nfca["length"] = status.nfca->length;
+    nfca["sak"] = status.nfca->sak;
+    nfca["atqa"] = (static_cast<unsigned>(status.nfca->atqa[1]) << 8U) | status.nfca->atqa[0];
+    nfca["kind"] = nfc::nfca::to_string(status.nfca->kind());
+    nfca["description"] = nfc::nfca::describe(status.nfca->kind());
+  } else {
+    out["nfca"] = nullptr;
+  }
   if (status.checksum)
     out["checksum"] =
         nfc::nfcv::format_diagnostic_checksum(*status.checksum).data();
   else
     out["checksum"] = nullptr;
   out["blank_compatible"]=status.blank_compatible;
-  out["lifecycle"]=services::to_string(services::tag_lifecycle({status.present,status.blank_compatible,bool(status.tag),false,status.state==nfc::ReadState::unsupported,{},false}));
+  const bool unsupported_type = status.state == nfc::ReadState::unsupported_technology;
+  out["lifecycle"]=services::to_string(services::tag_lifecycle({status.present,status.blank_compatible,bool(status.tag),false,status.state==nfc::ReadState::unsupported,{},false,unsupported_type}));
   out["decode"] = status.blank_compatible ? "blank" : status.tag                                    ? "pass"
-                  : status.state == nfc::ReadState::unsupported ? "fail"
+                  : status.state == nfc::ReadState::unsupported || unsupported_type ? "fail"
                                                                 : "pending";
   if (status.error)
     out["last_error"] = status.error->message;
@@ -57,7 +74,7 @@ inline void write_nfc(JsonObject out, const nfc::ReadSnapshot& status,
   inventory["tag_count"] = status.tag_count;
   inventory["present"] = status.present;
   inventory["uid"] = out["uid"];
-  inventory["technology"] = "NFC-V / ISO15693";
+  inventory["technology"] = nfc::technology_label(status.technology);
   auto geometry = out["geometry"].to<JsonObject>();
   geometry["block_size"] = status.geometry.block_size;
   geometry["block_count"] = status.geometry.block_count;

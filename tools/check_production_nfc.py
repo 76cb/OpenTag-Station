@@ -26,6 +26,11 @@ def check():
         "rfalNfcvPollerGetSystemInformation", "rfalNfcvPollerExtendedGetSystemInformation",
         "rfalNfcvPollerReadSingleBlock", "rfalNfcvPollerExtendedReadSingleBlock",
         "rfalNfcvPollerReadMultipleBlocks", "rfalNfcvPollerExtendedReadMultipleBlocks",
+        # 1.0.1-beta.5 (#93): ISO 14443A detection only. Mode switch, REQA and
+        # anticollision give the NFCID1, SAK and ATQA; no T2T, MIFARE or ISO-DEP
+        # command is permitted, so no NFC-A memory is read or written.
+        "rfalNfcaPollerInitialize", "rfalNfcaPollerTechnologyDetection",
+        "rfalNfcaPollerFullCollisionResolution",
     }
     excluded = set()
     for source in (ROOT / "src").rglob("*"):
@@ -39,6 +44,10 @@ def check():
         writer_binding = relative == "src/hardware/nfc/st25r3916b/openprinttag_write_binding.cpp"
         permitted = allowed | ({"rfalNfcvPollerWriteSingleBlock"} if writer_binding else set())
         assert calls <= permitted, f"unexpected RFAL calls in {relative}: {calls - permitted}"
+        # NFC-A stays in the one detection method of the I2C driver.
+        if any(call.startswith("rfalNfca") for call in calls):
+            assert relative == "src/hardware/nfc/st25r3916b/i2c_reader.cpp", relative
+            assert text.count("rfalNfcaPoller") == 3, "NFC-A detection must stay three RFAL calls"
         if "commit_openprinttag_block(" in text:
             assert relative in {"src/nfc/openprinttag_writer.hpp", "src/nfc/openprinttag_writer.cpp",
                                 "src/hardware/nfc/st25r3916b/i2c_reader.hpp",
@@ -114,7 +123,7 @@ def check_binary():
     candidates = list(core.glob("packages/toolchain-xtensa-esp32s3/bin/xtensa-esp32s3-elf-nm*"))
     assert elf.is_file() and candidates, "production ELF/toolchain required for binding check"
     symbols = subprocess.check_output([str(candidates[0]), "-C", "--defined-only", str(elf)], text=True)
-    forbidden = re.findall(r".*(?:VerifiedWriter::|rfalNfcvPoller\w*(?:Lock|Protect|Password|Privacy|SetAFI|SetDSFID|SetEAS|WriteMultiple|ExtendedWrite))[^\n]*", symbols)
+    forbidden = re.findall(r".*(?:VerifiedWriter::|rfalNfcvPoller\w*(?:Lock|Protect|Password|Privacy|SetAFI|SetDSFID|SetEAS|WriteMultiple|ExtendedWrite)|rfalT2TPoller(?:Read|Write)|rfalNfcaPollerSelect|rfalIsoDep\w*(?:Apdu|Transceive)|rfalNfcDepPoller)[^\n]*", symbols)
     assert not forbidden, "unapproved destructive runtime linked: " + "\n".join(forbidden)
     assert "OpenPrintTagWriter::execute" in symbols and "I2cReader::commit_openprinttag_block" in symbols
     # Xtensa longcalls load literal addresses then callx; inspect relocation

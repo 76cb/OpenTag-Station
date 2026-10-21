@@ -103,6 +103,46 @@ core::Result<std::vector<Uid>> I2cReader::inventory() {
   }
   return core::Result<std::vector<Uid>>::success(std::move(result));
 }
+core::Result<std::vector<opentag::nfc::nfca::Identity>> I2cReader::inventory_nfca() {
+  using Identity = opentag::nfc::nfca::Identity;
+  using Found = core::Result<std::vector<Identity>>;
+  // The sequence RFAL's own discovery worker runs for NFC-A (rfal_nfc.cpp,
+  // rfalNfcPollTechDetetection then rfalNfcPollCollResolution), with the
+  // field already on: switch the chip to ISO 14443A, REQA, then anticollision
+  // for the NFCID1, SAK and ATQA. No command that reads or writes tag memory.
+  auto rc = nfc_.rfalNfcaPollerInitialize();
+  if (rc != ERR_NONE) {
+    (void)nfc_.rfalNfcvPollerInitialize();
+    return Found::failure(error("NFC-A mode", rc));
+  }
+  std::vector<Identity> result;
+  rfalNfcaSensRes sens{};
+  rc = nfc_.rfalNfcaPollerTechnologyDetection(RFAL_COMPLIANCE_MODE_NFC, &sens);
+  if (rc == ERR_NONE) {
+    std::array<rfalNfcaListenDevice, RFAL_NFC_MAX_DEVICES> devices{};
+    std::uint8_t count = 0;
+    rc = nfc_.rfalNfcaPollerFullCollisionResolution(
+        RFAL_COMPLIANCE_MODE_NFC, static_cast<std::uint8_t>(devices.size()),
+        devices.data(), &count);
+    for (unsigned i = 0; rc == ERR_NONE && i < count; ++i) {
+      const auto& device = devices[i];
+      const std::array<std::uint8_t, 2> atqa{device.sensRes.anticollisionInfo,
+                                             device.sensRes.platformInfo};
+      const auto identity = Identity::from_wire(
+          core::ByteView(device.nfcId1, device.nfcId1Len), device.selRes.sak, atqa,
+          device.type == RFAL_NFCA_T1T);
+      if (identity.ok()) result.push_back(identity.value());
+    }
+  }
+  // Back to NFC-V for the next cycle, whatever NFC-A answered.
+  const auto restore = nfc_.rfalNfcvPollerInitialize();
+  if ((rc & 0xFF00U) == ERR_I2C_GRP) return Found::failure(error("NFC-A detection I2C", rc));
+  if (restore != ERR_NONE) return Found::failure(error("NFC-V mode", restore));
+  // No answer (ERR_TIMEOUT) and RF-side errors mean no usable NFC-A tag this
+  // cycle; they must not pause NFC-V polling in the error state.
+  if (rc != ERR_NONE) result.clear();
+  return Found::success(std::move(result));
+}
 core::Result<TagGeometry> I2cReader::geometry(const Uid& uid) {
   // Same standard/extended fallback and parser used in the accepted diagnostic.
   const auto wire = wire_uid(uid);
