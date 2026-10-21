@@ -168,9 +168,7 @@ CI runs `python tools/generate_product_ui.py --check` and `python tools/check_we
 
 Extra scripts of the firmware environment: `tools/build_metadata.py` (version and commit
 defines, `build-metadata.json`), `tools/precompress_web_assets.py`, `tools/web_flasher_target.py`
-(the `web-flasher` target). The firmware build excludes the legacy files
-`hardware/nfc/st25r3916b/frontend_backend.cpp`, `hardware/nfc/st25r3916b/service.cpp` and
-`diagnostics/shared_i2c_diagnostic.cpp`; they are compiled only for host tests.
+(the `web-flasher` target).
 
 Flash layout (`partitions.csv`): NVS, OTA data, two application slots of 0x500000 bytes each, a
 LittleFS partition of 0x5D0000 bytes and a core-dump partition.

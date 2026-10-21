@@ -3,9 +3,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
-#include <optional>
 #include <string>
-#include <vector>
 
 #include "core/byte_view.hpp"
 #include "core/result.hpp"
@@ -25,143 +23,13 @@ struct Uid {
 };
 
 struct TagGeometry {
+  static constexpr std::size_t maximum_image_size = 4096U;
+
   std::size_t block_size{0};
   std::size_t block_count{0};
 
   [[nodiscard]] std::size_t capacity() const { return block_size * block_count; }
   [[nodiscard]] core::Result<void> validate() const;
-};
-
-enum class InventoryResult : std::uint8_t {
-  idle,
-  no_tag,
-  one_tag,
-  multiple_tags,
-  transport_error,
-};
-
-enum class TagPresenceChange : std::uint8_t {
-  none,
-  appeared,
-  unchanged,
-  removed,
-  replaced,
-  multiple,
-  error,
-};
-
-struct InventorySnapshot {
-  bool inventory_valid{false};
-  std::size_t tag_count{0U};
-  bool present{false};
-  std::optional<Uid> uid;
-  std::uint32_t last_seen_ms{0U};
-  InventoryResult result{InventoryResult::idle};
-  TagPresenceChange change{TagPresenceChange::none};
-};
-
-// Converts bounded RFAL inventory rounds into a stable domain snapshot without
-// conflating a transport failure with a valid zero-tag result.
-class InventoryTracker {
- public:
-  [[nodiscard]] const InventorySnapshot& observe(
-      const core::Result<std::vector<Uid>>& inventory,
-      std::uint32_t now_ms);
-  [[nodiscard]] const InventorySnapshot& snapshot() const { return snapshot_; }
-
- private:
-  InventorySnapshot snapshot_;
-};
-
-struct BlockWrite {
-  std::uint16_t block_index{0};
-  std::vector<std::uint8_t> data;
-};
-
-class WritePlan {
- public:
-  static constexpr std::size_t maximum_image_size = 4096U;
-
-  [[nodiscard]] static core::Result<WritePlan> build(
-      core::ByteView original,
-      core::ByteView updated,
-      TagGeometry geometry,
-      const std::vector<bool>& locked_blocks = {});
-
-  [[nodiscard]] const TagGeometry& geometry() const { return geometry_; }
-  [[nodiscard]] const std::vector<BlockWrite>& blocks() const { return blocks_; }
-  [[nodiscard]] bool empty() const { return blocks_.empty(); }
-
- private:
-  TagGeometry geometry_;
-  std::vector<BlockWrite> blocks_;
-};
-
-class ITagTransport {
- public:
-  virtual ~ITagTransport() = default;
-
-  // Inventory returns every tag observed in one anticollision round. Callers
-  // must reject zero or multiple tags rather than choosing one implicitly.
-  [[nodiscard]] virtual core::Result<std::vector<Uid>> inventory(
-      std::uint32_t timeout_ms) = 0;
-  [[nodiscard]] virtual core::Result<TagGeometry> read_geometry(
-      const Uid& uid,
-      std::uint32_t timeout_ms) = 0;
-  [[nodiscard]] virtual core::Result<std::vector<std::uint8_t>> read_single_block(
-      const Uid& uid,
-      std::uint16_t block_index,
-      std::size_t expected_block_size,
-      std::uint32_t timeout_ms) = 0;
-  [[nodiscard]] virtual core::Result<std::vector<std::uint8_t>> read_multiple_blocks(
-      const Uid& uid,
-      std::uint16_t first_block,
-      std::uint16_t block_count,
-      std::size_t expected_block_size,
-      std::uint32_t timeout_ms) = 0;
-  [[nodiscard]] virtual core::Result<std::vector<bool>> read_block_locks(
-      const Uid& uid,
-      const TagGeometry& geometry,
-      std::uint32_t timeout_ms) = 0;
-  [[nodiscard]] virtual core::Result<void> write_single_block(
-      const Uid& uid,
-      std::uint16_t block_index,
-      core::ByteView data,
-      std::uint32_t timeout_ms) = 0;
-  [[nodiscard]] virtual core::Result<void> reset_rf_field(
-      std::uint32_t timeout_ms) = 0;
-};
-
-struct DetectedTag {
-  Uid uid;
-  TagGeometry geometry;
-  std::vector<bool> locked_blocks;
-};
-
-class Reader {
- public:
-  explicit Reader(ITagTransport& transport) : transport_(transport) {}
-
-  [[nodiscard]] core::Result<DetectedTag> detect_one(std::uint32_t timeout_ms);
-  [[nodiscard]] core::Result<std::vector<std::uint8_t>> read_image(
-      const DetectedTag& tag,
-      std::uint32_t timeout_ms);
-
- private:
-  ITagTransport& transport_;
-};
-
-class VerifiedWriter {
- public:
-  explicit VerifiedWriter(ITagTransport& transport) : transport_(transport) {}
-
-  [[nodiscard]] core::Result<void> execute(
-      const Uid& expected_uid,
-      const WritePlan& plan,
-      std::uint32_t operation_timeout_ms);
-
- private:
-  ITagTransport& transport_;
 };
 
 }  // namespace opentag::nfc::nfcv

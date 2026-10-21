@@ -126,8 +126,7 @@ core::Result<void> remove_configuration_documents() {
 
 }  // namespace
 
-bool StorageService::initialize(std::uint32_t now_ms) {
-  boot_started_ms_ = now_ms;
+bool StorageService::initialize(std::uint32_t) {
   boot_pending_.store(false, std::memory_order_release);
   const bool application_nvs_ready =
       preferences_.begin(application_preferences_namespace, false);

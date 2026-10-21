@@ -117,6 +117,10 @@ running station. These need a real station:
 - A firmware update followed by a restart, and the fallback to the previous firmware.
 - Free memory and stack use over hours of operation.
 
+The driver that talks to the reader chip, `hardware/nfc/st25r3916b/i2c_reader.cpp`, has no host
+test. The tag writer and the read service above it are tested against a fake reader, so a bug in
+the driver itself only shows on a real station.
+
 The script for these checks is [Hardware acceptance](#hardware-acceptance) below.
 
 ## Hardware acceptance
