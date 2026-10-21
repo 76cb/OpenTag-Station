@@ -5,9 +5,10 @@ name: Release
 #
 #   merge to main that changes VERSION
 #     -> full CI (ci.yml) on that commit
-#     -> GitHub release v<VERSION> (pre-release for -rc.N) with the files CI built; this also
-#        creates the tag
-#     -> USB installer page assembled from that release's own files and deployed to GitHub Pages
+#     -> GitHub release v<VERSION> (a pre-release when the version has a hyphen, such as
+#        1.1.0-beta.1) with the files CI built; this also creates the tag
+#     -> USB installer page assembled from that release's own files and deployed to GitHub Pages,
+#        for stable versions only. A pre-release never touches the public installer.
 #
 # Nobody needs to push a tag. A manual run (Actions -> Release -> Run workflow) on main does the
 # same for the current VERSION; when that release already exists it only redeploys the installer
@@ -33,6 +34,7 @@ jobs:
       version: ${{ steps.version.outputs.version }}
       tag: ${{ steps.version.outputs.tag }}
       exists: ${{ steps.version.outputs.exists }}
+      stable: ${{ steps.version.outputs.stable }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - run: python tools/release_version.py
@@ -42,6 +44,9 @@ jobs:
         run: |
           version="$(tr -d '[:space:]' < VERSION)"
           tag="v${version}"
+          # A hyphen marks a pre-release (1.1.0-beta.1): published, but never installable
+          # from the public USB installer.
+          case "$version" in *-*) stable=false ;; *) stable=true ;; esac
           if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             exists=true
           elif git ls-remote --exit-code --tags origin "refs/tags/${tag}" >/dev/null 2>&1; then
@@ -54,8 +59,9 @@ jobs:
             echo "version=${version}"
             echo "tag=${tag}"
             echo "exists=${exists}"
+            echo "stable=${stable}"
           } >> "$GITHUB_OUTPUT"
-          echo "Version ${version}, release already published: ${exists}"
+          echo "Version ${version}, stable: ${stable}, release already published: ${exists}"
 
   validate:
     needs: version
@@ -96,11 +102,23 @@ jobs:
             exit 1
           fi
           {
-            echo "**Update a running station** (keeps settings and calibration): in the station's web page open"
-            echo "Settings → Update and upload \`opentag-station-${VERSION_EXPECTED}-application.bin\` from this release."
-            echo ""
-            echo "**New station or recovery** (erases settings and calibration): use the"
-            echo "[USB installer](https://76cb.github.io/OpenTag-Station/), which installs this same build."
+            case "$VERSION_EXPECTED" in
+              *-*)
+                echo "> **PRE-RELEASE. Not for general use.** This build is for testing and may lose data or"
+                echo "> need a USB reflash to recover. It is not offered by the USB installer. If you want a"
+                echo "> working station, install the latest stable release instead."
+                echo ""
+                echo "To test it anyway, upload \`opentag-station-${VERSION_EXPECTED}-application.bin\` in the station's"
+                echo "web page under Settings → Update. Back up your settings first."
+                ;;
+              *)
+                echo "**Update a running station** (keeps settings and calibration): in the station's web page open"
+                echo "Settings → Update and upload \`opentag-station-${VERSION_EXPECTED}-application.bin\` from this release."
+                echo ""
+                echo "**New station or recovery** (erases settings and calibration): use the"
+                echo "[USB installer](https://76cb.github.io/OpenTag-Station/), which installs this same build."
+                ;;
+            esac
             echo ""
             cat section.md
           } > notes.md
@@ -116,9 +134,11 @@ jobs:
 
   installer:
     needs: [version, publish]
-    # Runs after a new release, or on its own when the release already existed.
+    # Runs after a new stable release, or on its own when that release already existed.
+    # Never for a pre-release: the public installer must keep installing the stable build.
     if: >-
       always() && needs.version.result == 'success' &&
+      needs.version.outputs.stable == 'true' &&
       (needs.publish.result == 'success' ||
        (needs.publish.result == 'skipped' && needs.version.outputs.exists == 'true'))
     runs-on: ubuntu-24.04

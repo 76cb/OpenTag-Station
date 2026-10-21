@@ -173,7 +173,7 @@ The manual's source is in [`documentation-site/`](documentation-site/README.md).
 
 ## Status
 
-1.0.0 is the first release. [`VERSION`](VERSION) holds the version on `main` and the [changelog](CHANGELOG.md) lists what changed. Every version merged to `main` is published from the same build to the [Releases](https://github.com/76cb/OpenTag-Station/releases) page and the [USB installer](https://76cb.github.io/OpenTag-Station/). Bugs and follow-ups are tracked in [the issues](https://github.com/76cb/OpenTag-Station/issues).
+1.0.0 is the first release. [`VERSION`](VERSION) holds the version on `main` and the [changelog](CHANGELOG.md) lists what changed. Every version merged to `main` is published to the [Releases](https://github.com/76cb/OpenTag-Station/releases) page. Only stable versions, with no hyphen in the number, reach the [USB installer](https://76cb.github.io/OpenTag-Station/). Versions such as `1.1.0-beta.1` are marked pre-release, are for testers, and are never offered by the installer. Bugs and follow-ups are tracked in [the issues](https://github.com/76cb/OpenTag-Station/issues).
 
 ## Roadmap
 

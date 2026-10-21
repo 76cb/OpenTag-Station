@@ -2,7 +2,7 @@
 
 What changed in each version of OpenTag Station, newest first.
 
-## 1.1.0-rc.1
+## 1.1.0-beta.1
 
 First step of 1.1: the station no longer assumes a printer.
 
