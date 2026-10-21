@@ -3,8 +3,8 @@
 OpenTag Station is a small touchscreen device you build yourself.
 You put a filament spool on it and it reads the spool's NFC tag, shows which Spoolman spool it is,
 weighs it, and saves the remaining filament to Spoolman.
-It also writes new tags from your Spoolman records and can tell a Prusa XL which spool is in which
-toolhead.
+It also writes new tags from your Spoolman records and, if you use FilaBridge, can tell your printer
+which spool is in which toolhead. That part is optional.
 
 ![The touchscreen Home page with a spool on the station](../assets/images/touchscreen/wt32-home.png)
 
@@ -19,8 +19,9 @@ toolhead.
   left. Nothing is saved to Spoolman until you press **UPDATE SPOOLMAN** (or turn on automatic
   saving).
 - **Clears tags for reuse.** Erase a tag, remove its link in Spoolman, and use it on another spool.
-- **Assigns a spool to a toolhead** (optional). With FilaBridge and a Prusa XL, tell the printer
-  which spool is loaded in T1–T5.
+- **Assigns a spool to a toolhead** (optional). With FilaBridge, tell the printer
+  which spool is loaded in which toolhead. Tested with a Prusa XL; the touchscreen shows up to five
+  toolheads.
 
 Spoolman stays the record of what you own. The station reads from it and updates it; it does not
 keep its own inventory.
@@ -35,7 +36,7 @@ keep its own inventory.
 | Blank tags | NXP ICODE SLIX2 (NFC-V / ISO 15693). Other tag types are not seen at all. See [Which tags work](../openprinttag/supported-tags.md). |
 | A desktop computer with Chrome or Edge | Only for installing the firmware over USB. Afterwards any browser on your network works. |
 | A known weight | To calibrate the scale once. |
-| FilaBridge and a Prusa XL | Optional. Only needed to assign spools to toolheads. |
+| FilaBridge and a printer it supports | Optional. Only needed to assign spools to toolheads. Tested with a Prusa XL. |
 
 ## From parts to your first spool
 

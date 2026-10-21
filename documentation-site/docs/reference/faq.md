@@ -71,8 +71,9 @@ See [What Spoolman 0.27 adds](../inventory/spoolman.md#what-spoolman-027-adds).
 Yes. FilaBridge is only needed to assign a spool to a printer toolhead.
 
 **Which printers work?**
-Toolhead assignment goes through FilaBridge, and the station shows toolheads T1 to T5.
-The manual covers the Prusa XL: [Set up FilaBridge for a Prusa XL](../printer/prusa-xl.md).
+Toolhead assignment goes through FilaBridge, so any printer FilaBridge supports can work. The
+station shows the toolheads FilaBridge reports: the touchscreen up to five, the web page all of them.
+Only the Prusa XL has been tested. The manual covers it: [Set up FilaBridge for a Prusa XL](../printer/prusa-xl.md).
 
 **Where is the Community filament catalog?**
 It is not part of this version.

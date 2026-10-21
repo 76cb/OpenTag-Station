@@ -3,8 +3,8 @@
 OpenTag Station is a touchscreen station for your filament spools.
 Put a spool on it: it reads the spool's NFC tag, shows which Spoolman spool it is, weighs it and
 saves the remaining filament to Spoolman.
-It also writes new tags from your Spoolman records and can tell a Prusa XL which spool is in which
-toolhead.
+It also writes new tags from your Spoolman records and, if you use FilaBridge, can tell your printer
+which spool is in which toolhead. That part is optional.
 
 ![The station's web page with a spool on the station](assets/images/browser/dashboard.png)
 
