@@ -30,7 +30,7 @@
 
 If you run a few dozen spools, you eventually lose track of two things: which spool is which, and how much is left on it. Spoolman answers both, as long as someone keeps it current, and that someone is usually you, with a kitchen scale and a browser tab.
 
-OpenTag Station moves that work to the shelf. Each spool carries an NFC tag in the [OpenPrintTag](https://github.com/OpenPrintTag/openprinttag-specification) format (the open spool-tag standard from Prusa; [which tags that means](#which-tags-it-works-with)). Set the spool on the station and it recognises the tag, finds the spool in your [Spoolman](https://github.com/Donkie/Spoolman) server, weighs it, subtracts the empty reel and shows what is left. One tap saves that number back to Spoolman. If you run a Prusa XL with [FilaBridge](https://github.com/sargonas/filabridge), a second tap tells the printer which toolhead the spool is going into.
+OpenTag Station moves that work to the shelf. Each spool carries an NFC tag in the [OpenPrintTag](https://github.com/OpenPrintTag/openprinttag-specification) format (the open spool-tag standard from Prusa; [which tags that means](#which-tags-it-works-with)). Set the spool on the station and it recognises the tag, finds the spool in your [Spoolman](https://github.com/Donkie/Spoolman) server, weighs it, subtracts the empty reel and shows what is left. One tap saves that number back to Spoolman. If you also use [FilaBridge](https://github.com/sargonas/filabridge) with a printer it supports (tested with a Prusa XL), a second tap tells the printer which toolhead the spool is going into. Without FilaBridge the station works the same and simply has no printer screens.
 
 ```mermaid
 flowchart LR
@@ -42,7 +42,7 @@ flowchart LR
     end
     spool([Spool with tag]) --- station
     station -- "weight, tag link" --> spoolman[(Spoolman)]
-    station -- "toolhead assignment" --> fb[FilaBridge] --> xl[Prusa XL]
+    station -. "optional: toolhead assignment" .-> fb[FilaBridge] --> printer[Your printer]
 ```
 
 Spoolman stays the record of what you own. The station keeps no inventory of its own.
@@ -53,13 +53,13 @@ Spoolman stays the record of what you own. The station keeps no inventory of its
 - **Writes tags.** Pick a spool, or a filament to create a spool from, and the station writes a blank tag, checks it and links it to the spool.
 - **Weighs and saves.** The result shows the weight, the empty spool and the filament left. Nothing changes in Spoolman until you press **UPDATE SPOOLMAN**. Automatic saving exists and is off by default.
 - **Clears tags for reuse.** Erase a tag and remove its link in one step. The spool stays in Spoolman.
-- **Assigns a toolhead.** Optional, and only with FilaBridge. Tell the printer which spool is in which toolhead, with a confirmation before it replaces a loaded spool or touches a printer that is printing. Without FilaBridge the station has no printer features and the Assign screens are hidden. The touchscreen covers the first five toolheads.
+- **Assigns a toolhead.** Optional, and only with FilaBridge. Tell the printer which spool is in which toolhead, with a confirmation before it replaces a loaded spool or touches a printer that is printing. Without FilaBridge the station has no printer features and the Assign screens are hidden. The touchscreen shows up to five toolheads; the web page lists every toolhead FilaBridge reports (not yet tried with more than five).
 
 Everything above works on the touchscreen. The station also serves a web page on your network for settings, inventory browsing and firmware updates.
 
 <p align="center">
   <img src="docs/images/weigh.png" width="48%" alt="Weigh result showing the weight on the scale, the empty spool and the remaining filament">
-  <img src="docs/images/assignment.png" width="48%" alt="Assigning the current spool to a Prusa XL toolhead">
+  <img src="docs/images/assignment.png" width="48%" alt="Assigning the current spool to a printer toolhead">
 </p>
 <p align="center">
   <img src="docs/images/tag-management.png" width="48%" alt="Manage tag dialog with write, update and clear actions">
