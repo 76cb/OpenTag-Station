@@ -33,6 +33,7 @@ inline void export_touch_fixtures() {
   f.from_spool=0;  // a blank tag: no move
   load(R"({"phase":"preview","uid":"E004000000000001","spool_id":31,"spool":{"filament":{"name":"PLA+ 2.0 Black","vendor":{"name":"SUNLU"},"color_hex":"D62828"}}})");emit("write-review",f);
   load(R"({"phase":"preview","uid":"E004000000000001","spool_id":31,"dropped_fields":[{"field":"material","value":"PLA+ Silk Rainbow Shimmer","reason":"too long"},{"field":"name","value":"PLA+ 2.0 Black Extra Long Name","reason":"too long"}],"spool":{"filament":{"name":"PLA+ 2.0 Black","vendor":{"name":"SUNLU"},"color_hex":"D62828"}}})");emit("write-review-dropped",f);
+  load(R"({"phase":"preview","uid":"E004000000000001","spool_id":31,"warnings":["Writing is not atomic. Keep this tag on the reader and power connected until complete.","missing recommended gtin","missing recommended manufactured_date","missing recommended min_print_temperature","missing recommended max_print_temperature"],"spool":{"filament":{"name":"PLA+ 2.0 Black","vendor":{"name":"SUNLU"},"color_hex":"D62828"}}})");emit("write-review-notices",f);
   load(R"({"phase":"writing","message":"Keep the tag on the reader.","completed_blocks":17,"total_blocks":23})");emit("writing",f);
   load(R"({"phase":"verifying","message":"Reading every written block back.","completed_blocks":23,"total_blocks":23})");emit("verifying",f);
   load(R"({"phase":"associating","message":"Verifying the Spoolman association."})");emit("linking",f);

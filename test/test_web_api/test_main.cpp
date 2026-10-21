@@ -249,8 +249,8 @@ void setUp() {}
 void tearDown() {}
 
 void test_route_table_contains_the_complete_versioned_surface() {
-  TEST_ASSERT_EQUAL_UINT(35U, opentag::web::api::routes.size());
-  const std::array<std::pair<Method, const char*>, 35U> expected = {{
+  TEST_ASSERT_EQUAL_UINT(34U, opentag::web::api::routes.size());
+  const std::array<std::pair<Method, const char*>, 34U> expected = {{
       {Method::get, "/api/v1/tag-writer"},
       {Method::post, "/api/v1/tag-writer"},
       {Method::get, "/api/v1/status"},
@@ -267,7 +267,6 @@ void test_route_table_contains_the_complete_versioned_surface() {
       {Method::post, "/api/v1/scale/calibrate"},
       {Method::get, "/api/v1/nfc"},
       {Method::get, "/api/v1/nfc/tag"},
-      {Method::post, "/api/v1/nfc/read"},
       {Method::get, "/api/v1/spool"},
       {Method::post, "/api/v1/spool/confirm"},
       {Method::get, "/api/v1/printers"},
@@ -546,10 +545,9 @@ void test_mutation_headers_are_required_and_idempotency_is_bounded() {
 void test_empty_mutations_are_strict_and_forward_typed_commands() {
   FakeContext context;
   Router router(context);
-  const std::array<std::pair<const char*, MutationKind>, 4U> operations = {{
+  const std::array<std::pair<const char*, MutationKind>, 3U> operations = {{
       {"/api/v1/scale/weigh", MutationKind::scale_weigh},
       {"/api/v1/scale/tare", MutationKind::scale_tare},
-      {"/api/v1/nfc/read", MutationKind::nfc_read},
       {"/api/v1/backends/test", MutationKind::backend_test},
   }};
 
@@ -569,19 +567,28 @@ void test_empty_mutations_are_strict_and_forward_typed_commands() {
 
   assert_versioned_error(
       router.handle(mutation_request(
-          Method::post, "/api/v1/nfc/read", R"({"force":true})")),
+          Method::post, "/api/v1/backends/test", R"({"force":true})")),
       400,
       "invalid_request");
   assert_versioned_error(
       router.handle(mutation_request(
-          Method::post, "/api/v1/nfc/read", "[]")),
+          Method::post, "/api/v1/backends/test", "[]")),
       400,
       "invalid_request");
   assert_versioned_error(
       router.handle(mutation_request(
-          Method::post, "/api/v1/nfc/read", "{")),
+          Method::post, "/api/v1/backends/test", "{")),
       400,
       "invalid_request");
+}
+
+void test_removed_nfc_read_route_is_unknown() {
+  FakeContext context;
+  Router router(context);
+  // WB-D7 (#85): the always-failing POST /nfc/read route was removed in 1.0.1-beta.4.
+  const auto response = router.handle(mutation_request(Method::post, "/api/v1/nfc/read", "{}"));
+  TEST_ASSERT_EQUAL_INT(404, response.status);
+  TEST_ASSERT_EQUAL(0, context.submit_calls);
 }
 
 void test_setup_mode_route_starts_with_empty_body_and_stops_with_stop_true() {
@@ -1023,7 +1030,7 @@ void test_payload_digest_is_stable_and_covers_route_kind_and_exact_body() {
   TEST_ASSERT_NOT_EQUAL_UINT64(exact_digest, context.last_mutation->payload_digest);
 
   TEST_ASSERT_EQUAL_INT(202, router.handle(mutation_request(
-      Method::post, "/api/v1/nfc/read", "{}", "fourth-key")).status);
+      Method::post, "/api/v1/backends/test", "{}", "fourth-key")).status);
   TEST_ASSERT_NOT_EQUAL_UINT64(exact_digest, context.last_mutation->payload_digest);
 }
 
@@ -1032,7 +1039,7 @@ void test_zero_receipts_are_not_reported_as_accepted() {
   Router router(context);
   context.next_operation_id = 0U;
   const auto response = router.handle(mutation_request(
-      Method::post, "/api/v1/nfc/read", "{}"));
+      Method::post, "/api/v1/backends/test", "{}"));
   assert_versioned_error(response, 503, "operation_not_queued");
   JsonDocument document;
   TEST_ASSERT_FALSE(deserializeJson(document, response.body.data(), response.body.size()));
@@ -1727,6 +1734,7 @@ int main(int, char**) {
       test_tokenless_local_mutations_are_allowed_without_authorization_header);
   RUN_TEST(test_mutation_headers_are_required_and_idempotency_is_bounded);
   RUN_TEST(test_empty_mutations_are_strict_and_forward_typed_commands);
+  RUN_TEST(test_removed_nfc_read_route_is_unknown);
   RUN_TEST(test_setup_mode_route_starts_with_empty_body_and_stops_with_stop_true);
   RUN_TEST(test_writer_catalog_is_idempotency_exempt_but_writes_are_retained);
   RUN_TEST(test_explicit_weigh_is_refused_while_weight_update_runs);

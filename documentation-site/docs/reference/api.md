@@ -144,7 +144,6 @@ Rules and tolerances: [Scale behaviour](scale.md) and [Spoolman integration](spo
 |---|---|---|---|
 | `GET /nfc` | – | – | Reader and tag state. |
 | `GET /nfc/tag` | – | – | The same state under `tag`. |
-| `POST /nfc/read` | Token | `{}` (≤ 256) | Inert. Always fails with `503 nfc_unavailable`: the reader reads a tag when it is placed. Use `GET /nfc`. |
 | `GET /spool` | – | – | `workflow`: `tag_lifecycle`, `stage`, `spool_generation`, `printer_revision`, `tag`, `spoolman`, `filabridge`, `candidates[]`, `spool`, `reconciliation`, optional `error` |
 | `POST /spool/confirm` | Token | ≤ 512 | Exactly `spool_generation` (> 0), `spool_id` (> 0) and `confirmed: true`. Confirms one of `candidates[]` as the spool for the tag on the station. Does not need a weight on the scale; fails with "Spool changed; refresh before confirming" if the tag changed. |
 | `GET /tag-writer` | – | – | Current writer view: `phase`, `message`, `operation_id`, `completed_blocks`, `total_blocks` and the data of the last action. |

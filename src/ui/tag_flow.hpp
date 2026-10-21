@@ -162,6 +162,10 @@ class TagFlow {
   std::string working;
   // Why the reader rejected the tag now on it; shown for an unsupported tag.
   std::string tag_error;
+  // Result of the last spool confirmation made from the Which-spool page
+  // ("Linked to spool #28."), shown under the tag until Spoolman reports the
+  // tag as linked or the tag changes.
+  std::string notice;
   // The tag most recently on the reader; survives the reader being empty.
   std::string last_uid;
   // The unfinished write, clear or Spoolman link the writer last reported.
@@ -278,6 +282,8 @@ class TagFlow {
       from_spool = 0;
       resume_recovery();
     }
+    if (!incoming_uid.empty() && incoming_uid != last_uid)
+      notice.clear();
     uid = incoming_uid;
     if (!incoming_uid.empty())
       last_uid = incoming_uid;
@@ -286,6 +292,19 @@ class TagFlow {
       tag_error = *error_message;
     else
       tag_error.clear();
+  }
+  // The reader's lifecycle for the tag on it. A tag Spoolman now links no
+  // longer needs the confirmation notice: the page says "Linked to spool".
+  void observe_lifecycle(services::TagLifecycle current) {
+    lifecycle = current;
+    if (current != services::TagLifecycle::unlinked)
+      notice.clear();
+  }
+  // The Which-spool choice was handed to the station (or refused because it
+  // is busy). Shown on the tag page; the lookup result replaces it.
+  void confirmation_submitted(int spool, bool accepted) {
+    notice = accepted ? "Linked to spool #" + std::to_string(spool) + ". Checking it in Spoolman..."
+                      : "The station is busy. Choose the spool again in a moment.";
   }
   // The queued request failed without publishing a writer snapshot.
   void operation_failed(std::string reason) {
@@ -690,6 +709,65 @@ inline std::string dropped_fields_text(JsonVariantConst dropped) {
     text += " and " + std::to_string(total - shown) + " more";
   return text;
 }
+// The writer's other preview warnings, as the browser's "Metadata notices":
+// everything except what the review already says (a move, the non-atomic
+// write, a full rewrite) and the dropped-field sentences shown separately.
+// Missing optional fields are summarised; anything else is quoted.
+inline std::string preview_notices_text(JsonVariantConst view) {
+  JsonVariantConst warnings = view["warnings"];
+  if (!warnings.is<JsonArrayConst>())
+    return {};
+  const auto dropped_value = [&](std::string_view text) {
+    JsonVariantConst dropped = view["dropped_fields"];
+    if (!dropped.is<JsonArrayConst>())
+      return false;
+    for (JsonVariantConst item : dropped.as<JsonArrayConst>()) {
+      const char* value = item["value"].as<const char*>();
+      if (value && *value && text.find(value) != std::string_view::npos)
+        return true;
+    }
+    return false;
+  };
+  std::string optional, other;
+  std::size_t optional_count = 0, other_count = 0;
+  for (JsonVariantConst warning : warnings.as<JsonArrayConst>()) {
+    const char* raw = warning.as<const char*>();
+    if (!raw || !*raw)
+      continue;
+    const std::string_view text(raw);
+    if (text.find("association will move") != std::string_view::npos ||
+        text.find("not atomic") != std::string_view::npos ||
+        text.find("Full rewrite") != std::string_view::npos || dropped_value(text))
+      continue;
+    static constexpr std::string_view prefix = "missing recommended ";
+    if (text.substr(0, prefix.size()) == prefix) {
+      if (optional_count < 3) {
+        std::string name(text.substr(prefix.size()));
+        std::replace(name.begin(), name.end(), '_', ' ');
+        optional += (optional_count ? ", " : "") + name;
+      }
+      ++optional_count;
+    } else {
+      if (other_count == 0)
+        other = std::string(text);
+      ++other_count;
+    }
+  }
+  std::string result;
+  if (optional_count) {
+    result = "Optional data not set: " + optional;
+    if (optional_count > 3)
+      result += " and " + std::to_string(optional_count - 3) + " more";
+  }
+  if (other_count) {
+    if (!result.empty())
+      result += "\n";
+    result += other;
+    if (other_count > 1)
+      result += " (and " + std::to_string(other_count - 1) + " more)";
+  }
+  return result;
+}
 inline std::string diameter_text(JsonVariantConst value) {
   char buffer[16];
   std::snprintf(buffer, sizeof(buffer), "%.2f mm", value | 1.75);
@@ -770,6 +848,9 @@ inline TagScreen TagFlow::screen() const {
         s.body = "Hold the spool still.";
         s.indicator = TagIndicator::spinner;
       }
+      if (!notice.empty() && lifecycle == services::TagLifecycle::unlinked &&
+          !recovery_phase(phase) && !multiple_tags)
+        s.body += "\n" + notice;
       s.button({8, 266, 464, 46}, "DONE", TagAction::home);
       break;
     case TagPage::sources:
@@ -871,9 +952,14 @@ inline TagScreen TagFlow::screen() const {
           s.body += "\nThis tag holds another spool's data. Writing replaces it.";
         else
           s.body += "\nReplaces the filament data on the tag.";
+        if (view["recovering_interrupted_write"] | false)
+          s.body += "\nAn earlier write to this tag was interrupted. Writing again completes it.";
         const auto dropped = dropped_fields_text(view["dropped_fields"]);
         if (!dropped.empty())
           s.body += "\n" + dropped;
+        const auto notices = preview_notices_text(view);
+        if (!notices.empty())
+          s.body += "\n" + notices;
       }
       if (!clearing) {
         s.art = true;

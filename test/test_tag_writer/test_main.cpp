@@ -560,16 +560,6 @@ struct ServiceFixture {
         TEST_ASSERT_GREATER_THAN(0, http.patches);
         TEST_ASSERT_TRUE(http.urls.back().find("extra.nfc_uid") != std::string::npos);
         return cache.configuration.sync_verified_spool_identity_mapping(mapping);
-      }, [](const std::string& query,unsigned offset) {
-        TEST_ASSERT_EQUAL_STRING("Acme",query.c_str());TEST_ASSERT_EQUAL(0,offset);
-        network::BackendDocument page;
-        deserializeJson(page,R"({"items":[{"id":"acme_blue","manufacturer":"Acme","name":"Blue","material":"PLA","density":1.24,"diameter":1.75}],"has_more":false})");
-        return core::Result<network::BackendDocument>::success(std::move(page));
-      }, [](const std::string& id) {
-        TEST_ASSERT_EQUAL_STRING("acme_blue",id.c_str());
-        network::BackendDocument detail;
-        deserializeJson(detail,R"({"id":"acme_blue","manufacturer":"Acme","name":"Blue","material":"PLA","density":1.24,"diameter":1.75})");
-        return core::Result<network::BackendDocument>::success(std::move(detail));
       }};
   R run(const char *command) {
     network::BackendDocument d;
@@ -971,13 +961,11 @@ void settings_change_invalidates_confirmation() {
   TEST_ASSERT_FALSE(f.confirm().ok());
   TEST_ASSERT_EQUAL(0, f.reader.writes);
 }
-void malformed_canonical_and_import_ids_fail_closed() {
+void malformed_canonical_ids_fail_closed() {
   ServiceFixture f;
   f.http.spool["filament"].remove("id");
   TEST_ASSERT_FALSE(f.run(R"({"action":"preview","spool_id":12})").ok());
   TEST_ASSERT_EQUAL(0, f.reader.writes);
-  f.http.custom = [](const network::HttpRequest &) { return "[{\"id\":0}]"; };
-  TEST_ASSERT_FALSE(f.run(import_command).ok());
   TEST_ASSERT_EQUAL(0, f.http.patches);
 }
 void spool_material_filter_uses_documented_parameter() {
@@ -3360,7 +3348,7 @@ int main() {
   RUN_TEST(journal_does_not_recover_replacement_uid);
   RUN_TEST(repeated_writer_lifecycles_release_storage);
   RUN_TEST(settings_change_invalidates_confirmation);
-  RUN_TEST(malformed_canonical_and_import_ids_fail_closed);
+  RUN_TEST(malformed_canonical_ids_fail_closed);
   RUN_TEST(spool_material_filter_uses_documented_parameter);
   RUN_TEST(journal_failure_prevents_write);
   RUN_TEST(partial_recovery_requires_known_blocks);

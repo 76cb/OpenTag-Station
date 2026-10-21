@@ -139,7 +139,6 @@ const char* mutation_name(MutationKind kind) {
     case MutationKind::scale_weigh: return "scale_weigh";
     case MutationKind::scale_tare: return "scale_tare";
     case MutationKind::scale_calibration: return "scale_calibration";
-    case MutationKind::nfc_read: return "nfc_read";
     case MutationKind::toolhead_assignment: return "toolhead_assignment";
     case MutationKind::toolhead_unassignment: return "toolhead_unassignment";
     case MutationKind::configuration_patch: return "configuration";
@@ -961,7 +960,6 @@ core::Result<Mutation> parse_mutation(
   }
   if (request.path == "/api/v1/scale/weigh" ||
       request.path == "/api/v1/scale/tare" ||
-      request.path == "/api/v1/nfc/read" ||
       request.path == "/api/v1/backends/test" ||
       request.path == "/api/v1/network/scan" ||
       request.path == "/api/v1/network/setup-mode") {
@@ -973,8 +971,6 @@ core::Result<Mutation> parse_mutation(
       mutation.kind = MutationKind::scale_weigh;
     } else if (request.path == "/api/v1/scale/tare") {
       mutation.kind = MutationKind::scale_tare;
-    } else if (request.path == "/api/v1/nfc/read") {
-      mutation.kind = MutationKind::nfc_read;
     } else if (request.path == "/api/v1/backends/test") {
       mutation.kind = MutationKind::backend_test;
     } else if (request.path == "/api/v1/network/scan") {
