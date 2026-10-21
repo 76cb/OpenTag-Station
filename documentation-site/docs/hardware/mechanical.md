@@ -56,7 +56,9 @@ Hardware for the case, in addition to the [parts list](bill-of-materials.md):
 7. **Feet.** Stick the four rubber feet under the body.
 
 To remove the screen, use a small suction cup of the phone-repair kind. If the screen is loose on
-your print, two thin strips of double-sided foam tape on the ledge fix it.
+your print, two thin strips of double-sided foam tape on the ledge fix it. If the picture comes up
+upside down for the way the board sits, turn it in the browser: **Settings → Display → Screen
+orientation**, see [Display](../configuration/display.md#turn-the-screen-upside-down).
 
 Put the spool on with its tagged flange facing the back tower, and slide it in from the front
 until it touches.
