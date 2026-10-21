@@ -21,6 +21,9 @@
 </p>
 
 <p align="center">
+  <img src="documentation-site/docs/assets/images/case/printed-case.webp" width="960" alt="OpenTag Station in its printed case: the touchscreen at the front, the orange spool platform and the NFC reader tower behind it">
+</p>
+<p align="center">
   <img src="docs/images/dashboard.png" width="960" alt="The station's web page showing the current spool, its remaining weight and its printer toolhead">
 </p>
 

@@ -7,6 +7,8 @@ this page lists what matters then for weighing accurately and reading tags relia
 
 ## The printed case
 
+![OpenTag Station in its printed case: the touchscreen at the front, the spool platform and the NFC reader tower behind it](../assets/images/case/printed-case.webp)
+
 Three parts, about 299 g of filament, no supports. The reader tower at the back holds the NFC
 module and is also the backstop for the spool. The body is closed, with the screen flush in the
 top; everything goes in from above, and there is nothing to open underneath. The pockets fit a
