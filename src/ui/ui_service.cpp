@@ -116,6 +116,12 @@ void forward_navigation(lv_event_t* event) {
   lv_event_send(static_cast<lv_obj_t*>(lv_event_get_user_data(event)),LV_EVENT_CLICKED,nullptr);
 }
 
+// Assigning spools to toolheads needs FilaBridge. Without its URL the station
+// has no printers, so the Assign page and buttons are not offered at all.
+bool printer_integration_enabled(const config::ConfigurationService& configuration) {
+  return !configuration.backend_settings_snapshot().filabridge.url.empty();
+}
+
 void format_milli(char* output, std::size_t size, std::int32_t value) {
   const auto wide = static_cast<std::int64_t>(value);
   const auto absolute = wide < 0 ? -wide : wide;
@@ -530,9 +536,14 @@ void UiService::update_display_self_test_touch(
 void UiService::build_product_rail() {
   auto* screen=lv_scr_act();
   static const std::array<const char*,5> labels{"Home","Weigh","Assign","Tag","Settings"};
+  const bool printers=printer_integration_enabled(configuration_);
+  const std::int16_t slot_width=printers?96:120;
+  std::int16_t slot=0;
   for(std::size_t i=0;i<labels.size();++i){
+    // The Assign slot stays empty so the page indices do not move.
+    if(i==static_cast<std::size_t>(ProductPage::printer)&&!printers)continue;
     const bool selected=i==static_cast<std::size_t>(active_page_);
-    product_nav_buttons_[i]=product_button(screen,{static_cast<std::int16_t>(i*96),layout::nav.y,96,48},labels[i],navigation_callback,this);
+    product_nav_buttons_[i]=product_button(screen,{static_cast<std::int16_t>(slot++*slot_width),layout::nav.y,slot_width,48},labels[i],navigation_callback,this);
     lv_obj_set_style_radius(product_nav_buttons_[i],0,0);
     lv_obj_set_style_bg_color(product_nav_buttons_[i],lv_color_hex(selected?0x303A3F:recessed_fill),0);
     lv_obj_set_style_text_color(product_nav_buttons_[i],lv_color_hex(selected?accent_text:muted_text),0);
@@ -555,9 +566,14 @@ void UiService::build_home_page() {
   workflow_scale_gauge_=lv_obj_create(workflow_scale_indicator_);lv_obj_set_size(workflow_scale_gauge_,18,18);lv_obj_center(workflow_scale_gauge_);
   lv_obj_set_style_radius(workflow_scale_gauge_,LV_RADIUS_CIRCLE,0);lv_obj_set_style_bg_color(workflow_scale_gauge_,lv_color_hex(screen_background),0);
   workflow_weigh_button_=product_button(screen,layout::home_weigh,"WEIGH",weigh_callback,this,true);
-  product_button(screen,layout::home_assign,"ASSIGN",forward_navigation,product_nav_buttons_[2]);
-  product_button(screen,layout::home_tag,"MANAGE TAG",forward_navigation,product_nav_buttons_[3]);
-  product_button(screen,layout::home_more,"SETTINGS",forward_navigation,product_nav_buttons_[4]);
+  if(printer_integration_enabled(configuration_)){
+    product_button(screen,layout::home_assign,"ASSIGN",forward_navigation,product_nav_buttons_[2]);
+    product_button(screen,layout::home_tag,"MANAGE TAG",forward_navigation,product_nav_buttons_[3]);
+    product_button(screen,layout::home_more,"SETTINGS",forward_navigation,product_nav_buttons_[4]);
+  }else{
+    product_button(screen,layout::home_assign,"MANAGE TAG",forward_navigation,product_nav_buttons_[3]);
+    product_button(screen,{16,218,448,46},"SETTINGS",forward_navigation,product_nav_buttons_[4]);
+  }
 }
 
 void UiService::build_scale_page() {
@@ -927,6 +943,7 @@ void UiService::build_workflow_screen() {
   auto* screen = lv_scr_act();
   style_screen(screen);
   lv_obj_set_style_bg_color(screen, lv_color_hex(screen_background), 0);
+  if(active_page_==ProductPage::printer&&!printer_integration_enabled(configuration_))active_page_=ProductPage::home;
   if(active_page_!=ProductPage::tags)build_product_rail();
   switch (active_page_) {
     case ProductPage::home: build_home_page(); break;
@@ -1765,9 +1782,10 @@ void UiService::refresh_setup() {
   }
   const auto configured = configuration_.snapshot();
   const auto network = diagnostics_.snapshot(millis());
-  const auto step_number = static_cast<unsigned>(step) + 1U;
   lv_label_set_text_fmt(
-      setup_progress_label_, "Step %u of 8", step_number);
+      setup_progress_label_, "Step %u of %u",
+      static_cast<unsigned>(first_run_setup_.step_position(step)),
+      static_cast<unsigned>(first_run_setup_.step_total()));
 
   const char* body = "Review this step, save when applicable, or continue incomplete.";
   switch (step) {
@@ -1781,7 +1799,7 @@ void UiService::refresh_setup() {
       body = "SPOOLMAN\nEnter and save the service base URL.";
       break;
     case services::SetupStep::filabridge:
-      body = "FILABRIDGE\nEnter and save the service base URL.";
+      body = "FILABRIDGE (OPTIONAL)\nOnly needed to assign spools to printer toolheads.\nLeave empty and tap Next to skip it.";
       break;
     case services::SetupStep::printer_selection:
       body = "PRINTER\nChoose the printer FilaBridge found.";

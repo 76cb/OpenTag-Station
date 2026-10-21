@@ -2,6 +2,23 @@
 
 What changed in each version of OpenTag Station, newest first.
 
+## 1.1.0-rc.1
+
+First step of 1.1: the station no longer assumes a printer.
+
+**Printers are optional**
+- Without a FilaBridge address the station does tags, weighing and Spoolman only. The touchscreen
+  hides the **Assign** tab and button, and the Home screen keeps just **Weigh**, **Manage tag**
+  and **Settings**.
+- First-run setup skips the **Printer** step when no FilaBridge address is set, and counts its
+  steps to match ("Step 5 of 7" instead of "Step 5 of 8"). The FilaBridge step is marked optional.
+- Nothing changes for a station that already uses FilaBridge.
+
+**Known limits**
+- The touchscreen has room for five toolheads. A printer that reports more (for example a Core
+  One with INDX, up to eight) can be assigned from the browser only.
+- The browser interface still shows its printer sections when FilaBridge is not configured.
+
 ## 1.0.0
 
 The first release. Everything below is in it.

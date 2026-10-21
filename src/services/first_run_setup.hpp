@@ -32,6 +32,13 @@ class FirstRunSetup {
   [[nodiscard]] core::Result<void> go_to(SetupStep step);
   [[nodiscard]] core::Result<void> next();
   [[nodiscard]] core::Result<void> previous();
+  // Printer selection only exists when FilaBridge is configured. Without a
+  // FilaBridge URL the station has no printers to choose from, so next() and
+  // previous() pass over that step.
+  [[nodiscard]] bool step_applies(SetupStep step) const;
+  // Position of a step among the steps that apply, counted from 1.
+  [[nodiscard]] std::uint8_t step_position(SetupStep step) const;
+  [[nodiscard]] std::uint8_t step_total() const;
 
  private:
   static constexpr std::uint32_t step_bit(SetupStep step) {
